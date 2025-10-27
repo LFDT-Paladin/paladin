@@ -192,6 +192,7 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 				return
 			case err, ok := <-errChan:
 				if !ok {
+					// No err was received from the transport, so all good
 					return
 				}
 				log.L(ctx).Errorf("Failed to send resolve verifier request to %s: %s", remoteNodeId, err)
