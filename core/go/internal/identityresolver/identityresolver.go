@@ -186,6 +186,7 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 
 		go func() {
 			// Handle transport-layer errors (e.g. the transport plugin couldn't reach the remote node)
+			// If sending fails, fail the request in the same manor we would if the remote node had returned an error response
 			select {
 			case <-ctx.Done():
 				return
