@@ -1,31 +1,33 @@
-[//]: # (SPDX-License-Identifier: CC-BY-4.0)
+[//]: # "SPDX-License-Identifier: CC-BY-4.0"
+
 # Maintainers
 
 ## Maintainer Scopes, GitHub Roles and GitHub Teams
 
 Maintainers are assigned one or both of following scopes in this repository:
 
-| Scope | Definition | GitHub Role | GitHub Team |
-| ----- | ---------- | ----------- | ----------- |
-| Paladin Maintainer | The GitHub Maintain role for Paladin | Maintain   | `paladin-committers`     |
-| Zeto Maintainer | The GitHub Maintain role for Zeto | Maintain   | `zeto-committers`     |
+| Scope              | Definition                           | GitHub Role | GitHub Team          |
+| ------------------ | ------------------------------------ | ----------- | -------------------- |
+| Paladin Maintainer | The GitHub Maintain role for Paladin | Maintain    | `paladin-committers` |
+| Zeto Maintainer    | The GitHub Maintain role for Zeto    | Maintain    | `zeto-committers`    |
 
 ## Active Maintainers
 
 <!-- Please keep this sorted alphabetically by github -->
 
-| Name | GitHub ID | Scope | LFID | Discord ID | Email | Company Affiliation | Github Team |
-|----- | --------- | ----- | ---- | ---------- | ----- | ------------------- | ----------- |
-| Peter Broadhurst | peterbroadhurst | Paladin & Zeto Maintainer  | pbroadhurst | pbroadhurst | peter.broadhurst@kaleido.io | Kaleido | `paladin-committers`, `zeto-committers` |
-| Jim Zhang | jimthematrix | Paladin & Zeto Maintainer  | jimthematrix | jimthematrix | jim.zhang@kaleido.io | Kaleido | `paladin-committers`, `zeto-committers` |
-| Andrew Richardson | awrichar | Paladin & Zeto Maintainer  | awrichar | awrichar | andrew.richardson@kaleido.io | Kaleido | `paladin-committers`, `zeto-committers` |
-| Matthew Whitehead | matthew1001 | Paladin Maintainer  | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido | `paladin-committers` |
-| Anna McAllister | annamcallister | Paladin Maintainer  | annamcallister | annamcallister | anna.mcallister@kaleido.io | Kaleido | `paladin-committers` |
+| Name              | GitHub ID       | Scope                     | LFID              | Discord ID        | Email                        | Company Affiliation | Github Team                             |
+| ----------------- | --------------- | ------------------------- | ----------------- | ----------------- | ---------------------------- | ------------------- | --------------------------------------- |
+| Peter Broadhurst  | peterbroadhurst | Paladin & Zeto Maintainer | pbroadhurst       | peterbroadhurst   | peter.broadhurst@kaleido.io  | Kaleido             | `paladin-committers`, `zeto-committers` |
+| Jim Zhang         | jimthematrix    | Paladin & Zeto Maintainer | jimthematrix      | jimthematrix      | jim.zhang@kaleido.io         | Kaleido             | `paladin-committers`, `zeto-committers` |
+| Andrew Richardson | awrichar        | Paladin & Zeto Maintainer | andrew.richardson | andrew.richardson | andrew.richardson@kaleido.io | Kaleido             | `paladin-committers`, `zeto-committers` |
+| David Wertenteil  | dwertent        | Paladin Maintainer        | dwertent          | dwertent_33303    | david.wertenteil@kaleido.io  | Kaleido             | `paladin-committers`                    |
+| Matthew Whitehead | matthew1001     | Paladin Maintainer        | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido             | `paladin-committers`                    |
+| Anna McAllister   | annamcallister  | Paladin Maintainer        | annamcallister    | annamcallister    | anna.mcallister@kaleido.io   | Kaleido             | `paladin-committers`                    |
 
 ## Emeritus Maintainers
 
 | Name | GitHub ID | Scope | LFID | Discord ID | Email | Company Affiliation |
-|----- | --------- | ----- | ---- | ---------- | ----- | ------------------- |
+| ---- | --------- | ----- | ---- | ---------- | ----- | ------------------- |
 |      |           |       |      |            |       |                     |
 
 ## The Duties of a Maintainer
@@ -47,8 +49,8 @@ Maintainers are expected to perform the following duties for this repository. Th
   give guidance and encouragement to those wanting to contribute to the product, and those wanting to become maintainers.
 - Contribute to the product via GitHub Pull Requests.
 - Monitor requests from the LF Decentralized Trust Technical Advisory Council about the
-contents and management of LFDT repositories, such as branch handling,
-required files in repositories and so on.
+  contents and management of LFDT repositories, such as branch handling,
+  required files in repositories and so on.
 - Contribute to the LFDT Project's Quarterly Report.
 
 ## Becoming a Maintainer
