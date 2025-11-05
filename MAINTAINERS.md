@@ -17,12 +17,12 @@ Maintainers are assigned one or both of following scopes in this repository:
 
 | Name              | GitHub ID       | Scope                     | LFID              | Discord ID        | Email                        | Company Affiliation | Github Team                             |
 | ----------------- | --------------- | ------------------------- | ----------------- | ----------------- | ---------------------------- | ------------------- | --------------------------------------- |
-| Peter Broadhurst  | peterbroadhurst | Paladin & Zeto Maintainer | pbroadhurst       | peterbroadhurst   | peter.broadhurst@kaleido.io  | Kaleido             | `paladin-committers`, `zeto-committers` |
-| Jim Zhang         | jimthematrix    | Paladin & Zeto Maintainer | jimthematrix      | jimthematrix      | jim.zhang@kaleido.io         | Kaleido             | `paladin-committers`, `zeto-committers` |
+| Anna McAllister   | annamcallister  | Paladin Maintainer        | annamcallister    | annamcallister    | anna.mcallister@kaleido.io   | Kaleido             | `paladin-committers`                    |
 | Andrew Richardson | awrichar        | Paladin & Zeto Maintainer | andrew.richardson | andrew.richardson | andrew.richardson@kaleido.io | Kaleido             | `paladin-committers`, `zeto-committers` |
 | David Wertenteil  | dwertent        | Paladin Maintainer        | dwertent          | dwertent_33303    | david.wertenteil@kaleido.io  | Kaleido             | `paladin-committers`                    |
+| Jim Zhang         | jimthematrix    | Paladin & Zeto Maintainer | jimthematrix      | jimthematrix      | jim.zhang@kaleido.io         | Kaleido             | `paladin-committers`, `zeto-committers` |
 | Matthew Whitehead | matthew1001     | Paladin Maintainer        | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido             | `paladin-committers`                    |
-| Anna McAllister   | annamcallister  | Paladin Maintainer        | annamcallister    | annamcallister    | anna.mcallister@kaleido.io   | Kaleido             | `paladin-committers`                    |
+| Peter Broadhurst  | peterbroadhurst | Paladin & Zeto Maintainer | pbroadhurst       | peterbroadhurst   | peter.broadhurst@kaleido.io  | Kaleido             | `paladin-committers`, `zeto-committers` |
 
 ## Emeritus Maintainers
 
