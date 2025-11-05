@@ -20,7 +20,7 @@ Maintainers are assigned one or both of following scopes in this repository:
 | Jim Zhang | jimthematrix | Paladin & Zeto Maintainer  | jimthematrix | jimthematrix | jim.zhang@kaleido.io | Kaleido | `paladin-committers`, `zeto-committers` |
 | Andrew Richardson | awrichar | Paladin & Zeto Maintainer  | awrichar | awrichar | andrew.richardson@kaleido.io | Kaleido | `paladin-committers`, `zeto-committers` |
 | Matthew Whitehead | matthew1001 | Paladin Maintainer  | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido | `paladin-committers` |
-| Anna McCallister | annamcallister | Paladin Maintainer  | annamcallister | annamcallister | anna.mcallister@kaleido.io | Kaleido | `paladin-committers` |
+| Anna McAllister | annamcallister | Paladin Maintainer  | annamcallister | annamcallister | anna.mcallister@kaleido.io | Kaleido | `paladin-committers` |
 
 ## Emeritus Maintainers
 
