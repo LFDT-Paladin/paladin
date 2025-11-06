@@ -19,6 +19,7 @@ Maintainers are assigned one or both of following scopes in this repository:
 | ----------------- | --------------- | ------------------------- | ----------------- | ----------------- | ---------------------------- | ------------------- | --------------------------------------- |
 | Anna McAllister   | annamcallister  | Paladin Maintainer        | annamcallister    | annamcallister    | anna.mcallister@kaleido.io   | Kaleido             | `paladin-committers`                    |
 | Andrew Richardson | awrichar        | Paladin & Zeto Maintainer | andrew.richardson | andrew.richardson | andrew.richardson@kaleido.io | Kaleido             | `paladin-committers`, `zeto-committers` |
+| Chengxuan Xing    | Chengxuan       | Zeto Maintainer           | chengxuan.xing    | xingchxuan        | chengxuan.xing@kaleido.io    | Kaleido             | `zeto-committers`                       |
 | David Wertenteil  | dwertent        | Paladin Maintainer        | dwertent          | dwertent_33303    | david.wertenteil@kaleido.io  | Kaleido             | `paladin-committers`                    |
 | Jim Zhang         | jimthematrix    | Paladin & Zeto Maintainer | jimthematrix      | jimthematrix      | jim.zhang@kaleido.io         | Kaleido             | `paladin-committers`, `zeto-committers` |
 | Matthew Whitehead | matthew1001     | Paladin Maintainer        | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido             | `paladin-committers`                    |
@@ -85,7 +86,7 @@ maintainer to emeritus status. This can occur in the following situations:
 - Violation of the Code of Conduct warranting removal.
 - Inactivity.
   - A general measure of inactivity will be no commits or code review comments
-    for one reporting quarter. This will not be strictly enforced if
+    for a period of 12 months. This will not be strictly enforced if
     the maintainer expresses a reasonable intent to continue contributing.
   - Reasonable exceptions to inactivity will be granted for known long term
     leave such as parental leave and medical leave.
