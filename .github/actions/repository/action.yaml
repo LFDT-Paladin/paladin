@@ -24,9 +24,9 @@ runs:
         # Initialize the modified repository with the lowercase name
         modified_repository="$repository_lower"
         
-        # Step 2: If repository is LFDT-Paladin,
+        # Step 2: If registry is docker.io and repository is LFDT-Paladin,
         # replace with lfdecentralizedtrust
-        if [ "$repository_lower" = "lfdt-paladin" ]; then
+        if [ "${{ inputs.registry }}" = "docker.io" ] && [ "$repository_lower" = "lfdt-paladin" ]; then
           modified_repository="lfdecentralizedtrust"
         fi
         
