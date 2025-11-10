@@ -19,7 +19,7 @@ Maintainers are assigned one or both of following scopes in this repository:
 | ----------------- | --------------- | ------------------------- | ----------------- | ----------------- | ---------------------------- | ------------------- | --------------------------------------- |
 | Anna McAllister   | annamcallister  | Paladin Maintainer        | annamcallister    | annamcallister    | anna.mcallister@kaleido.io   | Kaleido             | `paladin-committers`                    |
 | Andrew Richardson | awrichar        | Paladin & Zeto Maintainer | andrew.richardson | andrew.richardson | andrew.richardson@kaleido.io | Kaleido             | `paladin-committers`, `zeto-committers` |
-| Chengxuan Xing    | Chengxuan       | Zeto Maintainer           | chengxuan.xing    | xingchxuan        | chengxuan.xing@kaleido.io    | Kaleido             | `zeto-committers`                       |
+| Chengxuan Xing    | Chengxuan       | Zeto Maintainer           | chengxuanxing     | xingchxuan        | chengxuan.xing@kaleido.io    | Kaleido             | `zeto-committers`                       |
 | David Wertenteil  | dwertent        | Paladin Maintainer        | dwertent          | dwertent_33303    | david.wertenteil@kaleido.io  | Kaleido             | `paladin-committers`                    |
 | Jim Zhang         | jimthematrix    | Paladin & Zeto Maintainer | jimthematrix      | jimthematrix      | jim.zhang@kaleido.io         | Kaleido             | `paladin-committers`, `zeto-committers` |
 | Matthew Whitehead | matthew1001     | Paladin Maintainer        | matthew.whitehead | matthew.whitehead | matthew.whitehead@kaleido.io | Kaleido             | `paladin-committers`                    |
