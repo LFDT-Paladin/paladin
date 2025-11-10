@@ -27,9 +27,9 @@ Maintainers are assigned one or both of following scopes in this repository:
 
 ## Emeritus Maintainers
 
-| Name | GitHub ID | Scope | LFID | Discord ID | Email | Company Affiliation |
-| ---- | --------- | ----- | ---- | ---------- | ----- | ------------------- |
-|      |           |       |      |            |       |                     |
+| Name       | GitHub ID | Company Affiliation |
+| ---------- | --------- | ------------------- |
+| John Hosie | hosie     | Kaleido             |
 
 ## The Duties of a Maintainer
 
