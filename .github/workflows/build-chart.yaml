@@ -58,9 +58,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Check initial disk space
-        uses: ./.github/actions/check-disk-space
-
       - name: Free up disk space on runner
         uses: ./.github/actions/free-up-disk-space
 
