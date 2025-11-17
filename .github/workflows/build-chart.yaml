@@ -53,6 +53,12 @@ jobs:
       NAMESPACE: paladin
 
     steps:
+      - name: Check initial disk space
+        uses: ./.github/actions/check-disk-space
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
