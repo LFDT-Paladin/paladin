@@ -25,28 +25,28 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/keymanager"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/metrics"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/blockindexermocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/keymanager"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -124,7 +124,7 @@ func newTestPublicTxManager(t *testing.T, realDBAndSigner bool, extraSetup ...fu
 		p, dbClose, err = persistence.NewUnitTestPersistence(ctx, "publictxmgr")
 		require.NoError(t, err)
 
-		mocks.keyManager = keymanager.NewKeyManager(ctx, &pldconf.KeyManagerConfig{
+		mocks.keyManager = keymanager.NewKeyManager(ctx, &pldconf.KeyManagerInlineConfig{
 			Wallets: []*pldconf.WalletConfig{
 				{
 					Name: "wallet1",
@@ -779,4 +779,156 @@ func TestGasEstimateFactor(t *testing.T) {
 
 	require.NoError(t, ptm.ValidateTransaction(ctx, ptm.p.NOTX(), tx))
 	assert.Equal(t, pldtypes.MustParseHexUint64("0xc5f0"), *tx.Gas)
+}
+
+func TestSuspendTransactionNoOrchestrator(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true) // Use real DB
+	defer done()
+
+	// Create a test address and nonce
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12345)
+
+	// First, insert a test transaction into the database (omit PublicTxnID - it's auto-generated)
+	dbTX := ptm.p.DB().WithContext(ctx)
+	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+		From:      *testAddress,
+		Nonce:     &testNonce,
+		Suspended: false,
+	}).Error
+	require.NoError(t, err)
+
+	// Call SuspendTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
+	err = ptm.SuspendTransaction(ctx, *testAddress, testNonce)
+	assert.NoError(t, err)
+
+	// Verify the transaction was actually suspended in the database
+	var updatedTx DBPublicTxn
+	err = dbTX.Table("public_txns").
+		Where(`"from" = ? AND nonce = ?`, *testAddress, testNonce).
+		First(&updatedTx).Error
+	require.NoError(t, err)
+	assert.True(t, updatedTx.Suspended)
+}
+
+func TestResumeTransactionNoOrchestrator(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true) // Use real DB
+	defer done()
+
+	// Create a test address and nonce
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12346)
+
+	// First, insert a test transaction into the database (suspended) (omit PublicTxnID - it's auto-generated)
+	dbTX := ptm.p.DB().WithContext(ctx)
+	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+		From:      *testAddress,
+		Nonce:     &testNonce,
+		Suspended: true,
+	}).Error
+	require.NoError(t, err)
+
+	// Call ResumeTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
+	err = ptm.ResumeTransaction(ctx, *testAddress, testNonce)
+	assert.NoError(t, err)
+
+	// Verify the transaction was actually resumed in the database
+	var updatedTx DBPublicTxn
+	err = dbTX.Table("public_txns").
+		Where(`"from" = ? AND nonce = ?`, *testAddress, testNonce).
+		First(&updatedTx).Error
+	require.NoError(t, err)
+	assert.False(t, updatedTx.Suspended)
+}
+
+func TestDispatchActionInvalidAction(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, false) // Use mock DB
+	defer done()
+
+	// Create a test address and nonce
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12345)
+
+	// Call dispatchAction with an invalid action type (beyond the defined constants)
+	// This should trigger the default return case (line 71)
+	invalidAction := AsyncRequestType(999) // Invalid action type
+	err := ptm.dispatchAction(ctx, *testAddress, testNonce, invalidAction)
+
+	// The default case should return nil (no error)
+	assert.NoError(t, err)
+}
+
+func TestCheckTransactionCompletedNotFound(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true) // Use real DB
+	defer done()
+
+	// Test with a non-existent transaction ID
+	completed, err := ptm.CheckTransactionCompleted(ctx, 99999)
+	assert.NoError(t, err)
+	assert.False(t, completed)
+}
+
+func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true) // Use real DB
+	defer done()
+
+	// Create a test transaction that is not completed
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12347)
+
+	// Insert a transaction without completion (omit PublicTxnID - it's auto-generated)
+	dbTX := ptm.p.DB().WithContext(ctx)
+	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+		From:      *testAddress,
+		Nonce:     &testNonce,
+		Suspended: false,
+		Completed: nil, // No completion record
+	}).Error
+	require.NoError(t, err)
+
+	// Retrieve the transaction to get the actual PublicTxnID
+	var insertedTx DBPublicTxn
+	err = dbTX.Table("public_txns").
+		Where(`"from" = ? AND nonce = ?`, *testAddress, testNonce).
+		First(&insertedTx).Error
+	require.NoError(t, err)
+
+	// Check if it's completed - should return false
+	completed, err := ptm.CheckTransactionCompleted(ctx, insertedTx.PublicTxnID)
+	assert.NoError(t, err)
+	assert.False(t, completed)
+}
+
+func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true) // Use real DB
+	defer done()
+
+	// Create a test transaction that is completed
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testNonce := uint64(12348)
+	testTxHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+
+	// Insert a transaction with completion (omit PublicTxnID - it's auto-generated)
+	dbTX := ptm.p.DB().WithContext(ctx)
+	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+		From:      *testAddress,
+		Nonce:     &testNonce,
+		Suspended: false,
+		Completed: &DBPublicTxnCompletion{
+			TransactionHash: testTxHash,
+		},
+	}).Error
+	require.NoError(t, err)
+
+	// Retrieve the transaction to get the actual PublicTxnID
+	var insertedTx DBPublicTxn
+	err = dbTX.Table("public_txns").
+		Where(`"from" = ? AND nonce = ?`, *testAddress, testNonce).
+		First(&insertedTx).Error
+	require.NoError(t, err)
+
+	// Check if it's completed - should return true
+	completed, err := ptm.CheckTransactionCompleted(ctx, insertedTx.PublicTxnID)
+	assert.NoError(t, err)
+	assert.True(t, completed)
 }
