@@ -27,14 +27,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/tlsconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -71,13 +71,14 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 
 func NewGRPCTransport(callbacks plugintk.TransportCallbacks) plugintk.TransportAPI {
 	return &grpcTransport{
-		bgCtx:               context.Background(),
+		bgCtx:               log.WithComponent(context.Background(), "grpctransport"),
 		callbacks:           callbacks,
 		outboundConnections: make(map[string]*outboundConn),
 	}
 }
 
 func (t *grpcTransport) ConfigureTransport(ctx context.Context, req *prototk.ConfigureTransportRequest) (*prototk.ConfigureTransportResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	// Hold the connlock while setting our state (as we'll read it when creating new conns)
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
@@ -230,6 +231,7 @@ func (t *grpcTransport) getTransportDetails(ctx context.Context, node string) (t
 }
 
 func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
@@ -251,6 +253,7 @@ func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivateP
 }
 
 func (t *grpcTransport) DeactivatePeer(ctx context.Context, req *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
@@ -273,6 +276,7 @@ func (t *grpcTransport) getConnection(nodeName string) *outboundConn {
 }
 
 func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+	ctx = log.WithComponent(ctx, "grpctransport")
 	msg := req.Message
 	oc := t.getConnection(req.Node)
 	if oc == nil {
@@ -295,6 +299,7 @@ func (t *grpcTransport) SendMessage(ctx context.Context, req *prototk.SendMessag
 }
 
 func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLocalDetailsRequest) (*prototk.GetLocalDetailsResponse, error) {
+	// ctx = log.WithComponent(ctx, "grpctransport")
 
 	issuersText := new(strings.Builder)
 

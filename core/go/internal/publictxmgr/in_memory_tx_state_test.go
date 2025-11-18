@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -155,6 +155,8 @@ func TestSettersAndGetters(t *testing.T) {
 	// check immutable fields
 	assert.Equal(t, oldNonce.Uint64(), imts.GetNonce())
 	assert.Equal(t, *oldFrom, imts.GetFrom())
+	assert.Equal(t, *oldTo, *imts.GetTo())
+	assert.Equal(t, *oldValue, *imts.GetValue())
 	assert.Equal(t, oldValue, inMemoryTx.mtx.ptx.Value)
 	assert.Equal(t, oldTransactionData, inMemoryTx.mtx.ptx.Data)
 
