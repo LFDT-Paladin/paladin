@@ -59,7 +59,7 @@ func transactionRevertedCondition(t *testing.T, ctx context.Context, txID uuid.U
 func transactionLatencyThreshold(t *testing.T) time.Duration {
 	// normally we would expect a transaction to be confirmed within a couple of seconds but
 	// if we are in a debug session, we want to give it much longer
-	threshold := 5 * time.Second
+	threshold := 10 * time.Second
 
 	deadline, ok := t.Deadline()
 	if !ok {

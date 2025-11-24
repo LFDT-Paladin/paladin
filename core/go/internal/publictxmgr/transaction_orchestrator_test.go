@@ -60,7 +60,7 @@ func newInflightTransaction(o *orchestrator, nonce uint64, txMods ...func(tx *DB
 	for _, txMod := range txMods {
 		txMod(tx)
 	}
-	mockIT := NewInFlightTransactionStageController(o.pubTxManager, o, tx)
+	mockIT := NewInFlightTransactionStageController(o.pubTxManager, o, tx, uuid.New())
 	return mockIT, mockIT.stateManager.(*inFlightTransactionState)
 }
 
@@ -84,17 +84,13 @@ func TestNewOrchestratorLoadsSecondTxAndQueuesBalanceCheck(t *testing.T) {
 
 	// Return a single transaction - note there's a highest nonce query on startup before the first poll, so we query twice
 	for range 2 {
-		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{"from", "nonce"}).AddRow(
-			o.signingAddress, 2,
+		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id", "from", "nonce", "Binding__pub_txn_id", "Binding__transaction"}).AddRow(
+			0, o.signingAddress, 2, 0, uuid.New().String(),
 		))
 	}
+
 	// Do not return any submissions for it
 	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnRows(sqlmock.NewRows([]string{}))
-
-	// To pass the necessary events to the sequencer the orchestrator needs to retrieve the pub-id to tx-id binding
-	for range 2 {
-		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
-	}
 
 	addressBalanceChecked := make(chan bool)
 	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(pldtypes.Uint64ToUint256(100), nil).Run(func(args mock.Arguments) {
