@@ -1,7 +1,7 @@
 import PaladinClient, {
   PaladinVerifier,
   ZetoFactory,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
+} from "@lfdecentralizedtrust/paladin-sdk";
 import * as fs from 'fs';
 import * as path from 'path';
 import { nodeConnections } from "../../common/src/config";
@@ -104,7 +104,7 @@ async function main(): Promise<boolean> {
   const zetoFactory = new ZetoFactory(paladin3, "zeto");
   
   // Import ZetoInstance from the SDK
-  const { ZetoInstance } = await import("@lfdecentralizedtrust-labs/paladin-sdk");
+  const { ZetoInstance } = await import("@lfdecentralizedtrust/paladin-sdk");
   const zetoCBDC1 = new ZetoInstance(paladin3, contractData.zetoCBDC1Address);
   const zetoCBDC2 = new ZetoInstance(paladin3, contractData.zetoCBDC2Address);
 

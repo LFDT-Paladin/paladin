@@ -469,7 +469,6 @@ var (
 	MsgPGroupsJSONRPCSubscriptionNack       = pde("PD012521", "JSON/RPC subscription '%s' returned nack for message batch")
 	MsgPGroupsGenesisSaltUnset              = pde("PD012522", "Genesis salt must be set")
 	MsgPGroupsReceivedGenesisInvalid        = pde("PD012523", "Received genesis state is invalid")
-	MsgPGroupsFromNotMember                 = pde("PD012524", "From identity '%s' is not a member of privacy group '%s'")
 
 	// Distributed sequencer PD0126XX
 	MsgSequencerInternalError                 = pde("PD012601", "Distributed sequencer internal error: %s")
