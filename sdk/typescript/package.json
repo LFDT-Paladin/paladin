@@ -1,5 +1,5 @@
 {
-  "name": "@lfdecentralizedtrust-labs/paladin-sdk",
+  "name": "@lfdecentralizedtrust/paladin-sdk",
   "version": "0.0.0",
   "description": "",
   "main": "build/index.js",
@@ -27,6 +27,6 @@
     "axios": "^1.7.7"
   },
   "repository": {
-    "url": "https://github.com/LF-Decentralized-Trust-labs/paladin"
+    "url": "https://github.com/LFDT-Paladin/paladin"
   }
 }

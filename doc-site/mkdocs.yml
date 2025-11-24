@@ -1,6 +1,6 @@
 site_name: Paladin
-repo_name: LF-Decentralized-Trust-labs/paladin
-repo_url: https://github.com/LF-Decentralized-Trust-labs/paladin
+repo_name: LFDT-Paladin/paladin
+repo_url: https://github.com/LFDT-Paladin/paladin
 theme:
   name: material
   custom_dir: overrides

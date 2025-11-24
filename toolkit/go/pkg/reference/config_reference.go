@@ -62,9 +62,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	_ "github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	_ "github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 )
 
 // ConfigDocGenerator generates markdown documentation from Go configuration structs.

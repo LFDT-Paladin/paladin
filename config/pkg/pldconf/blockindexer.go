@@ -19,7 +19,7 @@ package pldconf
 import (
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type BlockIndexerConfig struct {

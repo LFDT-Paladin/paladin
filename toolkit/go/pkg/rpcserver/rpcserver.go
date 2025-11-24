@@ -23,12 +23,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/httpserver"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/router"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/staticserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/router"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/staticserver"
 	"github.com/gorilla/websocket"
 )
 

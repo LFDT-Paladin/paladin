@@ -78,7 +78,7 @@ jobs:
       - name: Create cluster
         run: |
           # Download the kind configuration
-          curl https://raw.githubusercontent.com/LF-Decentralized-Trust-labs/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
+          curl https://raw.githubusercontent.com/LFDT-Paladin/paladin/refs/heads/main/operator/paladin-kind.yaml -L -O
           
           # Create the cluster
           kind create cluster --name paladin --config paladin-kind.yaml
@@ -99,7 +99,7 @@ jobs:
       - name: Install latest Paladin charts
         run: |
           # Step 1: Add the charts
-          helm repo add paladin https://LF-Decentralized-Trust-labs.github.io/paladin --force-update
+          helm repo add paladin https://LFDT-Paladin.github.io/paladin --force-update
           helm repo add jetstack https://charts.jetstack.io --force-update
           helm repo update
 

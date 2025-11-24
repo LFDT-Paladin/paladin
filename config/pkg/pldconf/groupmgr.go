@@ -14,7 +14,7 @@
  */
 package pldconf
 
-import "github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
 type GroupManagerConfig struct {
 	Cache            CacheConfig      `json:"cache"`

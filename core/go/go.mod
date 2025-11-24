@@ -1,4 +1,4 @@
-module github.com/LF-Decentralized-Trust-labs/paladin/core
+module github.com/LFDT-Paladin/paladin/core
 
 go 1.24.0
 
@@ -6,12 +6,12 @@ toolchain go1.24.3
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/LF-Decentralized-Trust-labs/paladin/common/go v0.0.0-00010101000000-000000000000
-	github.com/LF-Decentralized-Trust-labs/paladin/config v0.0.0-00010101000000-000000000000
-	github.com/LF-Decentralized-Trust-labs/paladin/registries/static v0.0.0-00010101000000-000000000000
-	github.com/LF-Decentralized-Trust-labs/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
-	github.com/LF-Decentralized-Trust-labs/paladin/toolkit v0.0.0-00010101000000-000000000000
-	github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/registries/static v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
+	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/paladin/transports/grpc v0.0.0-00010101000000-000000000000
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/google/uuid v1.6.0
@@ -86,14 +86,14 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/common/go => ../../common/go
+replace github.com/LFDT-Paladin/paladin/common/go => ../../common/go
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/sdk/go => ../../sdk/go
+replace github.com/LFDT-Paladin/paladin/sdk/go => ../../sdk/go
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/toolkit => ../../toolkit/go
+replace github.com/LFDT-Paladin/paladin/toolkit => ../../toolkit/go
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/config => ../../config
+replace github.com/LFDT-Paladin/paladin/config => ../../config
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/registries/static => ../../registries/static
+replace github.com/LFDT-Paladin/paladin/registries/static => ../../registries/static
 
-replace github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc => ../../transports/grpc
+replace github.com/LFDT-Paladin/paladin/transports/grpc => ../../transports/grpc
