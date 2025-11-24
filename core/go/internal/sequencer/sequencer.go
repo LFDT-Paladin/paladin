@@ -686,7 +686,10 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 		if deploy {
 			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
 			// off by selecting the next coordinator for the contract
-			sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
+			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
+			if err != nil {
+				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
+			}
 		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
 			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
 			if mtx == nil {
@@ -756,7 +759,10 @@ func (sMgr *sequencerManager) HandleTransactionConfirmedByChainedTransaction(ctx
 		if deploy {
 			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
 			// off by selecting the next coordinator for the contract
-			sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
+			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
+			if err != nil {
+				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
+			}
 		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
 			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
 			if mtx == nil {
