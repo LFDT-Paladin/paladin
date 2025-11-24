@@ -512,5 +512,5 @@ var (
 	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. Transaction will be processed when in-flight transactions complete.")
 
 	// Entrypoint PD0127XX
-	MsgResolveVerifierRemoteFailed = pde("PD012801", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")
+	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")
 )
