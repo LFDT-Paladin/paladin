@@ -212,7 +212,8 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 		select {
 		case query := <-c.externalQueries:
 			log.L(ctx).Debugf("coordinator handling external query %s", query.Type)
-			if query.Type == QueryTypeDispatchedTransactions {
+			switch query.Type {
+			case QueryTypeDispatchedTransactions:
 				dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
 				dispatchingTransactionCount := 0
 				for _, txn := range dispatchingTransactions {
@@ -223,7 +224,7 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 				}
 				log.L(ctx).Debugf("coordinator has %d dispatching transactions", dispatchingTransactionCount)
 				query.Response <- dispatchingTransactionCount
-			} else if query.Type == QueryTypeConfirmStateDispatched { // Check if the TX is any of the "dispatched" states (which includes submitted & submission prepared)
+			case QueryTypeConfirmStateDispatched: // Check if the TX is any of the "dispatched" states (which includes submitted & submission prepared)
 				tx := c.transactionsByID[query.TX]
 				if tx == nil {
 					// Log internal error
@@ -237,7 +238,7 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 				} else {
 					query.Response <- false
 				}
-			} else {
+			default:
 				log.L(ctx).Errorf("%s", i18n.NewError(ctx, msgs.MsgSequencerInternalError, "external query type unknown").Error())
 			}
 		case event := <-c.coordinatorEvents:
