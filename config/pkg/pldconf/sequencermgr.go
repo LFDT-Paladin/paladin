@@ -50,6 +50,11 @@ type SequencerMinimumConfig struct {
 }
 
 var SequencerDefaults = SequencerConfig{
+	Writer: FlushWriterConfig{
+		WorkerCount:  confutil.P(10),
+		BatchTimeout: confutil.P("25ms"),
+		BatchMaxSize: confutil.P(100),
+	},
 	AssembleTimeout:               confutil.P("60s"),
 	RequestTimeout:                confutil.P("10s"),
 	BlockHeightTolerance:          confutil.P(uint64(10)),

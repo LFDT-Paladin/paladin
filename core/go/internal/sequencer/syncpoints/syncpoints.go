@@ -73,7 +73,7 @@ func NewSyncPoints(ctx context.Context, conf *pldconf.FlushWriterConfig, p persi
 		pubTxMgr:     pubTxMgr,
 		transportMgr: transportMgr,
 	}
-	s.writer = flushwriter.NewWriter(ctx, s.runBatch, p, conf, &pldconf.PrivateTxManagerDefaults.Writer)
+	s.writer = flushwriter.NewWriter(ctx, s.runBatch, p, conf, &pldconf.SequencerDefaults.Writer)
 	return s
 }
 
