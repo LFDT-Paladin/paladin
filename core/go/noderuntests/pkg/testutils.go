@@ -417,8 +417,6 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 		wsConfig.URL = fmt.Sprintf("ws://127.0.0.1:%d", wsPort)
 	}
 
-	conf.Log.Level = confutil.P("info")
-
 	conf.ReliableMessageWriter.BatchMaxSize = confutil.P(1)
 
 	// Postgres config typically passes in a fixed seed so re-runs against the same DB
@@ -451,7 +449,7 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 		Level:  confutil.P("debug"),
 		Output: confutil.P("file"),
 		File: pldconf.LogFileConfig{
-			Filename: confutil.P("build/testbed.component-test.log"),
+			Filename: confutil.P(fmt.Sprintf("build/testbed.component-test.%s.log", conf.NodeName)),
 		},
 	}
 	log.InitConfig(&conf.Log)
