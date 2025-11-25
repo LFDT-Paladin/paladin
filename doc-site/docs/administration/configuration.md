@@ -797,9 +797,9 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | - |
-| batchTimeout | Timeout for batch operations | `string` | - |
-| workerCount | Number of worker threads | `int` | - |
+| batchMaxSize | Maximum batch size | `int` | `100` |
+| batchTimeout | Timeout for batch operations | `string` | `"25ms"` |
+| workerCount | Number of worker threads | `int` | `10` |
 
 ## signingModules[]
 
