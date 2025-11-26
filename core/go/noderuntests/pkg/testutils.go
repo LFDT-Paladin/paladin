@@ -170,9 +170,8 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				Type:    string(pldtypes.LibraryTypeCShared),
 				Library: "loaded/via/unit/test/loader",
 			},
-			Config:               map[string]any{"submitMode": domainConfig.SubmitMode},
-			RegistryAddress:      domainRegistryAddress.String(),
-			FixedSigningIdentity: "fixed_signing_identity",
+			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			RegistryAddress: domainRegistryAddress.String(),
 		}
 	case *domains.SimpleStorageDomainConfig:
 		endorsementSet := make([]string, 1+len(peerNodes))
@@ -190,8 +189,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				"submitMode":     domainConfig.SubmitMode,
 				"endorsementSet": endorsementSet,
 			},
-			RegistryAddress:      domainRegistryAddress.String(),
-			FixedSigningIdentity: "fixed_signing_identity",
+			RegistryAddress: domainRegistryAddress.String(),
 		}
 	}
 

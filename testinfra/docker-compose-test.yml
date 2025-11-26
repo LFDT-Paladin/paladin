@@ -64,7 +64,7 @@ services:
       - --min-gas-price=1000000000
       - --zero-base-fee=false
       - --seeds=b461057bef2aeaf43816f95b3c41b667d6fa56342f278d9237d7463226fd101d,a461057bef2aeaf43816f95b3c41b667d6fa56342f278d9237d7463226fd101e,c461057bef2aeaf43816f95b3c41b667d6fa56342f278d9237d7463226fd101f
-      - --prefunded-derivation-paths=m/44'/60'/1',m/44'/60'/1'/0/0,m/44'/60'/2'/0/0,m/44'/60'/2'/0/0/0,m/44'/60'/3'/0/0/0,m/44'/60'/3'/0/0/1,m/44'/60'/3'/0/0/2
+      - --prefunded-derivation-paths=m/44'/60'/1',m/44'/60'/1'/0/0,m/44'/60'/1'/0/1,m/44'/60'/2',m/44'/60'/2'/0/0,m/44'/60'/2'/0/0/0,m/44'/60'/3'
       - /var/besu
 
   besu_gas:

@@ -282,7 +282,11 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		}
 	}
 	if t.Signer == "" {
-		t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
+		if domainAPI.Domain().FixedSigningIdentity() != "" {
+			t.Signer = domainAPI.Domain().FixedSigningIdentity()
+		} else {
+			t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
+		}
 	}
 	log.L(ctx).Debugf("Transaction %s signer %s", t.ID.String(), t.Signer)
 
