@@ -44,6 +44,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/config"
 	"github.com/LFDT-Paladin/paladin/registries/static/pkg/static"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
@@ -55,7 +56,7 @@ import (
 
 type ComponentTestInstance interface {
 	GetName() string
-	GetClient() rpcclient.Client
+	GetClient() pldclient.PaladinClient
 	GetWSConfig() *pldconf.WSClientConfig
 	ResolveEthereumAddress(identity string) string
 	GetComponentManager() componentmgr.ComponentManager
@@ -67,7 +68,7 @@ type componentTestInstance struct {
 	name                   string
 	conf                   *pldconf.PaladinConfig
 	ctx                    context.Context
-	client                 rpcclient.Client
+	client                 pldclient.PaladinClient
 	resolveEthereumAddress func(identity string) string
 	cm                     componentmgr.ComponentManager
 	pluginManager          plugins.UnitTestPluginLoader
@@ -100,7 +101,7 @@ func (testutils *componentTestInstance) GetName() string {
 	return testutils.name
 }
 
-func (testutils *componentTestInstance) GetClient() rpcclient.Client {
+func (testutils *componentTestInstance) GetClient() pldclient.PaladinClient {
 	return testutils.client
 }
 
@@ -282,14 +283,15 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		})
 	}
 
-	client, err := rpcclient.NewHTTPClient(log.WithLogField(context.Background(), "client-for", binding.name), &pldconf.HTTPClientConfig{URL: "http://localhost:" + strconv.Itoa(*i.conf.RPCServer.HTTP.Port)})
+	// TODO AM : look for all instances of context.Background() and replace with t.Context()
+	client, err := rpcclient.NewHTTPClient(log.WithLogField(t.Context(), "client-for", binding.name), &pldconf.HTTPClientConfig{URL: "http://localhost:" + strconv.Itoa(*i.conf.RPCServer.HTTP.Port)})
 	require.NoError(t, err)
-	i.client = client
+	i.client = pldclient.Wrap(client).ReceiptPollingInterval(250 * time.Millisecond)
 
 	i.resolveEthereumAddress = func(identity string) string {
-		idPart, err := pldtypes.PrivateIdentityLocator(identity).Identity(context.Background())
+		idPart, err := pldtypes.PrivateIdentityLocator(identity).Identity(t.Context())
 		require.NoError(t, err)
-		addr, err := i.cm.KeyManager().ResolveEthAddressNewDatabaseTX(i.ctx, idPart)
+		addr, err := i.client.KeyManager().ResolveEthAddress(i.ctx, idPart)
 		require.NoError(t, err)
 		return addr.String()
 	}
@@ -513,16 +515,17 @@ type Party interface {
 	GetIdentity() string
 	GetName() string
 	GetNodeConfig() *nodeConfiguration
-	GetClient() rpcclient.Client
+	GetClient() pldclient.PaladinClient
 	AddPeer(peers ...interface{})
 	Start(t *testing.T, domainConfig any, configPath string, manualTestCleanup bool)
 	Stop(t *testing.T)
 	GetIdentityLocator() string
+	ResolveEthereumAddress(identity string) string
 	DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
-		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool,
+		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
 	DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool,
+		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
 	OverrideSequencerConfig(config *pldconf.SequencerConfig)
 }
@@ -539,7 +542,7 @@ func (p *partyForTesting) GetNodeConfig() *nodeConfiguration {
 	return p.nodeConfig
 }
 
-func (p *partyForTesting) GetClient() rpcclient.Client {
+func (p *partyForTesting) GetClient() pldclient.PaladinClient {
 	return p.client
 }
 
@@ -551,11 +554,8 @@ func (p *partyForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfi
 	p.nodeConfig.sequencerConfig = config
 }
 
-func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters, transactionReceiptCondition func(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool, transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
-
-	var dplyTxID uuid.UUID
-
-	err := p.client.CallRPC(context.Background(), &dplyTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters, transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool, transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
+	dplyTxID, err := p.client.PTX().SendTransaction(context.Background(), &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenConstructorABI(constructorParameters.EndorsementMode),
 		TransactionBase: pldapi.TransactionBase{
 			Type:   pldapi.TransactionTypePrivate.Enum(),
@@ -572,8 +572,7 @@ func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, const
 		"Deploy transaction did not receive a receipt",
 	)
 
-	var dplyTxFull pldapi.TransactionFull
-	err = p.client.CallRPC(context.Background(), &dplyTxFull, "ptx_getTransactionFull", dplyTxID)
+	dplyTxFull, err := p.client.PTX().GetTransactionFull(context.Background(), *dplyTxID)
 	require.NoError(t, err)
 	require.NotNil(t, dplyTxFull.Receipt)
 	require.True(t, dplyTxFull.Receipt.Success)
@@ -582,12 +581,10 @@ func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, const
 }
 
 func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-	transactionReceiptCondition func(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool,
+	transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 	transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
 
-	var dplyTxID uuid.UUID
-
-	err := p.client.CallRPC(context.Background(), &dplyTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	dplyTxID, err := p.client.PTX().SendTransaction(context.Background(), &pldapi.TransactionInput{
 		ABI: *domains.SimpleStorageConstructorABI(constructorParameters.EndorsementMode),
 		TransactionBase: pldapi.TransactionBase{
 			Type:   pldapi.TransactionTypePrivate.Enum(),
@@ -604,8 +601,7 @@ func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T
 		"Deploy transaction did not receive a receipt",
 	)
 
-	var dplyTxFull pldapi.TransactionFull
-	err = p.client.CallRPC(context.Background(), &dplyTxFull, "ptx_getTransactionFull", dplyTxID)
+	dplyTxFull, err := p.client.PTX().GetTransactionFull(context.Background(), *dplyTxID)
 	require.NoError(t, err)
 	require.NotNil(t, dplyTxFull.Receipt)
 	require.True(t, dplyTxFull.Receipt.Success)
@@ -621,10 +617,10 @@ type partyForTesting struct {
 	nodeConfig            *nodeConfiguration
 	peers                 []interface{}
 	domainRegistryAddress *pldtypes.EthAddress
-	client                rpcclient.Client //TODO swap out for pldclient.PaladinClient
+	client                pldclient.PaladinClient
 }
 
-func NewPartyForTesting(t *testing.T, name string, domainRegistryAddress *pldtypes.EthAddress) *partyForTesting {
+func NewPartyForTesting(t *testing.T, name string, domainRegistryAddress *pldtypes.EthAddress) Party {
 	nodeName := name
 	party := &partyForTesting{
 		name:                  name,

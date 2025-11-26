@@ -88,9 +88,8 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -123,13 +122,11 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	)
 
 	// Check Alice and Bob both have the same view of the world
-	aliceTxFull := pldapi.TransactionFull{}
-	err = alice.GetClient().CallRPC(ctx, &aliceTxFull, "ptx_getTransactionFull", aliceTxID)
+	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, *aliceTxID)
 	require.NoError(t, err)
 	require.NotNil(t, aliceTxFull)
 
-	bobTxFull := pldapi.TransactionFull{}
-	err = bob.GetClient().CallRPC(ctx, &bobTxFull, "ptx_getTransactionFull", aliceTxID)
+	bobTxFull, err := bob.GetClient().PTX().GetTransactionFull(ctx, *aliceTxID)
 	require.NoError(t, err)
 	require.NotNil(t, bobTxFull)
 
@@ -181,9 +178,8 @@ func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -210,9 +206,8 @@ func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
 
 	// Start a private transaction on bob's node
 	// This is a transfer which relies on bob's node being aware of the state created by alice's mint to bob above
-	var bobTx1ID uuid.UUID
 	idempotencyKey = uuid.New().String()
-	err = bob.GetClient().CallRPC(ctx, &bobTx1ID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	bobTx1ID, err := bob.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -239,20 +234,11 @@ func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
 
 	stopNode(t, alice)
 
-	var verifierResult string
-	err = bob.GetClient().CallRPC(ctx, &verifierResult, "ptx_resolveVerifier",
-		bob.GetIdentityLocator(),
-		algorithms.ECDSA_SECP256K1,
-		verifiers.ETH_ADDRESS,
-	)
+	verifierResult, err := bob.GetClient().PTX().ResolveVerifier(ctx, bob.GetIdentityLocator(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 	require.NotNil(t, verifierResult)
 
-	err = alice.GetClient().CallRPC(ctx, &verifierResult, "ptx_resolveVerifier",
-		bob.GetIdentityLocator(),
-		algorithms.ECDSA_SECP256K1,
-		verifiers.ETH_ADDRESS,
-	)
+	verifierResult, err = alice.GetClient().PTX().ResolveVerifier(ctx, bob.GetIdentityLocator(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.Error(t, err)
 	require.NotNil(t, verifierResult)
 
@@ -261,26 +247,18 @@ func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
 		stopNode(t, alice)
 	})
 
-	err = alice.GetClient().CallRPC(ctx, &verifierResult, "ptx_resolveVerifier",
-		alice.GetIdentityLocator(),
-		algorithms.ECDSA_SECP256K1,
-		verifiers.ETH_ADDRESS,
-	)
+	verifierResult, err = alice.GetClient().PTX().ResolveVerifier(ctx, alice.GetIdentityLocator(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 	require.NotNil(t, verifierResult)
 
-	err = alice.GetClient().CallRPC(ctx, &verifierResult, "ptx_resolveVerifier",
-		bob.GetIdentityLocator(),
-		algorithms.ECDSA_SECP256K1,
-		verifiers.ETH_ADDRESS,
-	)
+	verifierResult, err = alice.GetClient().PTX().ResolveVerifier(ctx, bob.GetIdentityLocator(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 	require.NotNil(t, verifierResult)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
 	idempotencyKey = uuid.New().String()
-	err = alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err = alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -340,9 +318,8 @@ func TestTransactionSuccessIfOneNodeStoppedButNotARequiredVerifier(t *testing.T)
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -371,9 +348,8 @@ func TestTransactionSuccessIfOneNodeStoppedButNotARequiredVerifier(t *testing.T)
 	stopNode(t, alice)
 
 	// Start a private transaction on bob's node, TO bob's identifier. Alice isn't involved at all so isn't a required verifier
-	var bobTx1ID uuid.UUID
 	idempotencyKey = uuid.New().String()
-	err = bob.GetClient().CallRPC(ctx, &bobTx1ID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	bobTx1ID, err := bob.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -436,9 +412,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -467,9 +442,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	stopNode(t, alice)
 
 	// Start a private transaction on bob's node, TO alice's identifier. This can't proceed while her node is stopped.
-	var bobTx1ID uuid.UUID
 	idempotencyKey = uuid.New().String()
-	err = bob.GetClient().CallRPC(ctx, &bobTx1ID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	bobTx1ID, err := bob.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -543,9 +517,8 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -574,9 +547,8 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 	stopNode(t, alice)
 
 	// Start a private transaction on bob's node, TO alice's identifier. This can't proceed while her node is stopped.
-	var bobTx1ID uuid.UUID
 	idempotencyKey = uuid.New().String()
-	err = bob.GetClient().CallRPC(ctx, &bobTx1ID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	bobTx1ID, err := bob.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -672,9 +644,8 @@ func TestTransactionSuccessChainedTransaction(t *testing.T) {
 
 	// Start a private transaction on alice's node. This should result in 2 Paladin transactions and 1 public transaction. The
 	// original transaction should return a success receipt.
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             chainedContractAddress,
@@ -703,7 +674,7 @@ func TestTransactionSuccessChainedTransaction(t *testing.T) {
 
 	// Bob's node has the receipt
 	assert.Eventually(t,
-		transactionReceiptConditionReceiptOnly(t, ctx, aliceTxID, bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTxID, bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
@@ -758,9 +729,8 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 
 	// Start a private transaction on alice's node. This should result in 2 Paladin transactions and 1 public transaction. The
 	// original transaction should return a success receipt.
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             chainedContractAddress,
@@ -789,7 +759,7 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 
 	// Bob's node has the receipt, but not necesarily the original transaction
 	assert.Eventually(t,
-		transactionReceiptConditionReceiptOnly(t, ctx, aliceTxID, bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTxID, bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
@@ -844,9 +814,8 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 
 	// Start a private transaction on alice's node. This should result in 2 Paladin transactions and 1 public transaction. The
 	// original transaction should return a success receipt.
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             chainedContractAddress,
@@ -873,8 +842,7 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 		"Transaction did not receive a receipt",
 	)
 
-	txFull := pldapi.TransactionFull{}
-	err = alice.GetClient().CallRPC(ctx, &txFull, "ptx_getTransactionFull", aliceTxID)
+	_, err = alice.GetClient().PTX().GetTransactionFull(ctx, *aliceTxID)
 	require.NoError(t, err)
 
 	// Bob's node has the receipt
@@ -935,9 +903,8 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyG
 
 	// Start a private transaction on alice's node. This should result in 2 Paladin transactions and 1 public transaction. The
 	// original transaction should return a success receipt.
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             chainedContractAddress,
@@ -1008,9 +975,8 @@ func TestTransactionRevertDuringAssembly(t *testing.T) {
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -1029,7 +995,7 @@ func TestTransactionRevertDuringAssembly(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.UUID{}, aliceTxID)
 	assert.Eventually(t,
-		transactionRevertedCondition(t, ctx, aliceTxID, alice.GetClient()),
+		transactionRevertedCondition(t, ctx, *aliceTxID, alice.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive expected revert receipt",
@@ -1071,9 +1037,8 @@ func TestTransactionRevertDuringEndorsement(t *testing.T) {
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,
@@ -1134,9 +1099,8 @@ func TestTransactionRevertOnBaseLedger(t *testing.T) {
 
 	// Start a private transaction on alice's node
 	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
-	var aliceTxID uuid.UUID
 	idempotencyKey := uuid.New().String()
-	err := alice.GetClient().CallRPC(ctx, &aliceTxID, "ptx_sendTransaction", &pldapi.TransactionInput{
+	aliceTxID, err := alice.GetClient().PTX().SendTransaction(ctx, &pldapi.TransactionInput{
 		ABI: *domains.SimpleTokenTransferABI(),
 		TransactionBase: pldapi.TransactionBase{
 			To:             contractAddress,

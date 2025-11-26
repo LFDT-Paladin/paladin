@@ -22,48 +22,49 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-func transactionReceiptCondition(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool {
+func transactionReceiptCondition(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		txFull := pldapi.TransactionFull{}
-		_ = rpcClient.CallRPC(ctx, &txFull, "ptx_getTransactionFull", txID)
+		require.NotNil(t, txID)
+		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
+		require.NoError(t, err)
 		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
 		return txFull.Receipt != nil && (!isDeploy || (txFull.Receipt.ContractAddress != nil && *txFull.Receipt.ContractAddress != pldtypes.EthAddress{}))
 	}
 }
 
-func transactionReceiptConditionExpectedPublicTXCount(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, expectedPublicTXCount int) func() bool {
+func transactionReceiptConditionExpectedPublicTXCount(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, expectedPublicTXCount int) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		txFull := pldapi.TransactionFull{}
-		_ = rpcClient.CallRPC(ctx, &txFull, "ptx_getTransactionFull", txID)
+		require.NotNil(t, txID)
+		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
+		require.NoError(t, err)
 		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
 		return txFull.Receipt != nil && txFull.Receipt.Success == true && len(txFull.Public) == expectedPublicTXCount
 	}
 }
 
-func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client, isDeploy bool) func() bool {
+func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		txReceipt := pldapi.TransactionReceiptData{}
-		_ = rpcClient.CallRPC(ctx, &txReceipt, "ptx_getTransactionReceipt", txID)
+		require.NotNil(t, txID)
+		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, *txID)
+		require.NoError(t, err)
 		require.False(t, (txReceipt.Success == false), "Have transaction receipt but not successful")
 		return txReceipt.Success == true
 	}
 }
 
-func transactionRevertedCondition(t *testing.T, ctx context.Context, txID uuid.UUID, rpcClient rpcclient.Client) func() bool {
+func transactionRevertedCondition(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has been reverted
 	return func() bool {
-		txFull := pldapi.TransactionFull{}
-		err := rpcClient.CallRPC(ctx, &txFull, "ptx_getTransactionFull", txID)
+		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
 		require.NoError(t, err)
 		return txFull.Receipt != nil &&
 			!txFull.Receipt.Success
