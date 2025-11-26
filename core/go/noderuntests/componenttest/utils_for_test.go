@@ -17,43 +17,13 @@ package componenttest
 
 import (
 	_ "embed"
-	"fmt"
 
-	"context"
 	"testing"
 	"time"
-
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 //go:embed abis/SimpleStorage.json
 var simpleStorageBuildJSON []byte // From "gradle copyTestSolidityBuild"
-
-func transactionReceiptCondition(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool {
-	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
-	return func() bool {
-		require.NotNil(t, txID)
-		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
-		fmt.Printf("Transaction full: %+v\n", txFull)
-		require.NoError(t, err)
-		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
-		return txFull.Receipt != nil && (!isDeploy || (txFull.Receipt.ContractAddress != nil && *txFull.Receipt.ContractAddress != pldtypes.EthAddress{}))
-	}
-}
-
-func transactionRevertedCondition(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient) func() bool {
-	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has been reverted
-	return func() bool {
-		require.NotNil(t, txID)
-		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
-		require.NoError(t, err)
-		return txFull.Receipt != nil &&
-			!txFull.Receipt.Success
-	}
-}
 
 func transactionLatencyThreshold(t *testing.T) time.Duration {
 	// normally we would expect a transaction to be confirmed within a couple of seconds but

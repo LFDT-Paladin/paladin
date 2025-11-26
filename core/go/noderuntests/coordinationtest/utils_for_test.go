@@ -28,46 +28,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func transactionReceiptCondition(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool {
+func transactionReceiptCondition(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		require.NotNil(t, txID)
-		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
+		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
 		require.NoError(t, err)
 		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
 		return txFull.Receipt != nil && (!isDeploy || (txFull.Receipt.ContractAddress != nil && *txFull.Receipt.ContractAddress != pldtypes.EthAddress{}))
 	}
 }
 
-func transactionReceiptConditionExpectedPublicTXCount(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, expectedPublicTXCount int) func() bool {
+func transactionReceiptConditionExpectedPublicTXCount(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient, expectedPublicTXCount int) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		require.NotNil(t, txID)
-		txFull, err := client.PTX().GetTransactionFull(ctx, *txID)
+		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
 		require.NoError(t, err)
 		require.False(t, (txFull.Receipt != nil && txFull.Receipt.Success == false), "Have transaction receipt but not successful")
 		return txFull.Receipt != nil && txFull.Receipt.Success == true && len(txFull.Public) == expectedPublicTXCount
 	}
 }
 
-func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient) func() bool {
+func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {
-		require.NotNil(t, txID)
-		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, *txID)
+		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, txID)
 		require.NoError(t, err)
 		require.False(t, (txReceipt.Success == false), "Have transaction receipt but not successful")
 		return txReceipt.Success == true
-	}
-}
-
-func transactionRevertedCondition(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient) func() bool {
-	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has been reverted
-	return func() bool {
-		txFull, err := client.PTX().GetTransactionFull(ctx, txID)
-		require.NoError(t, err)
-		return txFull.Receipt != nil &&
-			!txFull.Receipt.Success
 	}
 }
 

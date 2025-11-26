@@ -43,7 +43,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/core/pkg/config"
 	"github.com/LFDT-Paladin/paladin/registries/static/pkg/static"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -146,7 +145,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		conf:       &conf,
 		wsConfig:   &wsConfig,
 	}
-	i.ctx = log.WithLogField(context.Background(), "node-name", binding.name)
+	i.ctx = log.WithLogField(t.Context(), "node-name", binding.name)
 
 	if binding.sequencerConfig != nil {
 		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
@@ -244,7 +243,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	}
 
 	if i.conf.DB.Type == "postgres" {
-		dns, cleanUp := initPostgres(t, context.Background(), binding.name)
+		dns, cleanUp := initPostgres(t, t.Context(), binding.name)
 		i.conf.DB.Postgres.DSN = dns
 		t.Cleanup(cleanUp)
 	}
@@ -283,10 +282,9 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		})
 	}
 
-	// TODO AM : look for all instances of context.Background() and replace with t.Context()
 	client, err := rpcclient.NewHTTPClient(log.WithLogField(t.Context(), "client-for", binding.name), &pldconf.HTTPClientConfig{URL: "http://localhost:" + strconv.Itoa(*i.conf.RPCServer.HTTP.Port)})
 	require.NoError(t, err)
-	i.client = pldclient.Wrap(client).ReceiptPollingInterval(250 * time.Millisecond)
+	i.client = pldclient.Wrap(client).ReceiptPollingInterval(100 * time.Millisecond)
 
 	i.resolveEthereumAddress = func(identity string) string {
 		idPart, err := pldtypes.PrivateIdentityLocator(identity).Identity(t.Context())
@@ -364,7 +362,7 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 	err = os.Remove(grpcTarget)
 	require.NoError(t, err)
 
-	cmTmp := componentmgr.NewComponentManager(context.Background(), grpcTarget, uuid.New(), &tmpConf)
+	cmTmp := componentmgr.NewComponentManager(t.Context(), grpcTarget, uuid.New(), &tmpConf)
 	err = cmTmp.Init()
 	require.NoError(t, err)
 	err = cmTmp.StartManagers()
@@ -388,7 +386,7 @@ func getBesuPort() int {
 }
 
 func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.PaladinConfig, pldconf.WSClientConfig) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var conf *pldconf.PaladinConfig
 	err := config.ReadAndParseYAMLFile(ctx, configPath, &conf)
@@ -425,7 +423,7 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 	// use consistent signing keys. Sqlite in-memory config typically relies on a random
 	// seed for each run
 	var key string
-	parsedKey, err := pldtypes.ParseHexBytes(context.Background(), conf.Wallets[0].Signer.KeyStore.Static.Keys["seed"].Inline)
+	parsedKey, err := pldtypes.ParseHexBytes(t.Context(), conf.Wallets[0].Signer.KeyStore.Static.Keys["seed"].Inline)
 	if err == nil {
 		// Valid hex in the config - use it
 		key = parsedKey.HexString()
@@ -456,7 +454,7 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 	}
 	log.InitConfig(&conf.Log)
 
-	initPostgres(t, context.Background(), conf.NodeName)
+	initPostgres(t, t.Context(), conf.NodeName)
 
 	return *conf, wsConfig
 }
@@ -522,10 +520,8 @@ type Party interface {
 	GetIdentityLocator() string
 	ResolveEthereumAddress(identity string) string
 	DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
-		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
 	DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-		transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 		transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress
 	OverrideSequencerConfig(config *pldconf.SequencerConfig)
 }
@@ -554,59 +550,30 @@ func (p *partyForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfi
 	p.nodeConfig.sequencerConfig = config
 }
 
-func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters, transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool, transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
-	dplyTxID, err := p.client.PTX().SendTransaction(context.Background(), &pldapi.TransactionInput{
-		ABI: *domains.SimpleTokenConstructorABI(constructorParameters.EndorsementMode),
-		TransactionBase: pldapi.TransactionBase{
-			Type:   pldapi.TransactionTypePrivate.Enum(),
-			Domain: "domain1",
-			From:   p.identity,
-			Data:   pldtypes.JSONString(constructorParameters),
-		},
-	})
-	require.NoError(t, err)
-	assert.Eventually(t,
-		transactionReceiptCondition(t, context.Background(), dplyTxID, p.client, true),
-		transactionLatencyThreshold(t)+5*time.Second, //TODO deploy transaction seems to take longer than expected
-		100*time.Millisecond,
-		"Deploy transaction did not receive a receipt",
-	)
-
-	dplyTxFull, err := p.client.PTX().GetTransactionFull(context.Background(), *dplyTxID)
-	require.NoError(t, err)
-	require.NotNil(t, dplyTxFull.Receipt)
-	require.True(t, dplyTxFull.Receipt.Success)
-	require.NotNil(t, dplyTxFull.Receipt.ContractAddress)
-	return dplyTxFull.Receipt.ContractAddress
+func (p *partyForTesting) DeploySimpleDomainInstanceContract(t *testing.T, constructorParameters *domains.ConstructorParameters,
+	transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
+	dplyTx := p.client.ForABI(t.Context(), *domains.SimpleTokenConstructorABI(constructorParameters.EndorsementMode)).
+		Private().
+		Domain("domain1").
+		From(p.identity).
+		Inputs(pldtypes.JSONString(constructorParameters)).
+		Send().Wait(transactionLatencyThreshold(t) + 5*time.Second) //TODO deploy transaction seems to take longer than expected
+	require.NoError(t, dplyTx.Error())
+	return dplyTx.Receipt().ContractAddress
 }
 
 func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T, constructorParameters *domains.SimpleStorageConstructorParameters,
-	transactionReceiptCondition func(t *testing.T, ctx context.Context, txID *uuid.UUID, client pldclient.PaladinClient, isDeploy bool) func() bool,
 	transactionLatencyThreshold func(t *testing.T) time.Duration) *pldtypes.EthAddress {
 
-	dplyTxID, err := p.client.PTX().SendTransaction(context.Background(), &pldapi.TransactionInput{
-		ABI: *domains.SimpleStorageConstructorABI(constructorParameters.EndorsementMode),
-		TransactionBase: pldapi.TransactionBase{
-			Type:   pldapi.TransactionTypePrivate.Enum(),
-			Domain: "simpleStorageDomain",
-			From:   p.identity,
-			Data:   pldtypes.JSONString(constructorParameters),
-		},
-	})
-	require.NoError(t, err)
-	assert.Eventually(t,
-		transactionReceiptCondition(t, context.Background(), dplyTxID, p.client, true),
-		transactionLatencyThreshold(t)+5*time.Second, //TODO deploy transaction seems to take longer than expected
-		100*time.Millisecond,
-		"Deploy transaction did not receive a receipt",
-	)
+	dplyTx := p.client.ForABI(t.Context(), *domains.SimpleStorageConstructorABI(constructorParameters.EndorsementMode)).
+		Private().
+		Domain("simpleStorageDomain").
+		From(p.identity).
+		Inputs(pldtypes.JSONString(constructorParameters)).
+		Send().Wait(transactionLatencyThreshold(t) + 5*time.Second) //TODO deploy transaction seems to take longer than expected
 
-	dplyTxFull, err := p.client.PTX().GetTransactionFull(context.Background(), *dplyTxID)
-	require.NoError(t, err)
-	require.NotNil(t, dplyTxFull.Receipt)
-	require.True(t, dplyTxFull.Receipt.Success)
-	require.NotNil(t, dplyTxFull.Receipt.ContractAddress)
-	return dplyTxFull.Receipt.ContractAddress
+	require.NoError(t, dplyTx.Error())
+	return dplyTx.Receipt().ContractAddress
 }
 
 type partyForTesting struct {
