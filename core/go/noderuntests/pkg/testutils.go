@@ -193,6 +193,12 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		}
 	}
 
+	if identity := os.Getenv("FIXED_SIGNING_IDENTITY"); identity != "" {
+		for _, domainConfig := range i.conf.Domains {
+			domainConfig.FixedSigningIdentity = identity
+		}
+	}
+
 	i.conf.NodeName = binding.name
 	i.conf.Transports = map[string]*pldconf.TransportConfig{
 		"grpc": {
