@@ -81,9 +81,9 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, txData, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lock.TxId, lock.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.Outputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.LockedOutputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoLock event in batch %s: %s", req.BatchId, err)
 		}
@@ -97,9 +97,9 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, txData, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedInputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedOutputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.Outputs)...)
 
 			var domainConfig *types.NotoParsedConfig
 			err = json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)
@@ -178,9 +178,9 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, txData, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lock.TxId, lock.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.Outputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.LockedOutputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoLock event in batch %s: %s", req.BatchId, err)
 		}
@@ -194,9 +194,9 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, txData, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedInputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedOutputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.Outputs)...)
 
 			var domainConfig *types.NotoParsedConfig
 			err = json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)
