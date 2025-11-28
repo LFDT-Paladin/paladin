@@ -427,7 +427,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		}
 
 		for _, tx := range additional {
-			if oc.sequencerManager != nil && tx.To != nil {
+			if tx.To != nil {
 				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.To.String(), tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing TX collected to sequencer for %d: %s", tx.PublicTxnID, err)
@@ -447,7 +447,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		}
 
 		for _, tx := range additional {
-			if oc.sequencerManager != nil && tx.To != nil {
+			if tx.To != nil {
 				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.To.String(), tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing nonce assignment to sequencer for %d: %s", tx.PublicTxnID, err)

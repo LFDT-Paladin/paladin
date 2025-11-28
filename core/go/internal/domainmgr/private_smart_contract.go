@@ -488,13 +488,12 @@ func (dc *domainContract) EndorseTransaction(dCtx components.DomainContext, read
 	if err != nil {
 		return nil, err
 	}
-	endRes := &components.EndorsementResult{
+	return &components.EndorsementResult{
 		Endorser:     req.Endorser,
 		Result:       res.EndorsementResult,
 		Payload:      res.Payload,
 		RevertReason: res.RevertReason,
-	}
-	return endRes, nil
+	}, nil
 }
 
 func (dc *domainContract) PrepareTransaction(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction) error {

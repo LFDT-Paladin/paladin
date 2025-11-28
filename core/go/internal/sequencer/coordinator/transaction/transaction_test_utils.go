@@ -382,6 +382,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		5,
 		b.grapher,
 		metrics,
+		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
 		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
 		nil,
 		func(context.Context) {}, // onCleanup function, not used in tests

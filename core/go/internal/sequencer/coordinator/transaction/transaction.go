@@ -66,14 +66,14 @@ type Transaction struct {
 	cancelDispatchConfirmationRequestTimeoutSchedule func()
 	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	// Pending endorsements mutex
-	pendingEndorsementsMutex  sync.Mutex
-	pendingPreDispatchRequest *common.IdempotentRequest
-	latestError               string
-	dependencies              *pldapi.TransactionDependencies
-	previousTransaction       *Transaction
-	nextTransaction           *Transaction
-	onReadyForDispatch        func(context.Context, *Transaction)
+	pendingEndorsementsMutex                         sync.Mutex
+	pendingPreDispatchRequest                        *common.IdempotentRequest
+	latestError                                      string
+	dependencies                                     *pldapi.TransactionDependencies
+	previousTransaction                              *Transaction
+	nextTransaction                                  *Transaction
+	addToPool                                        func(context.Context, *Transaction) // To put ourselves to the back of the pooled transactions queue
+	onReadyForDispatch                               func(context.Context, *Transaction)
 
 	//Configuration
 	requestTimeout        common.Duration
@@ -109,6 +109,7 @@ func NewTransaction(
 	finalizingGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
+	addToPool func(context.Context, *Transaction),
 	onReadyForDispatch func(context.Context, *Transaction),
 	onStateTransition OnStateTransition,
 	onCleanup func(context.Context),
@@ -125,18 +126,19 @@ func NewTransaction(
 		PrivateTransaction:    pt,
 		transportWriter:       transportWriter,
 		clock:                 clock,
-		grapher:               grapher,
+		eventHandler:          eventHandler,
+		engineIntegration:     engineIntegration,
+		syncPoints:            syncPoints,
 		requestTimeout:        requestTimeout,
 		assembleTimeout:       assembleTimeout,
 		finalizingGracePeriod: finalizingGracePeriod,
-		engineIntegration:     engineIntegration,
-		syncPoints:            syncPoints,
-		notifyOfTransition:    onStateTransition,
-		onCleanup:             onCleanup,
-		eventHandler:          eventHandler,
 		dependencies:          &pldapi.TransactionDependencies{},
-		onReadyForDispatch:    onReadyForDispatch,
+		grapher:               grapher,
 		metrics:               metrics,
+		addToPool:             addToPool,
+		notifyOfTransition:    onStateTransition,
+		onReadyForDispatch:    onReadyForDispatch,
+		onCleanup:             onCleanup,
 	}
 	txn.InitializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)

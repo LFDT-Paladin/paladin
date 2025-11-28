@@ -394,7 +394,6 @@ func (c *coordinator) evaluateTransitions(ctx context.Context, event common.Even
 					return err
 				}
 			}
-
 			c.heartbeatIntervalsSinceStateChange = 0
 			break
 		}
@@ -427,7 +426,7 @@ func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 		go c.heartbeatLoop(ctx)
 	}
 
-	// Select our next transaction
+	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
 	return c.selectNextTransactionToAssemble(ctx, nil)
 }
 

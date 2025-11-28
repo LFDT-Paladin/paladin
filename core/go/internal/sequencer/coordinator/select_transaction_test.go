@@ -15,398 +15,386 @@
 
 package coordinator
 
-// func TestSelectTransaction_PreserveOrderWithinSender(t *testing.T) {
-// 	//transactions from a given sender are assembled, then dispatched in the order they were received
-// 	ctx := context.Background()
-// 	testSender := "alice@node1"
+import (
+	"context"
+	"testing"
 
-// 	coordinator, mocks := NewCoordinatorForUnitTest(t, ctx, []string{testSender})
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
-// 	var assembleRequestID uuid.UUID
-// 	mocks.messageSender.On(
-// 		"SendAssembleRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // sender
-// 		mock.Anything, // transaction ID
-// 		mock.Anything, // Idempotency key
-// 		mock.Anything, // transactionPreassembly
-// 	).Return(nil).Run(func(args mock.Arguments) {
-// 		assembleRequestID = args.Get(3).(uuid.UUID)
-// 	})
-// 	mocks.messageSender.On("SendEndorsementRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // idempotency key
-// 		mock.Anything, // party
-// 		mock.Anything, // attestation request
-// 		mock.Anything, // transaction specification
-// 		mock.Anything, // verifiers
-// 		mock.Anything, // signatures
-// 		mock.Anything, // input states
-// 		mock.Anything, // output states
-// 		mock.Anything, // info states
-// 	).Return(nil).Maybe()
+// mockTransactionPool is a simple implementation of TransactionPool for testing
+type mockTransactionPool struct {
+	pooledTransactions []*transaction.Transaction
+	transactionsByID   map[uuid.UUID]*transaction.Transaction
+}
 
-// 	// send a significant number of transactions from the same sender so that we don't luckily get the right order
-// 	builders := testutil.NewPrivateTransactionBuilderListForTesting(5).Address(*coordinator.contractAddress).Sender(testSender)
-// 	txns := builders.BuildSparse()
+func newMockTransactionPool() *mockTransactionPool {
+	return &mockTransactionPool{
+		pooledTransactions: make([]*transaction.Transaction, 0),
+		transactionsByID:   make(map[uuid.UUID]*transaction.Transaction),
+	}
+}
 
-// 	mocks.engineIntegration.On(
-// 		"WriteLockAndDistributeStatesForTransaction",
-// 		mock.Anything, // ctx
-// 		mock.MatchedBy(privateTransactionMatcher(txns[0].ID)), // transaction
-// 	).Return(nil)
+func (m *mockTransactionPool) AddTransactionToBackOfPool(_ context.Context, txn *transaction.Transaction) {
+	m.pooledTransactions = append(m.pooledTransactions, txn)
+	m.transactionsByID[txn.ID] = txn
+}
 
-// 	// the first delegate event should transition the coordinator into active mode and trigger the first transaction to be selected and assembled
-// 	err := coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSender,
-// 		Transactions: txns,
-// 	})
-// 	assert.NoError(t, err)
+func (m *mockTransactionPool) GetNextPooledTransaction(_ context.Context) *transaction.Transaction {
+	if len(m.pooledTransactions) == 0 {
+		return nil
+	}
+	nextPooledTx := m.pooledTransactions[0]
+	m.pooledTransactions = m.pooledTransactions[1:]
+	return nextPooledTx
+}
 
-// 	//Assert that remaining transactions are assembled in the correct order as each previous one gets an assemble response
-// 	for i := 0; i < 5; i++ {
+func (m *mockTransactionPool) GetTransactionByID(_ context.Context, txnID uuid.UUID) *transaction.Transaction {
+	return m.transactionsByID[txnID]
+}
 
-// 		transactionsInAssembling := coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Assembling})
-// 		assert.Len(t, transactionsInAssembling, 1)
-// 		assert.Equal(t, txns[i].ID, transactionsInAssembling[0].ID)
+func TestSelectNextTransactionToAssemble_NoPooledTransactions(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 		mocks.engineIntegration.On(
-// 			"WriteLockAndDistributeStatesForTransaction",
-// 			mock.Anything, // ctx
-// 			mock.MatchedBy(privateTransactionMatcher(txns[i].ID)), // transaction
-// 		).Return(nil)
+	tx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.Nil(t, tx, "should return nil when no pooled transactions")
+}
 
-// 		//Send a success
-// 		assembleResponseEvent := &transaction.AssembleSuccessEvent{}
-// 		assembleResponseEvent.TransactionID = txns[i].ID
-// 		assembleResponseEvent.RequestID = assembleRequestID
-// 		assembleResponseEvent.PostAssembly = builders[i].BuildPostAssembly()
-// 		err = coordinator.propagateEventToTransaction(ctx, assembleResponseEvent)
-// 		assert.NoError(t, err)
+func TestSelectNextTransactionToAssemble_SelectsFromPool(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 		//After the first round, we should have B0, C0 and D0 in endorsing state while A0 is in pooled state
-// 		transactionsInEndorsing := coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Endorsement_Gathering})
-// 		endorsingTransactionIDs := make([]uuid.UUID, len(transactionsInEndorsing))
-// 		for j, txn := range transactionsInEndorsing {
-// 			endorsingTransactionIDs[j] = txn.ID
-// 		}
+	// Create a test transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 		assert.Len(t, transactionsInEndorsing, i+1)
-// 		assert.Contains(t, endorsingTransactionIDs, txns[i].ID)
-// 	}
+	tx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, tx, "should return a transaction from pool")
+	assert.Equal(t, tx1.ID, tx.ID, "should return the correct transaction")
+	assert.NotNil(t, selector.currentAssemblingOriginator, "should set current assembling originator")
+	assert.Equal(t, tx1.OriginatorNode(), selector.currentAssemblingOriginator.node)
+	assert.Equal(t, tx1.OriginatorIdentity(), selector.currentAssemblingOriginator.identity)
+	assert.Equal(t, tx1.ID, selector.currentAssemblingOriginator.txID)
+}
 
-// }
+func TestSelectNextTransactionToAssemble_FIFOOrdering(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// func TestSelectTransaction_SlowQueue(t *testing.T) {
-// 	ctx := context.Background()
-// 	testSenderA := "alice@node1"
-// 	testSenderB := "bob@node2"
-// 	testSenderC := "carol@node3"
-// 	testSenderD := "dave@node4"
+	// Create multiple test transactions
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx4 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx5 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 
-// 	coordinator, mocks := NewCoordinatorForUnitTest(t, ctx, []string{testSenderA, testSenderB, testSenderC, testSenderD})
-// 	mocks.messageSender.On("SendEndorsementRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // idempotency key
-// 		mock.Anything, // party
-// 		mock.Anything, // attestation request
-// 		mock.Anything, // transaction specification
-// 		mock.Anything, // verifiers
-// 		mock.Anything, // signatures
-// 		mock.Anything, // input states
-// 		mock.Anything, // output states
-// 		mock.Anything, // info states
-// 	).Return(nil).Maybe()
+	// Add transactions to pool in order
+	pool.AddTransactionToBackOfPool(ctx, tx1)
+	pool.AddTransactionToBackOfPool(ctx, tx2)
+	pool.AddTransactionToBackOfPool(ctx, tx3)
+	pool.AddTransactionToBackOfPool(ctx, tx4)
+	pool.AddTransactionToBackOfPool(ctx, tx5)
 
-// 	var assemblingTxnID uuid.UUID
-// 	var assembleRequestID uuid.UUID
-// 	mocks.messageSender.On(
-// 		"SendAssembleRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // sender
-// 		mock.Anything, // transaction ID
-// 		mock.Anything, // Idempotency key
-// 		mock.Anything, // transactionPreassembly
-// 	).Return(nil).Run(func(args mock.Arguments) {
-// 		// in this test, we are not concered with the precise order of assemble requests across senders we we take a copy of the transaction ID so that we can send the correct response
-// 		assemblingTxnID = args.Get(2).(uuid.UUID)
-// 		assembleRequestID = args.Get(3).(uuid.UUID)
-// 	})
+	// Select transactions and verify FIFO order
+	expectedOrder := []uuid.UUID{tx1.ID, tx2.ID, tx3.ID, tx4.ID, tx5.ID}
+	selectedOrder := make([]uuid.UUID, 0, 5)
 
-// 	// first transaction from sender B times out while assembling. It should be placed at the end of the slow queue.
-// 	// so we get through the second transaction from other senders before coming back that transaction
-// 	//NOTE: this test is not sensitive to which order the transactions are selected in, only that the slow queue is processed after the fast queue
-// 	buildersA := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderA)
-// 	buildersB := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderB)
-// 	buildersC := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderC)
-// 	buildersD := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderD)
-// 	txnsA := buildersA.BuildSparse()
-// 	txnsB := buildersB.BuildSparse()
-// 	txnsC := buildersC.BuildSparse()
-// 	txnsD := buildersD.BuildSparse()
+	for i := 0; i < 5; i++ {
+		// Simulate transaction moving out of assembling state
+		if selector.currentAssemblingOriginator != nil {
+			event := &TransactionStateTransitionEvent{
+				TransactionID: selector.currentAssemblingOriginator.txID,
+				From:          transaction.State_Assembling,
+				To:            transaction.State_Endorsement_Gathering,
+			}
+			tx, err := selector.SelectNextTransactionToAssemble(ctx, event)
+			require.NoError(t, err)
+			if tx != nil {
+				selectedOrder = append(selectedOrder, tx.ID)
+			}
+		} else {
+			// First selection
+			tx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+			require.NoError(t, err)
+			require.NotNil(t, tx, "should return a transaction")
+			selectedOrder = append(selectedOrder, tx.ID)
+		}
+	}
 
-// 	// the first delegate event should transition the coordinator into active mode and trigger the first transaction to be selected and assembled
-// 	err := coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderA,
-// 		Transactions: txnsA,
-// 	})
-// 	assert.NoError(t, err)
+	// Verify FIFO ordering
+	assert.Equal(t, expectedOrder, selectedOrder, "transactions should be selected in FIFO order")
+}
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderB,
-// 		Transactions: txnsB,
-// 	})
-// 	assert.NoError(t, err)
+func TestSelectNextTransactionToAssemble_BlocksWhenTransactionStillAssembling(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderC,
-// 		Transactions: txnsC,
-// 	})
-// 	assert.NoError(t, err)
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderD,
-// 		Transactions: txnsD,
-// 	})
-// 	assert.NoError(t, err)
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
+	assert.Equal(t, tx1.ID, selectedTx.ID)
 
-// 	mocks.engineIntegration.On(
-// 		"WriteLockAndDistributeStatesForTransaction",
-// 		mock.Anything, // ctx
-// 		mock.MatchedBy(privateTransactionMatcher(txnsA[0].ID, txnsC[0].ID, txnsD[0].ID, txnsA[1].ID, txnsC[1].ID, txnsD[1].ID)), //match both transactions from A, C and D
-// 	).Return(nil)
+	// Add another transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-// 	for i := range 7 {
-// 		assert.NotEqual(t, uuid.Nil, assemblingTxnID)
+	// Try to select again while first transaction is still assembling
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.Nil(t, selectedTx2, "should return nil when transaction is still being assembled")
+}
 
-// 		if assemblingTxnID == txnsB[0].ID {
-// 			assert.LessOrEqual(t, i, 3)
-// 			//Simulate the passage of time then trigger a heartbeat
-// 			mocks.clock.Advance(5001) //because NewCoordinatorForUnitTest sets the assemble timeout to be 5000 TODO use a builder and make this more explicit
-// 			requestTimeoutIntervalEvent := &transaction.RequestTimeoutIntervalEvent{}
-// 			requestTimeoutIntervalEvent.TransactionID = assemblingTxnID
-// 			assemblingTxnID = uuid.Nil
-// 			err = coordinator.HandleEvent(ctx, requestTimeoutIntervalEvent)
-// 			assert.NoError(t, err)
+func TestSelectNextTransactionToAssemble_AllowsSelectionAfterTransitionToEndorsementGathering(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 		} else {
-// 			//Send a success
-// 			assembleResponseEvent := &transaction.AssembleSuccessEvent{}
-// 			assembleResponseEvent.TransactionID = assemblingTxnID
-// 			assembleResponseEvent.RequestID = assembleRequestID
-// 			switch assemblingTxnID {
-// 			case txnsA[0].ID:
-// 				assembleResponseEvent.PostAssembly = buildersA[0].BuildPostAssembly()
-// 			case txnsA[1].ID:
-// 				assembleResponseEvent.PostAssembly = buildersA[1].BuildPostAssembly()
-// 			//no case for txnsB[0].ID because we trapped that in the if block above and emulated a timeout
-// 			case txnsB[1].ID:
-// 				assembleResponseEvent.PostAssembly = buildersB[1].BuildPostAssembly()
-// 			case txnsC[0].ID:
-// 				assembleResponseEvent.PostAssembly = buildersC[0].BuildPostAssembly()
-// 			case txnsC[1].ID:
-// 				assembleResponseEvent.PostAssembly = buildersC[1].BuildPostAssembly()
-// 			case txnsD[0].ID:
-// 				assembleResponseEvent.PostAssembly = buildersD[0].BuildPostAssembly()
-// 			case txnsD[1].ID:
-// 				assembleResponseEvent.PostAssembly = buildersD[1].BuildPostAssembly()
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 			}
-// 			assemblingTxnID = uuid.Nil
-// 			err = coordinator.propagateEventToTransaction(ctx, assembleResponseEvent)
-// 			assert.NoError(t, err)
-// 		}
-// 	}
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// 	//After the first round, we should have B0, C0 and D0 in endorsing state while A0 is in pooled state
-// 	transactionsInEndorsing := coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Endorsement_Gathering})
-// 	endorsingTransactionIDs := make([]uuid.UUID, len(transactionsInEndorsing))
-// 	for i, txn := range transactionsInEndorsing {
-// 		endorsingTransactionIDs[i] = txn.ID
-// 	}
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-// 	assert.Len(t, transactionsInEndorsing, 6)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsA[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsC[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsD[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsA[1].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsC[1].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsD[1].ID)
+	// Transition first transaction to endorsement gathering
+	event := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Endorsement_Gathering,
+	}
 
-// 	//slow queue should get a look in occasionally
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx2, "should return next transaction after transition")
+	assert.Equal(t, tx2.ID, selectedTx2.ID, "should return the next pooled transaction")
+	assert.NotNil(t, selector.currentAssemblingOriginator, "should set current assembling originator to new transaction")
+	assert.Equal(t, tx2.ID, selector.currentAssemblingOriginator.txID, "should set current assembling originator to new transaction ID")
+}
 
-// 	transactionsInAssembling := coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Assembling})
-// 	assert.Len(t, transactionsInAssembling, 1)
-// 	assert.Equal(t, txnsB[0].ID, transactionsInAssembling[0].ID)
+func TestSelectNextTransactionToAssemble_AllowsSelectionAfterTransitionToPooled(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// }
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// func TestSelectTransaction_FairnessAcrossSenders(t *testing.T) {
-// 	// When there are multiple transactions from multiple senders arriving at roughly the same time, ensure that all senders get a fair look in
-// 	ctx := context.Background()
-// 	testSenderA := "alice@node1"
-// 	testSenderB := "bob@node2"
-// 	testSenderC := "carol@node3"
-// 	testSenderD := "dave@node4"
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// 	coordinator, mocks := NewCoordinatorForUnitTest(t, ctx, []string{testSenderA, testSenderB, testSenderC, testSenderD})
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-// 	var assemblingTxnID uuid.UUID
-// 	var assembleRequestID uuid.UUID
-// 	mocks.messageSender.On(
-// 		"SendAssembleRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // sender
-// 		mock.Anything, // transaction ID
-// 		mock.Anything, // Idempotency key
-// 		mock.Anything, // transactionPreassembly
-// 	).Return(nil).Run(func(args mock.Arguments) {
-// 		assemblingTxnID = args.Get(2).(uuid.UUID)
-// 		assembleRequestID = args.Get(3).(uuid.UUID)
-// 	})
-// 	mocks.messageSender.On("SendEndorsementRequest",
-// 		mock.Anything, // ctx
-// 		mock.Anything, // idempotency key
-// 		mock.Anything, // party
-// 		mock.Anything, // attestation request
-// 		mock.Anything, // transaction specification
-// 		mock.Anything, // verifiers
-// 		mock.Anything, // signatures
-// 		mock.Anything, // input states
-// 		mock.Anything, // output states
-// 		mock.Anything, // info states
-// 	).Return(nil).Maybe()
+	// Transition first transaction back to pooled (e.g., timeout)
+	event := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Pooled,
+	}
 
-// 	//NOTE: this test is not sensitive to which order the transactions are selected in, only that we get one transaction from each sender in endorsing state before the next transaction from each sender is selected
-// 	buildersA := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderA)
-// 	buildersB := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderB)
-// 	buildersC := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderC)
-// 	buildersD := testutil.NewPrivateTransactionBuilderListForTesting(2).Address(*coordinator.contractAddress).Sender(testSenderD)
-// 	txnsA := buildersA.BuildSparse()
-// 	txnsB := buildersB.BuildSparse()
-// 	txnsC := buildersC.BuildSparse()
-// 	txnsD := buildersD.BuildSparse()
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx2, "should return next transaction after transition to pooled")
+	assert.Equal(t, tx2.ID, selectedTx2.ID, "should return the next pooled transaction")
+}
 
-// 	err := coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderA,
-// 		Transactions: txnsA,
-// 	})
-// 	assert.NoError(t, err)
+func TestSelectNextTransactionToAssemble_AllowsSelectionAfterTransitionToReverted(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderB,
-// 		Transactions: txnsB,
-// 	})
-// 	assert.NoError(t, err)
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderC,
-// 		Transactions: txnsC,
-// 	})
-// 	assert.NoError(t, err)
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// 	err = coordinator.HandleEvent(ctx, &TransactionsDelegatedEvent{
-// 		Sender:       testSenderD,
-// 		Transactions: txnsD,
-// 	})
-// 	assert.NoError(t, err)
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-// 	mocks.engineIntegration.On(
-// 		"WriteLockAndDistributeStatesForTransaction",
-// 		mock.Anything, // ctx
-// 		mock.MatchedBy(privateTransactionMatcher(txnsA[0].ID, txnsB[0].ID, txnsC[0].ID, txnsD[0].ID)),
-// 	).Return(nil)
+	// Transition first transaction to reverted
+	event := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Reverted,
+	}
 
-// 	for range 4 {
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx2, "should return next transaction after transition to reverted")
+	assert.Equal(t, tx2.ID, selectedTx2.ID, "should return the next pooled transaction")
+}
 
-// 		//Send a success
-// 		assembleResponseEvent := &transaction.AssembleSuccessEvent{}
-// 		assembleResponseEvent.TransactionID = assemblingTxnID
-// 		assembleResponseEvent.RequestID = assembleRequestID
+func TestSelectNextTransactionToAssemble_AllowsSelectionAfterTransitionToConfirmingDispatchable(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 		switch assemblingTxnID {
-// 		case txnsA[0].ID:
-// 			assembleResponseEvent.PostAssembly = buildersA[0].BuildPostAssembly()
-// 		case txnsB[0].ID:
-// 			assembleResponseEvent.PostAssembly = buildersB[0].BuildPostAssembly()
-// 		case txnsC[0].ID:
-// 			assembleResponseEvent.PostAssembly = buildersC[0].BuildPostAssembly()
-// 		case txnsD[0].ID:
-// 			assembleResponseEvent.PostAssembly = buildersD[0].BuildPostAssembly()
-// 		default:
-// 			assert.Failf(t, "unexpected assembling transaction ID %s", assemblingTxnID.String())
-// 		}
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 		assemblingTxnID = uuid.Nil
-// 		err = coordinator.propagateEventToTransaction(ctx, assembleResponseEvent)
-// 		assert.NoError(t, err)
-// 		assert.NotEqual(t, uuid.Nil, assemblingTxnID)
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// 	}
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-// 	//After the first round, we should have one transaction from each sender in endorsing state and the remaning transaction from each sender either in assembling or pooled state.  We are not worried about which one is in assembling vs pooled because that can be random
-// 	transactionsInEndorsing := coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Endorsement_Gathering})
-// 	endorsingTransactionIDs := make([]uuid.UUID, len(transactionsInEndorsing))
-// 	for i, txn := range transactionsInEndorsing {
-// 		endorsingTransactionIDs[i] = txn.ID
-// 	}
+	// Transition first transaction to confirming dispatchable
+	event := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Confirming_Dispatchable,
+	}
 
-// 	assert.Len(t, transactionsInEndorsing, 4)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsA[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsB[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsC[0].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsD[0].ID)
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx2, "should return next transaction after transition to confirming dispatchable")
+	assert.Equal(t, tx2.ID, selectedTx2.ID, "should return the next pooled transaction")
+}
 
-// 	//do another round of 4 transactions and ensure we get the next transactions from each sender
-// 	mocks.engineIntegration.On(
-// 		"WriteLockAndDistributeStatesForTransaction",
-// 		mock.Anything, // ctx
-// 		mock.MatchedBy(privateTransactionMatcher(txnsA[1].ID, txnsB[1].ID, txnsC[1].ID, txnsD[1].ID)), //match the second transactions from each sender
-// 	).Return(nil)
+func TestSelectNextTransactionToAssemble_ErrorWhenTransactionNotFound(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 	for i := range 4 {
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// 		//Send a success
-// 		assembleResponseEvent := &transaction.AssembleSuccessEvent{}
-// 		assembleResponseEvent.TransactionID = assemblingTxnID
-// 		assembleResponseEvent.RequestID = assembleRequestID
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// 		switch assemblingTxnID {
-// 		case txnsA[1].ID:
-// 			assembleResponseEvent.PostAssembly = buildersA[1].BuildPostAssembly()
-// 		case txnsB[1].ID:
-// 			assembleResponseEvent.PostAssembly = buildersB[1].BuildPostAssembly()
-// 		case txnsC[1].ID:
-// 			assembleResponseEvent.PostAssembly = buildersC[1].BuildPostAssembly()
-// 		case txnsD[1].ID:
-// 			assembleResponseEvent.PostAssembly = buildersD[1].BuildPostAssembly()
-// 		default:
-// 			assert.Failf(t, "unexpected assembling transaction ID %s", assemblingTxnID.String())
-// 		}
-// 		assemblingTxnID = uuid.Nil
-// 		err = coordinator.propagateEventToTransaction(ctx, assembleResponseEvent)
-// 		assert.NoError(t, err)
-// 		// on the last iteration, we don't expect a new transaction to be selected
-// 		if i < 3 {
-// 			assert.NotEqual(t, uuid.Nil, assemblingTxnID)
-// 		}
+	// Create event for transaction not in pool
+	unknownTxID := uuid.New()
+	event := &TransactionStateTransitionEvent{
+		TransactionID: unknownTxID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Endorsement_Gathering,
+	}
 
-// 	}
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	assert.Error(t, err, "should return error when transaction not found in pool")
+	assert.Nil(t, selectedTx2, "should return nil transaction on error")
+}
 
-// 	transactionsInEndorsing = coordinator.getTransactionsInStates(ctx, []transaction.State{transaction.State_Endorsement_Gathering})
-// 	endorsingTransactionIDs = make([]uuid.UUID, len(transactionsInEndorsing))
-// 	for i, txn := range transactionsInEndorsing {
-// 		endorsingTransactionIDs[i] = txn.ID
-// 	}
+func TestSelectNextTransactionToAssemble_IgnoresEventForDifferentTransaction(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
 
-// 	assert.Len(t, transactionsInEndorsing, 8)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsA[1].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsB[1].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsC[1].ID)
-// 	assert.Contains(t, endorsingTransactionIDs, txnsD[1].ID)
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
 
-// }
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
 
-// MRW TODO - commented out above test while deciding what "fair" TX selection looks like
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
 
-//TODO test that, in spite of the fairness across senders, that if one particular sender has delegated a transaction a long time ago then a whole bunch of senders come in with new transactions, the old transaction should be selected first
+	// Create event for different transaction (not the one currently assembling)
+	otherTx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, otherTx)
+
+	event := &TransactionStateTransitionEvent{
+		TransactionID: otherTx.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Endorsement_Gathering,
+	}
+
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event)
+	require.NoError(t, err)
+	assert.Nil(t, selectedTx2, "should return nil when event is for different transaction")
+}
+
+func TestSelectNextTransactionToAssemble_TransitionFromEndorsementGatheringToPooled(t *testing.T) {
+	ctx := context.Background()
+	pool := newMockTransactionPool()
+	selector := NewTransactionSelector(ctx, pool).(*transactionSelector)
+
+	// Create and select first transaction
+	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx1)
+
+	selectedTx, err := selector.SelectNextTransactionToAssemble(ctx, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx)
+
+	// Transition to endorsement gathering first (this clears currentAssemblingOriginator)
+	event1 := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Endorsement_Gathering,
+	}
+
+	// Add second transaction to pool
+	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	pool.AddTransactionToBackOfPool(ctx, tx2)
+
+	// This should select tx2 and clear the currentAssemblingOriginator from tx1
+	selectedTx2, err := selector.SelectNextTransactionToAssemble(ctx, event1)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx2)
+	assert.Equal(t, tx2.ID, selectedTx2.ID)
+
+	// Now transition tx1 from endorsement gathering back to pooled
+	// Since tx1 is not the current assembling transaction, this event should be ignored
+	// but we should still be able to select a new transaction since tx2 is now assembling
+	event2 := &TransactionStateTransitionEvent{
+		TransactionID: tx1.ID,
+		From:          transaction.State_Endorsement_Gathering,
+		To:            transaction.State_Pooled,
+	}
+
+	// Try to select - should return nil because tx2 is still assembling
+	selectedTx3, err := selector.SelectNextTransactionToAssemble(ctx, event2)
+	require.NoError(t, err)
+	assert.Nil(t, selectedTx3, "should return nil when transaction is still being assembled")
+
+	// Now transition tx2 out of assembling to allow selection
+	event3 := &TransactionStateTransitionEvent{
+		TransactionID: tx2.ID,
+		From:          transaction.State_Assembling,
+		To:            transaction.State_Endorsement_Gathering,
+	}
+
+	// Add tx1 back to pool (it was transitioned to pooled)
+	pool.AddTransactionToBackOfPool(ctx, tx1)
+
+	// Now we should be able to select tx1
+	selectedTx4, err := selector.SelectNextTransactionToAssemble(ctx, event3)
+	require.NoError(t, err)
+	assert.NotNil(t, selectedTx4, "should allow selection after transition from assembling")
+	assert.Equal(t, tx1.ID, selectedTx4.ID, "should return the transaction that was re-pooled")
+}

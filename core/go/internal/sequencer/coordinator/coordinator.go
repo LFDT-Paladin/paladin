@@ -98,6 +98,8 @@ type coordinator struct {
 	heartbeatIntervalsSinceStateChange         int
 	heartbeatInterval                          common.Duration
 	transactionsByID                           map[uuid.UUID]*transaction.Transaction
+	pooledTransactionsMutex                    sync.RWMutex
+	pooledTransactions                         []*transaction.Transaction
 	currentBlockHeight                         uint64
 	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.FlushPoint
 	grapher                                    transaction.Grapher
@@ -166,6 +168,7 @@ func NewCoordinator(
 	c := &coordinator{
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]*transaction.Transaction),
+		pooledTransactions:                 make([]*transaction.Transaction, 0, maxInflightTransactions),
 		domainAPI:                          domainAPI,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
@@ -203,7 +206,6 @@ func NewCoordinator(
 	go c.dispatchLoop(ctx)
 
 	return c, nil
-
 }
 
 func (c *coordinator) eventLoop(ctx context.Context) {
@@ -442,6 +444,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.closingGracePeriod,
 			c.grapher,
 			c.metrics,
+			c.AddTransactionToBackOfPool,
 			c.queueForDispatch,
 			func(ctx context.Context, t *transaction.Transaction, to, from transaction.State) {
 				// TX state changed, check if we need to be selecting the next transaction for this sequencer
@@ -529,7 +532,7 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 		matchingStates[state] = true
 	}
 
-	log.L(ctx).Debugf("looking across %d transactions for those in states: %+v", len(c.transactionsByID), states)
+	log.L(ctx).Tracef("checking %d transactions for those in states: %+v", len(c.transactionsByID), states)
 	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
 	for _, txn := range c.transactionsByID {
 		if matchingStates[txn.GetState()] {
@@ -537,6 +540,7 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 			matchingTxns = append(matchingTxns, txn)
 		}
 	}
+	log.L(ctx).Tracef("%d transactions in states: %+v", len(matchingTxns), states)
 	return matchingTxns
 }
 

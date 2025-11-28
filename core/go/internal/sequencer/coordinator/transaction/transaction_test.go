@@ -239,6 +239,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		5,
 		grapher,
 		nil,
+		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
 		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
 		func(ctx context.Context, txn *Transaction, from, to State) {
 		},

@@ -471,6 +471,16 @@ func (t *Transaction) evaluateTransitions(ctx context.Context, event common.Even
 				}
 			}
 
+			// For pooled transactions, when we are pooling (or re-pooling) we push the tranasction
+			// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
+			// node. If a transaction needs re-assembly after a revert, it will be processed after
+			// a new transaction that hasn't ever been assembled. transactionsById is unordered so we
+			// maintain a separate queue to achieve ordered behaviour.
+			if rule.To == State_Pooled {
+				// Push to the back of the pooled transactions queue
+				t.addToPool(ctx, t)
+			}
+
 			// if there is a state change notification function, run it
 			if t.notifyOfTransition != nil {
 				t.notifyOfTransition(ctx, t, sm.currentState, previousState)

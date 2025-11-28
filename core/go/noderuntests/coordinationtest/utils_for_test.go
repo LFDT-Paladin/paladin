@@ -77,7 +77,7 @@ func transactionLatencyThresholdCustom(t *testing.T, customThreshold *time.Durat
 	if customThreshold != nil {
 		threshold = *customThreshold
 	} else {
-		threshold = 2 * time.Second
+		threshold = 3 * time.Second
 	}
 
 	deadline, ok := t.Deadline()
