@@ -323,3 +323,17 @@ func TestRPCAuthHandler_RequestToPlugin_Unsupported(t *testing.T) {
 	// but it's already covered by the handler's switch statement
 	t.Skip("Unsupported request handling is covered by the switch statement in RequestToPlugin")
 }
+
+func TestRPCAuthHandler_ClosePlugin(t *testing.T) {
+	authPlugin := &authPlugin{
+		factory: func(callbacks RPCAuthCallbacks) RPCAuthAPI {
+			return &RPCAuthAPIBase{
+				Functions: &RPCAuthAPIFunctions{},
+			}
+		},
+	}
+	handler := authPlugin.NewHandler(nil)
+	msg, err := handler.ClosePlugin(context.Background())
+	require.NoError(t, err)
+	assert.Nil(t, msg)
+}

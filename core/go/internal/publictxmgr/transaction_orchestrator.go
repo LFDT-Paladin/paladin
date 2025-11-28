@@ -418,12 +418,21 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			// as we are the only thread that writes to the submissions table, for
 			// inflight transactions we have in memory that would not be overwritten
 			// by this query.
-			additional, err = oc.runTransactionQuery(ctx, oc.p.NOTX(), false /* just the individual transactions - no duplication for bindings */, nil, q)
+			additional, err = oc.runTransactionQuery(ctx, oc.p.NOTX(), true /* retrieve the private TX bindings as well */, nil, q)
 			return true, err
 		})
 		if err != nil {
 			log.L(ctx).Infof("Orchestrator poll and process: context cancelled while retrying")
 			return -1, len(oc.inFlightTxs)
+		}
+
+		for _, tx := range additional {
+			if tx.To != nil {
+				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.To.String(), tx.Binding.Transaction)
+				if err != nil {
+					log.L(ctx).Warnf("Orchestrator poll and process: error while handing TX collected to sequencer for %d: %s", tx.PublicTxnID, err)
+				}
+			}
 		}
 
 		// Synchronously we ensure that we have a nonce for all of these.
@@ -437,10 +446,19 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			return
 		}
 
+		for _, tx := range additional {
+			if tx.To != nil {
+				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.To.String(), tx.Binding.Transaction)
+				if err != nil {
+					log.L(ctx).Warnf("Orchestrator poll and process: error while handing nonce assignment to sequencer for %d: %s", tx.PublicTxnID, err)
+				}
+			}
+		}
+
 		log.L(ctx).Debugf("Orchestrator poll and process: polled %d items, space: %d", len(additional), spaces)
 		for _, ptx := range additional {
 			queueUpdated = true
-			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx)
+			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
 			txStage := it.stateManager.GetStage(ctx)
 			if string(txStage) == "" {

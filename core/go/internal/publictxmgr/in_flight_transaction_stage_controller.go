@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 type InFlightStatus int
@@ -72,6 +73,8 @@ type inFlightTransactionStageController struct {
 	updates   []*DBPublicTxn
 	updateMux sync.Mutex
 
+	privateTXID uuid.UUID
+
 	// deleteRequested bool // figure out what's the reliable approach for deletion
 }
 
@@ -104,6 +107,7 @@ func NewInFlightTransactionStageController(
 	ptm *pubTxManager,
 	oc *orchestrator,
 	ptx *DBPublicTxn,
+	privateTXID uuid.UUID,
 ) *inFlightTransactionStageController {
 	var txTimeline []PointOfTime
 	if oc.timeLineLoggingMaxEntries > 0 {
@@ -119,6 +123,7 @@ func NewInFlightTransactionStageController(
 		txInflightTime: time.Now(),
 		txInDBTime:     ptx.Created.Time(),
 		txTimeline:     txTimeline,
+		privateTXID:    privateTXID,
 	}
 
 	ift.MarkTime("wait_in_inflight_queue")
@@ -167,6 +172,7 @@ func (pot *PointOfTime) String() string {
 }
 func (it *inFlightTransactionStageController) TriggerNewStageRun(ctx context.Context, stage InFlightTxStage, substatus BaseTxSubStatus) {
 	it.MarkTime(fmt.Sprintf("stage_%s_wait_to_trigger_async_execution", string(stage)))
+
 	it.stateManager.GetCurrentGeneration(ctx).StartNewStageContext(ctx, stage, substatus)
 }
 
@@ -402,6 +408,10 @@ func (it *inFlightTransactionStageController) processSigningStageOutput(ctx cont
 			Created:         pldtypes.TimestampNow(),
 			TransactionHash: *rsc.StageOutput.SignOutput.TxHash,
 			GasPricing:      gasPriceJSON,
+			PrivateTXID:     it.privateTXID,
+		}
+		if rsc.InMemoryTx.GetTo() != nil {
+			rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.ContractAddress = rsc.InMemoryTx.GetTo().String()
 		}
 		rsc.StageOutputsToBePersisted.TxUpdates.NewValues.TransactionHash = rsc.StageOutput.SignOutput.TxHash
 	}
@@ -645,13 +655,14 @@ func (it *inFlightTransactionStageController) TriggerSignTx(ctx context.Context)
 	return nil
 }
 
-func (it *inFlightTransactionStageController) TriggerSubmitTx(ctx context.Context, signedMessage []byte, calculatedHash *pldtypes.Bytes32) error {
+func (it *inFlightTransactionStageController) TriggerSubmitTx(ctx context.Context, signedMessage []byte, calculatedHash *pldtypes.Bytes32, contractAddress string) error {
 	generation := it.stateManager.GetCurrentGeneration(ctx)
 	signerNonce := it.stateManager.GetSignerNonce()
 	lastSubmitTime := it.stateManager.GetLastSubmitTime()
 
 	it.executeAsync(func() {
-		txHash, submissionTime, errReason, submissionOutcome, err := it.submitTX(ctx, signedMessage, calculatedHash, signerNonce, lastSubmitTime, generation.IsCancelled)
+		txHash, submissionTime, errReason, submissionOutcome, err := it.submitTX(ctx, signedMessage, calculatedHash, signerNonce, contractAddress, lastSubmitTime, generation.IsCancelled)
+
 		generation.AddSubmitOutput(ctx, txHash, submissionTime, submissionOutcome, errReason, err)
 	}, ctx, generation, false)
 	return nil
