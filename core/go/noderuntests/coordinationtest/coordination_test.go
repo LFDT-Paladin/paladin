@@ -782,7 +782,7 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyG
 	_, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
 
-	// Bob's node has the receipt - TODO: the test is checking for the full transaction and the receipt?
+	// Bob's node has the full transaction and receipt
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
 		transactionLatencyThreshold(t),
