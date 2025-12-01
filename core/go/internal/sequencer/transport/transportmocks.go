@@ -42,6 +42,52 @@ func (_m *MockLoopbackTransportManager) EXPECT() *MockLoopbackTransportManager_E
 	return &MockLoopbackTransportManager_Expecter{mock: &_m.Mock}
 }
 
+// LoopbackQueue provides a mock function for the type MockLoopbackTransportManager
+func (_mock *MockLoopbackTransportManager) LoopbackQueue() chan *components.FireAndForgetMessageSend {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoopbackQueue")
+	}
+
+	var r0 chan *components.FireAndForgetMessageSend
+	if returnFunc, ok := ret.Get(0).(func() chan *components.FireAndForgetMessageSend); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(chan *components.FireAndForgetMessageSend)
+		}
+	}
+	return r0
+}
+
+// MockLoopbackTransportManager_LoopbackQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoopbackQueue'
+type MockLoopbackTransportManager_LoopbackQueue_Call struct {
+	*mock.Call
+}
+
+// LoopbackQueue is a helper method to define mock.On call
+func (_e *MockLoopbackTransportManager_Expecter) LoopbackQueue() *MockLoopbackTransportManager_LoopbackQueue_Call {
+	return &MockLoopbackTransportManager_LoopbackQueue_Call{Call: _e.mock.On("LoopbackQueue")}
+}
+
+func (_c *MockLoopbackTransportManager_LoopbackQueue_Call) Run(run func()) *MockLoopbackTransportManager_LoopbackQueue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockLoopbackTransportManager_LoopbackQueue_Call) Return(fireAndForgetMessageSendCh chan *components.FireAndForgetMessageSend) *MockLoopbackTransportManager_LoopbackQueue_Call {
+	_c.Call.Return(fireAndForgetMessageSendCh)
+	return _c
+}
+
+func (_c *MockLoopbackTransportManager_LoopbackQueue_Call) RunAndReturn(run func() chan *components.FireAndForgetMessageSend) *MockLoopbackTransportManager_LoopbackQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Send provides a mock function for the type MockLoopbackTransportManager
 func (_mock *MockLoopbackTransportManager) Send(ctx context.Context, send *components.FireAndForgetMessageSend) error {
 	ret := _mock.Called(ctx, send)
@@ -1232,6 +1278,57 @@ func (_c *MockTransportWriter_SendTransactionSubmitted_Call) Return(err error) *
 }
 
 func (_c *MockTransportWriter_SendTransactionSubmitted_Call) RunAndReturn(run func(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error) *MockTransportWriter_SendTransactionSubmitted_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Start provides a mock function for the type MockTransportWriter
+func (_mock *MockTransportWriter) Start(ctx context.Context) error {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockTransportWriter_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type MockTransportWriter_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockTransportWriter_Expecter) Start(ctx interface{}) *MockTransportWriter_Start_Call {
+	return &MockTransportWriter_Start_Call{Call: _e.mock.On("Start", ctx)}
+}
+
+func (_c *MockTransportWriter_Start_Call) Run(run func(ctx context.Context)) *MockTransportWriter_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTransportWriter_Start_Call) Return(err error) *MockTransportWriter_Start_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockTransportWriter_Start_Call) RunAndReturn(run func(ctx context.Context) error) *MockTransportWriter_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

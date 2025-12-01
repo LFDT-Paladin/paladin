@@ -63,6 +63,10 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.numberOfSentDispatchConfirmationRequests = 0
 }
 
+func (r *SentMessageRecorder) Start(ctx context.Context) error {
+	return nil
+}
+
 func (r *SentMessageRecorder) HasSentAssembleRequest() bool {
 	return r.hasSentAssembleRequest
 }

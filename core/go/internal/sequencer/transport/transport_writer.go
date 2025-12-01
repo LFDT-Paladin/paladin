@@ -34,6 +34,7 @@ import (
 )
 
 type TransportWriter interface {
+	Start(ctx context.Context) error
 	SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error
 	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error
 	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
@@ -65,6 +66,12 @@ type transportWriter struct {
 	transportManager  components.TransportManager
 	loopbackTransport LoopbackTransportManager
 	contractAddress   *pldtypes.EthAddress
+}
+
+func (tw *transportWriter) Start(ctx context.Context) error {
+	// We use a separate goroutine to send loopback messages to free up the event loops.
+	go tw.loopbackSend(ctx)
+	return nil
 }
 
 func (tw *transportWriter) SendDelegationRequest(
@@ -635,18 +642,33 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 		// "Localhost" loopback
 		log.L(ctx).Debugf("sending %s to loopback interface", payload.MessageType)
 
-		// Run the loopback transport in a goroutine to avoid blocking the main thread. This is important for the
-		// channel-based event queue to ensure the queue consumer is not blocked when we happen to be sending
-		// to ourselves
-		go func() {
-			err := tw.loopbackTransport.Send(ctx, payload)
-			if err != nil {
-				log.L(ctx).Errorf("error sending %s to loopback interface: %s", payload.MessageType, err)
-			}
-		}()
+		tw.loopbackTransport.LoopbackQueue() <- payload
+
 		return nil
 	}
 	log.L(ctx).Debugf("sending %s to node: %s", payload.MessageType, payload.Node)
 	err := tw.transportManager.Send(ctx, payload)
 	return err
+}
+
+// Run the loopback transport in a goroutine to avoid blocking the event loop. This is important for the
+// channel-based event queue to ensure the queue consumer is not blocked when we happen to be sending
+// to ourselves. We have a queue of 1 to ensure FIFO order within a node for local fire and forget messages.
+func (tw *transportWriter) loopbackSend(ctx context.Context) {
+	for {
+		select {
+		case queuedPayload, ok := <-tw.loopbackTransport.LoopbackQueue():
+			if !ok {
+				log.L(ctx).Infof("shutting down loopback sender")
+				return
+			}
+			err := tw.loopbackTransport.Send(ctx, queuedPayload)
+			if err != nil {
+				log.L(ctx).Errorf("error sending %s to loopback interface: %s", queuedPayload.MessageType, err)
+			}
+		case <-ctx.Done():
+			log.L(ctx).Infof("shutting down loopback sender")
+			return
+		}
+	}
 }

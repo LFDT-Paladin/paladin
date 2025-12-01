@@ -63,8 +63,6 @@ func (seq *sequencer) GetTransportWriter() transport.TransportWriter {
 
 // An instance of a sequencer (one instance per domain contract)
 type sequencer struct {
-	ctx context.Context
-
 	// The 3 main components of the sequencer
 	originator      originator.SeqOriginator
 	transportWriter transport.TransportWriter
@@ -143,9 +141,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			transportWriter := transport.NewTransportWriter(&contractAddr, sMgr.nodeName, sMgr.components.TransportManager(), sMgr.HandlePaladinMsg)
 
 			sMgr.engineIntegration = common.NewEngineIntegration(sMgr.ctx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, delegateDomainContext, sMgr)
-
 			sequencer := &sequencer{
-				ctx:             sMgr.ctx,
 				contractAddress: contractAddr.String(),
 				transportWriter: transportWriter,
 			}
@@ -156,7 +152,10 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				return nil, err
 			}
 
-			coordinator, err := coordinator.NewCoordinator(sMgr.ctx,
+			ctx, cancelCtx := context.WithCancel(sMgr.ctx)
+
+			coordinator, err := coordinator.NewCoordinator(ctx,
+				cancelCtx,
 				&contractAddr,
 				domainAPI,
 				transportWriter,
@@ -215,6 +214,12 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			}
 
 			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("created  | %s", contractAddr.String())
+
+			err = transportWriter.Start(ctx)
+			if err != nil {
+				err = i18n.NewError(ctx, msgs.MsgSequencerInternalError, "failed to start transport writer for contract %s: %s", contractAddr.String(), err)
+				return nil, err
+			}
 		}
 	} else {
 		// We already have a sequencer initialized but we might not have an initial coordinator selected

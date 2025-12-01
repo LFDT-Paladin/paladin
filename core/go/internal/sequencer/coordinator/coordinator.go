@@ -89,6 +89,9 @@ type SeqCoordinator interface {
 }
 
 type coordinator struct {
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+
 	/* State */
 	stateMachine                               *StateMachine
 	activeCoordinatorNode                      string
@@ -145,6 +148,7 @@ type coordinator struct {
 
 func NewCoordinator(
 	ctx context.Context,
+	cancelCtx context.CancelFunc,
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
 	transportWriter transport.TransportWriter,
@@ -166,6 +170,8 @@ func NewCoordinator(
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
 	c := &coordinator{
+		ctx:                                ctx,
+		cancelCtx:                          cancelCtx,
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]*transaction.Transaction),
 		pooledTransactions:                 make([]*transaction.Transaction, 0, maxInflightTransactions),
@@ -240,6 +246,7 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-c.stopEventLoop:
+		case <-c.ctx.Done():
 			log.L(ctx).Infof("coordinator event loop cancelled")
 			return
 		}
@@ -650,9 +657,10 @@ func (c *coordinator) Stop() {
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
 	// MRW TODO - The state machine doesn't really have a "please take over from me" path. Not a current priority
-	// but clean "please take over" path may be needed in the future
+	// but it will be needed in the future.
 	c.stopEventLoop <- struct{}{}
 	c.stopDispatchLoop <- struct{}{}
+	c.cancelCtx()
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.

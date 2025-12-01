@@ -23,16 +23,19 @@ import (
 
 type LoopbackTransportManager interface {
 	Send(ctx context.Context, send *components.FireAndForgetMessageSend) error
+	LoopbackQueue() chan *components.FireAndForgetMessageSend
 }
 
 func NewLoopbackTransportWriter(loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) *loopbackTransportWriter {
 	return &loopbackTransportWriter{
 		loopbackHandler: loopbackHandler,
+		loopbackQueue:   make(chan *components.FireAndForgetMessageSend, 1),
 	}
 }
 
 type loopbackTransportWriter struct {
 	loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)
+	loopbackQueue   chan *components.FireAndForgetMessageSend
 }
 
 func (ltw *loopbackTransportWriter) Send(ctx context.Context, send *components.FireAndForgetMessageSend) error {
@@ -49,4 +52,8 @@ func (ltw *loopbackTransportWriter) Send(ctx context.Context, send *components.F
 	}
 	ltw.loopbackHandler(ctx, receivedMessage)
 	return nil
+}
+
+func (ltw *loopbackTransportWriter) LoopbackQueue() chan *components.FireAndForgetMessageSend {
+	return ltw.loopbackQueue
 }

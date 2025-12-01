@@ -180,8 +180,10 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
 	}
 
+	ctx, cancelCtx := context.WithCancel(ctx)
 	coordinator, err := NewCoordinator(
 		ctx,
+		cancelCtx,
 		b.contractAddress, // Contract address,
 		b.domainAPI,
 		mocks.SentMessageRecorder,
