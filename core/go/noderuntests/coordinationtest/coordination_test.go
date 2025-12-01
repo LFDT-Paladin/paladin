@@ -479,10 +479,8 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 		stopNode(t, bob)
 	})
 
-	// Check that we did receive a receipt once the nodes restarted. Allow a little
-	// more time for coordination selection etc. TODO: there's no extra time being added?
+	// Check that we did receive a receipt once the nodes restarted
 	// We can't use Wait as the client in the SentTransaction is for the previous instance of the running node
-	// customThreshold := 3 * time.Second
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, *bobTx1.ID(), bob.GetClient(), false),
 		transactionLatencyThreshold(t),
@@ -844,10 +842,8 @@ func TestTransactionRevertDuringAssembly(t *testing.T) {
 }
 
 func TestTransactionRevertDuringEndorsement(t *testing.T) {
-	// TODO: this description doesn't match the test
-	// Test that we can start 2 nodes, then submit a transaction while one of them is stopped.
-	// The  node that is stopped is not a required verifier so the transaction should succeed
-	// without restarting that node.
+	// Test that a transaction which reverts at endorsement time is still successful
+	// due to the transaction being re-assembled and then successfully endorsed.
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "alice")
 
