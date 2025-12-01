@@ -65,7 +65,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
 		} else {
@@ -80,7 +80,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lock.TxId, lock.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.Outputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.LockedOutputs)...)
@@ -92,9 +92,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			n.recordTransactionInfo(ev, &types.NotoTransactionData_V0{
-				TransactionID: unlock.TxId,
-			}, res)
+			n.recordTransactionInfo(ev, unlock.TxId, nil, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
@@ -126,7 +124,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			// Transaction ID is not available in the event data, so we must decode it from the data field
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.ReadStates = append(res.ReadStates, n.parseStatesFromEvent(txData.TransactionID, unlockPrepared.LockedInputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoUnlockPrepared event in batch %s: %s", req.BatchId, err)
@@ -140,7 +138,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoLockDelegated event in batch %s: %s", req.BatchId, err)
 		}
@@ -160,7 +158,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			}
 			// For V1, TransactionID is not in TransactionData, but Transfer event doesn't have TxId either
 			// The TransactionID will be set from decodeTransactionData fallback (random if zero)
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
 		} else {
@@ -175,7 +173,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lock.TxId, lock.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.Outputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lock.TxId, lock.LockedOutputs)...)
@@ -187,9 +185,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			n.recordTransactionInfo(ev, &types.NotoTransactionData_V0{
-				TransactionID: unlock.TxId,
-			}, res)
+			n.recordTransactionInfo(ev, unlock.TxId, nil, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
@@ -220,7 +216,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 			res.ReadStates = append(res.ReadStates, n.parseStatesFromEvent(unlockPrepared.TxId, unlockPrepared.LockedInputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoUnlockPrepared event in batch %s: %s", req.BatchId, err)
@@ -234,7 +230,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoLockDelegated event in batch %s: %s", req.BatchId, err)
 		}
@@ -351,15 +347,15 @@ func (n *Noto) parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.Byt
 	return refs
 }
 
-func (n *Noto) recordTransactionInfo(ev *prototk.OnChainEvent, txData *types.NotoTransactionData_V0, res *prototk.HandleEventBatchResponse) {
+func (n *Noto) recordTransactionInfo(ev *prototk.OnChainEvent, txID pldtypes.Bytes32, infoStates []pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) {
 	res.TransactionsComplete = append(res.TransactionsComplete, &prototk.CompletedTransaction{
-		TransactionId: txData.TransactionID.String(),
+		TransactionId: txID.String(),
 		Location:      ev.Location,
 	})
-	for _, state := range txData.InfoStates {
+	for _, state := range infoStates {
 		res.InfoStates = append(res.InfoStates, &prototk.StateUpdate{
 			Id:            state.String(),
-			TransactionId: txData.TransactionID.String(),
+			TransactionId: txID.String(),
 		})
 	}
 }
