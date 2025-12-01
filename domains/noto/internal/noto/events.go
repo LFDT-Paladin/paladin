@@ -92,11 +92,9 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlock.Data)
-			if err != nil {
-				return err
-			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, &types.NotoTransactionData_V0{
+				TransactionID: unlock.TxId,
+			}, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
@@ -189,11 +187,9 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlock.Data)
-			if err != nil {
-				return err
-			}
-			n.recordTransactionInfo(ev, txData, res)
+			n.recordTransactionInfo(ev, &types.NotoTransactionData_V0{
+				TransactionID: unlock.TxId,
+			}, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)

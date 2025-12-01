@@ -905,6 +905,7 @@ func (n *Noto) decodeTransactionData(ctx context.Context, data pldtypes.HexBytes
 	if dataValues.TransactionID.IsZero() {
 		// If no transaction ID could be decoded, assign a random one
 		dataValues.TransactionID = pldtypes.RandBytes32()
+		log.L(ctx).Warnf("No transaction ID could be decoded from data %s, assigning a random one %s", data.String(), dataValues.TransactionID.String())
 	}
 	return &dataValues, nil
 }
