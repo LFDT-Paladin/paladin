@@ -892,7 +892,7 @@ func TestTransactionRevertDuringEndorsement(t *testing.T) {
 			"amount": "1002"
 		}`)). // Special value 1002 in the simple domain causes revert at endorsement time
 		Send().Wait(transactionLatencyThreshold(t))
-	require.NoError(t, aliceTx.Error()) // TODO: why is this not an error like the test describes?
+	require.NoError(t, aliceTx.Error())
 }
 
 func TestTransactionRevertOnBaseLedger(t *testing.T) {
