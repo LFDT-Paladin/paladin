@@ -134,7 +134,6 @@ func newSequencerManagerForTesting(t *testing.T, mocks *sequencerLifecycleTestMo
 
 func newSequencerForTesting(contractAddr *pldtypes.EthAddress, mocks *sequencerLifecycleTestMocks) *sequencer {
 	return &sequencer{
-		ctx:             context.Background(),
 		contractAddress: contractAddr.String(),
 		originator:      mocks.originator,
 		coordinator:     mocks.coordinator,
