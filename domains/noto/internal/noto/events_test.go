@@ -208,7 +208,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 		Outputs:       []pldtypes.Bytes32{},
 		LockedOutputs: []pldtypes.Bytes32{},
 		Signature:     pldtypes.MustParseHexBytes("0x1234"),
-		Data:          pldtypes.MustParseHexBytes("0x00010000"), // Bad transaction data
+		Data:          pldtypes.MustParseHexBytes("0x00010001"), // Bad transaction data
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -227,7 +227,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 	}
 
 	_, err = n.HandleEventBatch(ctx, req)
-	require.ErrorContains(t, err, "FF22047")
+	require.ErrorContains(t, err, "FF22045")
 }
 
 func TestHandleEventBatch_NotoUnlock(t *testing.T) {
@@ -322,7 +322,7 @@ func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
 		LockedOutputs: []pldtypes.Bytes32{},
 		Outputs:       []pldtypes.Bytes32{},
 		Signature:     pldtypes.MustParseHexBytes("0x1234"),
-		Data:          pldtypes.MustParseHexBytes("0x00010000"), // Bad transaction data
+		Data:          pldtypes.MustParseHexBytes("0x00010001"), // Bad transaction data
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -341,5 +341,5 @@ func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
 	}
 
 	_, err = n.HandleEventBatch(ctx, req)
-	require.ErrorContains(t, err, "FF22047")
+	require.ErrorContains(t, err, "FF22045")
 }

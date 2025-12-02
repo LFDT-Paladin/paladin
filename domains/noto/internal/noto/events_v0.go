@@ -31,7 +31,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var transfer NotoTransfer_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &transfer); err == nil {
-			txData, err := n.decodeTransactionData(ctx, transfer.Data)
+			txData, err := n.decodeTransactionDataV0(ctx, transfer.Data)
 			if err != nil {
 				return err
 			}
@@ -46,7 +46,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lock NotoLock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, lock.Data)
+			txData, err := n.decodeTransactionDataV0(ctx, lock.Data)
 			if err != nil {
 				return err
 			}
@@ -62,7 +62,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlock.Data)
+			txData, err := n.decodeTransactionDataV0(ctx, unlock.Data)
 			if err != nil {
 				return err
 			}
@@ -93,7 +93,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlockPrepared NotoUnlockPrepared_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlockPrepared); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlockPrepared.Data)
+			txData, err := n.decodeTransactionDataV0(ctx, unlockPrepared.Data)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockDelegated NotoLockDelegated_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockDelegated); err == nil {
-			txData, err := n.decodeTransactionData(ctx, lockDelegated.Data)
+			txData, err := n.decodeTransactionDataV0(ctx, lockDelegated.Data)
 			if err != nil {
 				return err
 			}

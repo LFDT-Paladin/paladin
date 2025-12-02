@@ -28,7 +28,7 @@ import (
 
 func sampleV0Data(t *testing.T, n *Noto) (txID pldtypes.Bytes32, data pldtypes.HexBytes) {
 	txID = pldtypes.RandBytes32()
-	data, err := n.encodeTransactionData(context.Background(), &prototk.TransactionSpecification{
+	data, err := n.encodeTransactionDataV0(context.Background(), &prototk.TransactionSpecification{
 		TransactionId: txID.String(),
 	}, []*prototk.EndorsableState{
 		{Id: pldtypes.RandBytes32().String()},

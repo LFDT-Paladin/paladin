@@ -61,13 +61,13 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var transfer NotoTransfer_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &transfer); err == nil {
-			txData, err := n.decodeTransactionData(ctx, transfer.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, transfer.Data)
 			if err != nil {
 				return err
 			}
 			n.recordTransactionInfo(ev, transfer.TxId, txData.InfoStates, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(transfer.TxId, transfer.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(transfer.TxId, transfer.Outputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoTransfer event in batch %s: %s", req.BatchId, err)
 		}
@@ -76,7 +76,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lock NotoLock_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, lock.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, lock.Data)
 			if err != nil {
 				return err
 			}
@@ -92,7 +92,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlock.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, unlock.Data)
 			if err != nil {
 				return err
 			}
@@ -123,7 +123,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlockPrepared NotoUnlockPrepared_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlockPrepared); err == nil {
-			txData, err := n.decodeTransactionData(ctx, unlockPrepared.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, unlockPrepared.Data)
 			if err != nil {
 				return err
 			}
@@ -137,7 +137,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockDelegated NotoLockDelegated_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockDelegated); err == nil {
-			txData, err := n.decodeTransactionData(ctx, lockDelegated.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, lockDelegated.Data)
 			if err != nil {
 				return err
 			}
