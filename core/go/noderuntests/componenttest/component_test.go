@@ -61,8 +61,8 @@ func newInstanceForComponentTestingWithDomainRegistry(t *testing.T) testutils.Co
 	return newInstanceForComponentTesting(t, deployDomainRegistry(t, "node1"), true, "node1")
 }
 
-func startNode(t *testing.T, party testutils.Party, nodeName string, domainConfig interface{}) {
-	party.Start(t, domainConfig, CONFIG_PATHS[nodeName], false)
+func startNode(t *testing.T, party testutils.Party, domainConfig interface{}) {
+	party.Start(t, domainConfig, CONFIG_PATHS[party.GetNodeName()], false)
 }
 
 func TestRunSimpleStorageEthTransaction(t *testing.T) {
@@ -708,14 +708,14 @@ func TestResolveIdentityFromRemoteNode(t *testing.T) {
 	//TODO shouldn't need domain registry for this test
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
-	startNode(t, alice, "node1", nil)
-	startNode(t, bob, "node2", nil)
+	startNode(t, alice, nil)
+	startNode(t, bob, nil)
 
 	client1 := alice.GetClient()
 	aliceIdentity := alice.GetIdentityLocator()
@@ -757,8 +757,8 @@ func TestCreateStateOnOneNodeSpendOnAnother(t *testing.T) {
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
@@ -767,8 +767,8 @@ func TestCreateStateOnOneNodeSpendOnAnother(t *testing.T) {
 		SubmitMode: domains.ENDORSER_SUBMISSION,
 	}
 
-	startNode(t, alice, "node1", domainConfig)
-	startNode(t, bob, "node2", domainConfig)
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
 
 	constructorParameters := &domains.ConstructorParameters{
 		From:            alice.GetIdentity(),
@@ -847,17 +847,17 @@ func TestNotaryDelegated(t *testing.T) {
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
-	notary := testutils.NewPartyForTesting(t, "notary", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+	notary := testutils.NewPartyForTestingWithNodeName(t, "notary", "node3", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig(), notary.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig(), notary.GetNodeConfig())
 	notary.AddPeer(alice.GetNodeConfig(), bob.GetNodeConfig())
 
-	startNode(t, alice, "node1", nil)
-	startNode(t, bob, "node2", nil)
-	startNode(t, notary, "node3", nil)
+	startNode(t, alice, nil)
+	startNode(t, bob, nil)
+	startNode(t, notary, nil)
 
 	ensurePeerConnections(t, ctx, alice, bob, notary)
 
@@ -940,17 +940,17 @@ func TestNotaryDelegatedPrepare(t *testing.T) {
 
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
-	notary := testutils.NewPartyForTesting(t, "notary", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+	notary := testutils.NewPartyForTestingWithNodeName(t, "notary", "node3", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig(), notary.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig(), notary.GetNodeConfig())
 	notary.AddPeer(alice.GetNodeConfig(), bob.GetNodeConfig())
 
-	startNode(t, alice, "node1", nil)
-	startNode(t, bob, "node2", nil)
-	startNode(t, notary, "node3", nil)
+	startNode(t, alice, nil)
+	startNode(t, bob, nil)
+	startNode(t, notary, nil)
 
 	ensurePeerConnections(t, ctx, alice, bob, notary)
 
@@ -1225,17 +1225,17 @@ func TestNotaryEndorseConcurrentSpends(t *testing.T) {
 
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
-	notary := testutils.NewPartyForTesting(t, "notary", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+	notary := testutils.NewPartyForTestingWithNodeName(t, "notary", "node3", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig(), notary.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig(), notary.GetNodeConfig())
 	notary.AddPeer(alice.GetNodeConfig(), bob.GetNodeConfig())
 
-	startNode(t, alice, "node1", nil)
-	startNode(t, bob, "node2", nil)
-	startNode(t, notary, "node3", nil)
+	startNode(t, alice, nil)
+	startNode(t, bob, nil)
+	startNode(t, notary, nil)
 
 	ensurePeerConnections(t, ctx, alice, bob, notary)
 
@@ -1335,9 +1335,9 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
-	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+	carol := testutils.NewPartyForTestingWithNodeName(t, "carol", "node3", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig(), carol.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig(), carol.GetNodeConfig())
@@ -1346,9 +1346,9 @@ func TestPrivacyGroupEndorsement(t *testing.T) {
 	domainConfig := &domains.SimpleStorageDomainConfig{
 		SubmitMode: domains.ONE_TIME_USE_KEYS,
 	}
-	startNode(t, alice, "node1", domainConfig)
-	startNode(t, bob, "node2", domainConfig)
-	startNode(t, carol, "node3", domainConfig)
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	startNode(t, carol, domainConfig)
 
 	endorsementSet := []string{alice.GetIdentityLocator(), bob.GetIdentityLocator(), carol.GetIdentityLocator()}
 
@@ -1434,9 +1434,9 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "node1")
 
-	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
-	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
-	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
+	alice := testutils.NewPartyForTestingWithNodeName(t, "alice", "node1", domainRegistryAddress)
+	bob := testutils.NewPartyForTestingWithNodeName(t, "bob", "node2", domainRegistryAddress)
+	carol := testutils.NewPartyForTestingWithNodeName(t, "carol", "node3", domainRegistryAddress)
 
 	alice.AddPeer(bob.GetNodeConfig(), carol.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig(), carol.GetNodeConfig())
@@ -1445,9 +1445,9 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 	domainConfig := &domains.SimpleStorageDomainConfig{
 		SubmitMode: domains.ONE_TIME_USE_KEYS,
 	}
-	startNode(t, alice, "node1", domainConfig)
-	startNode(t, bob, "node2", domainConfig)
-	startNode(t, carol, "node3", domainConfig)
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	startNode(t, carol, domainConfig)
 
 	endorsementSet := []string{alice.GetIdentityLocator(), bob.GetIdentityLocator(), carol.GetIdentityLocator()}
 

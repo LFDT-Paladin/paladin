@@ -121,12 +121,7 @@ func (testutils *componentTestInstance) GetPluginManager() plugins.UnitTestPlugi
 }
 
 func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddress, bindingConfig interface{}, peerNodes []interface{}, domainConfig interface{}, enableWS bool, configPath string, manualTestCleanup bool) ComponentTestInstance {
-	var binding *nodeConfiguration
-	if bindingConfig == nil {
-		binding = NewNodeConfiguration(t, "default")
-	} else {
-		binding = bindingConfig.(*nodeConfiguration)
-	}
+
 	f, err := os.CreateTemp("", "component-test.*.sock")
 	require.NoError(t, err)
 
@@ -139,6 +134,14 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	require.NoError(t, err)
 
 	conf, wsConfig := testConfig(t, enableWS, configPath)
+
+	var binding *nodeConfiguration
+	if bindingConfig == nil {
+		binding = NewNodeConfiguration(t, conf.NodeName)
+	} else {
+		binding = bindingConfig.(*nodeConfiguration)
+	}
+
 	i := &componentTestInstance{
 		grpcTarget: grpcTarget,
 		name:       binding.name,
@@ -453,7 +456,7 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 		Level:  confutil.P("debug"),
 		Output: confutil.P("file"),
 		File: pldconf.LogFileConfig{
-			Filename: confutil.P(fmt.Sprintf("build/testbed.component-test.%s.log", conf.NodeName)),
+			Filename: confutil.P("build/testbed.component-test.log"),
 		},
 	}
 	log.InitConfig(&conf.Log)
@@ -516,6 +519,7 @@ func buildTestCertificate(t *testing.T, subject pkix.Name, ca *x509.Certificate,
 type Party interface {
 	GetIdentity() string
 	GetName() string
+	GetNodeName() string
 	GetNodeConfig() *nodeConfiguration
 	GetClient() pldclient.PaladinClient
 	AddPeer(peers ...interface{})
@@ -536,6 +540,10 @@ func (p *partyForTesting) GetIdentity() string {
 
 func (p *partyForTesting) GetName() string {
 	return p.name
+}
+
+func (p *partyForTesting) GetNodeName() string {
+	return p.nodeName
 }
 
 func (p *partyForTesting) GetNodeConfig() *nodeConfiguration {
@@ -582,6 +590,7 @@ func (p *partyForTesting) DeploySimpleStorageDomainInstanceContract(t *testing.T
 
 type partyForTesting struct {
 	name                  string
+	nodeName              string
 	identity              string // identity used to resolve the verifier on its local node
 	identityLocator       string // fully qualified locator for the identity that can be used on other nodes
 	instance              ComponentTestInstance
@@ -592,9 +601,13 @@ type partyForTesting struct {
 }
 
 func NewPartyForTesting(t *testing.T, name string, domainRegistryAddress *pldtypes.EthAddress) Party {
-	nodeName := name
+	return NewPartyForTestingWithNodeName(t, name, name, domainRegistryAddress)
+}
+
+func NewPartyForTestingWithNodeName(t *testing.T, name string, nodeName string, domainRegistryAddress *pldtypes.EthAddress) Party {
 	party := &partyForTesting{
 		name:                  name,
+		nodeName:              nodeName,
 		peers:                 make([]interface{}, 0),
 		domainRegistryAddress: domainRegistryAddress,
 		identity:              fmt.Sprintf("wallets.org1.%s", name),
