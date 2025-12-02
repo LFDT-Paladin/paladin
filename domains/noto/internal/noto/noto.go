@@ -215,6 +215,7 @@ type NotoDelegateLockParams struct {
 }
 
 type NotoTransfer_Event struct {
+	TxId      pldtypes.Bytes32   `json:"txId"`
 	Inputs    []pldtypes.Bytes32 `json:"inputs"`
 	Outputs   []pldtypes.Bytes32 `json:"outputs"`
 	Signature pldtypes.HexBytes  `json:"signature"`
