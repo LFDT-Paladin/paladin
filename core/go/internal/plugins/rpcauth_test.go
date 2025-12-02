@@ -389,6 +389,7 @@ func TestRPCAuthBridge_RequestReply_NoOp(t *testing.T) {
 	// Should return no error and a non-nil function
 	require.NoError(t, err)
 	assert.NotNil(t, resFn, "RequestReply should return a function")
+	assert.NotPanics(t, func() { resFn(&plugintk.RPCAuthPluginMessage{}) })
 }
 
 func TestRPCAuthBridge_NoAuthPluginConfigured(t *testing.T) {

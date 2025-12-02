@@ -401,3 +401,9 @@ func TestTransportRegisterPartialSuccess(t *testing.T) {
 		t.Fatal("error callback did not complete in time")
 	}
 }
+
+func TestTransportBridgeBadOp(t *testing.T) {
+	br := &TransportBridge{}
+	_, err := br.RequestReply(context.Background(), (&plugintk.TransportMessageWrapper{}).Wrap(&prototk.TransportMessage{}))
+	require.Regexp(t, "PD011203", err)
+}
