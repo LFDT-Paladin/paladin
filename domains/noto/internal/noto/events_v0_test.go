@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
@@ -28,11 +29,15 @@ import (
 
 func sampleV0Data(t *testing.T, n *Noto) (txID pldtypes.Bytes32, data pldtypes.HexBytes) {
 	txID = pldtypes.RandBytes32()
-	data, err := n.encodeTransactionDataV0(context.Background(), &prototk.TransactionSpecification{
-		TransactionId: txID.String(),
-	}, []*prototk.EndorsableState{
-		{Id: pldtypes.RandBytes32().String()},
-	})
+	data, err := n.encodeTransactionData(
+		context.Background(),
+		&types.NotoParsedConfig{Variant: types.NotoVariantLegacy},
+		&prototk.TransactionSpecification{
+			TransactionId: txID.String(),
+		}, []*prototk.EndorsableState{
+			{Id: pldtypes.RandBytes32().String()},
+		},
+	)
 	require.NoError(t, err)
 	return txID, data
 }

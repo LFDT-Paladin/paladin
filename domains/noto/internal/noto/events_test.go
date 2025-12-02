@@ -27,12 +27,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func sampleV1Data(t *testing.T, n *Noto) (data pldtypes.HexBytes) {
+	data, err := n.encodeTransactionData(
+		context.Background(),
+		&types.NotoParsedConfig{Variant: types.NotoVariantDefault},
+		&prototk.TransactionSpecification{
+			TransactionId: pldtypes.RandBytes32().String(), // not used
+		}, []*prototk.EndorsableState{
+			{Id: pldtypes.RandBytes32().String()},
+		},
+	)
+	require.NoError(t, err)
+	return data
+}
+
 func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -42,7 +56,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 		Inputs:    []pldtypes.Bytes32{input},
 		Outputs:   []pldtypes.Bytes32{output},
 		Signature: pldtypes.MustParseHexBytes("0x1234"),
-		Data:      pldtypes.MustParseHexBytes("0x"),
+		Data:      sampleV1Data(t, n),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -54,6 +68,11 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 				DataJson:          string(notoEventJson),
 			},
 		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantDefault,
+			}),
+		},
 	}
 
 	res, err := n.HandleEventBatch(ctx, req)
@@ -63,6 +82,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 	assert.Equal(t, input.String(), res.SpentStates[0].Id)
 	require.Len(t, res.ConfirmedStates, 1)
 	assert.Equal(t, output.String(), res.ConfirmedStates[0].Id)
+	require.Len(t, res.InfoStates, 1)
 }
 
 func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
@@ -70,7 +90,7 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -80,6 +100,11 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 				SoliditySignature: eventSignatures[NotoTransfer],
 				DataJson:          "!!wrong",
 			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantDefault,
+			}),
+		},
 	}
 
 	res, err := n.HandleEventBatch(ctx, req)
@@ -94,12 +119,12 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
 	event := &NotoTransfer_Event{
-		Data: pldtypes.MustParseHexBytes("0x00010000"),
+		Data: pldtypes.MustParseHexBytes("0x00010001"),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -110,10 +135,15 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 				SoliditySignature: eventSignatures[NotoTransfer],
 				DataJson:          string(notoEventJson),
 			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantDefault,
+			}),
+		},
 	}
 
 	_, err = n.HandleEventBatch(ctx, req)
-	require.ErrorContains(t, err, "FF22047")
+	require.ErrorContains(t, err, "FF22045")
 }
 
 func TestHandleEventBatch_NotoLock(t *testing.T) {
@@ -121,7 +151,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -137,7 +167,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 		Outputs:       []pldtypes.Bytes32{output},
 		LockedOutputs: []pldtypes.Bytes32{lockedOutput},
 		Signature:     pldtypes.MustParseHexBytes("0x1234"),
-		Data:          pldtypes.MustParseHexBytes("0x"),
+		Data:          sampleV1Data(t, n),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -164,6 +194,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 	require.Len(t, res.ConfirmedStates, 2)
 	assert.Equal(t, output.String(), res.ConfirmedStates[0].Id)
 	assert.Equal(t, lockedOutput.String(), res.ConfirmedStates[1].Id)
+	require.Len(t, res.InfoStates, 1)
 }
 
 func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
@@ -171,7 +202,7 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -180,7 +211,13 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 			{
 				SoliditySignature: eventSignatures[NotoLock],
 				DataJson:          "!!wrong",
-			}},
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantDefault,
+			}),
+		},
 	}
 
 	res, err := n.HandleEventBatch(ctx, req)
@@ -195,7 +232,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -235,7 +272,7 @@ func TestHandleEventBatch_NotoUnlock(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -251,7 +288,7 @@ func TestHandleEventBatch_NotoUnlock(t *testing.T) {
 		LockedOutputs: []pldtypes.Bytes32{lockedOutput},
 		Outputs:       []pldtypes.Bytes32{output},
 		Signature:     pldtypes.MustParseHexBytes("0x1234"),
-		Data:          pldtypes.MustParseHexBytes("0x"),
+		Data:          sampleV1Data(t, n),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -278,6 +315,7 @@ func TestHandleEventBatch_NotoUnlock(t *testing.T) {
 	require.Len(t, res.ConfirmedStates, 2)
 	assert.Equal(t, lockedOutput.String(), res.ConfirmedStates[0].Id)
 	assert.Equal(t, output.String(), res.ConfirmedStates[1].Id)
+	require.Len(t, res.InfoStates, 1)
 }
 
 func TestHandleEventBatch_NotoUnlockBadData(t *testing.T) {
@@ -285,7 +323,7 @@ func TestHandleEventBatch_NotoUnlockBadData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -295,6 +333,11 @@ func TestHandleEventBatch_NotoUnlockBadData(t *testing.T) {
 				SoliditySignature: eventSignatures[NotoUnlock],
 				DataJson:          "!!wrong",
 			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
+				Variant: types.NotoVariantDefault,
+			}),
+		},
 	}
 
 	res, err := n.HandleEventBatch(ctx, req)
@@ -309,7 +352,7 @@ func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: `{}`,
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 	})
 	require.NoError(t, err)
 
@@ -337,6 +380,187 @@ func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
 				Variant: types.NotoVariantDefault,
 			}),
+		},
+	}
+
+	_, err = n.HandleEventBatch(ctx, req)
+	require.ErrorContains(t, err, "FF22045")
+}
+
+func TestHandleEventBatch_NotoUnlockPrepared(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	lockedInput := pldtypes.RandBytes32()
+	event := &NotoUnlockPrepared_Event{
+		LockedInputs: []pldtypes.Bytes32{lockedInput},
+		Signature:    pldtypes.MustParseHexBytes("0x1234"),
+		Data:         sampleV1Data(t, n),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoUnlockPrepared],
+				DataJson:          string(notoEventJson),
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1)
+	assert.Len(t, res.InfoStates, 1)
+}
+
+func TestHandleEventBatch_NotoUnlockPreparedBadData(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoUnlockPrepared],
+				DataJson:          "!!wrong",
+			}},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 0)
+	require.Len(t, res.SpentStates, 0)
+	require.Len(t, res.ConfirmedStates, 0)
+}
+
+func TestHandleEventBatch_NotoUnlockPreparedBadTransactionData(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	event := &NotoUnlockPrepared_Event{
+		Data: pldtypes.MustParseHexBytes("0x00010001"),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoUnlockPrepared],
+				DataJson:          string(notoEventJson),
+			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		},
+	}
+
+	_, err = n.HandleEventBatch(ctx, req)
+	require.ErrorContains(t, err, "FF22045")
+}
+
+func TestHandleEventBatch_NotoLockDelegated(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	event := &NotoLockDelegated_Event{
+		Signature: pldtypes.MustParseHexBytes("0x1234"),
+		Data:      sampleV1Data(t, n),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoLockDelegated],
+				DataJson:          string(notoEventJson),
+			},
+		},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 1)
+	require.Len(t, res.InfoStates, 1)
+}
+
+func TestHandleEventBatch_NotoLockDelegatedBadData(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoLockDelegated],
+				DataJson:          "!!wrong",
+			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		},
+	}
+
+	res, err := n.HandleEventBatch(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, res.TransactionsComplete, 0)
+	require.Len(t, res.SpentStates, 0)
+	require.Len(t, res.ConfirmedStates, 0)
+}
+
+func TestHandleEventBatch_NotLockDelegatedBadTransactionData(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+	})
+	require.NoError(t, err)
+
+	event := &NotoLockDelegated_Event{
+		Data: pldtypes.MustParseHexBytes("0x00010001"),
+	}
+	notoEventJson, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	req := &prototk.HandleEventBatchRequest{
+		Events: []*prototk.OnChainEvent{
+			{
+				SoliditySignature: eventSignatures[NotoLockDelegated],
+				DataJson:          string(notoEventJson),
+			}},
+		ContractInfo: &prototk.ContractInfo{
+			ContractConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
 		},
 	}
 
