@@ -41,6 +41,7 @@ type EngineIntegration interface {
 	// WriteLockStatesForTransaction is a method that writes a lock to the states for a transaction
 	WriteLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 
+	// Provides a hook for the coordinator transaction state machine to invoke the equivalent function on the DomainContext on TX completion
 	ResetTransactions(ctx context.Context, transactionID uuid.UUID)
 
 	GetStateLocks(ctx context.Context) ([]byte, error)
