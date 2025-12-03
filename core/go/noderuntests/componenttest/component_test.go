@@ -531,7 +531,7 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	tx1 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx1").
+		IdempotencyKey("mint-then-transfer-tx1").
 		From("wallets.org1.aaaaaa").
 		To(contractAddress).
 		Function("transfer").
@@ -547,7 +547,7 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	tx2 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx2").
+		IdempotencyKey("mint-then-transfer-tx2").
 		From("wallets.org1.bbbbbb").
 		To(contractAddress).
 		Function("transfer").
@@ -589,7 +589,7 @@ func TestPrivateTransactionRevertedAssembleFailed(t *testing.T) {
 	tx1 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx2").
+		IdempotencyKey("revert-assemble-tx1").
 		From("wallets.org1.bbbbbb").
 		To(contractAddress).
 		Function("transfer").
@@ -1161,7 +1161,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
 	tx1 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx1").
+		IdempotencyKey("self-endorse-tx1").
 		From("wallets.org1.aaaaaa").
 		To(contractAddress).
 		Function("transfer").
@@ -1177,7 +1177,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
 	tx2 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx2").
+		IdempotencyKey("self-endorse-tx2").
 		From("wallets.org1.bbbbbb").
 		To(contractAddress).
 		Function("transfer").
@@ -1193,7 +1193,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
 	tx3 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
 		Private().
 		Domain("domain1").
-		IdempotencyKey("tx3").
+		IdempotencyKey("self-endorse-tx3").
 		From("wallets.org1.aaaaaa").
 		To(contractAddress).
 		Function("transfer").

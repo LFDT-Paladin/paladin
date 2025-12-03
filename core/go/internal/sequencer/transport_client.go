@@ -56,7 +56,9 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	case transport.MessageType_CoordinatorHeartbeatNotification:
 		go sMgr.handleCoordinatorHeartbeatNotification(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequest:
-		go sMgr.handleDelegationRequest(sMgr.ctx, message)
+		// This is the only message type we put the message onto the coordinator state queue synchronously. This is to
+		// provide best effort FIFO ordering for transactions that are originated and coordinated within a single node.
+		sMgr.handleDelegationRequest(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequestAcknowledgment:
 		go sMgr.handleDelegationRequestAcknowledgment(sMgr.ctx, message)
 	case transport.MessageType_Dispatched:
