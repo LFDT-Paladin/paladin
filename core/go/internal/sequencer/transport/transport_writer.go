@@ -17,7 +17,6 @@ package transport
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -643,9 +642,6 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 		log.L(ctx).Debugf("sending %s to loopback interface", payload.MessageType)
 
 		tw.loopbackTransport.LoopbackQueue() <- payload
-
-		// Log payload bytes as hex
-		log.L(ctx).Debugf("payload bytes as hex: %s", hex.EncodeToString(payload.Payload))
 
 		return nil
 	}
