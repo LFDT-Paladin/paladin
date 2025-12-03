@@ -21,11 +21,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaleido-io/paladin/core/mocks/componentsmocks"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -43,8 +43,11 @@ func TestProduceLatestInFlightStageContextSigning(t *testing.T) {
 	}
 
 	mTS.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		GasPricing: &pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Uint64ToUint256(10),
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         pldtypes.Uint64ToUint256(10),
+				MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
+			},
 		},
 	})
 
@@ -161,8 +164,11 @@ func TestProduceLatestInFlightStageContextSigningPanic(t *testing.T) {
 	}
 
 	mTS.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		GasPricing: &pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Uint64ToUint256(10),
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         pldtypes.Uint64ToUint256(10),
+				MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
+			},
 		},
 	})
 
@@ -206,8 +212,11 @@ func TestProduceLatestInFlightStageContextTriggerSign(t *testing.T) {
 	}
 
 	mTS.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		GasPricing: &pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Uint64ToUint256(10),
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         pldtypes.Uint64ToUint256(10),
+				MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
+			},
 		},
 	})
 	it.testOnlyNoActionMode = false

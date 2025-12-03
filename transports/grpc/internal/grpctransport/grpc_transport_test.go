@@ -21,13 +21,13 @@ import (
 	"net"
 	"testing"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/kaleido-io/paladin/transports/grpc/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
 )
 
 type testCallbacks struct {

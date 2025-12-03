@@ -21,16 +21,16 @@ import (
 	"math/big"
 	"slices"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/domains/noto/internal/msgs"
-	"github.com/kaleido-io/paladin/domains/noto/pkg/types"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
 )
 
 var EIP712DomainName = "noto"
@@ -132,8 +132,8 @@ func (n *Noto) unmarshalInfo(stateData string) (*types.TransactionData, error) {
 	return &info, err
 }
 
-func (n *Noto) unmarshalLock(stateData string) (*types.NotoLockInfo, error) {
-	var lock types.NotoLockInfo
+func (n *Noto) unmarshalLock(stateData string) (*types.NotoLockInfo_V1, error) {
+	var lock types.NotoLockInfo_V1
 	err := json.Unmarshal([]byte(stateData), &lock)
 	return &lock, err
 }
@@ -168,19 +168,19 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, distributionList []
 		return nil, err
 	}
 	return &prototk.NewState{
-		SchemaId:         n.dataSchema.Id,
+		SchemaId:         n.dataSchemaV1.Id,
 		StateDataJson:    string(infoJSON),
 		DistributionList: distributionList,
 	}, nil
 }
 
-func (n *Noto) makeNewLockState(lock *types.NotoLockInfo, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) makeNewLockState(lock *types.NotoLockInfo_V1, distributionList []string) (*prototk.NewState, error) {
 	lockJSON, err := json.Marshal(lock)
 	if err != nil {
 		return nil, err
 	}
 	return &prototk.NewState{
-		SchemaId:         n.lockInfoSchema.Id,
+		SchemaId:         n.lockInfoSchemaV1.Id,
 		StateDataJson:    string(lockJSON),
 		DistributionList: distributionList,
 	}, nil
@@ -337,27 +337,30 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
-		Salt: pldtypes.RandHex(32),
-		Data: data,
+		Salt:    pldtypes.RandHex(32),
+		Data:    data,
+		Variant: variant,
 	}
 	newState, err := n.makeNewInfoState(newData, distributionList)
 	return []*prototk.NewState{newState}, err
 }
 
-func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, unlockTxId *pldtypes.Bytes32, distributionList []string) (*prototk.NewState, error) {
 	if delegate == nil {
 		delegate = &pldtypes.EthAddress{}
 	}
-	newData := &types.NotoLockInfo{
+	newData := &types.NotoLockInfo_V1{
 		Salt:     pldtypes.RandBytes32(),
 		LockID:   lockID,
 		Owner:    owner,
 		Delegate: delegate,
 	}
+	if unlockTxId != nil {
+		newData.UnlockTxId = *unlockTxId
+	}
 	return n.makeNewLockState(newData, distributionList)
-
 }
 
 func (n *Noto) filterSchema(states []*prototk.EndorsableState, schemas []string) (filtered []*prototk.EndorsableState) {
@@ -537,4 +540,30 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 			"data":     data,
 		},
 	})
+}
+
+func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
+	totalBalance = big.NewInt(0)
+	queryBuilder := query.NewQueryBuilder().
+		Limit(1000).
+		Equal("owner", owner.String())
+
+	log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
+	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+	if err != nil {
+		return 0, nil, false, false, err
+	}
+	for _, state := range states {
+		coin, err := n.unmarshalCoin(state.DataJson)
+		if err != nil {
+			return 0, nil, false, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
+		}
+		totalBalance = totalBalance.Add(totalBalance, coin.Amount.Int())
+	}
+	if len(states) == 1000 {
+		// We only return the first 1000 coins, so we warn that the balance may be higher
+		return len(states), totalBalance, true, false, nil
+	}
+
+	return len(states), totalBalance, false, false, nil
 }

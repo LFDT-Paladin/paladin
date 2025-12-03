@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -25,14 +25,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/hyperledger/firefly-signer/pkg/keystorev3"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/pldmsgs"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
 )
 
 type filesystemStoreFactory[C signerapi.ExtensibleConfig] struct{}
@@ -53,17 +54,17 @@ func (fsf *filesystemStoreFactory[C]) NewKeyStore(ctx context.Context, eConf C) 
 
 	// Determine the path
 	var pathInfo fs.FileInfo
-	path, err := filepath.Abs(confutil.StringNotEmpty(conf.Path, *pldconf.FileSystemDefaults.Path))
+	path, err := filepath.Abs(confutil.StringNotEmpty(conf.Path, *pldconf.SignerConfigDefaults.KeyStore.FileSystem.Path))
 	if err == nil {
 		pathInfo, err = os.Stat(path)
 	}
 	if err != nil || !pathInfo.IsDir() {
-		return nil, i18n.WrapError(ctx, err, pldmsgs.MsgSigningModuleBadPathError, *pldconf.FileSystemDefaults.Path)
+		return nil, i18n.WrapError(ctx, err, pldmsgs.MsgSigningModuleBadPathError, *pldconf.SignerConfigDefaults.KeyStore.FileSystem.Path)
 	}
 	return &filesystemStore{
-		cache:    cache.NewCache[string, keystorev3.WalletFile](&conf.Cache, &pldconf.FileSystemDefaults.Cache),
-		fileMode: confutil.UnixFileMode(conf.FileMode, *pldconf.FileSystemDefaults.FileMode),
-		dirMode:  confutil.UnixFileMode(conf.DirMode, *pldconf.FileSystemDefaults.DirMode),
+		cache:    cache.NewCache[string, keystorev3.WalletFile](&conf.Cache, &pldconf.SignerConfigDefaults.KeyStore.FileSystem.Cache),
+		fileMode: confutil.UnixFileMode(conf.FileMode, *pldconf.SignerConfigDefaults.KeyStore.FileSystem.FileMode),
+		dirMode:  confutil.UnixFileMode(conf.DirMode, *pldconf.SignerConfigDefaults.KeyStore.FileSystem.DirMode),
 		path:     path,
 	}, nil
 }
@@ -185,7 +186,7 @@ func (fss *filesystemStore) readWalletFile(ctx context.Context, keyFilePath, pas
 	return keystorev3.ReadWalletFile(keyData, passData)
 }
 
-func (fss *filesystemStore) FindOrCreateLoadableKey(ctx context.Context, req *signerapi.ResolveKeyRequest, newKeyMaterial func() ([]byte, error)) (keyMaterial []byte, keyHandle string, err error) {
+func (fss *filesystemStore) FindOrCreateLoadableKey(ctx context.Context, req *prototk.ResolveKeyRequest, newKeyMaterial func() ([]byte, error)) (keyMaterial []byte, keyHandle string, err error) {
 	for _, segment := range req.Path {
 		if len(segment.Name) == 0 {
 			return nil, "", i18n.NewError(ctx, pldmsgs.MsgSigningModuleBadKeyHandle)

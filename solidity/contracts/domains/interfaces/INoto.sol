@@ -6,21 +6,25 @@ pragma solidity ^0.8.20;
  * @dev All implementations of Noto must conform to this interface.
  */
 interface INoto {
+    struct UnlockParams {
+        bytes32[] lockedInputs;
+        bytes32[] lockedOutputs;
+        bytes32[] outputs;
+        bytes signature;
+        bytes data;
+    }
+
     event NotoTransfer(
+        bytes32 txId,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes signature,
         bytes data
     );
 
-    event NotoApproved(
-        address delegate,
-        bytes32 txhash,
-        bytes signature,
-        bytes data
-    );
-
     event NotoLock(
+        bytes32 txId,
+        bytes32 lockId,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes32[] lockedOutputs,
@@ -29,6 +33,8 @@ interface INoto {
     );
 
     event NotoUnlock(
+        bytes32 txId,
+        bytes32 lockId,
         address sender,
         bytes32[] lockedInputs,
         bytes32[] lockedOutputs,
@@ -38,6 +44,9 @@ interface INoto {
     );
 
     event NotoUnlockPrepared(
+        bytes32 txId,
+        bytes32 lockId,
+        bytes32 unlockTxId,
         bytes32[] lockedInputs,
         bytes32 unlockHash,
         bytes signature,
@@ -45,6 +54,8 @@ interface INoto {
     );
 
     event NotoLockDelegated(
+        bytes32 txId,
+        bytes32 lockId,
         bytes32 unlockHash,
         address delegate,
         bytes signature,
@@ -52,31 +63,24 @@ interface INoto {
     );
 
     function initialize(
-        address notaryAddress,
+        string memory name_,
+        string memory symbol_,
+        address notary
+    ) external;
+
+    function buildConfig(
         bytes calldata data
-    ) external returns (bytes memory);
+    ) external view returns (bytes memory);
 
     function mint(
+        bytes32 txId,
         bytes32[] calldata outputs,
         bytes calldata signature,
         bytes calldata data
     ) external;
 
     function transfer(
-        bytes32[] calldata inputs,
-        bytes32[] calldata outputs,
-        bytes calldata signature,
-        bytes calldata data
-    ) external;
-
-    function approveTransfer(
-        address delegate,
-        bytes32 txhash,
-        bytes calldata signature,
-        bytes calldata data
-    ) external;
-
-    function transferWithApproval(
+        bytes32 txId,
         bytes32[] calldata inputs,
         bytes32[] calldata outputs,
         bytes calldata signature,
@@ -84,6 +88,7 @@ interface INoto {
     ) external;
 
     function lock(
+        bytes32 txId,
         bytes32[] calldata inputs,
         bytes32[] calldata outputs,
         bytes32[] calldata lockedOutputs,
@@ -92,14 +97,15 @@ interface INoto {
     ) external;
 
     function unlock(
-        bytes32[] calldata lockedInputs,
-        bytes32[] calldata lockedOutputs,
-        bytes32[] calldata outputs,
-        bytes calldata signature,
-        bytes calldata data
+        bytes32 txId,
+        bytes32 lockId,
+        UnlockParams calldata params
     ) external;
 
     function prepareUnlock(
+        bytes32 txId,
+        bytes32 lockId,
+        bytes32 unlockTxId,
         bytes32[] calldata lockedInputs,
         bytes32 unlockHash,
         bytes calldata signature,
@@ -107,7 +113,8 @@ interface INoto {
     ) external;
 
     function delegateLock(
-        bytes32 unlockHash,
+        bytes32 txId,
+        bytes32 lockId,
         address delegate,
         bytes calldata signature,
         bytes calldata data

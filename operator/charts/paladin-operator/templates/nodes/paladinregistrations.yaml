@@ -1,7 +1,15 @@
 {{- if (eq .Values.mode "devnet") }}
 
+{{- $registryAdminKey := .Values.smartContractDeployments.registry.from }}
+{{- if not $registryAdminKey }}
+{{- $registryAdminKey = .Values.smartContractDeployments.default.from }}
+{{- end }}
+{{- if not $registryAdminKey }}
+{{- $registryAdminKey = "registry.operator" }}
+{{- end }}
+
 {{- $prefix := .Values.paladin.nodeNamePrefix }}
-{{- $count := .Values.nodeCount | int }}
+{{- $count := include "paladin-operator.paladinNodeCount" . | int }}
 
 {{- $adminNode := printf "%s1" $prefix }}
 
@@ -18,7 +26,7 @@ metadata:
 spec:
   registry: evm-registry
   registryAdminNode: {{ $adminNode }} # home of the root key
-  registryAdminKey: registry.operator
+  registryAdminKey: {{ $registryAdminKey }}
   node: {{ $name }}
   nodeAdminKey: registry.{{ $name }}
   transports:

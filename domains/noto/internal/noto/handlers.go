@@ -21,15 +21,15 @@ import (
 
 	"encoding/json"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/domains/noto/internal/msgs"
-	"github.com/kaleido-io/paladin/domains/noto/pkg/types"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/domain"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 )
 
 func (n *Noto) GetHandler(method string) types.DomainHandler {
@@ -37,23 +37,40 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 	case "mint":
 		return &mintHandler{noto: n}
 	case "transfer":
-		return &transferHandler{noto: n}
+		return &transferHandler{transferCommon: transferCommon{noto: n}}
+	case "transferFrom":
+		return &transferFromHandler{transferCommon: transferCommon{noto: n}}
 	case "burn":
-		return &burnHandler{noto: n}
-	case "approveTransfer":
-		return &approveHandler{noto: n}
-	case "lock":
+		return &burnHandler{burnCommon: burnCommon{noto: n}}
+	case "burnFrom":
+		return &burnFromHandler{burnCommon: burnCommon{noto: n}}
+	case "lock", "createLock":
 		return &lockHandler{noto: n}
+	case "createMintLock":
+		return &createMintLockHandler{noto: n}
 	case "unlock":
-		return &unlockHandler{
-			unlockCommon: unlockCommon{noto: n},
-		}
+		return &unlockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareUnlock":
-		return &prepareUnlockHandler{
-			unlockCommon: unlockCommon{noto: n},
-		}
+		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "prepareBurnUnlock":
+		return &prepareBurnUnlockHandler{noto: n}
 	case "delegateLock":
 		return &delegateLockHandler{noto: n}
+	default:
+		return nil
+	}
+}
+
+func (n *Noto) GetCallHandler(method string) types.DomainCallHandler {
+	switch method {
+	case "name":
+		return &nameHandler{noto: n}
+	case "symbol":
+		return &symbolHandler{noto: n}
+	case "decimals":
+		return &decimalsHandler{noto: n}
+	case "balanceOf":
+		return &balanceOfHandler{noto: n}
 	default:
 		return nil
 	}
@@ -178,7 +195,7 @@ type TransactionWrapper struct {
 	contractAddress *pldtypes.EthAddress
 }
 
-func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransactionResponse, error) {
+func (tw *TransactionWrapper) prepare() (*prototk.PrepareTransactionResponse, error) {
 	functionJSON, err := json.Marshal(tw.functionABI)
 	if err != nil {
 		return nil, err
@@ -195,10 +212,6 @@ func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransact
 			ParamsJson:      string(tw.paramsJSON),
 			ContractAddress: contractAddress,
 		},
-	}
-	if metadata != nil {
-		metadataString := string(metadata)
-		res.Metadata = &metadataString
 	}
 	return res, nil
 }

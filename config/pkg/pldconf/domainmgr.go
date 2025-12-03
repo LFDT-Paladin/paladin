@@ -16,32 +16,43 @@
 package pldconf
 
 import (
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 // Intended to be embedded at root level of paladin config
-type DomainManagerConfig struct {
-	Domains       map[string]*DomainConfig   `json:"domains"`
-	DomainManager DomainManagerManagerConfig `json:"domainManager"`
+type DomainManagerInlineConfig struct {
+	Domains       map[string]*DomainConfig `json:"domains" configdefaults:"DomainsConfigDefaults"`
+	DomainManager DomainManagerConfig      `json:"domainManager"`
 }
 
-type DomainManagerManagerConfig struct {
+type DomainManagerConfig struct {
 	ContractCache CacheConfig `json:"contractCache"`
 }
 
 type DomainConfig struct {
-	Init            DomainInitConfig `json:"init"`
-	Plugin          PluginConfig     `json:"plugin"`
-	Config          map[string]any   `json:"config"`
-	RegistryAddress string           `json:"registryAddress"`
-	AllowSigning    bool             `json:"allowSigning"`
-	DefaultGasLimit *uint64          `json:"defaultGasLimit"`
-}
-
-var ContractCacheDefaults = &CacheConfig{
-	Capacity: confutil.P(1000),
+	Init                 DomainInitConfig `json:"init"`
+	Plugin               PluginConfig     `json:"plugin"`
+	Config               map[string]any   `json:"config"`
+	RegistryAddress      string           `json:"registryAddress"`
+	AllowSigning         bool             `json:"allowSigning"`
+	DefaultGasLimit      *uint64          `json:"defaultGasLimit"`
+	FixedSigningIdentity string           `json:"fixedSigningIdentity"`
 }
 
 type DomainInitConfig struct {
 	Retry RetryConfig `json:"retry"`
+}
+
+var DomainConfigDefaults = DomainConfig{
+	Init: DomainInitConfig{
+		Retry: GenericRetryDefaults.RetryConfig,
+	},
+}
+
+var DomainManagerInlineConfigDefaults = DomainManagerInlineConfig{
+	DomainManager: DomainManagerConfig{
+		ContractCache: CacheConfig{
+			Capacity: confutil.P(1000),
+		},
+	},
 }

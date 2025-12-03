@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/componentsmocks"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -73,7 +73,6 @@ func TestNewIdentityResolver(t *testing.T) {
 	ir := NewIdentityResolver(ctx, conf)
 
 	assert.NotNil(t, ir)
-	assert.Equal(t, ctx, ir.(*identityResolver).bgCtx)
 	assert.NotNil(t, ir.(*identityResolver).inflightRequests)
 	assert.NotNil(t, ir.(*identityResolver).inflightRequestsMutex)
 }

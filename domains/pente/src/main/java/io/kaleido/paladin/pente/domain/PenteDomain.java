@@ -21,6 +21,7 @@
  import com.fasterxml.jackson.databind.ObjectMapper;
  import com.fasterxml.jackson.databind.node.*;
  import com.google.protobuf.ByteString;
+
  import io.kaleido.paladin.logging.PaladinLogging;
  import io.kaleido.paladin.pente.evmrunner.EVMRunner;
  import io.kaleido.paladin.pente.evmstate.AccountLoader;
@@ -30,6 +31,7 @@
  import io.kaleido.paladin.toolkit.JsonHex.Address;
  import io.kaleido.paladin.toolkit.JsonHex.Bytes;
  import io.kaleido.paladin.toolkit.JsonHex.Bytes32;
+
  import org.apache.logging.log4j.Logger;
  import org.apache.logging.log4j.message.FormattedMessage;
  import org.jetbrains.annotations.NotNull;
@@ -39,6 +41,9 @@
  import java.nio.charset.StandardCharsets;
  import java.util.*;
  import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
 
  public class PenteDomain extends DomainInstance {
      private static final Logger LOGGER = PaladinLogging.getLogger(PenteDomain.class);
@@ -150,8 +155,12 @@
                      resolvedVerifiers,
                      params.externalCallsEnabled()
              ).getBytes());
+             var signingIdentity = config.getFixedSigningIdentity();
+             if (signingIdentity == "") {
+                 signingIdentity = "%s.deploy.%s".formatted(config.getDomainName(), UUID.randomUUID().toString());
+             }
              var response = PrepareDeployResponse.newBuilder().
-                     setSigner("%s.deploy.%s".formatted(config.getDomainName(), UUID.randomUUID().toString()));
+                     setSigner(signingIdentity);
              var newPrivacyGroupABIJson = config.getFactoryContractABI().getABIEntry("function", "newPrivacyGroup").toJSON(false);
              response.getTransactionBuilder().
                      setFunctionAbiJson(newPrivacyGroupABIJson).
@@ -208,7 +217,7 @@
          }
      }
 
-     private List<PenteConfiguration.TransactionExternalCall> parseExternalCalls(List<EVMRunner.JsonEVMLog> logs) throws Exception {
+     private List<PenteConfiguration.TransactionExternalCall> parseExternalCalls(List<EVMRunner.JsonEVMLog> logs) throws JsonProcessingException, InterruptedException, ExecutionException {
          var externalCalls = new ArrayList<PenteConfiguration.TransactionExternalCall>();
          for (var log : logs) {
              if (log.topics().getFirst().equals(config.getExternalCallTopic())) {
@@ -227,11 +236,15 @@
          return externalCalls;
      }
 
-     private String buildDomainData(PenteEVMTransaction.EVMExecutionResult execResult) throws Exception {
+     private String buildDomainData(PenteEVMTransaction.EVMExecutionResult execResult) throws JsonProcessingException, InterruptedException, ExecutionException {
          return new ObjectMapper().writeValueAsString(
                  new PenteConfiguration.DomainData(
                          new Address(execResult.contractAddress().toArray()),
                          parseExternalCalls(execResult.logs())));
+     }
+
+     private boolean isPermanentFailure(ErrorResponseException ex) {
+         return ex.getErrorType() == Header.ErrorType.INVALID_INPUT;
      }
 
      @Override
@@ -281,8 +294,26 @@
                      setAssemblyResult(AssembleTransactionResponse.Result.REVERT).
                      setRevertReason(e.getMessage()).
                      build());
-         } catch (Exception e) {
+         } catch (IllegalArgumentException e) {
+             LOGGER.error(new FormattedMessage("Illegal argument during assemble for TX {}", request.getTransaction().getTransactionId()), e);
+             return CompletableFuture.completedFuture(AssembleTransactionResponse.newBuilder().
+                     setAssemblyResult(AssembleTransactionResponse.Result.REVERT).
+                     setRevertReason(e.getMessage()).
+                     build());
+         } catch (ExecutionException e) {
+             if (e.getCause() instanceof ErrorResponseException && isPermanentFailure((ErrorResponseException) e.getCause())) {
+                // Any error response from a plugin during assembly is considered a revert.
+                // These can stem from things like an invalid ABI or inputs.
+                LOGGER.error(new FormattedMessage("Error response from plugin during assemble for TX {}", request.getTransaction().getTransactionId()), e);
+                return CompletableFuture.completedFuture(AssembleTransactionResponse.newBuilder().
+                        setAssemblyResult(AssembleTransactionResponse.Result.REVERT).
+                        setRevertReason(e.getMessage()).
+                        build());
+             }
              return CompletableFuture.failedFuture(e);
+         } catch (IOException | InterruptedException | ClassNotFoundException e) {
+            // These exceptions will not revert, but will retry assembly
+            return CompletableFuture.failedFuture(e);
          }
      }
 
@@ -379,6 +410,13 @@
          try {
              var signatures = request.getAttestationResultList().stream().
                      filter(r -> r.getAttestationType() == AttestationType.ENDORSE).
+                     map(r -> {
+                         byte[] payload = r.getPayload().toByteArray();
+                         if (payload.length == 65) {
+                             payload[64] += 27;
+                         }
+                         return JsonHex.wrap(payload);
+                     }).
                      toList();
              List<PenteConfiguration.TransactionExternalCall> externalCalls;
              if (request.getDomainData().isEmpty()) {
@@ -397,7 +435,7 @@
                      put("info", request.getInfoStatesList().stream().map(EndorsableState::getId).toList());
                  }});
                  put("externalCalls", externalCalls);
-                 put("signatures", signatures.stream().map(r -> JsonHex.wrap(r.getPayload().toByteArray())).toList());
+                 put("signatures", signatures);
              }};
 
              var transitionABI = config.getPrivacyGroupABI().getABIEntry("function", "transition").toJSON(false);
@@ -436,7 +474,7 @@
                  var metadata = new PenteConfiguration.PenteTransitionMetadata(
                          new PenteConfiguration.PenteApprovalParams(
                                  new JsonHex.Bytes32(transitionHash),
-                                 signatures.stream().map(r -> JsonHex.wrap(r.getPayload().toByteArray())).toList()),
+                                 signatures),
                          new PenteConfiguration.PentePublicTransaction(
                                  transitionWithApprovalABI,
                                  transitionWithApprovalParamsJSON,
@@ -492,7 +530,7 @@
                                      .build());
 
                  } else {
-                     throw new Exception("Unknown signature: " + event.getSoliditySignature());
+                     throw new IllegalArgumentException("Unknown signature: " + event.getSoliditySignature());
                  }
              }
              return CompletableFuture.completedFuture(result.build());
@@ -596,7 +634,6 @@
      @Override
      protected CompletableFuture<ConfigurePrivacyGroupResponse> configurePrivacyGroup(ConfigurePrivacyGroupRequest request) {
          try {
-
              var resBuilder = ConfigurePrivacyGroupResponse.newBuilder();
 
              var inputConf = request.getInputConfigurationMap();
@@ -613,7 +650,6 @@
                  }
              }
              return CompletableFuture.completedFuture(resBuilder.build());
-
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }

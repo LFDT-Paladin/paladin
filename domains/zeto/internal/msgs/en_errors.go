@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"golang.org/x/text/language"
 )
 
@@ -128,7 +128,7 @@ var (
 	MsgErrorStateHashMismatch                = pde("PD210086", "State hash mismatch (hashed vs. received): %s != %s")
 	MsgErrorUnmarshalStateData               = pde("PD210087", "Failed to unmarshal state data. %s")
 	MsgErrorSignAlgoMismatch                 = pde("PD210088", "'%s' does not match supported algorithm '%s'")
-	MsgErrorVerifierTypeMismatch             = pde("PD210089", "'%s' does not match supported verifierType '%s'")
+	MsgErrorVerifierTypeMismatch             = pde("PD210089", "'%s' does not match supported verifierTypes '%s'")
 	MsgErrorPayloadTypeMismatch              = pde("PD210090", "'%s' does not match supported payloadType '%s'")
 	MsgErrorMissingCircuitID                 = pde("PD210091", "circuit ID is required")
 	MsgErrorMissingInputCommitments          = pde("PD210092", "input commitments are required")
@@ -178,4 +178,7 @@ var (
 	MsgErrorValidateExecCallTxSpec           = pde("PD210137", "Failed to validate execute call transaction spec. %s")
 	MsgErrorGetAccountBalance                = pde("PD210138", "Failed to get account balance. %s")
 	MsgErrorHandlerImplementationNotFound    = pde("PD210139", "Handler implementation not found. %s")
+	MsgUnknownSmtType                        = pde("PD210140", "Unknown states merkle tree type: %d")
+	MsgErrorDecodePublicKeyFromHex           = pde("PD210141", "Failed to decode public key from compressed hex. %s")
+	MsgErrorDecodePrivateKey                 = pde("PD210142", "Failed to decode private key. %s")
 )

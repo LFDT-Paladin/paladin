@@ -16,10 +16,11 @@
 package components
 
 import (
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 // PreInitComponents are ones that are initialized before managers.
@@ -31,6 +32,7 @@ type PreInitComponents interface {
 	Persistence() persistence.Persistence
 	BlockIndexer() blockindexer.BlockIndexer
 	RPCServer() rpcserver.RPCServer
+	MetricsManager() metrics.Metrics
 }
 
 // Managers are initialized after base components with access to them, and provide
@@ -52,6 +54,7 @@ type Managers interface {
 	StateManager() StateManager
 	IdentityResolver() IdentityResolver
 	GroupManager() GroupManager
+	RPCAuthManager() RPCAuthManager
 }
 
 // All managers conform to a standard lifecycle

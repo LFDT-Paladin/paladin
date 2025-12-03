@@ -16,7 +16,7 @@
 
 package pldapi
 
-import "github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
 type PeerInfo struct {
 	Name              string             `docstruct:"PeerInfo" json:"name"`

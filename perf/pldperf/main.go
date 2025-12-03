@@ -19,7 +19,7 @@ package main
 import (
 	"os"
 
-	"github.com/kaleido-io/paladin/perf/cmd"
+	"github.com/LFDT-Paladin/paladin/perf/cmd"
 )
 
 func main() {

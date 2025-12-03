@@ -18,9 +18,9 @@ package privatetxnmgr
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 func NewPublisher(p *privateTxManager, contractAddress string) *publisher {

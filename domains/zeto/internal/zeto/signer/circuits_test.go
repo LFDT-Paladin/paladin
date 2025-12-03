@@ -22,8 +22,8 @@ import (
 	"path"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/iden3/go-rapidsnark/witness/v2"
-	"github.com/kaleido-io/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

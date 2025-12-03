@@ -16,9 +16,9 @@
 package noto
 
 import (
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/domains/noto/pkg/types"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
 )
 
 type MintHookParams struct {
@@ -75,6 +75,15 @@ type ApproveUnlockHookParams struct {
 	Sender   *pldtypes.EthAddress `json:"sender"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
 	Delegate *pldtypes.EthAddress `json:"delegate"`
+	Data     pldtypes.HexBytes    `json:"data"`
+	Prepared PreparedTransaction  `json:"prepared"`
+}
+
+type PrepareBurnUnlockHookParams struct {
+	Sender   *pldtypes.EthAddress `json:"sender"`
+	LockId   pldtypes.Bytes32     `json:"lockId"`
+	From     *pldtypes.EthAddress `json:"from"`
+	Amount   *pldtypes.HexUint256 `json:"amount"`
 	Data     pldtypes.HexBytes    `json:"data"`
 	Prepared PreparedTransaction  `json:"prepared"`
 }

@@ -19,9 +19,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/pldmsgs"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 )
 
 // As well as running inside of Paladin, domains with signing tech (like Zeto) can provide their signing

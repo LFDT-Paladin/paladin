@@ -19,9 +19,9 @@ package perf
 import (
 	"fmt"
 
-	"github.com/kaleido-io/paladin/perf/internal/conf"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type publicContract struct {

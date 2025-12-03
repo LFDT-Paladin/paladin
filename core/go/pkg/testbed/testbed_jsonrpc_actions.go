@@ -20,17 +20,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
 )
 
 func (tb *testbed) initRPC() {
@@ -238,7 +238,7 @@ func (tb *testbed) resolveFunction(invocation *pldapi.TransactionInput) (*abi.En
 	if invocation.Function == "" && len(invocation.ABI) == 1 {
 		return invocation.ABI[0], nil
 	}
-	return nil, fmt.Errorf("Could not find function '%s' in provided ABI", invocation.Function)
+	return nil, fmt.Errorf("could not find function '%s' in provided ABI", invocation.Function)
 }
 
 func (tb *testbed) resolveTXSigner(tx *testbedTransaction) error {
@@ -305,7 +305,11 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	switch tx.ptx.PostAssembly.AssemblyResult {
 	case prototk.AssembleTransactionResponse_OK:
 	default:
-		return fmt.Errorf("assemble result was %s", tx.ptx.PostAssembly.AssemblyResult)
+		revertReason := "(no revert reason)"
+		if tx.ptx.PostAssembly.RevertReason != nil {
+			revertReason = *tx.ptx.PostAssembly.RevertReason
+		}
+		return fmt.Errorf("assemble result was %s (reason: %s)", tx.ptx.PostAssembly.AssemblyResult, revertReason)
 	}
 
 	// The testbed always chooses to take the assemble output and progress to endorse

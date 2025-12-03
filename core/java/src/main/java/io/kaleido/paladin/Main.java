@@ -64,7 +64,7 @@ public class Main {
     }
 
     static {
-        // see https://github.com/kaleido-io/paladin/issues/239
+        // see https://github.com/LFDT-Paladin/paladin/issues/239
         LoadBalancerRegistry.getDefaultRegistry().register(new PickFirstLoadBalancerProvider());
     }
 

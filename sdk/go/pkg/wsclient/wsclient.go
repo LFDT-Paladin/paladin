@@ -28,14 +28,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
 	"github.com/gorilla/websocket"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/common/go/pkg/pldmsgs"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/retry"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/tlsconf"
 )
 
 type WSClient interface {
@@ -92,10 +92,7 @@ func New(ctx context.Context, config *pldconf.WSClientConfig, beforeConnect WSPr
 			TLSClientConfig:  tlsConfig,
 			HandshakeTimeout: confutil.DurationMin(config.ConnectionTimeout, 0, *pldconf.DefaultWSConfig.ConnectionTimeout),
 		},
-		retry: *retry.NewRetryIndefinite(&pldconf.RetryConfig{
-			InitialDelay: config.ConnectRetry.InitialDelay,
-			MaxDelay:     config.ConnectRetry.MaxDelay,
-		}),
+		retry:                *retry.NewRetryIndefinite(&config.ConnectRetry),
 		initialRetryAttempts: confutil.IntMin(config.InitialConnectAttempts, 0, *pldconf.DefaultWSConfig.InitialConnectAttempts),
 		headers:              make(http.Header),
 		send:                 make(chan []byte),
@@ -233,7 +230,7 @@ func (w *wsClient) connect(initial bool) error {
 			var status = -1
 			if res != nil {
 				b, _ = io.ReadAll(res.Body)
-				res.Body.Close()
+				_ = res.Body.Close()
 				status = res.StatusCode
 			}
 			l.Warnf("WS %s connect attempt %d failed [%d]: %s", w.url, attempt, status, string(b))

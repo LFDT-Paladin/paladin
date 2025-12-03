@@ -21,16 +21,17 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/blockindexermocks"
-	"github.com/kaleido-io/paladin/core/mocks/componentsmocks"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/core/pkg/persistence/mockpersistence"
 
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,14 +43,16 @@ type mockComponents struct {
 	blockIndexer  *blockindexermocks.BlockIndexer
 }
 
-func newTestRegistryManager(t *testing.T, realDB bool, conf *pldconf.RegistryManagerConfig, extraSetup ...func(mc *mockComponents)) (context.Context, *registryManager, *mockComponents, func()) {
+func newTestRegistryManager(t *testing.T, realDB bool, conf *pldconf.RegistryManagerInlineConfig, extraSetup ...func(mc *mockComponents)) (context.Context, *registryManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
+	mm := metrics.NewMetricsManager(ctx)
 
 	mc := &mockComponents{
 		blockIndexer:  blockindexermocks.NewBlockIndexer(t),
 		allComponents: componentsmocks.NewAllComponents(t),
 	}
 	mc.allComponents.On("BlockIndexer").Return(mc.blockIndexer).Maybe()
+	mc.allComponents.On("MetricsManager").Return(mm).Maybe()
 
 	var p persistence.Persistence
 	var err error
@@ -94,7 +97,7 @@ func newTestRegistryManager(t *testing.T, realDB bool, conf *pldconf.RegistryMan
 }
 
 func TestConfiguredRegistries(t *testing.T) {
-	_, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerConfig{
+	_, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerInlineConfig{
 		Registries: map[string]*pldconf.RegistryConfig{
 			"test1": {
 				Plugin: pldconf.PluginConfig{
@@ -115,7 +118,7 @@ func TestConfiguredRegistries(t *testing.T) {
 }
 
 func TestRegistryRegisteredNotFound(t *testing.T) {
-	_, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerConfig{
+	_, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerInlineConfig{
 		Registries: map[string]*pldconf.RegistryConfig{},
 	})
 	defer done()
@@ -125,7 +128,7 @@ func TestRegistryRegisteredNotFound(t *testing.T) {
 }
 
 func TestConfigureRegistryFail(t *testing.T) {
-	_, tm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerConfig{
+	_, tm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerInlineConfig{
 		Registries: map[string]*pldconf.RegistryConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -146,7 +149,7 @@ func TestConfigureRegistryFail(t *testing.T) {
 }
 
 func TestGetRegistryNotFound(t *testing.T) {
-	ctx, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerConfig{
+	ctx, dm, _, done := newTestRegistryManager(t, false, &pldconf.RegistryManagerInlineConfig{
 		Registries: map[string]*pldconf.RegistryConfig{},
 	})
 	defer done()

@@ -11,7 +11,7 @@ transfer.
 
 ## Private ABI
 
-The private ABI of Noto is implemented in [Go](https://github.com/LF-Decentralized-Trust-labs/paladin/tree/main/domains/noto),
+The private ABI of Noto is implemented in [Go](https://github.com/LFDT-Paladin/paladin/tree/main/domains/noto),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "private"`.
 
 ### constructor
@@ -91,40 +91,37 @@ new UTXO states will be created, in order to facilitate the requested transfer o
 }
 ```
 
-Inputs:
-
 * **to** - lookup string for the identity that will receive transferred value
 * **amount** - amount of value to transfer
 * **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
-### approveTransfer
+### transferFrom
 
-Approve a transfer to be executed by another party.
+Transfer value from a specified account to another recipient. Available UTXO states will be selected for spending, and
+new UTXO states will be created, in order to facilitate the requested transfer of value.
 
-When calling `ptx_prepareTransaction()` to prepare a private `transfer`, the `metadata` of the prepared transaction
-will include information on how to build a proper `approveTransfer` call. This allows preparing a transfer and then
-delegating it to another party for execution.
+!!! important
+    This method is only available in hooks mode. It is disabled in basic mode.
 
 ```json
 {
-    "name": "approveTransfer",
+    "name": "transferFrom",
     "type": "function",
     "inputs": [
-        {"name": "inputs", "type": "tuple[]", "components": [
-            {"name": "id", "type": "bytes"},
-            {"name": "schema", "type": "bytes32"},
-            {"name": "data", "type": "bytes"}
-        ]},
-        {"name": "outputs", "type": "tuple[]", "components": [
-            {"name": "id", "type": "bytes"},
-            {"name": "schema", "type": "bytes32"},
-            {"name": "data", "type": "bytes"}
-        ]},
-        {"name": "data", "type": "bytes"},
-        {"name": "delegate", "type": "address"}
+        {"name": "from", "type": "string"},
+        {"name": "to", "type": "string"},
+        {"name": "amount", "type": "uint256"},
+        {"name": "data", "type": "bytes"}
     ]
 }
 ```
+
+Inputs:
+
+* **from** - lookup string for the identity whose tokens will be transferred
+* **to** - lookup string for the identity that will receive transferred value
+* **amount** - amount of value to transfer
+* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### burn
 
@@ -147,12 +144,31 @@ Inputs:
 * **amount** - amount of value to burn
 * **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
+### burnFrom
+
+Burn value from a specified account. Available UTXO states will be selected for burning, and new UTXO
+states will be created for the remaining amount (if any).
+
+!!! important
+    This method is only available in hooks mode. It is disabled in basic mode.
+
+```json
+{
+    "name": "burnFrom",
+    "type": "function",
+    "inputs": [
+        {"name": "from", "type": "string"},
+        {"name": "amount", "type": "uint256"},
+        {"name": "data", "type": "bytes"}
+    ]
+}
+```
+
 Inputs:
 
-* **inputs** - input states that will be spent
-* **outputs** - output states that will be created
-* **data** - encoded Paladin and/or user data
-* **delegate** - address of the delegate party that will be able to execute this transaction once approved
+* **from** - lookup string for the identity whose tokens will be burned
+* **amount** - amount of value to burn
+* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### lock
 
@@ -264,7 +280,7 @@ Inputs:
 
 ## Public ABI
 
-The public ABI of Noto is implemented in Solidity by [Noto.sol](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/solidity/contracts/domains/noto/Noto.sol),
+The public ABI of Noto is implemented in Solidity by [Noto.sol](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/noto/Noto.sol),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "public"`. However, it is not often required
 to invoke the public ABI directly.
 
@@ -308,63 +324,6 @@ May only be invoked by the notary address.
         {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
-}
-```
-
-Inputs:
-
-* **inputs** - input states that will be spent
-* **outputs** - output states that will be created
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
-
-### approveTransfer
-
-Approve a specific `transfer` transaction to be executed by a specific `delegate` address.
-Generally should not be called directly.
-
-The `txhash` should be computed as the EIP-712 hash of the intended transfer, using type:
-`Transfer(bytes32[] inputs,bytes32[] outputs,bytes data)`.
-
-May only be invoked by the notary address.
-
-```json
-{
-    "name": "approveTransfer",
-    "type": "function",
-    "inputs": [
-        {"name": "delegate", "type": "address"},
-        {"name": "txhash", "type": "bytes32"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-      ]
-}
-```
-
-Inputs:
-
-* **delegate** - address of the delegate party that will be able to execute this transaction once approved
-* **txhash** - EIP-712 hash of the intended transfer, using type `Transfer(bytes32[] inputs,bytes32[] outputs,bytes data)`
-* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **data** - encoded Paladin and/or user data
-
-### transferWithApproval
-
-Execute a transfer that was previously approved.
-
-The values of `inputs`, `outputs`, and `data` will be used to (re-)compute a `txhash`, which must exactly
-match a `txhash` that was previously delegated to the sender via `approveTransfer`.
-
-```json
-{
-    "name": "transferWithApproval",
-    "type": "function",
-    "inputs": [
-        {"name": "inputs", "type": "bytes32[]"},
-        {"name": "outputs", "type": "bytes32[]"},
-        {"name": "signature", "type": "bytes"},
-        {"name": "data", "type": "bytes"}
-      ]
 }
 ```
 
@@ -481,9 +440,52 @@ Inputs:
 * **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
 * **data** - encoded Paladin and/or user data
 
+### balanceOf
+
+Returns the balance information for a specified account. This function provides a quick balance check but is limited to processing up to 1000 states and is not intended to replace the role of a proper indexer for comprehensive balance tracking.
+
+```json
+{
+  "type": "function",
+  "name": "balanceOf",
+  "inputs": [
+    {
+      "name": "account",
+      "type": "string"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "totalStates",
+      "type": "uint256"
+    },
+    {
+      "name": "totalBalance",
+      "type": "uint256"
+    },
+    {
+      "name": "overflow",
+      "type": "bool"
+    }
+  ]
+}
+```
+
+Inputs:
+
+- **account** - lookup string for the identity to query the balance for
+
+Outputs:
+
+- **totalStates** - number of unspent UTXO states found for the account
+- **totalBalance** - sum of all unspent UTXO values for the account
+- **overflow** - indicates if there are at least 1000 states available (true means the returned balance may be incomplete)
+
+**Note:** This function is limited to querying up to 1000 states and should not be used as a replacement for proper indexing infrastructure.
+
 ## Notary logic
 
-The notary logic (implemented in the domain [Go library](../../../domains/noto)) is responsible for validating and
+The notary logic (implemented in the domain [Go library](https://github.com/LFDT-Paladin/paladin/tree/main/domains/noto)) is responsible for validating and
 submitting all transactions to the base shared ledger.
 
 The notary will validate the following:
@@ -514,12 +516,14 @@ When a Noto contract is constructed with notary mode `basic`, the following nota
 
 In addition, the following restrictions will always be enforced, and cannot be disabled in `basic` mode:
 
-- **Unlock:** Only the creator of a lock may unlock it.
+- **unlock:** Only the creator of a lock may unlock it.
+- **burnFrom:** This method is disabled and will always revert.
+- **transferFrom:** This method is disabled and will always revert.
 
 ### Notary mode: hooks
 
 When a Noto contract is constructed with notary mode `hooks`, the address of a private Pente contract implementing
-[INotoHooks](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/solidity/contracts/domains/interfaces/INotoHooks.sol)
+[INotoHooks](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/interfaces/INotoHooks.sol)
 must be provided. This contract may be deployed into a privacy group only visible to the notary, or into a group
 that includes other parties for observability.
 

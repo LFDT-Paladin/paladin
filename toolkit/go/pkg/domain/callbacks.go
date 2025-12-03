@@ -18,7 +18,7 @@ package domain
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type MockDomainCallbacks struct {

@@ -24,11 +24,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/sirupsen/logrus"
 	prefixed "github.com/x-cray/logrus-prefixed-formatter"
-	"gopkg.in/natefinch/lumberjack.v2"
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
@@ -39,6 +39,8 @@ var (
 
 	initAtLeastOnce atomic.Bool
 )
+
+type Component string
 
 type (
 	ctxLogKey struct{}
@@ -116,6 +118,15 @@ func WithLogField(ctx context.Context, key, value string) context.Context {
 		value = value[0:61] + "..."
 	}
 	return WithLogger(ctx, loggerFromContext(ctx).WithField(key, value))
+}
+
+// WithComponent adds the specified component to the logger in the context
+func WithComponent(ctx context.Context, component Component) context.Context {
+	EnsureInit()
+	if len(component) > 61 {
+		component = component[0:61] + "..."
+	}
+	return WithLogger(ctx, loggerFromContext(ctx).WithField("component", component))
 }
 
 // LoggerFromContext returns the logger for the current context, or no logger if there is no context

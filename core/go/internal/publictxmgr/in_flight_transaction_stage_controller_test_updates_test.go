@@ -18,8 +18,8 @@ package publictxmgr
 import (
 	"testing"
 
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,8 @@ func TestTXStageControllerUpdate(t *testing.T) {
 	it.UpdateTransaction(ctx, &DBPublicTxn{
 		Gas: 1000,
 		FixedGasPricing: pldtypes.JSONString(pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Uint64ToUint256(10),
+			MaxFeePerGas:         pldtypes.Uint64ToUint256(10),
+			MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
 		}),
 	})
 
@@ -45,5 +46,5 @@ func TestTXStageControllerUpdate(t *testing.T) {
 
 	rsc := it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx)
 	require.NotNil(t, rsc)
-	assert.Equal(t, InFlightTxStageSigning, rsc.Stage)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, rsc.Stage)
 }

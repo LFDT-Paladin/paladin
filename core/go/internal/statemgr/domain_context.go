@@ -22,17 +22,17 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/filters"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 )
 
 type domainContext struct {
@@ -61,14 +61,15 @@ type domainContext struct {
 
 // Very important that callers Close domain contexts they open
 func (ss *stateManager) NewDomainContext(ctx context.Context, domain components.Domain, contractAddress pldtypes.EthAddress) components.DomainContext {
+	ctx = log.WithComponent(ctx, "statemanager")
 	id := uuid.New()
-	log.L(ctx).Debugf("Domain context %s for domain %s contract %s closed", id, domain.Name(), contractAddress)
+	log.L(ctx).Debugf("Domain context %s for domain %s contract %s created", id, domain.Name(), contractAddress)
 
 	ss.domainContextLock.Lock()
 	defer ss.domainContextLock.Unlock()
 
 	dc := &domainContext{
-		Context:            log.WithLogField(ctx, "domain_ctx", fmt.Sprintf("%s_%s", domain.Name(), id)),
+		Context:            log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-ctx-%s", domain.Name()))),
 		id:                 id,
 		ss:                 ss,
 		domainName:         domain.Name(),
@@ -83,6 +84,7 @@ func (ss *stateManager) NewDomainContext(ctx context.Context, domain components.
 
 // nil if not found
 func (ss *stateManager) GetDomainContext(ctx context.Context, id uuid.UUID) components.DomainContext {
+	// ctx = log.WithComponent(ctx, "statemanager")
 	ss.domainContextLock.Lock()
 	defer ss.domainContextLock.Unlock()
 
@@ -356,7 +358,7 @@ func (dc *domainContext) upsertStates(dbTX persistence.DBTX, holdingLock bool, s
 			createLock := &pldapi.StateLock{
 				Type:        pldapi.StateLockTypeCreate.Enum(),
 				Transaction: *ns.CreatedBy,
-				StateID:     withValues[i].State.ID,
+				StateID:     withValues[i].ID,
 			}
 			stateLocks = append(stateLocks, createLock)
 			toMakeAvailable = append(toMakeAvailable, vs)

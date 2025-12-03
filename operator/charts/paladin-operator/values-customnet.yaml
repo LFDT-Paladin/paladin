@@ -18,9 +18,9 @@ paladinNodes:
 
       # Option 1: Local Besu node
       # Uncomment the following lines if using a local Besu node
-      # type: local
-      # local:
-      #   nodeName: node1  # Name of the local Besu node
+      type: local
+      local:
+        nodeName: node1  # Name of the local Besu node
 
       # Option 2: Remote blockchain endpoint
       # Uncomment and fill the details if connecting to an external blockchain endpoint
@@ -53,7 +53,7 @@ paladinNodes:
     # ======== Registries ========
     # Registry names this node interacts with. Must match labels on registry CRs.
     registries:
-      - evm-reg
+      - evm-registry
 
     # ======== Transports ========
     transports:
@@ -64,14 +64,14 @@ paladinNodes:
         config:
           port: 9000
           address: 0.0.0.0
-          externalHostname: ""  # External hostname if accessible outside cluster; leave empty if not required
+          # externalHostname: "bank.paladin"  # External hostname if accessible outside cluster; leave unset if not required
         ports:
           transportGrpc:
             port: 9000
             targetPort: 9000
         tls:
-          secretName: paladin-mtls  # Kubernetes Secret for TLS
-          certName: paladin-mtls    # Certificate name within the Secret
+          secretName: paladin-bank-mtls  # Kubernetes Secret for TLS - needs to be unique for each node
+          certName: paladin-bank-mtls    # Certificate name within the Secret - needs to be unique for each node
 
     # ======== Service ========
     service:
@@ -88,6 +88,12 @@ paladinNodes:
     database:
       mode: sidecarPostgres  # Options: sidecarPostgres | embeddedSQLite
       migrationMode: auto    # Options: auto | manual
+      # pvcTemplate:         # Optional - Use a custom PVC for the DB
+      #   storageClassName: ""
+      #   accessModes:
+      #   - ReadWriteOnce
+      #   capacity:
+      #     storage: 10Gi
 
     # ======== Secret Backed Signers ========
     secretBackedSigners:
@@ -106,6 +112,12 @@ paladinNodes:
       #   type: preConfigured
       #   keySelector: .*      # Select all keys
 
+    # ======== RPC Authorization ========
+    # Configure RPC authorization using the basicauth reference implementation.
+    # The secret must exist and contain a key 'credentials.htpasswd' with htpasswd formatted credentials.
+    # rpcAuth:
+    #   secretName: paladin-basicauth-credentials  # Name of existing secret containing 'credentials.htpasswd' key
+
     # ======== Additional Config ========
     # Inline Paladin configuration; CR fields take precedence if duplicated
     config: |
@@ -114,3 +126,17 @@ paladinNodes:
       publicTxManager:
         gasLimit:
           gasEstimateFactor: 2.0
+
+    # ======== Paladin Registration ========
+    # Register Paladin node to the network
+    paladinRegistration:
+      nodeAdminKey: ""  # Node admin key for PaladinRegistration (leave empty to use default pattern)
+
+# Domains can be configured with a default signing identity
+domains:
+  noto:
+    fixedSigningIdentity: ""
+  pente:
+    fixedSigningIdentity: ""
+  zeto:
+    fixedSigningIdentity: ""

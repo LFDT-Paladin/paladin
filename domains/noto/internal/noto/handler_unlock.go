@@ -20,15 +20,16 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/domains/noto/internal/msgs"
-	"github.com/kaleido-io/paladin/domains/noto/pkg/types"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/domain"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type unlockCommon struct {
@@ -55,6 +56,11 @@ func (h *unlockCommon) validateParams(ctx context.Context, unlockParams *types.U
 	}
 	if len(unlockParams.Recipients) == 0 {
 		return i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
+	}
+	for _, entry := range unlockParams.Recipients {
+		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
+			return i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")
+		}
 	}
 	return nil
 }
@@ -91,7 +97,7 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 	}, nil
 }
 
-func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, *unlockStates, error) {
+func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, unlockTxId *pldtypes.Bytes32, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, *unlockStates, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	_, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
@@ -130,11 +136,11 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	for _, entry := range params.Recipients {
 		infoDistribution = append(infoDistribution, entry.To)
 	}
-	infoStates, err := h.noto.prepareInfo(params.Data, infoDistribution)
+	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, infoDistribution)
 	if err != nil {
 		return nil, nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, fromAddress, nil, infoDistribution)
+	lockState, err := h.noto.prepareLockInfo(params.LockID, fromAddress, nil, unlockTxId, infoDistribution)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -232,7 +238,7 @@ func (h *unlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransactio
 	params := tx.Params.(*types.UnlockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	res, states, err := h.assembleStates(ctx, tx, params, req)
+	res, states, err := h.assembleStates(ctx, tx, params, nil, req)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
@@ -287,7 +293,8 @@ func (h *unlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction
 	return h.endorse(ctx, tx, params, req, inputs, outputs)
 }
 
-func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+	inParams := tx.Params.(*types.UnlockParams)
 	lockedInputs := req.InputStates
 	outputs, lockedOutputs := h.noto.splitStates(req.OutputStates)
 
@@ -302,19 +309,41 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, req *prototk.Prepa
 	if err != nil {
 		return nil, err
 	}
-	params := &types.UnlockPublicParams{
-		LockedInputs:  endorsableStateIDs(lockedInputs),
-		LockedOutputs: endorsableStateIDs(lockedOutputs),
-		Outputs:       endorsableStateIDs(outputs),
-		Signature:     unlockSignature.Payload,
-		Data:          data,
+
+	var interfaceABI abi.ABI
+	var paramsJSON []byte
+
+	if tx.DomainConfig.IsV1() {
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
+		params := &NotoUnlockParams{
+			TxId:   req.Transaction.TransactionId,
+			LockId: &inParams.LockID,
+			Params: NotoUnlockStruct{
+				LockedInputs:  endorsableStateIDs(lockedInputs),
+				LockedOutputs: endorsableStateIDs(lockedOutputs),
+				Outputs:       endorsableStateIDs(outputs),
+				Signature:     unlockSignature.Payload,
+				Data:          data,
+			},
+		}
+		paramsJSON, err = json.Marshal(params)
+	} else {
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
+		params := &types.UnlockPublicParams{
+			TxId:          req.Transaction.TransactionId,
+			LockedInputs:  endorsableStateIDs(lockedInputs),
+			LockedOutputs: endorsableStateIDs(lockedOutputs),
+			Outputs:       endorsableStateIDs(outputs),
+			Signature:     unlockSignature.Payload,
+			Data:          data,
+		}
+		paramsJSON, err = json.Marshal(params)
 	}
-	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
 	return &TransactionWrapper{
-		functionABI: interfaceBuild.ABI.Functions()["unlock"],
+		functionABI: interfaceABI.Functions()["unlock"],
 		paramsJSON:  paramsJSON,
 	}, nil
 }
@@ -373,7 +402,7 @@ func (h *unlockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvoke(ctx, req)
+	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +412,8 @@ func (h *unlockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction
 		if err != nil {
 			return nil, err
 		}
-		return hookTransaction.prepare(nil)
+		return hookTransaction.prepare()
 	}
 
-	return baseTransaction.prepare(nil)
+	return baseTransaction.prepare()
 }

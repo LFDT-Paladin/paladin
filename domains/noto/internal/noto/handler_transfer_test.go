@@ -21,14 +21,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
-	"github.com/kaleido-io/paladin/domains/noto/pkg/types"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,9 +48,10 @@ var notoBasicConfig = &types.NotoParsedConfig{
 
 func TestTransfer(t *testing.T) {
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["transfer"]
@@ -238,6 +239,7 @@ func TestTransfer(t *testing.T) {
 		"inputs": ["%s"],
 		"outputs": ["0x0000000000000000000000000000000000000000000000000000000000000001","0x0000000000000000000000000000000000000000000000000000000000000002"],
 		"signature": "%s",
+		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		"data": "0x00010000015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000003"
 	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
 
@@ -296,11 +298,14 @@ func TestTransfer(t *testing.T) {
 
 func TestTransferAssembleMissingFrom(t *testing.T) {
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
 	}
-	h := transferHandler{noto: n}
+	handler := &transferHandler{
+		transferCommon: transferCommon{noto: n},
+	}
 	ctx := context.Background()
 
 	fn := types.NotoABI.Functions()["transfer"]
@@ -322,17 +327,20 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 		ResolvedVerifiers: []*prototk.ResolvedVerifier{},
 	}
 
-	_, err := h.Assemble(ctx, parsedTx, req)
+	_, err := handler.Assemble(ctx, parsedTx, req)
 	assert.Regexp(t, "PD200011.*'from'", err)
 }
 
 func TestTransferAssembleMissingTo(t *testing.T) {
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
 	}
-	h := transferHandler{noto: n}
+	handler := &transferHandler{
+		transferCommon: transferCommon{noto: n},
+	}
 	ctx := context.Background()
 
 	fn := types.NotoABI.Functions()["transfer"]
@@ -361,6 +369,6 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 		},
 	}
 
-	_, err := h.Assemble(ctx, parsedTx, req)
+	_, err := handler.Assemble(ctx, parsedTx, req)
 	assert.Regexp(t, "PD200011.*'to'", err)
 }

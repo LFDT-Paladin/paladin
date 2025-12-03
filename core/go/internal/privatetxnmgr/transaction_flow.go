@@ -20,15 +20,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/syncpoints"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/syncpoints"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 func NewTransactionFlow(
@@ -131,7 +131,7 @@ func (tf *transactionFlow) IsComplete(_ context.Context) bool {
 }
 
 func (tf *transactionFlow) ReadyForSequencing(ctx context.Context) bool {
-	return tf.transaction.PostAssembly != nil
+	return tf.transaction.PostAssembly != nil && tf.transaction.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_OK
 }
 
 func (tf *transactionFlow) Dispatched(_ context.Context) bool {
@@ -207,4 +207,8 @@ func (tf *transactionFlow) Signer(_ context.Context) string {
 func (tf *transactionFlow) ID(_ context.Context) uuid.UUID {
 
 	return tf.transaction.ID
+}
+
+func (tf *transactionFlow) PrivateTransaction() *components.PrivateTransaction {
+	return tf.transaction
 }

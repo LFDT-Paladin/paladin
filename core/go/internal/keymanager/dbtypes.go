@@ -15,7 +15,7 @@
 
 package keymanager
 
-import "github.com/kaleido-io/paladin/core/internal/filters"
+import "github.com/LFDT-Paladin/paladin/core/internal/filters"
 
 type DBKeyPath struct {
 	Parent string `gorm:"column:parent;primaryKey"`

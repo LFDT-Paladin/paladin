@@ -18,8 +18,8 @@ import (
 	"C"
 )
 import (
-	"github.com/kaleido-io/paladin/toolkit/domainstarter/starter"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/domainstarter/starter"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 )
 
 var ple = plugintk.NewPluginLibraryEntrypoint(func() plugintk.PluginBase {

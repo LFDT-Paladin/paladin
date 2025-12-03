@@ -22,8 +22,8 @@ package persistence
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 )
 
 // Used for unit tests throughout the project that want to test against a real DB

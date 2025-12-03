@@ -21,10 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/core/mocks/publictxmgrmocks"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/publictxmgrmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -37,10 +39,11 @@ type testInFlightTransactionStateVersionWithMocks struct {
 func newTestInFlightTransactionStateVersion(t *testing.T) (*testInFlightTransactionStateVersionWithMocks, *mocksAndTestControl, func()) {
 	_, balanceManager, ptm, m, done := newTestBalanceManager(t)
 
+	metrics := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
 	mockInMemoryState := NewTestInMemoryTxState(t)
 	mockActionTriggers := publictxmgrmocks.NewInFlightStageActionTriggers(t)
 
-	v := NewInFlightTransactionStateGeneration(&publicTxEngineMetrics{}, balanceManager, mockActionTriggers, mockInMemoryState, ptm, ptm.submissionWriter, false)
+	v := NewInFlightTransactionStateGeneration(metrics, balanceManager, mockActionTriggers, mockInMemoryState, ptm, ptm.submissionWriter, false)
 	return &testInFlightTransactionStateVersionWithMocks{
 		v,
 		mockActionTriggers,
@@ -56,11 +59,6 @@ func TestStateVersionBasic(t *testing.T) {
 	assert.Nil(t, version.GetStageTriggerError(ctx))
 	assert.Empty(t, version.GetStage(ctx))
 	assert.NotNil(t, version.GetStageStartTime(ctx))
-	assert.False(t, version.ValidatedTransactionHashMatchState(ctx))
-	version.SetValidatedTransactionHashMatchState(ctx, true)
-	assert.True(t, version.ValidatedTransactionHashMatchState(ctx))
-	version.SetValidatedTransactionHashMatchState(ctx, false)
-	assert.False(t, version.ValidatedTransactionHashMatchState(ctx))
 }
 
 func TestStateVersionTransactionFromRetrieveGasPriceToTracking(t *testing.T) {
@@ -191,7 +189,8 @@ func TestStateManagerStageOutputManagement(t *testing.T) {
 		for i := 0; i < expectedNumberOfGasPriceSuccessOutput; i++ {
 			go func() {
 				version.AddGasPriceOutput(ctx, &pldapi.PublicTxGasPricing{
-					GasPrice: pldtypes.Int64ToInt256(100),
+					MaxFeePerGas:         pldtypes.Int64ToInt256(100),
+					MaxPriorityFeePerGas: pldtypes.Int64ToInt256(10),
 				}, nil)
 				countChanel <- true
 			}()
@@ -320,9 +319,11 @@ func TestStateManagerTxPersistenceManagementUpdateErrors(t *testing.T) {
 	assert.Nil(t, err)
 
 	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
-		NewSubmission: &DBPubTxnSubmission{
-			from:            "0x12345",
-			TransactionHash: pldtypes.RandBytes32(),
+		NewValues: BaseTXUpdateNewValues{
+			NewSubmission: &DBPubTxnSubmission{
+				from:            "0x12345",
+				TransactionHash: pldtypes.RandBytes32(),
+			},
 		},
 	}
 

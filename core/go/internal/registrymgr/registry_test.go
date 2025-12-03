@@ -25,16 +25,16 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/query"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -62,8 +62,8 @@ func newTestPlugin(registryFuncs *plugintk.RegistryAPIFunctions) *testPlugin {
 	}
 }
 
-func newTestRegistry(t *testing.T, realDB bool, extraSetup ...func(mc *mockComponents, conf *pldconf.RegistryManagerConfig, regConf *prototk.RegistryConfig)) (context.Context, *registryManager, *testPlugin, *mockComponents, func()) {
-	conf := &pldconf.RegistryManagerConfig{
+func newTestRegistry(t *testing.T, realDB bool, extraSetup ...func(mc *mockComponents, conf *pldconf.RegistryManagerInlineConfig, regConf *prototk.RegistryConfig)) (context.Context, *registryManager, *testPlugin, *mockComponents, func()) {
+	conf := &pldconf.RegistryManagerInlineConfig{
 		Registries: map[string]*pldconf.RegistryConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -304,6 +304,112 @@ func TestUpsertRegistryRecordsRealDBok(t *testing.T) {
 	require.Equal(t, rootEntry2Props2.Value, propsMap[rootEntry2Props2.Name])
 }
 
+func TestUpsertRegistryRecordsRealDBNameIsUniqueScopedToParentId(t *testing.T) {
+	ctx, _, tp, _, done := newTestRegistry(t, true)
+	defer done()
+
+	// Insert a root entry
+	rootId1 := randID()
+	rootId2 := randID()
+	parentId := randID()
+	parent1 := &prototk.RegistryEntry{Id: parentId, Name: "parent1", Location: randChainInfo(), Active: true}
+	rootEntry1 := &prototk.RegistryEntry{Id: rootId1, Name: "entry1", Location: randChainInfo(), Active: true, ParentId: parentId}
+	rootEntry2 := &prototk.RegistryEntry{Id: rootId2, Name: "entry1", Location: randChainInfo(), Active: true, ParentId: parentId}
+
+	upsert := &prototk.UpsertRegistryRecordsRequest{
+		Entries:    []*prototk.RegistryEntry{parent1, rootEntry1, rootEntry2},
+		Properties: []*prototk.RegistryProperty{},
+	}
+
+	// Upsert first entry
+	res, err := tp.r.UpsertRegistryRecords(ctx, upsert)
+	require.Error(t, err)
+	assert.Nil(t, res)
+	require.Error(t, err)
+	//Observed error messages:
+	//Postgres: "ERROR: duplicate key value violates unique constraint "reg_entries_name" (SQLSTATE 23505)"
+	//          "ERROR: insert or update on table \"reg_entries\" violates foreign key constraint \"reg_entries_registry_parent_id_fkey\"
+	//SQLite: "UNIQUE constraint failed: index 'reg_entries_name"
+	//pass as long as it mentions the table and a constraint
+	assert.Regexp(t, ".*constraint.*", err)
+	assert.Regexp(t, ".*reg_entries.*", err)
+}
+
+func TestUpsertRegistryRecordsRealDBSameNameAllowedForDifferentParents(t *testing.T) {
+	ctx, _, tp, _, done := newTestRegistry(t, true)
+	defer done()
+
+	// r, err := rm.GetRegistry(ctx, "test1")
+	// require.NoError(t, err)
+
+	// Insert a root entry
+	rootId1 := randID()
+	rootId2 := randID()
+	parentId := randID()
+	parentId2 := randID()
+	entry1 := &prototk.RegistryEntry{Id: rootId1, Name: "entry1", Location: randChainInfo(), Active: true, ParentId: parentId}
+	entry2 := &prototk.RegistryEntry{Id: rootId2, Name: "entry1", Location: randChainInfo(), Active: true, ParentId: parentId2}
+	parent1 := &prototk.RegistryEntry{Id: parentId, Name: "parent1", Location: randChainInfo(), Active: true}
+	parent2 := &prototk.RegistryEntry{Id: parentId2, Name: "parent2", Location: randChainInfo(), Active: true}
+
+	upsert := &prototk.UpsertRegistryRecordsRequest{
+		Entries:    []*prototk.RegistryEntry{parent1, parent2, entry1, entry2},
+		Properties: []*prototk.RegistryProperty{},
+	}
+
+	// Upsert first entry
+	_, err := tp.r.UpsertRegistryRecords(ctx, upsert)
+	require.NoError(t, err)
+
+}
+
+func TestUpsertRegistryRecordsRealDBNameSameParentDifferentNameAllowed(t *testing.T) {
+	ctx, _, tp, _, done := newTestRegistry(t, true)
+	defer done()
+
+	// Insert a root entry
+	rootId1 := randID()
+	rootId2 := randID()
+	parentId := randID()
+	parent1 := &prototk.RegistryEntry{Id: parentId, Name: "parent1", Location: randChainInfo(), Active: true}
+	rootEntry1 := &prototk.RegistryEntry{Id: rootId1, Name: "entry1", Location: randChainInfo(), Active: true, ParentId: parentId}
+	rootEntry2 := &prototk.RegistryEntry{Id: rootId2, Name: "entry2", Location: randChainInfo(), Active: true, ParentId: parentId}
+	upsert1 := &prototk.UpsertRegistryRecordsRequest{
+		Entries:    []*prototk.RegistryEntry{parent1, rootEntry1, rootEntry2},
+		Properties: []*prototk.RegistryProperty{},
+	}
+
+	// Upsert first entry
+	_, err := tp.r.UpsertRegistryRecords(ctx, upsert1)
+	require.NoError(t, err)
+
+}
+
+func TestUpsertRegistryRecordsRealDBpreventsTwoRootEntries(t *testing.T) {
+	ctx, _, tp, _, done := newTestRegistry(t, true)
+	defer done()
+
+	// Insert a root entry
+	rootId1 := randID()
+	rootId2 := randID()
+	rootEntry1 := &prototk.RegistryEntry{Id: rootId1, Name: "entry1", Location: randChainInfo(), Active: true}
+	rootEntry2 := &prototk.RegistryEntry{Id: rootId2, Name: "entry1", Location: randChainInfo(), Active: true}
+	upsert1 := &prototk.UpsertRegistryRecordsRequest{
+		Entries:    []*prototk.RegistryEntry{rootEntry1, rootEntry2},
+		Properties: []*prototk.RegistryProperty{},
+	}
+
+	// Upsert first entry
+	res, err := tp.r.UpsertRegistryRecords(ctx, upsert1)
+	require.Error(t, err)
+	assert.Nil(t, res)
+	require.Error(t, err)
+	//Observed error messages:
+	//Postgres: "ERROR: duplicate key value violates unique constraint "reg_entries_name" (SQLSTATE 23505)"
+	//SQLite: "UNIQUE constraint failed: index 'reg_entries_name"
+	assert.Regexp(t, ".*constraint.*reg_entries_name.*", err)
+}
+
 func TestUpsertRegistryRecordsInsertBadID(t *testing.T) {
 	ctx, _, tp, m, done := newTestRegistry(t, false)
 	defer done()
@@ -446,7 +552,7 @@ func TestGetEntryPropertiesQueryFail(t *testing.T) {
 func TestRegistryWithEventStreams(t *testing.T) {
 	es := &blockindexer.EventStream{ID: uuid.New()}
 
-	_, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerConfig, regConf *prototk.RegistryConfig) {
+	_, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerInlineConfig, regConf *prototk.RegistryConfig) {
 		a := abi.ABI{
 			{
 				Type: abi.Event,
@@ -529,7 +635,7 @@ func TestConfigureEventStreamBadEventABITypes(t *testing.T) {
 
 func TestHandleEventBatchOk(t *testing.T) {
 
-	ctx, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerConfig, regConf *prototk.RegistryConfig) {
+	ctx, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerInlineConfig, regConf *prototk.RegistryConfig) {
 		mc.db.ExpectBegin()
 		mc.db.ExpectExec("INSERT.*reg_entries").WillReturnResult(driver.ResultNoRows)
 		mc.db.ExpectCommit()
@@ -578,7 +684,7 @@ func TestHandleEventBatchOk(t *testing.T) {
 
 func TestHandleEventBatchError(t *testing.T) {
 
-	ctx, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerConfig, regConf *prototk.RegistryConfig) {
+	ctx, _, tp, _, done := newTestRegistry(t, false, func(mc *mockComponents, conf *pldconf.RegistryManagerInlineConfig, regConf *prototk.RegistryConfig) {
 		mc.db.ExpectBegin()
 	})
 	defer done()

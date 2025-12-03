@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -60,8 +60,16 @@ type PaladinSpec struct {
 	// A list of registries to merge into the configuration, and rebuild the config of paladin when this list changes
 	Registries []RegistryReference `json:"registries"`
 
+	// A list of pluggable signing modules to merge into the configuration, and rebuild the config of paladin when this list changes
+	SigningModules []SigningModuleConfig `json:"signingModules,omitempty"`
+
 	// Transports are configured individually on each node, as they reference security details specific to that node
 	Transports []TransportConfig `json:"transports"`
+
+	// RPC authorization configuration using the basicauth reference implementation.
+	// The secret must contain a key named 'credentials.htpasswd' with the credentials file content.
+	// +optional
+	RPCAuth *RPCAuthConfig `json:"rpcAuth,omitempty"`
 }
 type BaseLedgerEndpointType string
 
@@ -101,6 +109,14 @@ type LabelReference struct {
 	// Label selectors provide a flexible many-to-many mapping between nodes and domains in a namespace.
 	// The domain CRs you reference must be labelled to match. For example you could use a label like "paladin.io/domain-name" to select by name.
 	LabelSelector metav1.LabelSelector `json:"labelSelector"`
+}
+
+type SigningModuleConfig struct {
+	Name string `json:"name"`
+	// Plugin configuration for loading the signing module
+	Plugin PluginConfig `json:"plugin"`
+	// JSON configuration specific to the individual signing module.
+	ConfigJSON string `json:"configJSON"`
 }
 
 type TransportConfig struct {
@@ -167,6 +183,8 @@ type Database struct {
 
 const SignerType_AutoHDWallet = "autoHDWallet"
 
+const DerivationType_BIP32 = "bip32"
+
 type SecretBackedSigner struct {
 	Secret string `json:"secret"`
 	// +kubebuilder:validation:Pattern=^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -181,6 +199,14 @@ type SecretBackedSigner struct {
 	// rules first on key matching and more generic rules (like the default of ".*") last.
 	// +kubebuilder:default=.*
 	KeySelector string `json:"keySelector"`
+	// To instruct the key selector to behave in a non-matching mode whereby wallet selection applies when the
+	// key identifier DOES NOT match against the given regular expression for the key selector.
+	// +kubebuilder:default=false
+	KeySelectorMustNotMatch bool `json:"keySelectorMustNotMatch"`
+	// +kubebuilder:validation:Enum=bip32;direct
+	// +kubebuilder:default=bip32
+	// The Paladin signer can use single BIP39 seed mnemonic to derive keys, or use direct key mapping.
+	DerivationType string `json:"derivationType"`
 }
 
 type AuthType string
@@ -214,6 +240,14 @@ type AuthSecret struct {
 type AuthInline struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// RPCAuthConfig defines the configuration for RPC authorization using the basicauth plugin.
+// Only the basicauth reference implementation is supported.
+type RPCAuthConfig struct {
+	// SecretName is the name of the Kubernetes secret containing the 'credentials.htpasswd' key
+	// with the htpasswd formatted credentials file content.
+	SecretName string `json:"secretName"`
 }
 
 // StatusReason is an enumeration of possible failure causes.  Each StatusReason

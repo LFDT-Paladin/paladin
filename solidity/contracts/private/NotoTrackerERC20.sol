@@ -10,7 +10,7 @@ import {NotoLocks} from "./NotoLocks.sol";
  * @dev Example Noto hooks which track all Noto token movements on a private ERC20.
  */
 contract NotoTrackerERC20 is INotoHooks, ERC20 {
-    NotoLocks internal _locks  = new NotoLocks();
+    NotoLocks internal _locks = new NotoLocks();
     address internal _notary;
 
     modifier onlyNotary(address sender) {
@@ -128,26 +128,13 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         _onTransfer(sender, from, to, amount, data, prepared);
     }
 
-    uint256 approvals;
-
-    function onApproveTransfer(
-        address sender,
-        address from,
-        address delegate,
-        bytes calldata data,
-        PreparedTransaction calldata prepared
-    ) external virtual override {
-        approvals++; // must store something on each call (see https://github.com/kaleido-io/paladin/issues/252)
-        emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
-    }
-
     function onBurn(
         address sender,
         address from,
         uint256 amount,
         bytes calldata data,
         PreparedTransaction calldata prepared
-    ) external virtual override {
+    ) external virtual override onlySelf(sender, from) {
         _onBurn(sender, from, amount, data, prepared);
     }
 
@@ -158,8 +145,30 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
         uint256 amount,
         bytes calldata data,
         PreparedTransaction calldata prepared
-    ) external virtual override {
+    ) external virtual override onlySelf(sender, from) {
         _onLock(sender, lockId, from, amount, data, prepared);
+    }
+
+    function onCreateMintLock(
+        address sender,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlyNotary(sender) {
+        _onPrepareUnlock(sender, lockId, recipients, data, prepared);
+    }
+
+    function onPrepareBurnUnlock(
+        address sender,
+        bytes32 lockId,
+        address from,
+        uint256 amount,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlySelf(sender, from) {
+        // No recipients (so no pending balances to update here)
+        emit PenteExternalCall(prepared.contractAddress, prepared.encodedCall);
     }
 
     function onUnlock(

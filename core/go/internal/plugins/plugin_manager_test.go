@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -20,14 +20,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/mocks/componentsmocks"
 
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	prototk "github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	prototk "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -63,9 +64,12 @@ type testManagers struct {
 	testDomainManager    *testDomainManager
 	testTransportManager *testTransportManager
 	testRegistryManager  *testRegistryManager
+	testKeyManager       *testKeyManager
+	testRPCAuthManager   *testRPCAuthManager
 }
 
 func (tm *testManagers) componentsmocks(t *testing.T) *componentsmocks.AllComponents {
+	mm := metrics.NewMetricsManager(context.Background())
 	mc := componentsmocks.NewAllComponents(t)
 	if tm.testDomainManager == nil {
 		tm.testDomainManager = &testDomainManager{}
@@ -79,6 +83,16 @@ func (tm *testManagers) componentsmocks(t *testing.T) *componentsmocks.AllCompon
 		tm.testRegistryManager = &testRegistryManager{}
 	}
 	mc.On("RegistryManager").Return(tm.testRegistryManager.mock(t)).Maybe()
+	if tm.testKeyManager == nil {
+		tm.testKeyManager = &testKeyManager{}
+	}
+	mc.On("KeyManager").Return(tm.testKeyManager.mock(t)).Maybe()
+	if tm.testRPCAuthManager == nil {
+		tm.testRPCAuthManager = &testRPCAuthManager{}
+	}
+	mc.On("RPCAuthManager").Return(tm.testRPCAuthManager.mock(t)).Maybe()
+	mc.On("MetricsManager").Return(mm).Maybe()
+
 	return mc
 }
 
@@ -87,11 +101,17 @@ func (ts *testManagers) allPlugins() map[string]plugintk.Plugin {
 	for name, td := range ts.testDomainManager.domains {
 		testPlugins[name] = td
 	}
-	for name, td := range ts.testTransportManager.transports {
-		testPlugins[name] = td
+	for name, tt := range ts.testTransportManager.transports {
+		testPlugins[name] = tt
 	}
-	for name, td := range ts.testRegistryManager.registries {
-		testPlugins[name] = td
+	for name, tr := range ts.testRegistryManager.registries {
+		testPlugins[name] = tr
+	}
+	for name, tsm := range ts.testKeyManager.signingModules {
+		testPlugins[name] = tsm
+	}
+	for name, tam := range ts.testRPCAuthManager.rpcauthPlugins {
+		testPlugins[name] = tam
 	}
 	return testPlugins
 }
@@ -99,7 +119,7 @@ func (ts *testManagers) allPlugins() map[string]plugintk.Plugin {
 func newTestPluginManager(t *testing.T, setup *testManagers) *pluginManager {
 	udsString := tempUDS(t)
 	loaderId := uuid.New()
-	pc := NewPluginManager(context.Background(), udsString, loaderId, &pldconf.PluginManagerConfig{
+	pc := NewPluginManager(context.Background(), udsString, loaderId, &pldconf.PluginManagerInlineConfig{
 		GRPC: pldconf.GRPCConfig{
 			ShutdownTimeout: confutil.P("1ms"),
 		},
@@ -125,7 +145,7 @@ func TestInitPluginManagerBadPlugin(t *testing.T) {
 	tdm := &testDomainManager{domains: map[string]plugintk.Plugin{
 		"!badname": &mockPlugin[prototk.DomainMessage]{t: t},
 	}}
-	pc := NewPluginManager(context.Background(), tempUDS(t), uuid.New(), &pldconf.PluginManagerConfig{})
+	pc := NewPluginManager(context.Background(), tempUDS(t), uuid.New(), &pldconf.PluginManagerInlineConfig{})
 	err := pc.PostInit((&testManagers{testDomainManager: tdm}).componentsmocks(t))
 	assert.Regexp(t, "PD020005", err)
 }
@@ -133,7 +153,7 @@ func TestInitPluginManagerBadPlugin(t *testing.T) {
 func TestInitPluginManagerBadSocket(t *testing.T) {
 	pc := NewPluginManager(context.Background(),
 		t.TempDir(), /* can't use a dir as a socket */
-		uuid.New(), &pldconf.PluginManagerConfig{},
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
 	)
 	err := pc.PostInit((&testManagers{}).componentsmocks(t))
 	require.NoError(t, err)
@@ -150,7 +170,7 @@ func TestInitPluginManagerUDSTooLong(t *testing.T) {
 
 	pc := NewPluginManager(context.Background(),
 		string(longerThanUDSSafelySupportsCrossPlatform), /* can't use a dir as a socket */
-		uuid.New(), &pldconf.PluginManagerConfig{},
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
 	)
 
 	err := pc.PostInit((&testManagers{}).componentsmocks(t))
@@ -165,7 +185,7 @@ func TestInitPluginManagerTCP4(t *testing.T) {
 
 	pc := NewPluginManager(context.Background(),
 		"tcp4:127.0.0.1:0",
-		uuid.New(), &pldconf.PluginManagerConfig{},
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
 	)
 	err := pc.PostInit((&testManagers{}).componentsmocks(t))
 	require.NoError(t, err)
@@ -183,7 +203,7 @@ func TestInitPluginManagerTCP6(t *testing.T) {
 
 	pc := NewPluginManager(context.Background(),
 		"tcp6:[::1]:0",
-		uuid.New(), &pldconf.PluginManagerConfig{},
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
 	)
 	err := pc.PostInit((&testManagers{}).componentsmocks(t))
 	require.NoError(t, err)
@@ -194,11 +214,17 @@ func TestInitPluginManagerTCP6(t *testing.T) {
 }
 
 func TestNotifyPluginUpdateNotStarted(t *testing.T) {
-	pc := NewPluginManager(context.Background(), tempUDS(t), uuid.New(), &pldconf.PluginManagerConfig{})
+	pc := NewPluginManager(context.Background(), tempUDS(t), uuid.New(), &pldconf.PluginManagerInlineConfig{})
 	err := pc.PostInit((&testManagers{}).componentsmocks(t))
 	require.NoError(t, err)
 
-	err = pc.WaitForInit(context.Background())
+	err = pc.WaitForInit(context.Background(), prototk.PluginInfo_DOMAIN)
+	require.NoError(t, err)
+	err = pc.WaitForInit(context.Background(), prototk.PluginInfo_REGISTRY)
+	require.NoError(t, err)
+	err = pc.WaitForInit(context.Background(), prototk.PluginInfo_SIGNING_MODULE)
+	require.NoError(t, err)
+	err = pc.WaitForInit(context.Background(), prototk.PluginInfo_TRANSPORT)
 	require.NoError(t, err)
 
 	err = pc.ReloadPluginList()
@@ -229,7 +255,7 @@ func TestLoaderErrors(t *testing.T) {
 	pc := NewPluginManager(ctx,
 		"tcp:127.0.0.1:0",
 		uuid.New(),
-		&pldconf.PluginManagerConfig{
+		&pldconf.PluginManagerInlineConfig{
 			GRPC: pldconf.GRPCConfig{
 				ShutdownTimeout: confutil.P("1ms"),
 			},
@@ -270,7 +296,7 @@ func TestLoaderErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	// We should be notified of the error if we were waiting
-	err = pc.WaitForInit(ctx)
+	err = pc.WaitForInit(ctx, prototk.PluginInfo_DOMAIN)
 	assert.Regexp(t, "pop", err)
 
 	// Get a system command
@@ -291,7 +317,7 @@ func TestLoaderErrors(t *testing.T) {
 	// - check it times out context not an error on load
 	cancelled, cancelCtx := context.WithCancel(context.Background())
 	cancelCtx()
-	err = pc.WaitForInit(cancelled)
+	err = pc.WaitForInit(cancelled, prototk.PluginInfo_DOMAIN)
 	assert.Regexp(t, "PD010301", err)
 
 	err = loaderStream.CloseSend()

@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2025.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,9 +29,9 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/Masterminds/sprig/v3"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
 	"github.com/tyler-smith/go-bip39"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -52,8 +52,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/kaleido-io/paladin/operator/api/v1alpha1"
-	"github.com/kaleido-io/paladin/operator/pkg/config"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/operator/pkg/config"
 
 	_ "embed"
 )
@@ -259,6 +259,13 @@ func (r *PaladinReconciler) createStatefulSet(ctx context.Context, node *corev1a
 
 	r.addTLSSecretMounts(statefulSet, paladinContainer, tlsSecrets)
 
+	// Mount RPC auth secret if configured
+	if node.Spec.RPCAuth != nil && node.Spec.RPCAuth.SecretName != "" {
+		if err := r.addRPCAuthSecretMount(ctx, statefulSet, paladinContainer, node); err != nil {
+			return nil, err
+		}
+	}
+
 	// Check if the StatefulSet already exists, create if not
 	var foundStatefulSet appsv1.StatefulSet
 	if err := r.Get(ctx, types.NamespacedName{Name: statefulSet.Name, Namespace: statefulSet.Namespace}, &foundStatefulSet); err != nil {
@@ -381,6 +388,10 @@ func (r *PaladinReconciler) generateStatefulSetTemplate(node *corev1alpha1.Palad
 									MountPath: "/app/config",
 									ReadOnly:  true,
 								},
+								{
+									Name:      "appjna",
+									MountPath: "/app/jna",
+								},
 							},
 							Args: []string{
 								"/app/config/pldconf.paladin.yaml",
@@ -440,6 +451,12 @@ func (r *PaladinReconciler) generateStatefulSetTemplate(node *corev1alpha1.Palad
 										Name: name,
 									},
 								},
+							},
+						},
+						{
+							Name: "appjna",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						},
 					},
@@ -626,6 +643,46 @@ func (r *PaladinReconciler) addPaladinDBSecret(ctx context.Context, ss *appsv1.S
 	return nil
 }
 
+func (r *PaladinReconciler) addRPCAuthSecretMount(ctx context.Context, ss *appsv1.StatefulSet, ct *corev1.Container, node *corev1alpha1.Paladin) error {
+	secretName := node.Spec.RPCAuth.SecretName
+
+	// Verify secret exists
+	var secret corev1.Secret
+	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: node.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("secret '%s' does not exist for RPC auth", secretName)
+		}
+		return fmt.Errorf("failed to get RPC auth secret '%s': %s", secretName, err)
+	}
+
+	// Verify the credentials.htpasswd key exists
+	if secret.Data["credentials.htpasswd"] == nil {
+		return fmt.Errorf("secret '%s' does not contain required key 'credentials.htpasswd'", secretName)
+	}
+
+	ct.VolumeMounts = append(ct.VolumeMounts, corev1.VolumeMount{
+		Name:      "rpc-auth-creds",
+		MountPath: "/rpcauth",
+	})
+	ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: "rpc-auth-creds",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretName,
+				Items: []corev1.KeyToPath{
+					{
+						Key:  "credentials.htpasswd",
+						Path: "credentials.htpasswd",
+					},
+				},
+			},
+		},
+	})
+
+	return nil
+}
+
 func (r *PaladinReconciler) createConfigMap(ctx context.Context, node *corev1alpha1.Paladin, name string) (string, []string, *corev1.ConfigMap, error) {
 	configSum, tlsSecrets, configMap, err := r.generateConfigMap(ctx, node, name)
 	if err != nil {
@@ -703,6 +760,14 @@ func (r *PaladinReconciler) generatePaladinConfig(ctx context.Context, node *cor
 		}
 	}
 
+	// Enable metrics server by default on localhost:6100
+	if pldConf.MetricsServer.Enabled == nil {
+		pldConf.MetricsServer.Enabled = confutil.P(true)
+		if pldConf.MetricsServer.Port == nil {
+			pldConf.MetricsServer.Port = confutil.P(6100)
+		}
+	}
+
 	// Node name can be overridden, but defaults to the CR name
 	if pldConf.NodeName == "" {
 		pldConf.NodeName = node.Name
@@ -747,6 +812,15 @@ func (r *PaladinReconciler) generatePaladinConfig(ctx context.Context, node *cor
 
 	// Merge k8s CR label references to registries, with the supplied static config
 	if err := r.generatePaladinRegistries(ctx, node, &pldConf); err != nil {
+		return "", nil, err
+	}
+
+	// Add any provided signing modules into the supplied config
+	r.generatePaladinSigningModules(ctx, node, &pldConf)
+
+	// Generate RPC auth configuration if specified
+	_, err := r.generatePaladinRPCAuth(ctx, node, &pldConf)
+	if err != nil {
 		return "", nil, err
 	}
 
@@ -931,18 +1005,21 @@ func (r *PaladinReconciler) generatePaladinSigners(ctx context.Context, node *co
 		}
 
 		wallet := &pldconf.WalletConfig{
-			Name:        s.Name,
-			SignerType:  pldconf.WalletSignerTypeEmbedded,
-			KeySelector: s.KeySelector,
-			Signer:      &pldconf.SignerConfig{},
+			Name:                    s.Name,
+			SignerType:              pldconf.WalletSignerTypeEmbedded,
+			KeySelector:             s.KeySelector,
+			KeySelectorMustNotMatch: s.KeySelectorMustNotMatch,
+			Signer:                  &pldconf.SignerConfig{},
 		}
 
-		// Upsert a secret if we've been asked to. We use a mnemonic in this case (rather than directly generating a 32byte seed)
-		if s.Type == corev1alpha1.SignerType_AutoHDWallet {
+		if s.DerivationType == corev1alpha1.DerivationType_BIP32 {
 			wallet.Signer.KeyDerivation.Type = pldconf.KeyDerivationTypeBIP32
 			wallet.Signer.KeyDerivation.SeedKeyPath = pldconf.StaticKeyReference{Name: "seed"}
-			if err := r.generateBIP39SeedSecretIfNotExist(ctx, node, s.Secret); err != nil {
-				return err
+			if s.Type == corev1alpha1.SignerType_AutoHDWallet {
+				// Upsert a secret if we've been asked to. We use a mnemonic in this case (rather than directly generating a 32byte seed)
+				if err := r.generateBIP39SeedSecretIfNotExist(ctx, node, s.Secret); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -996,10 +1073,11 @@ func (r *PaladinReconciler) generatePaladinDomains(ctx context.Context, node *co
 		// or wholely defined by reference to the CR attached.
 		// We do not attempt to merge
 		pldConf.Domains[domain.Name] = &pldconf.DomainConfig{
-			Plugin:          r.mapPluginConfig(domain.Spec.Plugin),
-			Config:          domainConf,
-			RegistryAddress: domain.Status.RegistryAddress,
-			AllowSigning:    domain.Spec.AllowSigning,
+			Plugin:               r.mapPluginConfig(domain.Spec.Plugin),
+			Config:               domainConf,
+			RegistryAddress:      domain.Status.RegistryAddress,
+			AllowSigning:         domain.Spec.AllowSigning,
+			FixedSigningIdentity: domain.Spec.FixedSigningIdentity,
 		}
 	}
 
@@ -1069,6 +1147,71 @@ func (r *PaladinReconciler) generatePaladinRegistries(ctx context.Context, node 
 	return nil
 }
 
+func (r *PaladinReconciler) generatePaladinRPCAuth(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) (string, error) {
+	if node.Spec.RPCAuth == nil || node.Spec.RPCAuth.SecretName == "" {
+		return "", nil
+	}
+
+	secretName := node.Spec.RPCAuth.SecretName
+
+	// Validate secret exists and contains the required key
+	var secret corev1.Secret
+	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: node.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return "", fmt.Errorf("waiting for secret '%s' to be available for RPC auth", secretName)
+		}
+		return "", fmt.Errorf("failed to lookup secret for RPC auth: %s", err)
+	}
+
+	// Verify the credentials.htpasswd key exists
+	if secret.Data["credentials.htpasswd"] == nil {
+		return "", fmt.Errorf("secret '%s' does not contain required key 'credentials.htpasswd'", secretName)
+	}
+
+	// Build the config JSON for basicauth plugin
+	credentialsPath := "/rpcauth/credentials.htpasswd"
+	configJSON := fmt.Sprintf(`{"credentialsFile": "%s"}`, credentialsPath)
+
+	// Initialize rpcAuthorizers map if needed
+	if pldConf.RPCAuthorizers == nil {
+		pldConf.RPCAuthorizers = make(map[string]*pldconf.RPCAuthorizerConfig)
+	}
+
+	// Add basicauth authorizer configuration
+	pldConf.RPCAuthorizers["basicauth"] = &pldconf.RPCAuthorizerConfig{
+		Plugin: pldconf.PluginConfig{
+			Type:    "c-shared",
+			Library: "/app/rpcauth/libbasicauth.so",
+		},
+		Config: configJSON,
+	}
+
+	// Set rpcServer.authorizers to use basicauth
+	pldConf.RPCServer.Authorizers = []string{"basicauth"}
+
+	return secretName, nil
+}
+
+func (r *PaladinReconciler) generatePaladinSigningModules(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) {
+	for _, signingModule := range node.Spec.SigningModules {
+		var signingModuleConf map[string]any
+		if err := json.Unmarshal([]byte(signingModule.ConfigJSON), &signingModuleConf); err != nil {
+			log.FromContext(ctx).Error(err, fmt.Sprintf("configJSON for signing module '%s' cannot be parsed (skipping)", signingModule.Name))
+			continue // skip it - but continue trying others
+		}
+
+		// It's available, add it to our config
+		if pldConf.SigningModules == nil {
+			pldConf.SigningModules = make(map[string]*pldconf.SigningModuleConfig)
+		}
+		pldConf.SigningModules[signingModule.Name] = &pldconf.SigningModuleConfig{
+			Plugin: r.mapPluginConfig(signingModule.Plugin),
+			Config: signingModuleConf,
+		}
+	}
+}
+
 func (r *PaladinReconciler) generatePaladinTransports(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) ([]string, error) {
 	availableTLSSecrets := []string{}
 	for _, transport := range node.Spec.Transports {
@@ -1105,12 +1248,16 @@ func (r *PaladinReconciler) generatePaladinTransports(ctx context.Context, node 
 
 		tlsIdx := len(availableTLSSecrets)
 		availableTLSSecrets = append(availableTLSSecrets, secret.Name)
-		transportConf["tls"] = &pldconf.TLSConfig{
+		tlsConf := &pldconf.TLSConfig{
 			Enabled:    true,
 			ClientAuth: true,
 			CertFile:   fmt.Sprintf("/cert%.3d/tls.crt", tlsIdx),
 			KeyFile:    fmt.Sprintf("/cert%.3d/tls.key", tlsIdx),
 		}
+		if secret.Data["ca.crt"] != nil {
+			tlsConf.CAFile = fmt.Sprintf("/cert%.3d/ca.crt", tlsIdx)
+		}
+		transportConf["tls"] = tlsConf
 		if transportConf["externalHostname"] == nil {
 			transportConf["externalHostname"] = generatePaladinServiceHostname(node.Name, node.Namespace)
 		}

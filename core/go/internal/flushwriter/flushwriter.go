@@ -22,16 +22,16 @@ import (
 	"hash/fnv"
 	"time"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 type Writeable[R any] interface {
@@ -181,7 +181,7 @@ func (w *writer[T, R]) queue(ctx context.Context, value T, flush bool) *op[T, R]
 	h := fnv.New32a() // simple non-cryptographic hash algo
 	_, _ = h.Write([]byte(op.writeKey))
 	routine := h.Sum32() % uint32(w.workerCount)
-	log.L(ctx).Debugf("Queuing write operation %s to writer_%s_%.4d", w.writerId, op.id, routine)
+	log.L(ctx).Debugf("Queuing write operation %s to writer_%s_%.4d", op.id, w.writerId, routine)
 	select {
 	case w.workQueues[routine] <- op: // it's queued
 	case <-ctx.Done(): // timeout of caller context

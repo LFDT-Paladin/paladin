@@ -17,8 +17,8 @@
 package pldapi
 
 import (
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
 )
 
 // These are user-supplied directly on the external interface (vs. calculated)
@@ -37,7 +37,6 @@ type PublicCallOptions struct {
 type PublicTxGasPricing struct {
 	MaxPriorityFeePerGas *pldtypes.HexUint256 `docstruct:"PublicTxGasPricing" json:"maxPriorityFeePerGas,omitempty"`
 	MaxFeePerGas         *pldtypes.HexUint256 `docstruct:"PublicTxGasPricing" json:"maxFeePerGas,omitempty"`
-	GasPrice             *pldtypes.HexUint256 `docstruct:"PublicTxGasPricing" json:"gasPrice,omitempty"`
 }
 
 type PublicTxInput struct {

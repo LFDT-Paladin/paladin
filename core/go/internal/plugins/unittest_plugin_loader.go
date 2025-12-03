@@ -18,9 +18,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -63,7 +63,7 @@ func NewUnitTestPluginLoader(grpcTarget, loaderID string, plugins map[string]plu
 }
 
 func (tpl *testPluginLoader) Stop() {
-	tpl.conn.Close()
+	_ = tpl.conn.Close()
 	tpl.cancelCtx()
 	for _, p := range tpl.plugins {
 		p.Stop()

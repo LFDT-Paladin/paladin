@@ -18,11 +18,12 @@ package privatetxnmgr
 import (
 	"context"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 )
 
 func (p *privateTxManager) HandlePaladinMsg(ctx context.Context, message *components.ReceivedMessage) {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	//TODO this need to become an ultra low latency, non blocking, handover to the event loop thread.
 	// need some thought on how to handle errors, retries, buffering, swapping idle sequencers in and out of memory etc...
 

@@ -20,18 +20,18 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/componentmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/plugins"
+	"github.com/LFDT-Paladin/paladin/core/pkg/config"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/componentmgr"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/plugins"
-	"github.com/kaleido-io/paladin/core/pkg/config"
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
 
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 func HDWalletSeedScopedToTest() *UTInitFunction {
@@ -178,9 +178,9 @@ func (tb *testbed) StartForTest(configFile string, domains map[string]*TestbedDo
 		}
 	}
 
-	conf.DomainManagerConfig.Domains = make(map[string]*pldconf.DomainConfig, len(domains))
+	conf.Domains = make(map[string]*pldconf.DomainConfig, len(domains))
 	for name, domain := range domains {
-		conf.DomainManagerConfig.Domains[name] = &pldconf.DomainConfig{
+		conf.Domains[name] = &pldconf.DomainConfig{
 			Plugin: pldconf.PluginConfig{
 				Type:    string(pldtypes.LibraryTypeCShared),
 				Library: "loaded/via/unit/test/loader",

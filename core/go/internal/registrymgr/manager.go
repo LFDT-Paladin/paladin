@@ -19,26 +19,27 @@ import (
 	"context"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/registrymgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/cache"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 type registryManager struct {
 	bgCtx context.Context
 	mux   sync.Mutex
 
-	conf *pldconf.RegistryManagerConfig
+	conf *pldconf.RegistryManagerInlineConfig
 
 	p            persistence.Persistence
 	blockIndexer blockindexer.BlockIndexer
@@ -53,25 +54,27 @@ type registryManager struct {
 
 	registriesByID   map[uuid.UUID]*registry
 	registriesByName map[string]*registry
+	metrics          metrics.RegistryManagerMetrics
 }
 
-func NewRegistryManager(bgCtx context.Context, conf *pldconf.RegistryManagerConfig) components.RegistryManager {
+func NewRegistryManager(bgCtx context.Context, conf *pldconf.RegistryManagerInlineConfig) components.RegistryManager {
 	return &registryManager{
-		bgCtx:                    bgCtx,
+		bgCtx:                    log.WithComponent(bgCtx, "registrymanager"),
 		conf:                     conf,
 		registriesByID:           make(map[uuid.UUID]*registry),
 		registriesByName:         make(map[string]*registry),
 		registryTransportLookups: make(map[string]*transportLookup),
-		transportDetailsCache:    cache.NewCache[string, []*components.RegistryNodeTransportEntry](&conf.RegistryManager.RegistryCache, pldconf.RegistryCacheDefaults),
+		transportDetailsCache:    cache.NewCache[string, []*components.RegistryNodeTransportEntry](&conf.RegistryManager.RegistryCache, &pldconf.PaladinConfigDefaults.RegistryManager.RegistryCache),
 	}
 }
 
 func (rm *registryManager) PreInit(pic components.PreInitComponents) (_ *components.ManagerInitResult, err error) {
 	rm.p = pic.Persistence()
+	rm.metrics = metrics.InitMetrics(rm.bgCtx, pic.MetricsManager().Registry())
 
 	// For each of the registries, parse the transport lookup semantics
 	for regName, regConf := range rm.conf.Registries {
-		if confutil.Bool(regConf.Transports.Enabled, *pldconf.RegistryTransportsDefaults.Enabled) {
+		if confutil.Bool(regConf.Transports.Enabled, *pldconf.RegistryConfigDefaults.Transports.Enabled) {
 			if rm.registryTransportLookups[regName], err = newTransportLookup(rm.bgCtx, regName, &regConf.Transports); err != nil {
 				return nil, err
 			}
@@ -145,10 +148,12 @@ func (rm *registryManager) RegistryRegistered(name string, id uuid.UUID, toRegis
 	rm.registriesByID[id] = t
 	rm.registriesByName[name] = t
 	go t.init()
+	rm.metrics.IncRegistries()
 	return t, nil
 }
 
 func (rm *registryManager) GetRegistry(ctx context.Context, name string) (components.Registry, error) {
+	ctx = log.WithComponent(ctx, "registrymanager")
 	rm.mux.Lock()
 	defer rm.mux.Unlock()
 
@@ -171,6 +176,7 @@ func (rm *registryManager) getRegistryNames() []string {
 }
 
 func (rm *registryManager) GetNodeTransports(ctx context.Context, node string) ([]*components.RegistryNodeTransportEntry, error) {
+	ctx = log.WithComponent(ctx, "registrymanager")
 	// Check cache
 	transports, present := rm.transportDetailsCache.Get(node)
 	if present {

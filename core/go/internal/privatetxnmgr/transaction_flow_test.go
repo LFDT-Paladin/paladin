@@ -20,18 +20,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/ptmgrtypesmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/syncpointsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
-	"github.com/kaleido-io/paladin/core/mocks/componentsmocks"
-	"github.com/kaleido-io/paladin/core/mocks/ptmgrtypesmocks"
-	"github.com/kaleido-io/paladin/core/mocks/syncpointsmocks"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/algorithms"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/signpayloads"
-	"github.com/kaleido-io/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -735,6 +735,7 @@ func TestRequestRemoteEndorsements(t *testing.T) {
 		mock.Anything, //Verifiers,
 		mock.Anything, //Signatures,
 		mock.Anything, //InputStates,
+		mock.Anything, //ReadStates,
 		mock.Anything, //OutputStates,
 		mock.Anything, //InfoStates,
 	).Return(nil).Once()
@@ -750,6 +751,7 @@ func TestRequestRemoteEndorsements(t *testing.T) {
 		mock.Anything, //Verifiers,
 		mock.Anything, //Signatures,
 		mock.Anything, //InputStates,
+		mock.Anything, //ReadStates,
 		mock.Anything, //OutputStates,
 		mock.Anything, //InfoStates,
 	).Return(nil).Once()
@@ -765,6 +767,7 @@ func TestRequestRemoteEndorsements(t *testing.T) {
 		mock.Anything, //Verifiers,
 		mock.Anything, //Signatures,
 		mock.Anything, //InputStates,
+		mock.Anything, //ReadStates,
 		mock.Anything, //OutputStates,
 		mock.Anything, //InfoStates,
 	).Return(nil).Once()
@@ -1018,6 +1021,7 @@ func TestTimedOutEndorsementRequest(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once().Run(func(args mock.Arguments) {
@@ -1042,6 +1046,7 @@ func TestTimedOutEndorsementRequest(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once()
@@ -1179,6 +1184,7 @@ func TestEndorsementResponseAfterRevert(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once().Run(func(args mock.Arguments) {
@@ -1325,6 +1331,7 @@ func TestEndorsementResponseAfterReassemble(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once().Run(func(args mock.Arguments) {
@@ -1501,6 +1508,7 @@ func TestDuplicateEndorsementResponse(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once().Run(func(args mock.Arguments) {
@@ -1525,6 +1533,7 @@ func TestDuplicateEndorsementResponse(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once()
@@ -1710,6 +1719,7 @@ func TestGetTxStatusPendingEndorsements(t *testing.T) {
 			mock.Anything, //Verifiers,
 			mock.Anything, //Signatures,
 			mock.Anything, //InputStates,
+			mock.Anything, //ReadStates,
 			mock.Anything, //OutputStates,
 			mock.Anything, //InfoStates,
 		).Return(nil).Once().Run(func(args mock.Arguments) {

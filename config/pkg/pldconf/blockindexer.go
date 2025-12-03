@@ -19,18 +19,20 @@ package pldconf
 import (
 	"encoding/json"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type BlockIndexerConfig struct {
-	FromBlock             json.RawMessage    `json:"fromBlock,omitempty"` // TODO: this should be a pldtypes.RawJSON but that's not possible right now because of a ciruclar dependency
-	CommitBatchSize       *int               `json:"commitBatchSize"`
-	CommitBatchTimeout    *string            `json:"commitBatchTimeout"`
-	RequiredConfirmations *int               `json:"requiredConfirmations"`
-	ChainHeadCacheLen     *int               `json:"chainHeadCacheLen"`
-	BlockPollingInterval  *string            `json:"blockPollingInterval"`
-	EventStreams          EventStreamsConfig `json:"eventStreams"`
-	Retry                 RetryConfig        `json:"retry"`
+	FromBlock               json.RawMessage    `json:"fromBlock,omitempty"` // TODO: this should be a pldtypes.RawJSON but that's not possible right now because of a ciruclar dependency
+	CommitBatchSize         *int               `json:"commitBatchSize"`
+	CommitBatchTimeout      *string            `json:"commitBatchTimeout"`
+	RequiredConfirmations   *int               `json:"requiredConfirmations"`
+	ChainHeadCacheLen       *int               `json:"chainHeadCacheLen"`
+	BlockPollingInterval    *string            `json:"blockPollingInterval"`
+	EventStreams            EventStreamsConfig `json:"eventStreams"`
+	Retry                   RetryConfig        `json:"retry"`
+	IgnoredTransactionTypes []int64            `json:"ignoredTransactionTypes"`
+	InsertDBBatchSize       *int               `json:"insertDBBatchSize"` // Amount of tx and events to insert in a single DB transaction
 }
 
 type EventStreamsConfig struct {
@@ -38,16 +40,17 @@ type EventStreamsConfig struct {
 	CatchUpQueryPageSize     *int `json:"catchupQueryPageSize"`
 }
 
-var EventStreamDefaults = &EventStreamsConfig{
-	BlockDispatchQueueLength: confutil.P(100),
-	CatchUpQueryPageSize:     confutil.P(100),
-}
-
-var BlockIndexerDefaults = &BlockIndexerConfig{
-	FromBlock:             json.RawMessage(`0`),
-	CommitBatchSize:       confutil.P(50),
-	CommitBatchTimeout:    confutil.P("100ms"),
-	RequiredConfirmations: confutil.P(0),
-	ChainHeadCacheLen:     confutil.P(50),
-	BlockPollingInterval:  confutil.P("10s"),
+var BlockIndexerDefaults = BlockIndexerConfig{
+	FromBlock:               json.RawMessage(`0`),
+	CommitBatchSize:         confutil.P(50),
+	CommitBatchTimeout:      confutil.P("100ms"),
+	RequiredConfirmations:   confutil.P(0),
+	ChainHeadCacheLen:       confutil.P(50),
+	BlockPollingInterval:    confutil.P("10s"),
+	IgnoredTransactionTypes: []int64{0x7e},
+	InsertDBBatchSize:       confutil.P(5000),
+	EventStreams: EventStreamsConfig{
+		BlockDispatchQueueLength: confutil.P(100),
+		CatchUpQueryPageSize:     confutil.P(100),
+	},
 }

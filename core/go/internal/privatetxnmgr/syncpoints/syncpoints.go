@@ -19,22 +19,15 @@ package syncpoints
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/flushwriter"
 
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"gorm.io/gorm"
 )
-
-var WriterConfigDefaults = pldconf.FlushWriterConfig{
-	WorkerCount:  confutil.P(10),
-	BatchTimeout: confutil.P("25ms"),
-	BatchMaxSize: confutil.P(100),
-}
 
 type PublicTransactionsSubmit func(tx *gorm.DB) (publicTxID []string, err error)
 
@@ -60,6 +53,9 @@ type SyncPoints interface {
 	// the onCommit and onRollback callbacks are called, on a separate goroutine when the transaction is committed or rolled back
 	QueueTransactionFinalize(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error))
 
+	// This is a recursive callback between syncpoints when flushing receipts, and FinalizeTransactions on txMgr
+	WriteOrDistributeReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error
+
 	Close()
 }
 
@@ -77,7 +73,7 @@ func NewSyncPoints(ctx context.Context, conf *pldconf.FlushWriterConfig, p persi
 		pubTxMgr:     pubTxMgr,
 		transportMgr: transportMgr,
 	}
-	s.writer = flushwriter.NewWriter(ctx, s.runBatch, p, conf, &WriterConfigDefaults)
+	s.writer = flushwriter.NewWriter(ctx, s.runBatch, p, conf, &pldconf.PrivateTxManagerDefaults.Writer)
 	return s
 }
 

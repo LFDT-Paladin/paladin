@@ -21,12 +21,12 @@ import (
 
 	_ "embed"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/registries/evm/internal/msgs"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/registries/evm/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 //go:embed abis/IdentityRegistry.json
@@ -53,12 +53,13 @@ func NewPlugin(ctx context.Context) plugintk.PluginBase {
 
 func NewEVMRegistry(callbacks plugintk.RegistryCallbacks) plugintk.RegistryAPI {
 	return &evmRegistry{
-		bgCtx:     context.Background(),
+		bgCtx:     log.WithComponent(context.Background(), "evmregistry"),
 		callbacks: callbacks,
 	}
 }
 
 func (r *evmRegistry) ConfigureRegistry(ctx context.Context, req *prototk.ConfigureRegistryRequest) (*prototk.ConfigureRegistryResponse, error) {
+	ctx = log.WithComponent(ctx, "evmregistry")
 	r.name = req.Name
 
 	err := json.Unmarshal([]byte(req.ConfigJson), &r.conf)
@@ -159,6 +160,7 @@ func (r *evmRegistry) handlePropertySet(ctx context.Context, inEvent *prototk.On
 }
 
 func (r *evmRegistry) HandleRegistryEvents(ctx context.Context, req *prototk.HandleRegistryEventsRequest) (*prototk.HandleRegistryEventsResponse, error) {
+	ctx = log.WithComponent(ctx, "evmregistry")
 
 	entries := []*prototk.RegistryEntry{}
 	properties := []*prototk.RegistryProperty{}

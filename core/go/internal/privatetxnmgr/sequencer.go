@@ -21,17 +21,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/syncpoints"
 	"github.com/google/uuid"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/syncpoints"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 /*
@@ -175,15 +175,18 @@ func NewSequencer(
 		environment: &sequencerEnvironment{
 			blockHeight: blockHeight,
 		},
-
-		// Randomly allocate a signer.
-		// TODO: rotation
-		defaultSigner:  fmt.Sprintf("domains.%s.submit.%s", contractAddress, uuid.New()),
 		newBlockEvents: make(chan int64, 10), //TODO do we want to make the buffer size configurable? Or should we put in non blocking mode? Does it matter if we miss a block?
-
 	}
 
 	log.L(ctx).Debugf("NewSequencer for contract address %s created: %+v", newSequencer.contractAddress, newSequencer)
+
+	defaultSigner := domainAPI.Domain().FixedSigningIdentity()
+	if defaultSigner == "" {
+		// Randomly allocate a signer.
+		// TODO: rotation
+		defaultSigner = fmt.Sprintf("domains.%s.submit.%s", contractAddress, uuid.New())
+	}
+	newSequencer.defaultSigner = defaultSigner
 
 	coordinatorSelector, err := NewCoordinatorSelector(ctx, nodeName, domainAPI.ContractConfig(), *sequencerConfig)
 	if err != nil {

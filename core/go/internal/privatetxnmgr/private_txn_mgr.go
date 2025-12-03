@@ -20,28 +20,28 @@ import (
 	"encoding/json"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/syncpoints"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/syncpoints"
 
-	"github.com/kaleido-io/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
-	pbEngine "github.com/kaleido-io/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	pbEngine "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type privateTxManager struct {
@@ -96,7 +96,7 @@ func NewPrivateTransactionMgr(ctx context.Context, config *pldconf.PrivateTxMana
 		endorsementGatherers: make(map[string]ptmgrtypes.EndorsementGatherer),
 		subscribers:          make([]components.PrivateTxEventSubscriber, 0),
 	}
-	p.ctx, p.ctxCancel = context.WithCancel(ctx)
+	p.ctx, p.ctxCancel = context.WithCancel(log.WithComponent(ctx, "privatetxnmanager"))
 	return p
 }
 
@@ -203,6 +203,7 @@ func (p *privateTxManager) getEndorsementGathererForContract(ctx context.Context
 }
 
 func (p *privateTxManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	tx := txi.Transaction
 	if tx.To == nil {
 		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
@@ -428,7 +429,14 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 
 	publicTXs := []*components.PublicTxSubmission{
 		{
-			Bindings: []*components.PaladinTXReference{{TransactionID: tx.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
+			Bindings: []*components.PaladinTXReference{
+				{
+					TransactionID:              tx.ID,
+					TransactionType:            pldapi.TransactionTypePrivate.Enum(),
+					TransactionSender:          tx.From,
+					TransactionContractAddress: "", // no contract address for deployment transactions
+				},
+			},
 			PublicTxInput: pldapi.PublicTxInput{
 				From:            resolvedAddrs[0],
 				PublicTxOptions: pldapi.PublicTxOptions{}, // TODO: Consider propagation from paladin transaction input
@@ -494,6 +502,7 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 
 func (p *privateTxManager) GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status components.PrivateTxStatus, err error) {
 	// this returns status that we happen to have in memory at the moment and might be useful for debugging
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 
 	p.sequencersLock.RLock()
 	defer p.sequencersLock.RUnlock()
@@ -508,6 +517,12 @@ func (p *privateTxManager) GetTxStatus(ctx context.Context, domainAddress string
 		return targetSequencer.GetTxStatus(ctx, txID)
 	}
 
+}
+
+func (p *privateTxManager) getSequencerIfActive(ctx context.Context, domainAddress string) *Sequencer {
+	p.sequencersLock.RLock()
+	defer p.sequencersLock.RUnlock()
+	return p.sequencers[domainAddress]
 }
 
 func (p *privateTxManager) HandleNewEvent(ctx context.Context, event ptmgrtypes.PrivateTransactionEvent) {
@@ -940,6 +955,7 @@ func (p *privateTxManager) handleAssembleError(ctx context.Context, messagePaylo
 // into the reliability of the event delivery or maybe there is only a consumer of the event and it is responsible
 // for managing multiple subscribers and durability etc...
 func (p *privateTxManager) Subscribe(ctx context.Context, subscriber components.PrivateTxEventSubscriber) {
+	// ctx = log.WithComponent(ctx, "privatetxnmanager")
 	p.subscribersLock.Lock()
 	defer p.subscribersLock.Unlock()
 	//TODO implement this
@@ -956,29 +972,36 @@ func (p *privateTxManager) publishToSubscribers(ctx context.Context, event compo
 }
 
 func (p *privateTxManager) NotifyFailedPublicTx(ctx context.Context, dbTX persistence.DBTX, failures []*components.PublicTxMatch) error {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	// TODO: We have processing we need to do here to resubmit
-	// For now, we directly raise a failure receipt for them back with the main transaction manager
-	privateFailureReceipts := make([]*components.ReceiptInput, len(failures))
+	privateFailureReceipts := make([]*components.ReceiptInputWithOriginator, len(failures))
 	for i, tx := range failures {
-		privateFailureReceipts[i] = &components.ReceiptInput{
-			ReceiptType:   components.RT_FailedOnChainWithRevertData,
-			TransactionID: tx.TransactionID,
-			OnChain: pldtypes.OnChainLocation{
-				Type:             pldtypes.OnChainTransaction,
-				TransactionHash:  tx.Hash,
-				BlockNumber:      tx.BlockNumber,
-				TransactionIndex: tx.BlockNumber,
+		// We calculate the failure message - all errors handled mapped internally here
+		privateFailureReceipts[i] = &components.ReceiptInputWithOriginator{
+			Originator:            tx.TransactionSender,
+			DomainContractAddress: tx.TransactionContractAddress,
+			ReceiptInput: components.ReceiptInput{
+				ReceiptType:   components.RT_FailedOnChainWithRevertData,
+				TransactionID: tx.TransactionID,
+				OnChain: pldtypes.OnChainLocation{
+					Type:             pldtypes.OnChainTransaction,
+					TransactionHash:  tx.Hash,
+					BlockNumber:      tx.BlockNumber,
+					TransactionIndex: tx.BlockNumber,
+				},
+				RevertData: tx.RevertReason,
 			},
-			RevertData: tx.RevertReason,
 		}
 	}
-	return p.components.TxManager().FinalizeTransactions(ctx, dbTX, privateFailureReceipts)
+	// Distribute the receipts to the correct location - either local if we were the submitter, or remote.
+	return p.WriteOrDistributeReceiptsPostSubmit(ctx, dbTX, privateFailureReceipts)
 }
 
 // We get called post-commit by the indexer in the domain when transaction confirmations have been recorded,
 // at which point it is important for us to remove transactions from our Domain Context in-memory buffer.
 // This might also unblock significant extra processing for more transactions.
 func (p *privateTxManager) PrivateTransactionConfirmed(ctx context.Context, receipt *components.TxCompletion) {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	log.L(ctx).Infof("private TX manager notified of transaction confirmation %s deploy=%t",
 		receipt.TransactionID, receipt.PSC == nil)
 	if receipt.PSC != nil {
@@ -992,7 +1015,7 @@ func (p *privateTxManager) PrivateTransactionConfirmed(ctx context.Context, rece
 }
 
 func (p *privateTxManager) CallPrivateSmartContract(ctx context.Context, call *components.ResolvedTransaction) (*abi.ComponentValue, error) {
-
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	callTx := call.Transaction
 	psc, err := p.components.DomainManager().GetSmartContractByAddress(ctx, p.components.Persistence().NOTX(), *callTx.To)
 	if err != nil {
@@ -1036,5 +1059,27 @@ func (p *privateTxManager) CallPrivateSmartContract(ctx context.Context, call *c
 }
 
 func (p *privateTxManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
 	return newStateDistributionBuilder(p.components, tx).Build(ctx)
+}
+
+func (p *privateTxManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
+	ctx = log.WithComponent(ctx, "privatetxnmanager")
+	// For any failures in a post submission, it basically invalidates the whole working state of our in-memory sequencer.
+	// In this version of the engine, we simply unload the whole engine.
+	// This is like a restart of the Paladin engine - and means anything in-flight is aborted.
+	// New transactions will load a fresh engine.
+	// TODO: See https://github.com/LFDT-Paladin/paladin/pull/673 for work on the more comprehensive stateful sequencer.
+
+	for _, r := range receipts {
+		if r.ReceiptType != components.RT_Success && r.DomainContractAddress != "" {
+			seq := p.getSequencerIfActive(ctx, r.DomainContractAddress)
+			if seq != nil {
+				log.L(ctx).Errorf("Due to transaction error the sequencer for smart contract %s in domain %s is STOPPING", seq.contractAddress, r.Domain)
+				seq.Stop()
+			}
+		}
+	}
+
+	return p.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
 }

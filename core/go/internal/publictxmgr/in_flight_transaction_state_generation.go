@@ -20,19 +20,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/i18n"
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/core/internal/msgs"
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldapi"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type inFlightTransactionStateGeneration struct {
 	current             bool
 	testOnlyNoEventMode bool
 
-	PublicTxManagerMetricsManager
+	metrics.PublicTransactionManagerMetrics
 	InFlightStageActionTriggers
 	InMemoryTxStateManager
 
@@ -50,8 +51,7 @@ type inFlightTransactionStateGeneration struct {
 	// Therefore, any coordination required cross in-flight transaction can be taken into consideration for next stage.
 	//    e.g. even if the transaction is ready for submission, we might not want to submit it if the other transactions
 	//     ahead of the current transaction used up all the funds
-	runningStageContext                *RunningStageContext
-	validatedTransactionHashMatchState bool
+	runningStageContext *RunningStageContext
 
 	// the current stage of this inflight transaction
 	stage                 InFlightTxStage
@@ -68,7 +68,7 @@ type inFlightTransactionStateGeneration struct {
 }
 
 func NewInFlightTransactionStateGeneration(
-	thm PublicTxManagerMetricsManager,
+	thm metrics.PublicTransactionManagerMetrics,
 	bm BalanceManager,
 	ifsat InFlightStageActionTriggers,
 	imtxs InMemoryTxStateManager,
@@ -76,16 +76,16 @@ func NewInFlightTransactionStateGeneration(
 	submissionWriter *submissionWriter,
 	noEventMode bool) InFlightTransactionStateGeneration {
 	return &inFlightTransactionStateGeneration{
-		current:                       true,
-		bufferedStageOutputs:          make([]*StageOutput, 0),
-		cancel:                        make(chan bool, 1),
-		testOnlyNoEventMode:           noEventMode,
-		txLevelStageStartTime:         time.Now(),
-		statusUpdater:                 statusUpdater,
-		submissionWriter:              submissionWriter,
-		PublicTxManagerMetricsManager: thm,
-		InFlightStageActionTriggers:   ifsat,
-		InMemoryTxStateManager:        imtxs,
+		current:                         true,
+		bufferedStageOutputs:            make([]*StageOutput, 0),
+		cancel:                          make(chan bool, 1),
+		testOnlyNoEventMode:             noEventMode,
+		txLevelStageStartTime:           time.Now(),
+		statusUpdater:                   statusUpdater,
+		submissionWriter:                submissionWriter,
+		PublicTransactionManagerMetrics: thm,
+		InFlightStageActionTriggers:     ifsat,
+		InMemoryTxStateManager:          imtxs,
 	}
 }
 
@@ -121,14 +121,6 @@ func (v *inFlightTransactionStateGeneration) GetStage(ctx context.Context) InFli
 
 func (v *inFlightTransactionStateGeneration) GetStageStartTime(ctx context.Context) time.Time {
 	return v.txLevelStageStartTime
-}
-
-func (v *inFlightTransactionStateGeneration) SetValidatedTransactionHashMatchState(ctx context.Context, validatedTransactionHashMatchState bool) {
-	v.validatedTransactionHashMatchState = validatedTransactionHashMatchState
-}
-
-func (v *inFlightTransactionStateGeneration) ValidatedTransactionHashMatchState(ctx context.Context) bool {
-	return v.validatedTransactionHashMatchState
 }
 
 func (v *inFlightTransactionStateGeneration) SetTransientPreviousStageOutputs(tpso *TransientPreviousStageOutputs) {
@@ -168,12 +160,12 @@ func (v *inFlightTransactionStateGeneration) StartNewStageContext(ctx context.Co
 		log.L(ctx).Tracef("Transaction with ID %s, triggering sign tx", rsc.InMemoryTx.GetSignerNonce())
 		v.stageTriggerError = v.TriggerSignTx(ctx)
 	case InFlightTxStageSubmitting:
-		log.L(ctx).Tracef("Transaction with ID %s, triggering submission, signed message not nil: %t", rsc.InMemoryTx.GetSignerNonce(), v.TransientPreviousStageOutputs != nil && v.TransientPreviousStageOutputs.SignedMessage != nil)
+		log.L(ctx).Tracef("Transaction with ID %s, triggering submission, signed message not nil: %t", rsc.InMemoryTx.GetSignerNonce(), v.TransientPreviousStageOutputs != nil && v.SignedMessage != nil)
 		var signedMessage []byte
 		var calculatedTxHash *pldtypes.Bytes32
 		if v.TransientPreviousStageOutputs != nil {
-			signedMessage = v.TransientPreviousStageOutputs.SignedMessage
-			calculatedTxHash = v.TransientPreviousStageOutputs.TransactionHash
+			signedMessage = v.SignedMessage
+			calculatedTxHash = v.TransactionHash
 		}
 		v.stageTriggerError = v.TriggerSubmitTx(ctx, signedMessage, calculatedTxHash)
 	case InFlightTxStageStatusUpdate:
@@ -300,7 +292,7 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 
 	if rsc.StageOutputsToBePersisted.TxUpdates != nil {
 
-		newSubmission := rsc.StageOutputsToBePersisted.TxUpdates.NewSubmission
+		newSubmission := rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission
 		if newSubmission != nil {
 			// This is the critical point where we must flush to persistence before we go any further - we have a new
 			// transaction record we've signed, and we want to move on to submit it to the blockchain.
@@ -317,8 +309,8 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 			}
 		}
 
-		if rsc.StageOutputsToBePersisted.TxUpdates.InFlightStatus != nil &&
-			*rsc.StageOutputsToBePersisted.TxUpdates.InFlightStatus == InFlightStatusConfirmReceived {
+		if rsc.StageOutputsToBePersisted.TxUpdates.NewValues.InFlightStatus != nil &&
+			*rsc.StageOutputsToBePersisted.TxUpdates.NewValues.InFlightStatus == InFlightStatusConfirmReceived {
 			v.RecordCompletedTransactionCountMetrics(ctx, string(GenericStatusSuccess))
 		}
 

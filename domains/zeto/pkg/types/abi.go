@@ -18,8 +18,8 @@ package types
 import (
 	_ "embed"
 
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 )
 
 //go:embed abis/IZetoFungible.json
@@ -43,6 +43,8 @@ const (
 )
 
 type InitializerParams struct {
+	Name      string `json:"name"`
+	Symbol    string `json:"symbol"`
 	TokenName string `json:"tokenName"`
 	// InitialOwner string `json:"initialOwner"` // TODO: allow the initial owner to be specified by the deploy request
 }
@@ -51,6 +53,8 @@ type DeployParams struct {
 	TransactionID string            `json:"transactionId"`
 	Data          pldtypes.HexBytes `json:"data"`
 	TokenName     string            `json:"tokenName"`
+	Name          string            `json:"name"`
+	Symbol        string            `json:"symbol"`
 	InitialOwner  string            `json:"initialOwner"`
 	IsNonFungible bool              `json:"isNonFungible"`
 }
@@ -107,7 +111,7 @@ type FungibleBalanceOfParam struct {
 }
 
 type BalanceOfResult struct {
-	TotalBalance string `json:"totalBalance"`
-	TotalStates  string `json:"totalStates"`
-	Overflow     string `json:"overflow"`
+	TotalBalance *pldtypes.HexUint256 `json:"totalBalance"`
+	TotalStates  *pldtypes.HexUint256 `json:"totalStates"`
+	Overflow     bool                 `json:"overflow"`
 }

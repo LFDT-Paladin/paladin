@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,36 +15,58 @@
 
 package pldconf
 
-import "github.com/kaleido-io/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
-type KeyManagerConfig struct {
-	KeyManagerManagerConfig `json:"keyManager"`
-	Wallets                 []*WalletConfig `json:"wallets"` // ordered list
+type KeyManagerInlineConfig struct {
+	KeyManagerConfig `json:"keyManager"`
+	SigningModules   map[string]*SigningModuleConfig `json:"signingModules" configdefaults:"SigningModuleConfigDefaults"`
+	Wallets          []*WalletConfig                 `json:"wallets" configdefaults:"WalletConfigDefaults"` // ordered list
 }
 
-type KeyManagerManagerConfig struct {
+type KeyManagerConfig struct {
 	IdentifierCache CacheConfig `json:"identifierCache"`
 	VerifierCache   CacheConfig `json:"verifierCache"`
 }
 
+type SigningModuleConfig struct {
+	Init   SigningModuleInitConfig `json:"init"`
+	Plugin PluginConfig            `json:"plugin"`
+	Config map[string]any          `json:"config"`
+}
+
+type SigningModuleInitConfig struct {
+	Retry RetryConfig `json:"retry"`
+}
+
+var SigningModuleConfigDefaults = SigningModuleConfig{
+	Init: SigningModuleInitConfig{
+		Retry: GenericRetryDefaults.RetryConfig,
+	},
+}
+
 type WalletConfig struct {
-	Name        string        `json:"name"`
-	KeySelector string        `json:"keySelector"`
-	SignerType  string        `json:"signerType"`
-	Signer      *SignerConfig `json:"signer"` // embedded only
+	Name                    string        `json:"name"`
+	KeySelector             string        `json:"keySelector"`             // Regex pattern conforming to https://golang.org/s/re2syntax
+	KeySelectorMustNotMatch bool          `json:"keySelectorMustNotMatch"` // To allow for specifying a non-matching regex i.e. all keys that aren't this pattern
+	Signer                  *SignerConfig `json:"signer"`                  // embedded only
+	SignerPluginName        string        `json:"signerPluginName"`
+	SignerType              string        `json:"signerType"`
 }
 
 const (
 	WalletSignerTypeEmbedded string = "embedded"
+	WalletSignerTypePlugin   string = "plugin"
 )
 
 var WalletDefaults = &WalletConfig{
-	KeySelector: `.*`,                     // catch-all
-	SignerType:  WalletSignerTypeEmbedded, // uses the embedded signing module running in the Paladin process
+	KeySelector:             `.*`, // catch-all
+	KeySelectorMustNotMatch: false,
+	SignerType:              WalletSignerTypeEmbedded, // uses the embedded signing module running in the Paladin process
+	Signer:                  &SignerConfigDefaults,
 }
 
-var KeyManagerDefaults = &KeyManagerConfig{
-	KeyManagerManagerConfig: KeyManagerManagerConfig{
+var KeyManagerDefaults = KeyManagerInlineConfig{
+	KeyManagerConfig: KeyManagerConfig{
 		IdentifierCache: CacheConfig{
 			Capacity: confutil.P(1000),
 		},

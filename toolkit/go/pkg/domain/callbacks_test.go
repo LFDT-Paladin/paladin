@@ -20,7 +20,7 @@ import (
 	"errors"
 	"testing"
 
-	pb "github.com/kaleido-io/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 )
 

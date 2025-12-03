@@ -21,9 +21,9 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/httpserver"
 	"github.com/gorilla/mux"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/toolkit/pkg/httpserver"
 )
 
 type Router interface {

@@ -21,15 +21,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
-	"github.com/kaleido-io/paladin/config/pkg/pldconf"
-	"github.com/kaleido-io/paladin/core/pkg/blockindexer"
-	"github.com/kaleido-io/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/kaleido-io/paladin/common/go/pkg/log"
-	"github.com/kaleido-io/paladin/core/pkg/ethclient"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/pldtypes"
-	"github.com/kaleido-io/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 )
 
 const (
@@ -172,7 +172,7 @@ func NewOrchestrator(
 		persistenceRetryTimeout: confutil.DurationMin(conf.Orchestrator.PersistenceRetryTime, veryShortMinimum, *pldconf.PublicTxManagerDefaults.Orchestrator.PersistenceRetryTime),
 
 		// submission retry
-		transactionSubmissionRetry: retry.NewRetryLimited(&conf.Orchestrator.SubmissionRetry),
+		transactionSubmissionRetry: retry.NewRetryLimited(&conf.Orchestrator.SubmissionRetry, &pldconf.PublicTxManagerDefaults.Orchestrator.SubmissionRetry),
 		staleTimeout:               confutil.DurationMin(conf.Orchestrator.StaleTimeout, 0, *pldconf.PublicTxManagerDefaults.Orchestrator.StaleTimeout),
 		hasZeroGasPrice:            ptm.gasPriceClient.HasZeroGasPrice(ctx),
 		InFlightTxsStale:           make(chan bool, 1),
@@ -243,6 +243,8 @@ func (oc *orchestrator) handleUpdates(ctx context.Context) {
 }
 
 // Used in unit tests
+//
+//nolint:unused // Used in unit tests
 func (oc *orchestrator) getFirstInFlight() (ift *inFlightTransactionStageController) {
 	oc.inFlightTxsMux.Lock()
 	defer oc.inFlightTxsMux.Unlock()
@@ -462,6 +464,12 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		if queueUpdated {
 			oc.lastQueueUpdate = time.Now()
 		}
+
+		if waitingForBalance {
+			// the balance will be retrieved in the next orchestrator loop
+			oc.balanceManager.NotifyRetrieveAddressBalance(ctx, oc.signingAddress)
+		}
+
 		if time.Since(oc.lastQueueUpdate) > oc.staleTimeout && oc.state != OrchestratorStateStale {
 			oc.state = OrchestratorStateStale
 			oc.stateEntryTime = time.Now()
@@ -496,13 +504,14 @@ func (oc *orchestrator) ProcessInFlightTransactions(ctx context.Context, its []*
 		addressAccount, err = oc.balanceManager.GetAddressBalance(oc.ctx, oc.signingAddress)
 		if err != nil {
 			log.L(ctx).Errorf("Failed to retrieve balance for address %s due to %+v", oc.signingAddress, err)
-			if oc.unavailableBalanceHandlingStrategy == OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyWait {
+			switch oc.unavailableBalanceHandlingStrategy {
+			case OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyWait:
 				// wait till next retry
 				return true, nil
-			} else if oc.unavailableBalanceHandlingStrategy == OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyStop {
+			case OrchestratorBalanceCheckUnavailableBalanceHandlingStrategyStop:
 				oc.Stop()
 				return true, nil
-			} else {
+			default:
 				// just continue without any balance check
 				skipBalanceCheck = true
 			}

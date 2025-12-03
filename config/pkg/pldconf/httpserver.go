@@ -17,7 +17,7 @@
 package pldconf
 
 import (
-	"github.com/kaleido-io/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type HTTPServerConfig struct {
@@ -32,7 +32,7 @@ type HTTPServerConfig struct {
 	ShutdownTimeout       *string    `json:"shutdownTimeout"`
 }
 
-var HTTPDefaults = &HTTPServerConfig{
+var HTTPDefaults = HTTPServerConfig{
 	Address:               confutil.P("127.0.0.1"),
 	DefaultRequestTimeout: confutil.P("2m"),
 	MaxRequestTimeout:     confutil.P("10m"),
@@ -60,6 +60,17 @@ type DebugServerConfig struct {
 	HTTPServerConfig
 }
 
-var DebugServerDefaults = &DebugServerConfig{
-	Enabled: confutil.P(false),
+var DebugServerDefaults = DebugServerConfig{
+	Enabled:          confutil.P(false),
+	HTTPServerConfig: HTTPDefaults,
+}
+
+type MetricsServerConfig struct {
+	Enabled *bool `json:"enabled"`
+	HTTPServerConfig
+}
+
+var MetricsServerDefaults = MetricsServerConfig{
+	Enabled:          confutil.P(false),
+	HTTPServerConfig: HTTPDefaults,
 }
