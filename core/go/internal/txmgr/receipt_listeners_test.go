@@ -88,20 +88,9 @@ func mockDomainStateCompletion(conf *pldconf.TxManagerConfig, mc *mockComponents
 	md := componentsmocks.NewDomain(mc.t)
 	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
 	md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(func(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (bool, error) {
-			return txStates.Unavailable == nil, nil
+		Return(func(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.HexBytes, error) {
+			return txStates.FirstUnavailable(), nil
 		})
-}
-
-func mockDomainStateCompletionAndReceipt(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-	md := componentsmocks.NewDomain(mc.t)
-	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
-	md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(func(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (bool, error) {
-			return txStates.Unavailable == nil, nil
-		})
-	md.On("BuildDomainReceipt", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(pldtypes.RawJSON{}, nil)
 }
 
 func TestE2EReceiptListenerDeliveryLateAttach(t *testing.T) {
@@ -1302,7 +1291,7 @@ func TestProcessPersistedReceiptFailStateCompletionCheck(t *testing.T) {
 			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
 				Return(&pldapi.TransactionStates{}, nil)
 			md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				Return(false, fmt.Errorf("pop"))
+				Return(nil, fmt.Errorf("pop"))
 		},
 	)
 	defer done()

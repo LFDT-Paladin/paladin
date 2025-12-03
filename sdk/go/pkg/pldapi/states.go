@@ -147,6 +147,23 @@ type TransactionStates struct {
 	Unavailable *UnavailableStates `docstruct:"TransactionStates" json:"unavailable,omitempty"` // nil if we have the data for all states
 }
 
+func (ts *TransactionStates) FirstUnavailable() pldtypes.HexBytes {
+	switch {
+	case ts.Unavailable == nil:
+		return nil
+	case len(ts.Unavailable.Confirmed) > 0:
+		return ts.Unavailable.Confirmed[0]
+	case len(ts.Unavailable.Spent) > 0:
+		return ts.Unavailable.Spent[0]
+	case len(ts.Unavailable.Read) > 0:
+		return ts.Unavailable.Read[0]
+	case len(ts.Unavailable.Info) > 0:
+		return ts.Unavailable.Info[0]
+	default:
+		return nil
+	}
+}
+
 type UnavailableStates struct {
 	Confirmed []pldtypes.HexBytes `docstruct:"UnavailableStates" json:"confirmed"`
 	Read      []pldtypes.HexBytes `docstruct:"UnavailableStates" json:"read"`

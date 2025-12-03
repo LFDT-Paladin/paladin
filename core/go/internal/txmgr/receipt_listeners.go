@@ -699,7 +699,8 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 		// Handle incomplete state based on the configured behavior
 		behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 		if primaryMissingStateID != nil && behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract || behavior == pldapi.IncompleteStateReceiptBehaviorCompleteOnly {
-			log.L(l.ctx).Infof("State %s currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, primaryMissingStateID, fr.TransactionHash, fr.Source)
+			log.L(l.ctx).Infof("State %s currently unavailable for TXID %s in blockchain TX %s for contract %s blocking=%t",
+				fr.ID, primaryMissingStateID, fr.TransactionHash, fr.Source, behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract)
 			b.Gaps = append(b.Gaps, &persistedReceiptGap{
 				Listener:    l.spec.Name,
 				Source:      &fr.Source,
