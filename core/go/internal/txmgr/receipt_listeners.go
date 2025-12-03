@@ -858,6 +858,7 @@ func (l *receiptListener) processStaleGaps() error {
 
 func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 
+	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	for {
 		// Read a page of events from the gap
 		page, err := l.readGapPage(gap)
@@ -872,7 +873,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 		}
 
 		// We find a gap still, then we update the gap to this new (non-stale) position
-		if len(batch.Gaps) > 0 {
+		if len(batch.Gaps) > 0 && behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
 			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 				return true, l.tm.p.DB().
