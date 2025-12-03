@@ -47,29 +47,21 @@ func TestSolidityEventSignatures(t *testing.T) {
 	assert.Equal(t, "event PaladinRegisterSmartContract_V0(bytes32 indexed txId, address indexed instance, bytes config)", eventSolSig_PaladinRegisterSmartContract_V0)
 }
 
-func TestEventIndexingWithDB(t *testing.T) {
-
-	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
-	defer done()
-	ctx := td.ctx
-	tp := td.tp
-	dm := td.dm
-
-	deployTX := uuid.New()
-	contractAddr := pldtypes.EthAddress(pldtypes.RandBytes(20))
-
+func registerTestSmartContract(t *testing.T, td *testDomainContext) (deployTX uuid.UUID, contractAddr pldtypes.EthAddress) {
 	// Index an event indicating deployment of a new smart contract instance
+	deployTX = uuid.New()
+	contractAddr = pldtypes.EthAddress(pldtypes.RandBytes(20))
 	var batchTxs txCompletionsOrdered
 	var unprocessedEvents []*pldapi.EventWithData
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		unprocessedEvents, batchTxs, err = dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
+	err := td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		unprocessedEvents, batchTxs, err = td.dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
 			StreamID:   uuid.New(),
 			StreamName: "name_given_by_component_mgr",
 			BatchID:    uuid.New(),
 			Events: []*pldapi.EventWithData{
 				{
 					SoliditySignature: eventSolSig_PaladinRegisterSmartContract_V0,
-					Address:           (pldtypes.EthAddress)(*tp.d.RegistryAddress()),
+					Address:           (pldtypes.EthAddress)(*td.tp.d.RegistryAddress()),
 					IndexedEvent: &pldapi.IndexedEvent{
 						BlockNumber:      12345,
 						TransactionIndex: 0,
@@ -91,7 +83,7 @@ func TestEventIndexingWithDB(t *testing.T) {
 	assert.Len(t, batchTxs, 1)
 	assert.Empty(t, unprocessedEvents) // we consumed all the events there were
 
-	tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
 		return &prototk.InitContractResponse{
 			Valid: true,
 			ContractConfig: &prototk.ContractConfig{
@@ -101,6 +93,20 @@ func TestEventIndexingWithDB(t *testing.T) {
 			},
 		}, nil
 	}
+
+	return deployTX, contractAddr
+}
+
+func TestEventIndexingWithDB(t *testing.T) {
+
+	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
+	defer done()
+	ctx := td.ctx
+	tp := td.tp
+	dm := td.dm
+
+	// Index an event indicating deployment of a new smart contract instance
+	deployTX, contractAddr := registerTestSmartContract(t, td)
 
 	// Lookup the instance against the domain
 	psc, err := dm.GetSmartContractByAddress(ctx, td.c.dbTX, contractAddr)

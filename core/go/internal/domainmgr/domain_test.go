@@ -294,6 +294,7 @@ func TestDomainInitStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, td.d, byAddr)
 	assert.True(t, td.d.Initialized())
+	assert.Empty(t, td.d.FixedSigningIdentity())
 
 }
 
@@ -1489,4 +1490,21 @@ func TestDomainInitPrivacyGroupBadResFromAddr(t *testing.T) {
 	_, err := domain.InitPrivacyGroup(td.ctx, pldtypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
 	assert.Regexp(t, "bad address", err)
 
+}
+
+func TestCheckStateCompletionOk(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		return &prototk.CheckStateCompletionResponse{
+			Complete: true,
+		}, nil
+	}
+
+	domain := td.d
+	complete, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{})
+	require.NoError(t, err)
+	require.True(t, complete)
 }
