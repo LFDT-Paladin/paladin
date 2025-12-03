@@ -89,18 +89,6 @@ func (persistedReceiptGap) TableName() string {
 	return "receipt_listener_gap"
 }
 
-type persistedIncompleteReceipt struct {
-	Listener    string             `gorm:"column:listener;primaryKey"`
-	Transaction uuid.UUID          `gorm:"column:transaction;primaryKey"`
-	Sequence    uint64             `gorm:"column:sequence"`
-	DomainName  string             `gorm:"column:domain_name"`
-	Created     pldtypes.Timestamp `gorm:"column:created"`
-}
-
-func (persistedIncompleteReceipt) TableName() string {
-	return "receipt_listener_incomplete"
-}
-
 type receiptListener struct {
 	tm *txManager
 
@@ -126,10 +114,9 @@ type registeredReceiptReceiver struct {
 }
 
 type receiptDeliveryBatch struct {
-	ID                 uint64
-	Receipts           []*pldapi.TransactionReceiptFull
-	Gaps               []*persistedReceiptGap
-	IncompleteReceipts []*persistedIncompleteReceipt
+	ID       uint64
+	Receipts []*pldapi.TransactionReceiptFull
+	Gaps     []*persistedReceiptGap
 }
 
 type receiptBatchContext struct {
@@ -713,7 +700,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 		if !complete {
 			behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 			switch behavior {
-			case pldapi.IncompleteStateReceiptBehaviorBlockContract:
+			case pldapi.IncompleteStateReceiptBehaviorBlockContract, pldapi.IncompleteStateReceiptBehaviorCompleteOnly:
 				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, fr.TransactionHash, fr.Source)
 				b.Gaps = append(b.Gaps, &persistedReceiptGap{
 					Listener:    l.spec.Name,
@@ -722,16 +709,6 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 					DomainName:  fr.Domain,
 					StateID:     fr.States.FirstUnavailable(),
 					Transaction: fr.ID,
-				})
-				return nil
-			case pldapi.IncompleteStateReceiptBehaviorCompleteOnly:
-				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s - will deliver when complete", fr.ID, fr.TransactionHash)
-				b.IncompleteReceipts = append(b.IncompleteReceipts, &persistedIncompleteReceipt{
-					Listener:    l.spec.Name,
-					Transaction: fr.ID,
-					Sequence:    pr.Sequence,
-					DomainName:  fr.Domain,
-					Created:     pldtypes.TimestampNow(),
 				})
 				return nil
 			case pldapi.IncompleteStateReceiptBehaviorProcess:
@@ -808,15 +785,6 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 				Create(batch.Gaps).
 				Error
 		}
-		if err == nil && len(batch.IncompleteReceipts) > 0 {
-			err = dbTX.DB().
-				WithContext(ctx).
-				Clauses(clause.OnConflict{
-					DoNothing: true,
-				}).
-				Create(batch.IncompleteReceipts).
-				Error
-		}
 		if err != nil {
 			return err
 		}
@@ -856,125 +824,6 @@ func (l *receiptListener) processPage(page []*transactionReceipt) (*receiptDeliv
 
 	return &batch, nil
 
-}
-func (l *receiptListener) processIncompleteReceipts() error {
-	// Only process incomplete receipts if we're using complete_only behavior
-	if l.spec.Options.IncompleteStateReceiptBehavior.V() != pldapi.IncompleteStateReceiptBehaviorCompleteOnly {
-		return nil
-	}
-
-	// Process incomplete receipts to see if they have become complete
-	for {
-		var incompleteReceipts []*persistedIncompleteReceipt
-		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.tm.p.DB().
-				WithContext(l.ctx).
-				Where(`"listener" = ?`, l.spec.Name).
-				Order("sequence").
-				Limit(l.tm.receiptListenersLoadPageSize).
-				Find(&incompleteReceipts).
-				Error
-		})
-		if err != nil {
-			return err
-		}
-		if len(incompleteReceipts) == 0 {
-			// no incomplete receipts to process
-			return nil
-		}
-
-		// Process all incomplete receipts in a single batch
-		if err := l.processIncompleteReceiptsBatch(incompleteReceipts); err != nil {
-			return err
-		}
-	}
-}
-
-func (l *receiptListener) processIncompleteReceiptsBatch(incompleteReceipts []*persistedIncompleteReceipt) error {
-	batch := &receiptDeliveryBatch{
-		ID: l.nextBatchID,
-	}
-	l.nextBatchID++
-
-	// Fetch the original receipts
-	transactionIDs := make([]uuid.UUID, len(incompleteReceipts))
-	for i, incompleteReceipt := range incompleteReceipts {
-		transactionIDs[i] = incompleteReceipt.Transaction
-	}
-	var receipts []*transactionReceipt
-	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-		return true, l.tm.p.DB().
-			WithContext(l.ctx).
-			Where(`"transaction" IN ?`, transactionIDs).
-			Find(&receipts).
-			Error
-	})
-	if err != nil {
-		return err
-	}
-	receiptsByTxID := make(map[uuid.UUID]*transactionReceipt)
-	for _, receipt := range receipts {
-		receiptsByTxID[receipt.TransactionID] = receipt
-	}
-
-	batchCtx := l.newReceiptBatchContext()
-	var receiptsToRemove []*persistedIncompleteReceipt
-
-	// Process each incomplete receipt using the fetched data
-	for _, incompleteReceipt := range incompleteReceipts {
-		receipt, exists := receiptsByTxID[incompleteReceipt.Transaction]
-		if !exists {
-			// Receipt no longer exists (should not occur in normal operation)
-			receiptsToRemove = append(receiptsToRemove, incompleteReceipt)
-			continue
-		}
-
-		// Process the receipt to see if it's now complete
-		err = l.processPersistedReceipt(batch, receipt, batchCtx)
-		if err != nil {
-			return err
-		}
-
-		// Check if the receipt was processed (not added to incomplete again)
-		for _, processedReceipt := range batch.Receipts {
-			if processedReceipt.ID == incompleteReceipt.Transaction {
-				receiptsToRemove = append(receiptsToRemove, incompleteReceipt)
-				break
-			}
-		}
-	}
-
-	// Deliver all completed receipts
-	if len(batch.Receipts) > 0 {
-		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.deliverBatch(batch)
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	// Clean up completed receipts from the incomplete table
-	if len(receiptsToRemove) > 0 {
-		transactionIDs := make([]uuid.UUID, len(receiptsToRemove))
-		for i, receipt := range receiptsToRemove {
-			transactionIDs[i] = receipt.Transaction
-		}
-
-		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.tm.p.DB().
-				WithContext(l.ctx).
-				Where(`"listener" = ?`, l.spec.Name).
-				Where(`"transaction" IN ?`, transactionIDs).
-				Delete(&persistedIncompleteReceipt{}).
-				Error
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (l *receiptListener) processStaleGaps() error {
@@ -1106,12 +955,6 @@ func (l *receiptListener) runListener() {
 			// Process up all stale gaps before we process the head
 			if err := l.processStaleGaps(); err != nil {
 				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
-				return
-			}
-
-			// Process incomplete receipts that may now be complete
-			if err := l.processIncompleteReceipts(); err != nil {
-				log.L(l.ctx).Warnf("listener stopping (processing incomplete receipts): %s", err) // cancelled context
 				return
 			}
 
