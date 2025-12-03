@@ -450,7 +450,7 @@ func (ptm *pubTxManager) WriteReceivedTransactions(ctx context.Context, dbTX per
 }
 
 func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxToDistribute) (pubTxns []*pldapi.PublicTx, err error) {
-	log.L(ctx).Debugf("WriteReceivedTransactions transactions: %+v", submissions)
+	log.L(ctx).Debugf("WriteReceivedPublicTransactionSubmissions transactions: %+v", submissions)
 	persistedSubmissions := make([]*DBPubTxnSubmission, 0, len(submissions))
 	for _, submission := range submissions {
 		for _, binding := range submission.Bindings {
@@ -477,7 +477,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	// All the nonce processing to this point should have ensured we do not have a conflict on nonces.
 	// It is the caller's responsibility to ensure we do not have a conflict on transaction+resubmit_idx.
 	if len(persistedSubmissions) > 0 {
-		log.L(ctx).Debugf("WriteReceivedTransactions persisted submissions: %d", len(persistedSubmissions))
+		log.L(ctx).Debugf("WriteReceivedPublicTransactionSubmissions persisted submissions: %d", len(persistedSubmissions))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("public_submissions").

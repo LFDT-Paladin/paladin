@@ -40,32 +40,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-// The coordinator event loop is the only thread-safe way to access state about transactions externally.
-// These structures allow an external caller (e.g. another component - but currently just another part of
-// the distributed sequencer) to request data from the sequencer which it will respond to in between other
-// updates to its state machine(s). This is not necessarily the optimal way to introspect the sequencer's
-// state in a thread-safe way, but the initial implementation focuses on thread safety over optimal performance.
-type QueryRequest struct {
-	Type     Query
-	Response chan any
-	TX       uuid.UUID
-}
-type Query string
-
-const (
-	QueryTypeConfirmStateDispatched Query = "confirm_state_dispatched"
-)
-
-func (tt Query) Enum() pldtypes.Enum[Query] {
-	return pldtypes.Enum[Query](tt)
-}
-
-func (tt Query) Options() []string {
-	return []string{
-		string(QueryTypeConfirmStateDispatched),
-	}
-}
-
 type SeqCoordinator interface {
 	// Asynchronously update the state machine by queueing an event to be processed. Most
 	// callers should use this interface.
@@ -136,14 +110,13 @@ type coordinator struct {
 
 	/* Event loop */
 	coordinatorEvents chan common.Event
-	externalQueries   chan QueryRequest
 	stopEventLoop     chan struct{}
 
 	/* Dispatch loop */
-	dispatchQueue      chan *transaction.Transaction
-	stopDispatchLoop   chan struct{}
-	inFlightCount      int
-	inFlightCountMutex *sync.Cond
+	dispatchQueue    chan *transaction.Transaction
+	stopDispatchLoop chan struct{}
+	inFlightTxns     map[uuid.UUID]*transaction.Transaction
+	inFlightMutex    *sync.Cond
 }
 
 func NewCoordinator(
@@ -195,7 +168,6 @@ func NewCoordinator(
 		nodeName:                           nodeName,
 		metrics:                            metrics,
 		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		externalQueries:                    make(chan QueryRequest, 10),
 		stopEventLoop:                      make(chan struct{}),
 		coordinatorSelectionBlockRange:     blockRangeSize,
 		dispatchQueue:                      make(chan *transaction.Transaction, maxInflightTransactions),
@@ -204,7 +176,8 @@ func NewCoordinator(
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
 	c.transactionSelector = NewTransactionSelector(ctx, c)
-	c.inFlightCountMutex = sync.NewCond(&sync.Mutex{})
+	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
+	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
 
 	// Start event processing loop
 	go c.eventLoop(ctx)
@@ -212,33 +185,20 @@ func NewCoordinator(
 	// Start dispatch queue loop
 	go c.dispatchLoop(ctx)
 
+	// Handle loopback messages to the same node in FIFO order without blocking the event loop
+	err := transportWriter.Start(ctx)
+	if err != nil {
+		log.L(ctx).Errorf("error starting transport writer: %v", err)
+		return nil, err
+	}
+
 	return c, nil
 }
 
 func (c *coordinator) eventLoop(ctx context.Context) {
 	for {
-		log.L(ctx).Debugf("coordinator event loop waiting for next event")
+		log.L(ctx).Debug("coordinator event loop waiting for next event")
 		select {
-		case query := <-c.externalQueries:
-			log.L(ctx).Debugf("coordinator handling external query %s", query.Type)
-			switch query.Type {
-			case QueryTypeConfirmStateDispatched: // Check if the TX is any of the "dispatched" states (which includes submitted & submission prepared)
-				tx := c.transactionsByID[query.TX]
-				if tx == nil {
-					// Log internal error
-					msg := fmt.Sprintf("transaction %s not found", query.TX.String())
-					err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-					log.L(ctx).Error(err)
-					query.Response <- true // We should probably still unblock the dispatch loop by signalling that this TX has been processed
-				}
-				if tx.GetState() == transaction.State_Dispatched || tx.GetState() == transaction.State_SubmissionPrepared || tx.GetState() == transaction.State_Submitted {
-					query.Response <- true
-				} else {
-					query.Response <- false
-				}
-			default:
-				log.L(ctx).Errorf("%s", i18n.NewError(ctx, msgs.MsgSequencerInternalError, "external query type unknown").Error())
-			}
 		case event := <-c.coordinatorEvents:
 			log.L(ctx).Debugf("coordinator pulled event from the queue: %s", event.TypeString())
 			err := c.ProcessEvent(ctx, event)
@@ -254,57 +214,47 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 }
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
+	dispatchedAhead := 0 // Number of transactions we've dispatched without confirming they are in the state machine's in-flight list
+
 	for {
-		log.L(ctx).Debugf("coordinator dispatch loop waiting for next TX to dispatch, max dispatch ahead: %d", c.maxDispatchAhead)
+		log.L(ctx).Debug("coordinator dispatch loop waiting for next TX to dispatch")
 		select {
 		case tx := <-c.dispatchQueue:
-			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue", tx.ID.String())
-			// Got the next TX, but can't dispatch too far ahead in case an earlier TX reverts on-chain
+			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. In-flight count: %d, dispatched ahead: %d, max dispatch ahead: %d", tx.ID.String(), len(c.inFlightTxns), dispatchedAhead, c.maxDispatchAhead)
 
-			c.inFlightCountMutex.L.Lock()
-			for c.inFlightCount >= c.maxDispatchAhead {
-				// There are too many transactions making their way to the base ledger. Wait until some have been confirmed
-				c.inFlightCountMutex.Wait()
+			c.inFlightMutex.L.Lock()
+
+			// Too many in flight - wait for some to be confirmed
+			for len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
+				c.inFlightMutex.Wait()
 			}
-			c.inFlightCountMutex.L.Unlock()
 
-			// Queue the coordinator event loop to move this TX to dispatched. We can't proceed until we have
-			// confirmation that it has moved to the correct state, or else we can't enforce maxDispatchAhead safely.
-			// Note we can't use ProcessEvent in place of QueueEvent because we aren't the coordinator event loop.
+			// Dispatch and then asynchronously update the state machine to State_Dispatched
+			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.ID.String())
+			c.readyForDispatch(ctx, tx)
+
+			// Dispatched transactions that result in a chained private transaction don't count towards max dispatch ahead
+			if tx.PreparedPrivateTransaction == nil {
+				dispatchedAhead++
+			}
+
+			// Update the TX state machine
 			c.QueueEvent(ctx, &transaction.DispatchedEvent{
 				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 					TransactionID: tx.ID,
 				},
 			})
-			log.L(ctx).Debugf("coordinator transaction %s marked as dispatched", tx.ID.String())
 
-			// The dispatch event is processed asynchronously by the state machine while we continue looping round checking
-			// for new transactions to dispatch. The in-flight count won't reflect this newly dispatched TX until the
-			// state machine has processed the state change.
-		waitUntilTXStateDispatched:
-			for {
-				confirmDispatchedQuery := QueryRequest{
-					Type:     QueryTypeConfirmStateDispatched,
-					TX:       tx.ID,
-					Response: make(chan any),
+			// We almost never need to wait for the state machine's event loop to process the update to State_Dispatched
+			// but if we hit the max dispatch ahead limit after dispatching this transaction we do, because we can't be sure
+			// in-flight will be accurate on the next loop round
+			if len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
+				for c.inFlightTxns[tx.ID] == nil {
+					c.inFlightMutex.Wait()
 				}
-				c.externalQueries <- confirmDispatchedQuery
-				select {
-				case response := <-confirmDispatchedQuery.Response:
-					confirmedTXState := response.(bool)
-					if confirmedTXState {
-						break waitUntilTXStateDispatched
-					} else {
-						time.Sleep(100 * time.Millisecond)
-					}
-				case <-ctx.Done():
-					log.L(ctx).Infof("coordinator dispatch loop cancelled during confirmation query")
-					return
-				}
+				dispatchedAhead = 0
 			}
-
-			log.L(ctx).Debugf("coordinator submitting transaction %s for dispatch", tx.ID.String())
-			c.readyForDispatch(ctx, tx)
+			c.inFlightMutex.L.Unlock()
 		case <-c.stopDispatchLoop:
 			log.L(ctx).Infof("coordinator dispatch loop stopped")
 			return
@@ -445,19 +395,18 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 				}
 
 				// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
-				c.inFlightCountMutex.L.Lock()
-				defer c.inFlightCountMutex.L.Unlock()
+				c.inFlightMutex.L.Lock()
+				defer c.inFlightMutex.L.Unlock()
+				clear(c.inFlightTxns)
 				dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
-				dispatchingTransactionCount := 0
 				for _, txn := range dispatchingTransactions {
 					if txn.PreparedPrivateTransaction == nil {
 						// We don't count transactions the result in new private transactions
-						dispatchingTransactionCount++
+						c.inFlightTxns[txn.ID] = txn
 					}
 				}
-				log.L(ctx).Debugf("coordinator has %d dispatching transactions", dispatchingTransactionCount)
-				c.inFlightCount = dispatchingTransactionCount
-				c.inFlightCountMutex.Signal()
+				log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))
+				c.inFlightMutex.Signal()
 			},
 			func(ctx context.Context) {
 				// TX cleaned up after confirmation & sufficient heartbeats

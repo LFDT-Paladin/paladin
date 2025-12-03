@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,6 +50,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		emit:              func(event common.Event) {},
 	}
 	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mocks.transportWriter.On("Start", mock.Anything).Return(nil)
 	ctx, cancelCtx := context.WithCancel(ctx)
 	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, mocks.clock.Duration(1000), mocks.clock.Duration(5000), 100, 5, 5, 500, 10, mocks.clock.Duration(10000), "node1",
 		metrics,

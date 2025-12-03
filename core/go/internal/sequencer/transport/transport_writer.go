@@ -17,6 +17,7 @@ package transport
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -105,7 +106,6 @@ func (tw *transportWriter) SendDelegationRequest(
 			node = parts[1]
 		}
 
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Debugf("delegate | %s   | %s | %s", transaction.Address.String()[0:8], transaction.ID.String()[0:8], node)
 		if err = tw.send(ctx, &components.FireAndForgetMessageSend{
 			MessageType: MessageType_DelegationRequest,
 			Payload:     delegationRequestBytes,
@@ -644,6 +644,9 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 
 		tw.loopbackTransport.LoopbackQueue() <- payload
 
+		// Log payload bytes as hex
+		log.L(ctx).Debugf("payload bytes as hex: %s", hex.EncodeToString(payload.Payload))
+
 		return nil
 	}
 	log.L(ctx).Debugf("sending %s to node: %s", payload.MessageType, payload.Node)
@@ -659,15 +662,16 @@ func (tw *transportWriter) loopbackSend(ctx context.Context) {
 		select {
 		case queuedPayload, ok := <-tw.loopbackTransport.LoopbackQueue():
 			if !ok {
-				log.L(ctx).Infof("shutting down loopback sender")
+				log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 				return
 			}
+
 			err := tw.loopbackTransport.Send(ctx, queuedPayload)
 			if err != nil {
-				log.L(ctx).Errorf("error sending %s to loopback interface: %s", queuedPayload.MessageType, err)
+				log.L(ctx).Errorf("error sending %s to loopback interface for contract %s: %s", queuedPayload.MessageType, tw.contractAddress.String(), err)
 			}
 		case <-ctx.Done():
-			log.L(ctx).Infof("shutting down loopback sender")
+			log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 			return
 		}
 	}

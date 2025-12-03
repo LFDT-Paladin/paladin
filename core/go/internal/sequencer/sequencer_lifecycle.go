@@ -213,13 +213,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				sMgr.sequencers[contractAddr.String()].lastTXTime = time.Now()
 			}
 
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("created  | %s", contractAddr.String())
-
-			err = transportWriter.Start(ctx)
-			if err != nil {
-				err = i18n.NewError(ctx, msgs.MsgSequencerInternalError, "failed to start transport writer for contract %s: %s", contractAddr.String(), err)
-				return nil, err
-			}
+			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("sqncr      | %s | started", contractAddr.String()[0:8])
 		}
 	} else {
 		// We already have a sequencer initialized but we might not have an initial coordinator selected
@@ -505,7 +499,7 @@ func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
 	activeCoordinators := 0
 	// If any sequencers are already closing we can wait for them to close instead of stopping a different one
 	for _, sequencer := range sMgr.sequencers {
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coordinator %s state %s", sequencer.contractAddress, sequencer.coordinator.GetCurrentState())
+		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %s", sequencer.contractAddress[0:8], sequencer.coordinator.GetCurrentState())
 		if sequencer.coordinator.GetCurrentState() == coordinator.State_Active {
 			activeCoordinators++
 		}
