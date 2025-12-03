@@ -688,32 +688,27 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 		}
 
 		// Check if the states are complete
-		complete := false
+		var primaryMissingStateID pldtypes.HexBytes
 		if fr.States != nil && d != nil {
-			complete, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
+			primaryMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
 			if err != nil {
 				return err
 			}
 		}
 
 		// Handle incomplete state based on the configured behavior
-		if !complete {
-			behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
-			switch behavior {
-			case pldapi.IncompleteStateReceiptBehaviorBlockContract, pldapi.IncompleteStateReceiptBehaviorCompleteOnly:
-				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, fr.TransactionHash, fr.Source)
-				b.Gaps = append(b.Gaps, &persistedReceiptGap{
-					Listener:    l.spec.Name,
-					Source:      &fr.Source,
-					Sequence:    pr.Sequence,
-					DomainName:  fr.Domain,
-					StateID:     fr.States.FirstUnavailable(),
-					Transaction: fr.ID,
-				})
-				return nil
-			case pldapi.IncompleteStateReceiptBehaviorProcess:
-				// Continue to process the receipt even if incomplete
-			}
+		behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
+		if primaryMissingStateID != nil && behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract || behavior == pldapi.IncompleteStateReceiptBehaviorCompleteOnly {
+			log.L(l.ctx).Infof("State %s currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, primaryMissingStateID, fr.TransactionHash, fr.Source)
+			b.Gaps = append(b.Gaps, &persistedReceiptGap{
+				Listener:    l.spec.Name,
+				Source:      &fr.Source,
+				Sequence:    pr.Sequence,
+				DomainName:  fr.Domain,
+				StateID:     primaryMissingStateID,
+				Transaction: fr.ID,
+			})
+			return nil
 		}
 	}
 

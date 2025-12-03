@@ -917,7 +917,7 @@ func (d *domain) InitPrivacyGroup(ctx context.Context, id pldtypes.HexBytes, gen
 
 }
 
-func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (bool, error) {
+func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (primaryMissingStateID pldtypes.HexBytes, err error) {
 	res, err := d.api.CheckStateCompletion(ctx, &prototk.CheckStateCompletionRequest{
 		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
 		UnavailableStates: txStates.Unavailable != nil,
@@ -926,5 +926,8 @@ func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX
 		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
 		InfoStates:        d.toEndorsableListBase(txStates.Info),
 	})
-	return res.Complete, err
+	if err == nil && res.PrimaryMissingStateId != nil && len(*res.PrimaryMissingStateId) > 0 {
+		primaryMissingStateID, err = pldtypes.ParseHexBytes(ctx, *res.PrimaryMissingStateId)
+	}
+	return primaryMissingStateID, err
 }

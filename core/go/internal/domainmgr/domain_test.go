@@ -1499,12 +1499,38 @@ func TestCheckStateCompletionOk(t *testing.T) {
 
 	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 		return &prototk.CheckStateCompletionResponse{
-			Complete: true,
+			PrimaryMissingStateId: &cscr.InfoStates[0].Id,
 		}, nil
 	}
 
 	domain := td.d
-	complete, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{})
+	infoStateID := pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String())
+	primaryMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: infoStateID},
+		},
+	})
 	require.NoError(t, err)
-	require.True(t, complete)
+	require.Equal(t, infoStateID.String(), primaryMissingStateID.String())
+}
+
+func TestCheckStateCompletionBadIDReturned(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		return &prototk.CheckStateCompletionResponse{
+			PrimaryMissingStateId: confutil.P("wrong"),
+		}, nil
+	}
+
+	domain := td.d
+	infoStateID := pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String())
+	_, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: infoStateID},
+		},
+	})
+	require.Regexp(t, "PD020007", err)
 }

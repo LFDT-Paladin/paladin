@@ -268,7 +268,7 @@ message CheckStateCompletionRequest {
 }
 
 message CheckStateCompletionResponse {
-  bool complete = 1; // true if all expected states are available
+  optional string primary_missing_state_id = 1; // if set, then this transaction is considered incomplete until this state is available - at which point the completion check will run again with the new set of states available at that time
 }
 
 message DomainConfig {
