@@ -158,6 +158,11 @@ func unitTestComponentManagerStart(ctx context.Context, conf *pldconf.PaladinCon
 	if err == nil {
 		err = cm.CompleteStart()
 	}
+	if err == nil {
+		// stop the sequencer- the testbed framework does not use it and when it runs it
+		// has a polling thread which is in direct conflict with the testbed
+		cm.SequencerManager().Stop()
+	}
 	return cm, err
 }
 
