@@ -619,14 +619,16 @@ func (l *receiptListener) loadCheckpoint() error {
 }
 
 func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
+	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 		db := l.tm.p.DB()
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, db)
 		if err == nil {
-			// Only return non-blocked sequences
-			q = q.Joins(`Gap`, db.Where(&persistedReceiptGap{Listener: l.spec.Name})).
-				Where(`"Gap"."transaction" IS NULL`)
+			q = q.Joins(`Gap ON "Gap"."listener" = "transaction_receipts"."listener" AND "gap"."source" = "transaction_receipts"."source"`)
+			if behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
+				q = q.Where(`"Gap"."transaction" IS NULL`) // cannot have a gap on this source if we're blocking
+			}
 			if l.checkpoint != nil {
 				q = q.Where(`"transaction_receipts"."sequence" > ?`, *l.checkpoint)
 			}
@@ -698,7 +700,8 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 
 		// Handle incomplete state based on the configured behavior
 		behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
-		if primaryMissingStateID != nil && behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract || behavior == pldapi.IncompleteStateReceiptBehaviorCompleteOnly {
+		if primaryMissingStateID != nil &&
+			(behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract || behavior == pldapi.IncompleteStateReceiptBehaviorCompleteOnly) {
 			log.L(l.ctx).Infof("State %s currently unavailable for TXID %s in blockchain TX %s for contract %s blocking=%t",
 				fr.ID, primaryMissingStateID, fr.TransactionHash, fr.Source, behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract)
 			b.Gaps = append(b.Gaps, &persistedReceiptGap{
@@ -834,6 +837,7 @@ func (l *receiptListener) processStaleGaps() error {
 			return true, l.tm.p.DB().
 				WithContext(l.ctx).
 				Joins("State").
+				Where("Listener = ?", l.spec.Name).
 				Where(`"State"."id" IS NOT NULL`). // the state exists
 				Limit(l.tm.receiptListenersLoadPageSize).
 				Find(&gaps).
@@ -842,11 +846,6 @@ func (l *receiptListener) processStaleGaps() error {
 		if err != nil {
 			return err
 		}
-		if len(gaps) == 0 {
-			// no gaps to process
-			return nil
-		}
-
 		for _, gap := range gaps {
 			if err := l.processStaleGap(gap); err != nil {
 				return err
@@ -858,7 +857,6 @@ func (l *receiptListener) processStaleGaps() error {
 
 func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 
-	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	for {
 		// Read a page of events from the gap
 		page, err := l.readGapPage(gap)
@@ -872,10 +870,10 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 			return err
 		}
 
-		// We find a gap still, then we update the gap to this new (non-stale) position
-		if len(batch.Gaps) > 0 && behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
+		// We find a gap still, then we write that and stop
+		if len(batch.Gaps) > 0 {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
-			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+			err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 				return true, l.tm.p.DB().
 					WithContext(l.ctx).
 					Clauses(clause.OnConflict{
@@ -891,6 +889,9 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 					Create(batch.Gaps).
 					Error
 			})
+			if err != nil {
+				return err
+			}
 		}
 
 		if len(page) < l.tm.receiptsReadPageSize {
