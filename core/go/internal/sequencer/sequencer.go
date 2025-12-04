@@ -414,14 +414,8 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 	}, &txi.ResolvedTransaction, true)
 }
 
-// HandleNewTx synchronously receives a new transaction submission
-// TODO this should really be a 2 (or 3?) phase handshake with
-//   - Pre submit phase to validate the inputs
-//   - Submit phase to persist the record of the submission as part of a database transaction that is coordinated by the caller
-//   - Post submit phase to clean up any locks / resources that were held during the submission after the database transaction has been committed ( given that we cannot be sure on completeion of phase 2 that the transaction will be committed)
-//
-// We are currently proving out this pattern on the boundary of the private transaction manager and the public transaction manager and once that has settled, we will implement the same pattern here.
-// In the meantime, we a single function to submit a transaction and there is currently no persistence of the submission record.  It is all held in memory only
+// Start processing a new or resumed transaction. The state machine is designed to be idempotent to new transactions with the same ID being resumed, so there is no checking
+// in this function that the transaction isn't already being processed by the state machine.
 func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBTX, tx *components.PrivateTransaction, localTx *components.ResolvedTransaction, resume bool) error {
 	contractAddr := *localTx.Transaction.To
 	emptyAddress := pldtypes.EthAddress{}
