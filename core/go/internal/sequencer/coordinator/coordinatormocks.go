@@ -833,59 +833,6 @@ func (_c *MockTransactionPool_AddTransactionToBackOfPool_Call) RunAndReturn(run 
 	return _c
 }
 
-// GetNextPooledTransaction provides a mock function for the type MockTransactionPool
-func (_mock *MockTransactionPool) GetNextPooledTransaction(ctx context.Context) *transaction.Transaction {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetNextPooledTransaction")
-	}
-
-	var r0 *transaction.Transaction
-	if returnFunc, ok := ret.Get(0).(func(context.Context) *transaction.Transaction); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*transaction.Transaction)
-		}
-	}
-	return r0
-}
-
-// MockTransactionPool_GetNextPooledTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetNextPooledTransaction'
-type MockTransactionPool_GetNextPooledTransaction_Call struct {
-	*mock.Call
-}
-
-// GetNextPooledTransaction is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockTransactionPool_Expecter) GetNextPooledTransaction(ctx interface{}) *MockTransactionPool_GetNextPooledTransaction_Call {
-	return &MockTransactionPool_GetNextPooledTransaction_Call{Call: _e.mock.On("GetNextPooledTransaction", ctx)}
-}
-
-func (_c *MockTransactionPool_GetNextPooledTransaction_Call) Run(run func(ctx context.Context)) *MockTransactionPool_GetNextPooledTransaction_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockTransactionPool_GetNextPooledTransaction_Call) Return(transaction1 *transaction.Transaction) *MockTransactionPool_GetNextPooledTransaction_Call {
-	_c.Call.Return(transaction1)
-	return _c
-}
-
-func (_c *MockTransactionPool_GetNextPooledTransaction_Call) RunAndReturn(run func(ctx context.Context) *transaction.Transaction) *MockTransactionPool_GetNextPooledTransaction_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetTransactionByID provides a mock function for the type MockTransactionPool
 func (_mock *MockTransactionPool) GetTransactionByID(ctx context.Context, txnID uuid.UUID) *transaction.Transaction {
 	ret := _mock.Called(ctx, txnID)
@@ -941,6 +888,59 @@ func (_c *MockTransactionPool_GetTransactionByID_Call) Return(transaction1 *tran
 }
 
 func (_c *MockTransactionPool_GetTransactionByID_Call) RunAndReturn(run func(ctx context.Context, txnID uuid.UUID) *transaction.Transaction) *MockTransactionPool_GetTransactionByID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PopNextPooledTransaction provides a mock function for the type MockTransactionPool
+func (_mock *MockTransactionPool) PopNextPooledTransaction(ctx context.Context) *transaction.Transaction {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PopNextPooledTransaction")
+	}
+
+	var r0 *transaction.Transaction
+	if returnFunc, ok := ret.Get(0).(func(context.Context) *transaction.Transaction); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*transaction.Transaction)
+		}
+	}
+	return r0
+}
+
+// MockTransactionPool_PopNextPooledTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PopNextPooledTransaction'
+type MockTransactionPool_PopNextPooledTransaction_Call struct {
+	*mock.Call
+}
+
+// PopNextPooledTransaction is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockTransactionPool_Expecter) PopNextPooledTransaction(ctx interface{}) *MockTransactionPool_PopNextPooledTransaction_Call {
+	return &MockTransactionPool_PopNextPooledTransaction_Call{Call: _e.mock.On("PopNextPooledTransaction", ctx)}
+}
+
+func (_c *MockTransactionPool_PopNextPooledTransaction_Call) Run(run func(ctx context.Context)) *MockTransactionPool_PopNextPooledTransaction_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTransactionPool_PopNextPooledTransaction_Call) Return(transaction1 *transaction.Transaction) *MockTransactionPool_PopNextPooledTransaction_Call {
+	_c.Call.Return(transaction1)
+	return _c
+}
+
+func (_c *MockTransactionPool_PopNextPooledTransaction_Call) RunAndReturn(run func(ctx context.Context) *transaction.Transaction) *MockTransactionPool_PopNextPooledTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
