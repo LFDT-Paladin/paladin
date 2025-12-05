@@ -141,14 +141,14 @@ func (t *Transaction) nudgeAssembleRequest(ctx context.Context) error {
 }
 
 func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
-	log.L(ctx).Debugf("assembleTimeoutExceeded called on transaction %s with pending assemble request %+v", t.ID.String(), t.pendingAssembleRequest)
 	if t.pendingAssembleRequest == nil {
 		//strange situation to be in if we get to the point of this being nil, should immediately leave the state where we ever ask this question
 		// however we go here, the answer to the question is "false" because there is no pending request to timeout but log this as it is a strange situation
 		// and might be an indicator of another issue
-		log.L(ctx).Infof("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.ID)
+		log.L(ctx).Warnf("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.ID)
 		return false
 	}
+	log.L(ctx).Debugf("checking assemble timeout exceeded for transaction %s request idempotency key %s", t.ID.String(), t.pendingAssembleRequest.IdempotencyKey())
 	if t.pendingAssembleRequest.FirstRequestTime() == nil {
 		// No request has ever been sent so nothing to measure expiry against
 		return false
@@ -156,7 +156,7 @@ func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
 	assembleTimedOut := t.clock.HasExpired(t.pendingAssembleRequest.FirstRequestTime(), t.assembleTimeout)
 	if assembleTimedOut {
 		// This shouldn't be too frequent that info logging is preferable here until we find it's too noisy
-		log.L(ctx).Infof("assembly of TX %s timed out. Moving back to pooled.", t.ID)
+		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.ID)
 	}
 	return assembleTimedOut
 
@@ -328,7 +328,6 @@ func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
 }
 
 func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("Incrementing assemble errors for transaction %s", txn.ID.String())
 	txn.resetEndorsementRequests(ctx)
 	return txn.incrementAssembleErrors()
 }
