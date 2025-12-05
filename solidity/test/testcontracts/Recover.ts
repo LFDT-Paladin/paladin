@@ -12,6 +12,6 @@ describe("Recover", function () {
       "0x78826125b6be403ea159876f5a32a3eac7cd0fe5"
     );
     await expect(res.valid).to.true;
-    await expect(res.recoveredSigner).to.equal("0x78826125b6be403ea159876f5a32a3eac7cd0fe5");
+    await expect(res.recoveredSigner).to.hexEqual("0x78826125b6be403ea159876f5a32a3eac7cd0fe5");
   });
 });
