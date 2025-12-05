@@ -481,7 +481,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	})
 
 	// Check that we did receive a receipt once alice's node was restarted
-	customThreshold = 15 * time.Second
+	customThreshold = 90 * time.Second
 	result = bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.NoError(t, result.Error())
 }

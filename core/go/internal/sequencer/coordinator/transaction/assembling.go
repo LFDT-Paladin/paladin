@@ -45,14 +45,24 @@ func (t *Transaction) revertTransaction(ctx context.Context, revertReason string
 	return nil
 }
 
-func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
-
-	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
-	t.PostAssembly = postAssembly
+func (t *Transaction) cancelAssembleTimeoutSchedules() {
 	if t.cancelAssembleTimeoutSchedule != nil {
 		t.cancelAssembleTimeoutSchedule()
 		t.cancelAssembleTimeoutSchedule = nil
 	}
+	if t.cancelAssembleRequestTimeoutSchedule != nil {
+		t.cancelAssembleRequestTimeoutSchedule()
+		t.cancelAssembleRequestTimeoutSchedule = nil
+	}
+}
+
+func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
+
+	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
+	t.PostAssembly = postAssembly
+
+	t.cancelAssembleTimeoutSchedules()
+
 	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
 		return t.revertTransaction(ctx, *postAssembly.RevertReason)
 	}
@@ -94,6 +104,8 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.ID, idempotencyKey, t.PreAssembly, stateLocks, blockHeight)
 	})
+
+	// Schedule a short retry timeout for e.g. network blip
 	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.requestTimeout, func() {
 		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -101,7 +113,20 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 			},
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error handling RequestTimeoutIntervalEvent: %s", err)
+			log.L(ctx).Errorf("error handling assemble request timeout interval: %s", err)
+			return
+		}
+	})
+
+	// Schedule a longer retry timeout for assembly to complete. If this timeout fires we start assembly from scratch after other transactions have had a turn to be assembled.
+	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.assembleTimeout, func() {
+		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: t.ID,
+			},
+		})
+		if err != nil {
+			log.L(ctx).Errorf("error handling assemble timeout interval: %s", err)
 			return
 		}
 	})
