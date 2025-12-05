@@ -75,18 +75,31 @@ func (sr stateRef) TableName() string {
 	return "states"
 }
 
+// Gaps are a record that a whole source (smart contract emitting the event) is blocked
 type persistedReceiptGap struct {
 	Listener    string               `gorm:"column:listener;primaryKey"`
-	Source      *pldtypes.EthAddress `gorm:"column:source;primaryKey"`
+	Source      *pldtypes.EthAddress `gorm:"column:source;primaryKey"` // one per blocked source
 	Transaction uuid.UUID            `gorm:"column:transaction"`
 	Sequence    uint64               `gorm:"column:sequence"`
 	DomainName  string               `gorm:"column:domain_name"`
 	StateID     pldtypes.HexBytes    `gorm:"column:state"`
-	State       *stateRef            `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"`
+	State       *stateRef            `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the gap is now closed by calling the domain again to evaluate the available state set
 }
 
 func (persistedReceiptGap) TableName() string {
 	return "receipt_listener_gap"
+}
+
+// Incomplete records just are a record that one individual receipt is blocked, and can be resolved independently
+type persistedReceiptIncomplete struct {
+	Listener string            `gorm:"column:listener;primaryKey"`
+	Sequence uint64            `gorm:"column:sequence;primaryKey"`                             // one per blocked receipt
+	StateID  pldtypes.HexBytes `gorm:"column:state"`                                           // we just record one state, returned by the domain as the "next one blocking completion" (and it might get edited later if states arrive and we're still incomplete)
+	State    *stateRef         `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the receipt is complete by calling the domain again to evaluate the available state set
+}
+
+func (persistedReceiptIncomplete) TableName() string {
+	return "receipt_listener_incomplete"
 }
 
 type receiptListener struct {
@@ -618,16 +631,17 @@ func (l *receiptListener) loadCheckpoint() error {
 	return nil
 }
 
-func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
+func (l *receiptListener) readReceiptPageAtHead() ([]*transactionReceipt, error) {
 	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 		db := l.tm.p.DB()
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, db)
 		if err == nil {
-			q = q.Joins(`Gap ON "Gap"."listener" = "transaction_receipts"."listener" AND "gap"."source" = "transaction_receipts"."source"`)
 			if behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
-				q = q.Where(`"Gap"."transaction" IS NULL`) // cannot have a gap on this source if we're blocking
+				// For gaps there are zero/one per listener+source combination (primary key constraint)
+				q = q.Joins(`LEFT JOIN receipt_listener_gap "Gap" ON "Gap"."listener" = ? AND "Gap"."source" = "transaction_receipts"."source"`, l.spec.Name).
+					Where(`"Gap"."transaction" IS NULL`) // cannot have a gap on this source if we're blocking
 			}
 			if l.checkpoint != nil {
 				q = q.Where(`"transaction_receipts"."sequence" > ?`, *l.checkpoint)
@@ -641,7 +655,7 @@ func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
 	return receipts, err
 }
 
-func (l *receiptListener) readGapPage(gap *persistedReceiptGap) ([]*transactionReceipt, error) {
+func (l *receiptListener) readReceiptPageFromGap(gap *persistedReceiptGap) ([]*transactionReceipt, error) {
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, l.tm.p.DB())
@@ -826,6 +840,13 @@ func (l *receiptListener) processPage(page []*transactionReceipt) (*receiptDeliv
 }
 
 func (l *receiptListener) processStaleGaps() error {
+	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
+	if behavior != pldapi.IncompleteStateReceiptBehaviorBlockContract {
+		// Gaps are a one-per-source construct in the DB, which are thus only applicable to blocking listeners
+		// that expect every transaction to complete in the exact order.
+		// A separate DB construct is used for listeners that allow late completion.
+		return nil
+	}
 
 	// We process stale gaps one at a time, as the outcome is to:
 	// 1) if still a problem, remove the stale flag from the gap
@@ -846,6 +867,9 @@ func (l *receiptListener) processStaleGaps() error {
 		if err != nil {
 			return err
 		}
+		if len(gaps) == 0 {
+			return nil
+		}
 		for _, gap := range gaps {
 			if err := l.processStaleGap(gap); err != nil {
 				return err
@@ -859,7 +883,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 
 	for {
 		// Read a page of events from the gap
-		page, err := l.readGapPage(gap)
+		page, err := l.readReceiptPageFromGap(gap)
 		if err != nil {
 			return err
 		}
@@ -873,7 +897,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 		// We find a gap still, then we write that and stop
 		if len(batch.Gaps) > 0 {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
-			err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 				return true, l.tm.p.DB().
 					WithContext(l.ctx).
 					Clauses(clause.OnConflict{
@@ -889,9 +913,6 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 					Create(batch.Gaps).
 					Error
 			})
-			if err != nil {
-				return err
-			}
 		}
 
 		if len(page) < l.tm.receiptsReadPageSize {
@@ -961,7 +982,7 @@ func (l *receiptListener) runListener() {
 
 		if newReceipts {
 			// Read the next page of receipts from non-gapped sources - the head
-			page, err := l.readHeadPage()
+			page, err := l.readReceiptPageAtHead()
 			if err != nil {
 				log.L(l.ctx).Warnf("listener stopping: %s", err) // cancelled context
 				return

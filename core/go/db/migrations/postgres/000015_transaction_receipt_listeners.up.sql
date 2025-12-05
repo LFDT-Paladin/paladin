@@ -63,14 +63,14 @@ CREATE TABLE receipt_listeners (
     PRIMARY KEY("name")
 );
 
-CREATE TABLE receipt_listener_gap (
+CREATE TABLE receipt_listener_gap (  
     "listener"           TEXT    NOT NULL,
     "source"             TEXT    NOT NULL,
     "transaction"        UUID    NOT NULL,
     "sequence"           BIGINT  NOT NULL,
     "domain_name"        TEXT    NOT NULL,
-    "state"              TEXT    , -- made not null in 24
-    PRIMARY KEY ("listener", "source"), -- changed to sequence in 24, and moved to secondary index
+    "state"              TEXT    , -- null when a pagination checkpoint
+    PRIMARY KEY ("listener", "source"),
     FOREIGN KEY ("listener") REFERENCES receipt_listeners ("name") ON DELETE CASCADE
 );
 
@@ -83,6 +83,5 @@ CREATE TABLE receipt_listener_checkpoints (
     PRIMARY KEY ("listener"),
     FOREIGN KEY ("listener") REFERENCES receipt_listeners ("name") ON DELETE CASCADE
 );
-
 
 COMMIT;

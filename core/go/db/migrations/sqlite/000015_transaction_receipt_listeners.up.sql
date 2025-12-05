@@ -67,8 +67,8 @@ CREATE TABLE receipt_listener_gap (
     "transaction"        UUID    NOT NULL,
     "sequence"           BIGINT  NOT NULL,
     "domain_name"        TEXT    NOT NULL,
-    "state"              TEXT    , -- made not null in 24
-    PRIMARY KEY ("listener", "source"), -- changed to listener,sequence in 24, and moved to secondary index
+    "state"              TEXT    , -- null when a pagination checkpoint
+    PRIMARY KEY ("listener", "source"),
     FOREIGN KEY ("listener") REFERENCES receipt_listeners ("name") ON DELETE CASCADE
 );
 
