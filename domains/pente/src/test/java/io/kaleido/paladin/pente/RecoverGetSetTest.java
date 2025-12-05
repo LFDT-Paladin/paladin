@@ -25,6 +25,7 @@ import io.kaleido.paladin.toolkit.JsonHex;
 import org.apache.logging.log4j.Logger;
 import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ import org.web3j.abi.datatypes.Bool;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
@@ -94,8 +96,8 @@ public class RecoverGetSetTest {
                 new TypeReference<Bool>() {},
                 new TypeReference<org.web3j.abi.datatypes.Address>() {}
         ));
-        assertEquals("true", returns.get(1).getTypeAsString());
-        assertEquals("0x78826125b6be403ea159876f5a32a3eac7cd0fe5", returns.get(1).getTypeAsString());
+        assertEquals("true", returns.get(0).getValue().toString());
+        assertEquals("0x78826125b6be403ea159876f5a32a3eac7cd0fe5", returns.get(1).getValue().toString());
 
     }
 
