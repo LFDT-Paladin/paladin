@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -325,6 +327,11 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.AssembleTimeout = confutil.P("60s") // In this test we don't want to hit this
+	sequencerConfig.RequestTimeout = confutil.P("10s")  // Extend this enough to give the bob node enough time to restart
+	alice.OverrideSequencerConfig(&sequencerConfig)
+
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
@@ -412,6 +419,11 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.RequestTimeout = confutil.P("1s")   // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
+	sequencerConfig.AssembleTimeout = confutil.P("10s") // In this test we want to ensure assemble timeout causes the transaction to be re-pooled and re-assembled
+	alice.OverrideSequencerConfig(&sequencerConfig)
+
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
@@ -471,8 +483,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	require.NoError(t, bobTx1.Error())
 
 	// Check that we don't receive a receipt in the usual time while alice's node is offline
-	customThreshold := 11 * time.Second
-	result := bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
+	result := bobTx1.Wait(transactionLatencyThreshold(t))
 	require.ErrorContains(t, result.Error(), "timed out")
 
 	startNode(t, alice, domainConfig)
@@ -481,7 +492,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	})
 
 	// Check that we did receive a receipt once alice's node was restarted
-	customThreshold = 90 * time.Second
+	customThreshold := 15 * time.Second
 	result = bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.NoError(t, result.Error())
 }
