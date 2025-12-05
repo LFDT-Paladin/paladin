@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -36,6 +37,16 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func testUUID(desc string) uuid.UUID {
+	u := uuid.New()
+	log.L(context.Background()).Infof("UUID[%s]: %s", desc, u)
+	return u
+}
+
+func requireStrEqual[T1, T2 fmt.Stringer](t *testing.T, expected T1, actual T2) {
+	require.Equal(t, expected.String(), actual.String())
+}
 
 type testReceiptReceiver struct {
 	err       error
@@ -370,12 +381,12 @@ func TestGapsDomainsForNonAvailableReceiptsForcingPagination(t *testing.T) {
 }
 
 func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	txID3 := uuid.New()
-	txID4 := uuid.New()
-	txID5 := uuid.New()
-	txID6 := uuid.New()
+	txID1 := testUUID("txID1")
+	txID2 := testUUID("txID2")
+	txID3 := testUUID("txID3")
+	txID4 := testUUID("txID4")
+	txID5 := testUUID("txID5")
+	txID6 := testUUID("txID6")
 	missingStateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	missingStateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
@@ -462,9 +473,9 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	require.NoError(t, err)
 
 	// We get the first one, before the block
-	require.Equal(t, txID1, (<-r1.receipts).ID)
+	requireStrEqual(t, txID1, (<-r1.receipts).ID)
 	// .. then we skip to the 4th one, for a different contract address
-	require.Equal(t, txID4, (<-r1.receipts).ID)
+	requireStrEqual(t, txID4, (<-r1.receipts).ID)
 
 	// We can get new batches on the unblocked contracts
 	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -478,7 +489,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 		})
 	})
 	require.NoError(t, err)
-	require.Equal(t, txID6, (<-r1.receipts).ID)
+	requireStrEqual(t, txID6, (<-r1.receipts).ID)
 
 	// Write the state that's missing
 	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
@@ -490,7 +501,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	txm.NotifyStatesDBChanged(ctx)
 
 	// .. now TX2 is unblocked
-	require.Equal(t, txID2, (<-r1.receipts).ID)
+	requireStrEqual(t, txID2, (<-r1.receipts).ID)
 
 	// Write the second state that's missing
 	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
@@ -502,9 +513,9 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	txm.NotifyStatesDBChanged(ctx)
 
 	// .. and TX3 is unblocked
-	require.Equal(t, txID3, (<-r1.receipts).ID)
+	requireStrEqual(t, txID3, (<-r1.receipts).ID)
 	// .. and TX5 is unblocked immediately
-	require.Equal(t, txID5, (<-r1.receipts).ID)
+	requireStrEqual(t, txID5, (<-r1.receipts).ID)
 
 }
 
@@ -1381,4 +1392,149 @@ func TestBuildFullReceiptGetDomainError(t *testing.T) {
 	assert.Regexp(t, "pop", err)
 
 	close(l.done)
+}
+
+func TestIncompleteDomainsForNonAvailableReceipts(t *testing.T) {
+	testIncompleteDomainsForNonAvailableReceipts(t, 100)
+}
+
+func TestIncompleteDomainsForNonAvailableReceiptsForcingPagination(t *testing.T) {
+	testIncompleteDomainsForNonAvailableReceipts(t, 1)
+}
+
+func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
+	txID1 := testUUID("txID1")
+	txID2 := testUUID("txID2")
+	txID3 := testUUID("txID3")
+	txID4 := testUUID("txID4")
+	txID5 := testUUID("txID5")
+	txID6 := testUUID("txID6")
+	missingStateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingStateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainStateCompletion,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// Mock TX2 being unavailable when first attempted
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID2).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{missingStateID1},
+					},
+				}, nil).
+				Once()
+			// Mock TX3 being unavailable when first attempted
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID3).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Spent: []pldtypes.HexBytes{missingStateID2},
+					},
+				}, nil).
+				Once()
+			// Other calls return ok for when we unblock
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(&pldapi.TransactionStates{}, nil)
+		},
+	)
+	defer done()
+
+	txm.receiptsReadPageSize = pageSize
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: "listener1",
+		Filters: pldapi.TransactionReceiptFilters{
+			Type:   confutil.P(pldapi.TransactionTypePrivate.Enum()),
+			Domain: "domain1",
+		},
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	r1 := newTestReceiptReceiver(nil)
+	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
+	require.NoError(t, err)
+	defer close1.Close()
+
+	contract1 := pldtypes.RandAddress()
+	contract2 := pldtypes.RandAddress()
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID1,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID2,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID3,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID4,
+				OnChain:       randOnChain(contract2),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID5,
+				OnChain:       randOnChain(contract1),
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// We get all the complete ones, regardless of the fact that means skipping
+	requireStrEqual(t, txID1, (<-r1.receipts).ID)
+	requireStrEqual(t, txID4, (<-r1.receipts).ID)
+	requireStrEqual(t, txID5, (<-r1.receipts).ID)
+
+	// We can get new batches on the unblocked contracts
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID6,
+				OnChain:       randOnChain(contract2),
+			},
+		})
+	})
+	require.NoError(t, err)
+	requireStrEqual(t, txID6, (<-r1.receipts).ID)
+
+	// Write the state that's missing
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID1, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. now TX2 is unblocked
+	requireStrEqual(t, txID2, (<-r1.receipts).ID)
+
+	// Write the second state that's missing
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID2, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. and TX3 is unblocked
+	requireStrEqual(t, txID3, (<-r1.receipts).ID)
+
 }

@@ -92,11 +92,12 @@ func (persistedReceiptGap) TableName() string {
 
 // Incomplete records just are a record that one individual receipt is blocked, and can be resolved independently
 type persistedReceiptIncomplete struct {
-	Listener string              `gorm:"column:listener;primaryKey"`
-	Sequence uint64              `gorm:"column:sequence;primaryKey"`                             // one per blocked receipt
-	StateID  pldtypes.HexBytes   `gorm:"column:state"`                                           // we just record one state, returned by the domain as the "next one blocking completion" (and it might get edited later if states arrive and we're still incomplete)
-	State    *stateRef           `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the receipt is complete by calling the domain again to evaluate the available state set
-	Receipt  *transactionReceipt `gorm:"foreignKey:Sequence;references:Sequence"`                // we do the join to avoid additional lookups
+	Listener   string              `gorm:"column:listener;primaryKey"`
+	Sequence   uint64              `gorm:"column:sequence;primaryKey"` // one per blocked receipt
+	DomainName string              `gorm:"column:domain_name"`
+	StateID    pldtypes.HexBytes   `gorm:"column:state"`                                           // we just record one state, returned by the domain as the "next one blocking completion" (and it might get edited later if states arrive and we're still incomplete)
+	State      *stateRef           `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the receipt is complete by calling the domain again to evaluate the available state set
+	Receipt    *transactionReceipt `gorm:"foreignKey:Sequence;references:Sequence"`                // we do the join to avoid additional lookups
 }
 
 func (persistedReceiptIncomplete) TableName() string {
@@ -732,9 +733,10 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			case pldapi.IncompleteStateReceiptBehaviorCompleteOnly:
 				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s (deferring delivery)", fr.ID, fr.TransactionHash)
 				b.IncompleteReceipts = append(b.IncompleteReceipts, &persistedReceiptIncomplete{
-					Listener: l.spec.Name,
-					Sequence: pr.Sequence,
-					StateID:  fr.States.FirstUnavailable(),
+					Listener:   l.spec.Name,
+					Sequence:   pr.Sequence,
+					DomainName: fr.Domain,
+					StateID:    fr.States.FirstUnavailable(),
 				})
 				return nil
 			}
@@ -813,7 +815,7 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 			err = dbTX.DB().
 				WithContext(ctx).
 				Clauses(clause.OnConflict{
-					DoUpdates: clause.AssignmentColumns([]string{"State"}), // update the state on clash
+					DoNothing: true, // note update is handled separately
 				}).
 				Create(batch.IncompleteReceipts).
 				Error
@@ -924,10 +926,10 @@ func (l *receiptListener) processStaleIncompletes() error {
 				InnerJoins("State").
 				InnerJoins("Receipt").
 				Where("Listener = ?", l.spec.Name).
-				Order("Sequence").
+				Order(`"receipt_listener_incomplete"."sequence"`).
 				Limit(l.tm.receiptListenersLoadPageSize)
 			if pageEnd != nil {
-				q = q.Where(`Sequence > ?`, *pageEnd) // the state exists
+				q = q.Where(`"receipt_listener_incomplete"."sequence" > ?`, *pageEnd) // the state exists
 			}
 			return true, q.Find(&incompletes).Error
 		})
@@ -938,7 +940,7 @@ func (l *receiptListener) processStaleIncompletes() error {
 			return nil
 		}
 		pageEnd = &incompletes[len(incompletes)-1].Sequence
-		receiptPage := make([]*transactionReceipt, 0, len(incompletes))
+		receiptPage := make([]*transactionReceipt, len(incompletes))
 		for i, incomplete := range incompletes {
 			receiptPage[i] = incomplete.Receipt
 		}
