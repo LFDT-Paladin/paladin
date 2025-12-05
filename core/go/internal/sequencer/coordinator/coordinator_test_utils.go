@@ -76,6 +76,7 @@ type CoordinatorBuilderForTesting struct {
 	maxInflightTransactions                  int
 	originatorIdentityPool                   []string
 	domainAPI                                *componentsmocks.DomainSmartContract
+	txManager                                *componentsmocks.TXManager
 	contractAddress                          *pldtypes.EthAddress
 	currentBlockHeight                       *uint64
 	activeCoordinatorBlockHeight             *uint64
@@ -102,9 +103,11 @@ type CoordinatorDependencyMocks struct {
 func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuilderForTesting {
 
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	txManager := componentsmocks.NewTXManager(t)
 	return &CoordinatorBuilderForTesting{
 		state:                   state,
 		domainAPI:               domainAPI,
+		txManager:               txManager,
 		metrics:                 metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 		maxInflightTransactions: 500,
 	}
@@ -186,6 +189,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		cancelCtx,
 		b.contractAddress, // Contract address,
 		b.domainAPI,
+		b.txManager,
 		mocks.SentMessageRecorder,
 		mocks.Clock,
 		mocks.EngineIntegration,

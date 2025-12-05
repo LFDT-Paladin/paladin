@@ -68,6 +68,7 @@ type Transaction struct {
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex
 	pendingPreDispatchRequest                        *common.IdempotentRequest
+	chainedTxAlreadyDispatched                       bool
 	latestError                                      string
 	dependencies                                     *pldapi.TransactionDependencies
 	previousTransaction                              *Transaction
@@ -209,6 +210,10 @@ func (t *Transaction) SignatureAttestationName() (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func (t *Transaction) SetChainedTxInProgress() bool {
+	return t.chainedTxAlreadyDispatched
 }
 
 func (t *Transaction) Originator() string {

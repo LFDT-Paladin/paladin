@@ -97,6 +97,7 @@ type coordinator struct {
 	transportWriter   transport.TransportWriter
 	clock             common.Clock
 	engineIntegration common.EngineIntegration
+	txManager         components.TXManager
 	syncPoints        syncpoints.SyncPoints
 	readyForDispatch  func(context.Context, *transaction.Transaction)
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
@@ -124,6 +125,7 @@ func NewCoordinator(
 	cancelCtx context.CancelFunc,
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
+	txManager components.TXManager,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
@@ -149,6 +151,7 @@ func NewCoordinator(
 		transactionsByID:                   make(map[uuid.UUID]*transaction.Transaction),
 		pooledTransactions:                 make([]*transaction.Transaction, 0, maxInflightTransactions),
 		domainAPI:                          domainAPI,
+		txManager:                          txManager,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
 		blockHeightTolerance:               blockHeightTolerance,
@@ -358,6 +361,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	for _, txn := range transactions {
 
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
+			// We'll rely on the fact that originators retry incomplete transactions periodically
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
@@ -435,6 +439,18 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 
 		receivedEvent := &transaction.ReceivedEvent{}
 		receivedEvent.TransactionID = txn.ID
+
+		// The newly delegated TX might be after the restart of an originator, for which we've already
+		// instantiated a chained TX
+		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
+		if err != nil {
+			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
+			return err
+		}
+		if hasChainedTransaction {
+			newTransaction.SetChainedTxInProgress()
+		}
+
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
@@ -555,10 +571,8 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 	for _, dispatchedTransaction := range c.transactionsByID {
 		if dispatchedTransaction.ID == txId {
 			if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-				// Is this not the transaction that we are looking for?
-				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash nil, confirmed hash %s", dispatchedTransaction.ID.String(), hash.String())
+				// The transaction created a chained private transaction so there is no hash to compare
+				log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.ID.String(), hash.String())
 			} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
 				// Is this not the transaction that we are looking for?
 				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?

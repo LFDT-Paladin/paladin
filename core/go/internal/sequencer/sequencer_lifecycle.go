@@ -158,6 +158,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				cancelCtx,
 				&contractAddr,
 				domainAPI,
+				sMgr.components.TxManager(),
 				transportWriter,
 				common.RealClock(),
 				sMgr.engineIntegration,

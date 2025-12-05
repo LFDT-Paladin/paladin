@@ -488,6 +488,15 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 	// So when it's flushed its internal transaction, it notifies itself.
 }
 
+func (tm *txManager) HasChainedTransaction(ctx context.Context, txID uuid.UUID) (bool, error) {
+	var chainingRecords []*persistedChainedPrivateTxn
+	err := tm.p.NOTX().DB().
+		Where(`"chained_transaction" = ?`, txID).
+		Find(&chainingRecords).
+		Error
+	return len(chainingRecords) > 0, err
+}
+
 func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedPrivateTxn) error {
 	return dbTX.DB().
 		Clauses(clause.OnConflict{DoNothing: true}).

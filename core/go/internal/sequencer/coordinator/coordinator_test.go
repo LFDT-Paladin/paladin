@@ -50,9 +50,10 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		emit:              func(event common.Event) {},
 	}
 	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockTXManager := componentsmocks.NewTXManager(t)
 	mocks.transportWriter.On("Start", mock.Anything).Return(nil)
 	ctx, cancelCtx := context.WithCancel(ctx)
-	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, mocks.clock.Duration(1000), mocks.clock.Duration(5000), 100, 5, 5, 500, 10, mocks.clock.Duration(10000), "node1",
+	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mockTXManager, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, mocks.clock.Duration(1000), mocks.clock.Duration(5000), 100, 5, 5, 500, 10, mocks.clock.Duration(10000), "node1",
 		metrics,
 		func(context.Context, *transaction.Transaction) {
 			// Not used
