@@ -986,7 +986,8 @@ func (l *receiptListener) processStaleIncompletes() error {
 				return true, l.tm.p.DB().
 					WithContext(l.ctx).
 					Clauses(clause.OnConflict{
-						DoUpdates: clause.AssignmentColumns([]string{"State"}), // update the state on clash
+						Columns:   []clause.Column{{Name: "listener"}, {Name: "sequence"}},
+						DoUpdates: clause.AssignmentColumns([]string{"state"}), // update the state on clash
 					}).
 					Create(batch.IncompleteReceipts).
 					Error
@@ -1103,14 +1104,13 @@ func (l *receiptListener) runListener() {
 			newStates = false
 
 			// Process up all stale gaps before we process the head
-			if err := l.processStaleGaps(); err != nil {
-				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
-				return
+			err := l.processStaleGaps()
+			if err == nil {
+				// Process all stale incompletes befre we process the head
+				err = l.processStaleIncompletes()
 			}
-
-			// Process all stale incompletes befre we process the head
-			if err := l.processStaleIncompletes(); err != nil {
-				log.L(l.ctx).Warnf("listener stopping (processing stale incompletes): %s", err) // cancelled context
+			if err != nil {
+				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
 				return
 			}
 		}
