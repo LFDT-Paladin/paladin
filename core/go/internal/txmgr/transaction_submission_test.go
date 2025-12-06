@@ -1623,17 +1623,19 @@ func TestPrepareInsertRemoteTransactionOK(t *testing.T) {
 
 	txID := uuid.New()
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		_, err = txm.InsertRemoteTransaction(ctx, dbTX, &components.ValidatedTransaction{
-			ResolvedTransaction: components.ResolvedTransaction{
-				Function: &components.ResolvedFunction{},
-				Transaction: &pldapi.Transaction{
-					ID: &txID,
-					TransactionBase: pldapi.TransactionBase{
-						Type:         pldapi.TransactionTypePublic.Enum(),
-						ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
+			{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Function: &components.ResolvedFunction{},
+					Transaction: &pldapi.Transaction{
+						ID: &txID,
+						TransactionBase: pldapi.TransactionBase{
+							Type:         pldapi.TransactionTypePublic.Enum(),
+							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+						},
 					},
+					DependsOn: []uuid.UUID{uuid.New()},
 				},
-				DependsOn: []uuid.UUID{uuid.New()},
 			},
 		}, true)
 		return err
@@ -1654,14 +1656,16 @@ func TestPrepareInsertRemoteTransactionErr(t *testing.T) {
 
 	txID := uuid.New()
 	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		_, err = txm.InsertRemoteTransaction(ctx, dbTX, &components.ValidatedTransaction{
-			ResolvedTransaction: components.ResolvedTransaction{
-				Function: &components.ResolvedFunction{},
-				Transaction: &pldapi.Transaction{
-					ID: &txID,
-					TransactionBase: pldapi.TransactionBase{
-						Type:         pldapi.TransactionTypePublic.Enum(),
-						ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
+			{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Function: &components.ResolvedFunction{},
+					Transaction: &pldapi.Transaction{
+						ID: &txID,
+						TransactionBase: pldapi.TransactionBase{
+							Type:         pldapi.TransactionTypePublic.Enum(),
+							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+						},
 					},
 				},
 			},
