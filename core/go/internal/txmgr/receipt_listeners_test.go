@@ -95,6 +95,11 @@ func mockTxStatesAllAvailable(conf *pldconf.TxManagerConfig, mc *mockComponents)
 		}, nil)
 }
 
+func mockDomain(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+	md := componentsmocks.NewDomain(mc.t)
+	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
+}
+
 func mockDomainStateCompletion(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 	md := componentsmocks.NewDomain(mc.t)
 	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
@@ -105,7 +110,7 @@ func mockDomainStateCompletion(conf *pldconf.TxManagerConfig, mc *mockComponents
 }
 
 func TestE2EReceiptListenerDeliveryLateAttach(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomainStateCompletion)
+	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomain)
 	defer done()
 
 	// Create listener (started)
@@ -220,7 +225,7 @@ func randOnChain(addr *pldtypes.EthAddress) pldtypes.OnChainLocation {
 }
 
 func TestLoadListenersMultiPageFilters(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomainStateCompletion)
+	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomain)
 	defer done()
 
 	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
@@ -1300,7 +1305,11 @@ func TestProcessPersistedReceiptFailStateCompletionCheck(t *testing.T) {
 			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").
 				Return(md, nil)
 			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
-				Return(&pldapi.TransactionStates{}, nil)
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{pldtypes.HexBytes(pldtypes.RandBytes(32))},
+					},
+				}, nil)
 			md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil, fmt.Errorf("pop"))
 		},
@@ -1418,8 +1427,11 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 			// Mock TX2 being unavailable when first attempted
 			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID2).
 				Return(&pldapi.TransactionStates{
+					Info: []*pldapi.StateBase{
+						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}, // We have the manifest
+					},
 					Unavailable: &pldapi.UnavailableStates{
-						Confirmed: []pldtypes.HexBytes{missingStateID1},
+						Confirmed: []pldtypes.HexBytes{missingStateID1}, // but not one required state
 					},
 				}, nil).
 				Once()
@@ -1427,7 +1439,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID3).
 				Return(&pldapi.TransactionStates{
 					Unavailable: &pldapi.UnavailableStates{
-						Spent: []pldtypes.HexBytes{missingStateID2},
+						Info: []pldtypes.HexBytes{missingStateID2}, // no manifest
 					},
 				}, nil).
 				Once()

@@ -706,12 +706,31 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			return err
 		}
 
-		// Check if the states are complete
 		var primaryMissingStateID pldtypes.HexBytes
-		if fr.States != nil && d != nil {
-			primaryMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
-			if err != nil {
-				return err
+		if fr.States != nil && d != nil && fr.States.FirstUnavailable() != nil {
+			// Domains supporting PARTIAL completion processing use the FIRST "info" state for
+			// the manifest of the transaction. This allows us to determine that:
+			//
+			// ** Any transaction without missing the first info state, is incomplete on the first info state **
+			//
+			// This avoids the need for every transaction from every participant in the network to be
+			// passed to the domain for complex processing when we have zero states.
+			if len(fr.States.Info) == 0 && len(fr.States.Unavailable.Info) > 0 {
+				// We don't have the manifest - no point in calling the domain.
+				// Trigger again when the first info state is available.
+				primaryMissingStateID = fr.States.Unavailable.Info[0]
+			} else {
+				// Otherwise:
+				// - There are > 0 unavailable states
+				// - We require the transaction to be complete
+				// - We're not waiting for a first-info state (manifest)
+				// We need the domain to get involved to determine if the transaction is complete,
+				// or we need to wait for at least one more state. It just needs to return the ID
+				// of one state we're waiting for (any one that we know is required).
+				primaryMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
+				if err != nil {
+					return err
+				}
 			}
 		}
 
