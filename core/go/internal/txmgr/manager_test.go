@@ -120,8 +120,10 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

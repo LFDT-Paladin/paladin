@@ -273,6 +273,125 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 
 }
 
+func TestFinalizeTransactionsInsertOkChained(t *testing.T) {
+
+	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+		mc.sequencerMgr.On("WriteOrDistributeReceiptsPostSubmit", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(
+			&pldapi.TransactionStates{None: true}, nil,
+		)
+
+		md := componentsmocks.NewDomain(t)
+		mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
+		md.On("BuildDomainReceipt", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, fmt.Errorf("not available"))
+	})
+	defer done()
+
+	var chainedTx *components.ValidatedTransaction
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		contractAddressDomain1 := pldtypes.RandAddress()
+		chainedTx, err = txm.resolveNewTransaction(ctx, dbTX, &pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				From:           "me",
+				IdempotencyKey: "parent_txn",
+				Type:           pldapi.TransactionTypePrivate.Enum(),
+				Domain:         "domain1",
+				To:             contractAddressDomain1,
+				Function:       "doThing1",
+			},
+			ABI: abi.ABI{{Type: abi.Function, Name: "doThing1"}},
+		}, pldapi.SubmitModeAuto)
+		require.NoError(t, err)
+		chainedTx.Transaction.ABIReference = chainedTx.Function.ABIReference
+
+		return txm.ChainPrivateTransactions(ctx, dbTX, []*components.ChainedPrivateTransaction{
+			{
+				OriginalSenderLocator:   "sender@remote.node",
+				OriginalTransaction:     uuid.New(),
+				OriginalDomain:          "domain1",
+				OriginalContractAddress: pldtypes.RandAddress().String(),
+				NewTransaction:          chainedTx,
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID: *chainedTx.Transaction.ID,
+				Domain:        "domain1",
+				ReceiptType:   components.RT_Success,
+				OnChain: pldtypes.OnChainLocation{
+					Type:             pldtypes.OnChainEvent,
+					TransactionHash:  pldtypes.MustParseBytes32("d0561b310b77e47bc16fb3c40d48b72255b1748efeecf7452373dfce8045af30"),
+					BlockNumber:      12345,
+					TransactionIndex: 10,
+					LogIndex:         5,
+					Source:           pldtypes.MustEthAddress("0x3f9f796ff55589dd2358c458f185bbed357c0b6e"),
+				},
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	receipt, err := txm.GetTransactionReceiptByIDFull(ctx, *chainedTx.Transaction.ID)
+	require.NoError(t, err)
+
+	require.NotNil(t, receipt)
+	require.JSONEq(t, fmt.Sprintf(`{
+		"id":"%s",
+		"sequence":%d,
+		"domain": "domain1",
+		"blockNumber":12345, 
+		"logIndex":5,
+	 	"source":"0x3f9f796ff55589dd2358c458f185bbed357c0b6e",
+	  	"success":true, 
+	  	"transactionHash":"0xd0561b310b77e47bc16fb3c40d48b72255b1748efeecf7452373dfce8045af30", 
+		"transactionIndex":10,
+		"states": {"none": true},
+		"domainReceiptError": "not available"
+	}`, chainedTx.Transaction.ID, receipt.Sequence), pldtypes.JSONString(receipt).Pretty())
+
+}
+
+func TestFinalizeTransactionsInsertChainedFailDistribute(t *testing.T) {
+
+	txID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(12345))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{"chained_transaction"}).AddRow(txID))
+
+			mc.sequencerMgr.On("WriteOrDistributeReceiptsPostSubmit", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+		})
+	defer done()
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID: txID,
+				Domain:        "domain1",
+				ReceiptType:   components.RT_Success,
+				OnChain: pldtypes.OnChainLocation{
+					Type:             pldtypes.OnChainEvent,
+					TransactionHash:  pldtypes.MustParseBytes32("d0561b310b77e47bc16fb3c40d48b72255b1748efeecf7452373dfce8045af30"),
+					BlockNumber:      12345,
+					TransactionIndex: 10,
+					LogIndex:         5,
+					Source:           pldtypes.MustEthAddress("0x3f9f796ff55589dd2358c458f185bbed357c0b6e"),
+				},
+			},
+		})
+	})
+	require.Regexp(t, "pop", err)
+
+}
+
 func TestCalculateRevertErrorNoData(t *testing.T) {
 
 	ctx, txm, done := newTestTransactionManager(t, false,
@@ -481,5 +600,45 @@ func TestBuildFullReceiptFailAddStateReceipt(t *testing.T) {
 	// This should fail when trying to add state receipt
 	_, err = txm.buildFullReceipt(ctx, receipt, false)
 	assert.Regexp(t, "state retrieval failed", err)
+	close(l.done)
+}
+
+func TestBuildFullReceiptFailDomainFindFail(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).Return(&pldapi.TransactionStates{}, nil)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(nil, fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	// Create a receipt with a domain
+	receipt := &pldapi.TransactionReceipt{
+		ID: txID,
+		TransactionReceiptData: pldapi.TransactionReceiptData{
+			Domain:          "domain1",
+			Sequence:        1000,
+			Success:         true,
+			ContractAddress: pldtypes.RandAddress(),
+		},
+	}
+
+	// This should fail when trying to add state receipt
+	fr, err := txm.buildFullReceipt(ctx, receipt, true)
+	assert.NoError(t, err)
+	require.Regexp(t, "pop", fr.DomainReceiptError)
 	close(l.done)
 }
