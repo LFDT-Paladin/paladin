@@ -125,6 +125,15 @@ func (br *domainBridge) RequestReply(ctx context.Context, reqMsg plugintk.Plugin
 				}
 			},
 		)
+	case *prototk.DomainMessage_LookupKeyIdentifiers:
+		return callManagerImpl(ctx, req.LookupKeyIdentifiers,
+			br.manager.LookupKeyIdentifiers,
+			func(resMsg *prototk.DomainMessage, res *prototk.LookupKeyIdentifiersResponse) {
+				resMsg.ResponseToDomain = &prototk.DomainMessage_LookupKeyIdentifiersRes{
+					LookupKeyIdentifiersRes: res,
+				}
+			},
+		)
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgPluginBadRequestBody, req)
 	}

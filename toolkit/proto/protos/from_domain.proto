@@ -98,6 +98,22 @@ message GetStatesByIDResponse {
   repeated StoredState states = 1;
 }
 
+message LookupKeyIdentifiersRequest {
+  string algorithm = 1;
+  string verifier_type = 2;
+  repeated string verifiers = 3;
+}
+
+message LookupKeyIdentifiersResponse {
+  repeated LookupKeyIdentifierResult results = 1;
+}
+
+message LookupKeyIdentifierResult {
+  string verifier = 1;
+  bool found = 2;
+  optional string key_identifier = 3;
+}
+
 message StoredState {
   string id = 1;
   string schema_id = 2;

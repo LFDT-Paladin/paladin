@@ -846,8 +846,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
      @Override
      protected CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request) {
-         return CompletableFuture.completedFuture(
-            CheckStateCompletionResponse.newBuilder().setComplete(!request.getUnavailableStates()).build());
+         // Very simple for Pente - we expect all the states, so we can just pass back the pre-calculated
+         // first unavailable ID that Paladin provided us
+         var res = CheckStateCompletionResponse.newBuilder();
+         if (request.getUnavailableStates().hasFirstUnavailableId()) {
+             res.setPrimaryMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
+         }
+         return CompletableFuture.completedFuture(res.build());
      }
 
      @NotNull

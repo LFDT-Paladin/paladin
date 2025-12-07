@@ -75,4 +75,5 @@ var (
 	MsgErrorValidateExecCallTxSpec        = pde("PD200033", "Failed to validate execute call transaction spec. %s")
 	MsgErrorGetAccountBalance             = pde("PD200034", "Failed to get account balance. %s")
 	MsgErrorHandlerImplementationNotFound = pde("PD200035", "Handler implementation not found. %s")
+	MsgInvalidManifestState               = pde("PD200036", "Invalid manifest state %s")
 )

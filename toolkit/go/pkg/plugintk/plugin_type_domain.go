@@ -55,6 +55,7 @@ type DomainCallbacks interface {
 	SendTransaction(ctx context.Context, tx *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
 	LocalNodeName(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
 	GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
 }
 
 type DomainFactory func(callbacks DomainCallbacks) DomainAPI
@@ -303,6 +304,17 @@ func (dp *domainHandler) GetStatesByID(ctx context.Context, req *prototk.GetStat
 	}))
 	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_GetStatesByIdRes) *prototk.GetStatesByIDResponse {
 		return msg.GetStatesByIdRes
+	})
+}
+
+func (dp *domainHandler) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+	res, err := dp.proxy.RequestFromPlugin(ctx, dp.Wrap(&prototk.DomainMessage{
+		RequestFromDomain: &prototk.DomainMessage_LookupKeyIdentifiers{
+			LookupKeyIdentifiers: req,
+		},
+	}))
+	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_LookupKeyIdentifiersRes) *prototk.LookupKeyIdentifiersResponse {
+		return msg.LookupKeyIdentifiersRes
 	})
 }
 

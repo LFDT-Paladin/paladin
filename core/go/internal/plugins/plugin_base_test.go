@@ -165,6 +165,7 @@ func TestPluginRequestsError(t *testing.T) {
 				handleResponse: func(dm *prototk.DomainMessage) {
 					assert.Equal(t, msgID, *dm.Header.CorrelationId)
 					assert.Regexp(t, "pop", *dm.Header.ErrorMessage)
+					assert.Equal(t, prototk.Header_INVALID_INPUT, dm.Header.GetErrorType())
 					close(waitForResponse)
 				},
 			},
@@ -174,7 +175,7 @@ func TestPluginRequestsError(t *testing.T) {
 		return tdm, nil
 	}
 	tdm.findAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		return nil, fmt.Errorf("pop")
+		return nil, NewPluginError(prototk.Header_INVALID_INPUT, fmt.Errorf("pop"))
 	}
 
 	_, _, done := newTestDomainPluginManager(t, &testManagers{

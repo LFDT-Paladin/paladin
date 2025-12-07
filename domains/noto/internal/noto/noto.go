@@ -113,6 +113,7 @@ var allSchemas = []*abi.Parameter{
 	types.NotoLockedCoinABI,
 	types.TransactionDataABI_V0,
 	types.TransactionDataABI_V1,
+	types.NotoManifestABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -130,6 +131,7 @@ type Noto struct {
 	dataSchemaV1         *prototk.StateSchema
 	lockInfoSchemaV0     *prototk.StateSchema
 	lockInfoSchemaV1     *prototk.StateSchema
+	manifestSchema       *prototk.StateSchema
 }
 
 type NotoDeployParams struct {
@@ -375,6 +377,10 @@ func (n *Noto) DataSchemaID() string {
 	return n.dataSchemaV1.Id
 }
 
+func (n *Noto) ManifestSchemaID() string {
+	return n.manifestSchema.Id
+}
+
 func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
 	ctx = log.WithComponent(ctx, "noto")
 	var config types.DomainConfig
@@ -412,6 +418,8 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:
 			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case types.NotoManifestABI.Name:
+			n.manifestSchema = req.AbiStateSchemas[i]
 		}
 	}
 	return &prototk.InitDomainResponse{}, nil
@@ -982,9 +990,39 @@ func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 }
 
 func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
-	return &prototk.CheckStateCompletionResponse{
-		Complete: !req.UnavailableStates,
-	}, nil
+	res := &prototk.CheckStateCompletionResponse{}
+	if req.UnavailableStates == nil || req.UnavailableStates.FirstUnavailableId == nil {
+		// There's nothing unavailable - we have all the states (in reality Paladin does not call us in this case)
+		return res, nil
+	}
+	// Determine if we have a manifest available.
+	var manifestState *prototk.EndorsableState
+	for _, potentialManifest := range req.InfoStates {
+		if potentialManifest.SchemaId == n.ManifestSchemaID() {
+			manifestState = potentialManifest
+			break
+		}
+	}
+	// If we don't (Noto V0, or just not available yet) then we return the pre-calculated FirstUnavailableId
+	// provided by us by Paladin.
+	if manifestState == nil {
+		res.PrimaryMissingStateId = req.UnavailableStates.FirstUnavailableId
+		log.L(ctx).Debugf("No manifest available. Returning pre-calculated first unavailable state for transaction %s: %s", req.TransactionId, *res.PrimaryMissingStateId)
+		return res, nil
+	}
+	// Decode the manifest
+	var manifest types.NotoManifest
+	if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidManifestState, manifestState.Id)
+	}
+	// Now, it get's a little complex - we need to ask the Paladin node which of the addresses
+	// in the state distribution list are "ours". There's a batch API for this provided.
+	// Note we only get to this point if we're involved in the transaction in some way, and
+	// don't have the whole state set (Notary always has full set before submit).
+	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
+	n.Callbacks.RecoverSigner()
+
+	return res, nil
 }
 
 // getInterfaceABI returns the appropriate interface ABI based on the variant

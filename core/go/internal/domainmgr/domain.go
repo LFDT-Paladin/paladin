@@ -860,6 +860,10 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 	}, err
 }
 
+func (d *domain) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+	return &prototk.LookupKeyIdentifiersResponse{}, nil
+}
+
 func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error) {
 	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	res, err := d.api.ConfigurePrivacyGroup(ctx, &prototk.ConfigurePrivacyGroupRequest{

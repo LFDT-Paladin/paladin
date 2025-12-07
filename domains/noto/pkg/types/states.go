@@ -108,6 +108,41 @@ var NotoLockedCoinABI = &abi.Parameter{
 	},
 }
 
+type NotoManifestState struct {
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoManifest        `json:"data"`
+}
+
+type NotoManifest struct {
+	Salt   pldtypes.Bytes32     `json:"salt"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+}
+
+type NotoManifestDistribution struct {
+	ID      pldtypes.Bytes32       `json:"state"`
+	Targets []*pldtypes.EthAddress `json:"receivers"`
+}
+
+var NotoManifestABI = &abi.Parameter{
+	Name:         "NotoManifest",
+	Type:         "tuple",
+	InternalType: "struct NotoManifest",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{
+			Name:         "distributions",
+			Type:         "[]tuple",
+			InternalType: "struct NotoManifest",
+			Components: abi.ParameterArray{
+				{Name: "state", Type: "bytes32"},
+				{Name: "receivers", Type: "[]string"},
+			},
+		},
+	},
+}
+
 type NotoLockInfo_V0 struct {
 	Salt     pldtypes.Bytes32     `json:"salt"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
