@@ -861,7 +861,23 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 }
 
 func (d *domain) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
-	return &prototk.LookupKeyIdentifiersResponse{}, nil
+	results := make([]*prototk.LookupKeyIdentifierResult, len(req.Verifiers))
+	for i, verifier := range req.Verifiers {
+		resolve, err := d.dm.keyManager.ReverseKeyLookup(ctx, d.dm.persistence.NOTX(), req.Algorithm, req.VerifierType, verifier)
+		if err != nil {
+			i18nErr, ok := err.(i18n.PDError)
+			if ok && i18nErr.MessageKey() == msgs.MsgKeyManagerVerifierLookupNotFound {
+				log.L(ctx).Debugf("Key for verifier %s not found (algorithm=%s,verifierType=%s)", verifier, req.Algorithm, req.VerifierType)
+				results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: false}
+				continue
+			}
+			return nil, err
+		}
+		keyIdentifier := resolve.Identifier
+		log.L(ctx).Debugf("Key available locally for verifier %s (algorithm=%s,verifierType=%s): %s", verifier, req.Algorithm, req.VerifierType, keyIdentifier)
+		results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: true, KeyIdentifier: &keyIdentifier}
+	}
+	return &prototk.LookupKeyIdentifiersResponse{Results: results}, nil
 }
 
 func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error) {
