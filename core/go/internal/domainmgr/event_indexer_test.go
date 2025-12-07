@@ -30,7 +30,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -280,17 +279,7 @@ func TestHandleEventBatch(t *testing.T) {
 			return true
 		})).Return(nil)
 
-		matchTXNonce := pldtypes.MustParseHexUint64("1")
-		mc.sequencerManager.On("HandleTransactionConfirmed", mock.Anything, mock.Anything, mock.Anything, &matchTXNonce).Return(nil)
-
-		var queryJson *query.QueryJSON = nil
-		matchTxHash := pldtypes.MustParseBytes32(eventTx2Hash)
-		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(map[uuid.UUID][]*pldapi.PublicTx{txID: {
-			{
-				TransactionHash: &matchTxHash,
-				Nonce:           &matchTXNonce,
-			},
-		}}, nil)
+		mc.sequencerManager.On("PrivateTransactionConfirmed", mock.Anything, mock.Anything).Return(nil)
 
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).Return([]uuid.UUID{txID}, nil)
 

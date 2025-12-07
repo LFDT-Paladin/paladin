@@ -653,12 +653,12 @@ func (sMgr *sequencerManager) HandlePublicTXsWritten(ctx context.Context, dbTX p
 	return nil
 }
 
-func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, confirmedTxn *components.TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error {
-	log.L(sMgr.ctx).Tracef("HandleTransactionConfirmed %s %s %+v", confirmedTxn.TransactionID.String(), from.String(), nonce)
+func (sMgr *sequencerManager) handleTransactionConfirmedDirect(ctx context.Context, confirmedTxn *components.TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error {
+	log.L(sMgr.ctx).Tracef("handleTransactionConfirmedDirect %s %s %+v", confirmedTxn.TransactionID.String(), from.String(), nonce)
 	sMgr.metrics.IncConfirmedTransactions()
 
 	// A transaction can be confirmed after the coordinating node has restarted. The coordinator doesn't persist the private TX, it relies
-	// on the originating node to delegate the private TX to it. HandleTransactionConfirmed first checks if a public TX for that request has been confirmed
+	// on the originating node to delegate the private TX to it. handleTransactionConfirmedDirect first checks if a public TX for that request has been confirmed
 	// on chain, so in in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
 
 	var contractAddress pldtypes.EthAddress
@@ -726,12 +726,12 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 	return nil
 }
 
-func (sMgr *sequencerManager) HandleTransactionConfirmedByChainedTransaction(ctx context.Context, confirmedTxn *components.TxCompletion) error {
-	log.L(sMgr.ctx).Tracef("HandleTransactionConfirmedByChainedTransaction %s", confirmedTxn.TransactionID.String())
+func (sMgr *sequencerManager) handleTransactionConfirmedByChainedTransaction(ctx context.Context, confirmedTxn *components.TxCompletion) error {
+	log.L(sMgr.ctx).Tracef("handleTransactionConfirmedByChainedTransaction %s", confirmedTxn.TransactionID.String())
 	sMgr.metrics.IncConfirmedTransactions()
 
 	// A transaction can be confirmed after the coordinating node has restarted. The coordinator doesn't persist the private TX, it relies
-	// on the originating node to delegate the private TX to it. HandleTransactionConfirmed first checks if a public TX for that request has been confirmed
+	// on the originating node to delegate the private TX to it. handleTransactionConfirmed first checks if a public TX for that request has been confirmed
 	// on chain, so in in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
 
 	var contractAddress pldtypes.EthAddress
@@ -991,4 +991,45 @@ func mapPreparedTransaction(tx *components.PrivateTransaction) *components.Prepa
 		pt.Transaction = *tx.PreparedPrivateTransaction
 	}
 	return pt
+}
+
+func (sMgr *sequencerManager) PrivateTransactionConfirmed(ctx context.Context, completion *components.TxCompletion) {
+	// TODO: This is a PLACEHOLDER function that uses a background go-routine for each receipt to do expensive
+	// DB processing work. Needs to be replaced with a suitable construct.
+	go func() {
+		persistence := sMgr.components.Persistence()
+		publicTxManager := sMgr.components.PublicTxManager()
+		pubBindingTx, err := publicTxManager.QueryPublicTxForTransactions(ctx, persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
+		if err != nil {
+			log.L(ctx).Errorf("Error getting public transaction by ID: %s", err)
+		}
+
+		confirmedWithPublicTX := false
+
+		for _, pubTx := range pubBindingTx {
+			for _, publicTx := range pubTx {
+				log.L(ctx).Debugf("Checking public transactions for TX ID %s to find a match for the receipt we are processing %s", completion.TransactionID, publicTx.TransactionHash)
+				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
+					confirmedWithPublicTX = true
+					log.L(ctx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
+					err = sMgr.handleTransactionConfirmedDirect(ctx, completion, &publicTx.From, publicTx.Nonce)
+					if err != nil {
+						// Log but continue confirming other transactions
+						log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+					}
+				}
+			}
+		}
+
+		// For private transaction's that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
+		// about the underlying chained public TX.
+		if !confirmedWithPublicTX {
+			log.L(ctx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)
+			err = sMgr.handleTransactionConfirmedByChainedTransaction(ctx, completion)
+			if err != nil {
+				// Log but continue confirming other transactions
+				log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+			}
+		}
+	}()
 }
