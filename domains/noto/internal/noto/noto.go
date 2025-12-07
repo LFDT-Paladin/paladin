@@ -1020,8 +1020,40 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 	// Note we only get to this point if we're involved in the transaction in some way, and
 	// don't have the whole state set (Notary always has full set before submit).
 	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
-	n.Callbacks.RecoverSigner()
-
+	lookupReq := &prototk.LookupKeyIdentifiersRequest{
+		Algorithm:    algorithms.ECDSA_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	uniqueAddresses := make(map[string]struct{})
+	for _, state := range manifest.Distributions {
+		for _, target := range state.Targets {
+			uniqueAddresses[target.String()] = struct{}{}
+		}
+	}
+	for addr := range uniqueAddresses {
+		lookupReq.Verifiers = append(lookupReq.Verifiers, addr)
+	}
+	lookupRes, err := n.Callbacks.LookupKeyIdentifiers(ctx, lookupReq)
+	if err != nil {
+		return nil, err
+	}
+	// Now we build a list of all states we expect to find for this
+	var requiredStateIDs []string
+	for _, state := range manifest.Distributions {
+		for _, target := range state.Targets {
+			for _, keyLookup := range lookupRes.Results {
+				if target.String() == keyLookup.Verifier && keyLookup.Found {
+					log.L(ctx).Debugf("Require state %s as we own key %s for address %s", state.ID, *keyLookup.KeyIdentifier, target)
+					requiredStateIDs = append(requiredStateIDs, state.ID.String())
+				}
+			}
+		}
+	}
+	// If we have any state IDs required at this point, we return the first one
+	if len(requiredStateIDs) > 0 {
+		firstRequiredState := requiredStateIDs[0]
+		res.PrimaryMissingStateId = &firstRequiredState
+	}
 	return res, nil
 }
 

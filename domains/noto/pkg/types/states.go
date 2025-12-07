@@ -116,8 +116,8 @@ type NotoManifestState struct {
 }
 
 type NotoManifest struct {
-	Salt   pldtypes.Bytes32     `json:"salt"`
-	Amount *pldtypes.HexUint256 `json:"amount"`
+	Salt          pldtypes.Bytes32            `json:"salt"`
+	Distributions []*NotoManifestDistribution `json:"distributions"`
 }
 
 type NotoManifestDistribution struct {
