@@ -1497,21 +1497,93 @@ func TestCheckStateCompletionOk(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
+	schemaID := pldtypes.RandBytes32()
+	txID := uuid.New()
+	statesInput := &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Read: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Spent: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Confirmed: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Unavailable: &pldapi.UnavailableStates{
+			Info: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Read: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Spent: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Confirmed: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+		},
+	}
+
 	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		require.Equal(t, &prototk.CheckStateCompletionRequest{
+			TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
+			InfoStates: []*prototk.EndorsableState{
+				{Id: statesInput.Info[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Info[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			ReadStates: []*prototk.EndorsableState{
+				{Id: statesInput.Read[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Read[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			InputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Spent[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Spent[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			OutputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Confirmed[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Confirmed[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			UnavailableStates: &prototk.UnavailableStates{
+				FirstUnavailableId: confutil.P(statesInput.Unavailable.Info[0].String()),
+				InfoStateIds: []string{
+					statesInput.Unavailable.Info[0].String(),
+					statesInput.Unavailable.Info[1].String(),
+				},
+				ReadStateIds: []string{
+					statesInput.Unavailable.Read[0].String(),
+					statesInput.Unavailable.Read[1].String(),
+				},
+				InputStateIds: []string{
+					statesInput.Unavailable.Spent[0].String(),
+					statesInput.Unavailable.Spent[1].String(),
+				},
+				OutputStateIds: []string{
+					statesInput.Unavailable.Confirmed[0].String(),
+					statesInput.Unavailable.Confirmed[1].String(),
+				},
+			},
+		}, cscr)
 		return &prototk.CheckStateCompletionResponse{
-			PrimaryMissingStateId: &cscr.InfoStates[0].Id,
+			PrimaryMissingStateId: cscr.UnavailableStates.FirstUnavailableId,
 		}, nil
 	}
 
 	domain := td.d
-	infoStateID := pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String())
-	primaryMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{
-		Info: []*pldapi.StateBase{
-			{ID: infoStateID},
-		},
-	})
+	primaryMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, txID, statesInput)
 	require.NoError(t, err)
-	require.Equal(t, infoStateID.String(), primaryMissingStateID.String())
+	require.Equal(t, statesInput.Unavailable.Info[0].String(), primaryMissingStateID.String())
 }
 
 func TestCheckStateCompletionBadIDReturned(t *testing.T) {

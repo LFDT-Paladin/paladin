@@ -918,14 +918,40 @@ func (d *domain) InitPrivacyGroup(ctx context.Context, id pldtypes.HexBytes, gen
 }
 
 func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (primaryMissingStateID pldtypes.HexBytes, err error) {
-	res, err := d.api.CheckStateCompletion(ctx, &prototk.CheckStateCompletionRequest{
+	scr := &prototk.CheckStateCompletionRequest{
 		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
-		UnavailableStates: txStates.Unavailable != nil,
 		InputStates:       d.toEndorsableListBase(txStates.Spent),
 		ReadStates:        d.toEndorsableListBase(txStates.Read),
 		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
 		InfoStates:        d.toEndorsableListBase(txStates.Info),
-	})
+		UnavailableStates: &prototk.UnavailableStates{}, // always non-nil, but FirstUnavailable will be nil if none unavailable
+	}
+	setIfFirstUnavailable := func(unavailable pldtypes.HexBytes) {
+		if scr.UnavailableStates.FirstUnavailableId == nil {
+			idStr := unavailable.String()
+			scr.UnavailableStates.FirstUnavailableId = &idStr
+		}
+	}
+	// The order of these checks is documented in the first_unavailable_id
+	if txStates.Unavailable != nil {
+		for _, unavailable := range txStates.Unavailable.Info {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InfoStateIds = append(scr.UnavailableStates.InfoStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Spent {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InputStateIds = append(scr.UnavailableStates.InputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Confirmed {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.OutputStateIds = append(scr.UnavailableStates.OutputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Read {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.ReadStateIds = append(scr.UnavailableStates.ReadStateIds, unavailable.String())
+		}
+	}
+	res, err := d.api.CheckStateCompletion(ctx, scr)
 	if err == nil && res.PrimaryMissingStateId != nil && len(*res.PrimaryMissingStateId) > 0 {
 		primaryMissingStateID, err = pldtypes.ParseHexBytes(ctx, *res.PrimaryMissingStateId)
 	}
