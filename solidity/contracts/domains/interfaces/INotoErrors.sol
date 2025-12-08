@@ -10,6 +10,8 @@ interface INotoErrors {
 
     error NotoInvalidOutput(bytes32 id);
 
+    error NotoInvalidRoot(uint256 root);
+
     error NotoNotNotary(address sender);
 
     error NotoInvalidDelegate(bytes32 txhash, address delegate, address sender);

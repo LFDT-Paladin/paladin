@@ -5,6 +5,7 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {INoto} from "../interfaces/INoto.sol";
 import {INotoErrors} from "../interfaces/INotoErrors.sol";
+import "hardhat/console.sol";
 
 /**
  * @title Noto
@@ -41,7 +42,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     // Config follows the convention of a 4 byte type selector, followed by ABI encoded bytes
     bytes4 public constant NotoConfigID_V1 = 0x00020000;
 
-    uint64 public constant NotoVariantDefault = 0x0001;
+    uint64 public NotoVariantDefault = 0x0001;
 
     bytes32 private constant UNLOCK_TYPEHASH =
         keccak256(
@@ -56,7 +57,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     mapping(bytes32 => bool) private _txIds;
 
     mapping(bytes32 => bytes32) private _locked; // state ID => lock ID
-    mapping(bytes32 => LockInfo) private _locks; // lock ID => lock info
+    mapping(bytes32 => LockInfo) internal _locks; // lock ID => lock info
     mapping(bytes32 => bytes32) private _lockTxIds; // tx ID => lock ID (for prepared transactions)
 
     function requireNotary(address addr) internal view {
@@ -75,6 +76,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             revert NotoDuplicateTransaction(txId);
         }
         _txIds[txId] = true;
+        _;
+    }
+
+    modifier lockIdNotUsed(bytes32 txId) {
+        bytes32 lockId = computeLockId(txId);
+        if (_locks[lockId].owner != address(0)) {
+            revert NotoDuplicateLock(lockId);
+        }
         _;
     }
 
@@ -246,7 +255,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check the inputs are all unspent, and remove them
      */
-    function _processInputs(bytes32[] memory inputs) internal {
+    function _processInputs(bytes32[] memory inputs) internal virtual {
         for (uint256 i = 0; i < inputs.length; ++i) {
             if (!_unspent[inputs[i]]) {
                 revert NotoInvalidInput(inputs[i]);
@@ -258,7 +267,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check the outputs are all new, and mark them as unspent
      */
-    function _processOutputs(bytes32[] memory outputs) internal {
+    function _processOutputs(bytes32[] memory outputs) internal virtual {
         for (uint256 i = 0; i < outputs.length; ++i) {
             if (isUnspent(outputs[i]) || getLockId(outputs[i]) != bytes32(0)) {
                 revert NotoInvalidOutput(outputs[i]);
@@ -317,11 +326,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32[] calldata lockedOutputs,
         bytes calldata signature,
         bytes calldata data
-    ) public virtual override onlyNotary txIdNotUsed(txId) {
+    ) public virtual override onlyNotary txIdNotUsed(txId) lockIdNotUsed(txId) {
         bytes32 lockId = computeLockId(txId);
-        if (_locks[lockId].owner != address(0)) {
-            revert NotoDuplicateLock(lockId);
-        }
 
         _processInputs(inputs);
         _processOutputs(outputs);
@@ -412,7 +418,10 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
                     data
                 );
                 if (actualHash != lockInfo.unlockHash) {
-                    revert NotoInvalidUnlockHash(lockInfo.unlockHash, actualHash);
+                    revert NotoInvalidUnlockHash(
+                        lockInfo.unlockHash,
+                        actualHash
+                    );
                 }
             }
         }
@@ -543,6 +552,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             if (isUnspent(outputs[i]) || getLockId(outputs[i]) != bytes32(0)) {
                 revert NotoInvalidOutput(outputs[i]);
             }
+            console.logBytes32(outputs[i]);
             _locked[outputs[i]] = lockId;
         }
     }
