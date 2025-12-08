@@ -155,7 +155,6 @@ func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
 	}
 	assembleTimedOut := t.clock.HasExpired(t.pendingAssembleRequest.FirstRequestTime(), t.assembleTimeout)
 	if assembleTimedOut {
-		// This shouldn't be too frequent that info logging is preferable here until we find it's too noisy
 		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.ID)
 	}
 	return assembleTimedOut
