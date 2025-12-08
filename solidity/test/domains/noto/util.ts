@@ -1,8 +1,12 @@
 import { expect } from "chai";
 import { randomBytes } from "crypto";
 import { Signer, TypedDataEncoder } from "ethers";
-import hre from "hardhat";
+import hre, { ethers } from "hardhat";
+import { Artifact } from "hardhat/types";
+import { poseidonContract } from "circomlibjs";
+
 import { Noto, NotoFactory } from "../../../typechain-types";
+import { NotoNullifiers } from "../../../typechain-types/contracts/domains/noto";
 
 export async function newUnlockHash(
   noto: Noto,
@@ -37,11 +41,124 @@ export function fakeTXO() {
   return randomBytes32();
 }
 
+export interface UTXO {
+  amount: number;
+  salt: string; // bytes32
+  owner: string; // address
+  hash?: string; // bytes32
+  nullifier?: string; // bytes32
+}
+
+export function newUTXO(amount: number): UTXO {
+  const salt = randomBytes32();
+  const ownerAddress = "0x" + Buffer.from(randomBytes(20)).toString("hex");
+  const coin = {
+    amount,
+    salt,
+    owner: ownerAddress,
+  } as UTXO;
+  coin.hash = eip712Hash(coin);
+  coin.nullifier = eip712Nullifier(coin);
+  return coin;
+}
+
+export function eip712Hash(coin: UTXO): string {
+  const types = {
+    notoCoin: [
+      { name: "amount", type: "uint256" },
+      { name: "salt", type: "bytes32" },
+      { name: "owner", type: "address" },
+    ],
+  };
+
+  const message = {
+    owner: coin.owner,
+    amount: coin.amount,
+    salt: coin.salt,
+  };
+
+  const structHash = ethers.TypedDataEncoder.hashStruct("notoCoin", types, message);
+  return structHash;
+}
+
+export function eip712Nullifier(coin: UTXO): string {
+  const types = {
+    notoNullifier: [
+      { name: "amount", type: "uint256" },
+      { name: "salt", type: "bytes32" },
+    ],
+  };
+  const message = {
+    amount: coin.amount,
+    salt: coin.salt,
+  };
+
+  const structHash = ethers.TypedDataEncoder.hashStruct(
+    "notoNullifier",
+    types,
+    message
+  );
+  return structHash;
+}
+
+export async function deployNotoFactory(): Promise<any> {
+  const [deployer] = await ethers.getSigners();
+
+  // deploy PoseidonUnit2L library
+  const poseidonUnit2LArtifact = PoseidonArtifact(2);
+  const PoseidonUnit2LFactory = new ethers.ContractFactory(poseidonUnit2LArtifact.abi, poseidonUnit2LArtifact.bytecode, deployer);
+  const poseidonUnit2L = await PoseidonUnit2LFactory.deploy();
+
+  // deploy PoseidonUnit3L library
+  const poseidonUnit3LArtifact = PoseidonArtifact(3);
+  const PoseidonUnit3LFactory = new ethers.ContractFactory(poseidonUnit3LArtifact.abi, poseidonUnit3LArtifact.bytecode, deployer);
+  const poseidonUnit3L = await PoseidonUnit3LFactory.deploy();
+
+  // deploy SmtLib library
+  const SmtLibFactory = await ethers.getContractFactory("SmtLib", {
+    libraries: {
+      PoseidonUnit2L: poseidonUnit2L.target,
+      PoseidonUnit3L: poseidonUnit3L.target,
+    },
+  });
+  const smtLib = await SmtLibFactory.deploy();
+
+  const NotoFactory = await ethers.getContractFactory("NotoFactory", {
+    libraries: {
+      SmtLib: smtLib.target,
+    },
+  });
+  const notoFactory = await NotoFactory.deploy();
+  return {
+    poseidonUnit3L,
+    smtLib,
+    notoFactory,
+  };
+}
+
+function PoseidonArtifact(param: number): Artifact {
+  const abi = poseidonContract.generateABI(param);
+  const bytecode = poseidonContract.createCode(param);
+  const artifact: Artifact = {
+    _format: "hh-sol-artifact-1",
+    contractName: `Poseidon${param}`,
+    sourceName: "",
+    abi: abi,
+    bytecode: bytecode,
+    deployedBytecode: "", // "0x"-prefixed hex string
+    linkReferences: {},
+    deployedLinkReferences: {},
+  };
+  return artifact;
+}
+
 export async function deployNotoInstance(
   notoFactory: NotoFactory,
-  notary: string
+  notary: string,
+  implName: string = "default"
 ) {
   const deployTx = await notoFactory.deploy(
+    implName,
     randomBytes32(),
     "NOTO",
     "NOTO",
@@ -88,6 +205,41 @@ export async function doTransfer(
   }
 }
 
+export async function doTransferWithNullifiers(
+  txId: string,
+  notary: Signer,
+  noto: NotoNullifiers,
+  nullifiers: string[],
+  outputs: string[],
+  root: string,
+  data: string
+) {
+  // build the nullifiers for the inputs
+
+  const tx = await noto
+    .connect(notary)["transfer(bytes32,bytes32[],bytes32[],uint256,bytes,bytes)"](txId, nullifiers, outputs, root, "0x", data);
+  const results = await tx.wait();
+  expect(results).to.exist;
+
+  for (const log of results?.logs || []) {
+    const event = noto.interface.parseLog(log);
+    expect(event).to.exist;
+    expect(event?.name).to.equal("NotoTransfer");
+    expect(event?.args.inputs).to.deep.equal(nullifiers);
+    expect(event?.args.outputs).to.deep.equal(outputs);
+    expect(event?.args.data).to.deep.equal(data);
+  }
+
+  // TODO: may need updates if the function is modified to
+  // support "spent/unspent/unknown" states
+  for (const input of nullifiers) {
+    expect(await noto.isUnspent(input)).to.equal(false);
+  }
+  for (const output of outputs) {
+    expect(await noto.isUnspent(output)).to.equal(false);
+  }
+}
+
 export async function doMint(
   txId: string,
   notary: Signer,
@@ -95,7 +247,7 @@ export async function doMint(
   outputs: string[],
   data: string
 ) {
-  const tx = await noto.connect(notary).transfer(txId, [], outputs, "0x", data);
+  const tx = await noto.connect(notary).mint(txId, outputs, "0x", data);
   const results = await tx.wait();
   expect(results).to.exist;
 
@@ -107,7 +259,7 @@ export async function doMint(
     expect(event?.args.data).to.deep.equal(data);
   }
   for (const output of outputs) {
-    expect(await noto.isUnspent(output)).to.equal(true);
+    expect(await noto.isUnspent(output)).to.equal(false);
   }
 }
 
@@ -144,6 +296,47 @@ export async function doLock(
   }
   for (const output of outputs) {
     expect(await noto.isUnspent(output)).to.equal(true);
+  }
+  for (const output of lockedOutputs) {
+    expect(await noto.isLocked(output)).to.equal(true);
+    expect(await noto.isUnspent(output)).to.equal(false);
+  }
+  return lockId;
+}
+
+export async function doLockWithNullifiers(
+  txId: string,
+  notary: Signer,
+  noto: NotoNullifiers,
+  nullifiers: string[],
+  outputs: string[],
+  lockedOutputs: string[],
+  root: string,
+  data: string
+): Promise<string> {
+  const tx = await noto
+    .connect(notary)["lock(bytes32,bytes32[],bytes32[],bytes32[],uint256,bytes,bytes)"](txId, nullifiers, outputs, lockedOutputs, root, "0x", data);
+  const results = await tx.wait();
+  expect(results).to.exist;
+
+  let lockId = "";
+  for (const log of results?.logs || []) {
+    const event = noto.interface.parseLog(log);
+    expect(event).to.exist;
+    expect(event?.name).to.equal("NotoLock");
+    expect(event?.args.inputs).to.deep.equal(nullifiers);
+    expect(event?.args.outputs).to.deep.equal(outputs);
+    expect(event?.args.lockedOutputs).to.deep.equal(lockedOutputs);
+    expect(event?.args.data).to.deep.equal(data);
+    if (event?.args.lockId) {
+      lockId = event.args.lockId;
+    }
+  }
+  for (const input of nullifiers) {
+    expect(await noto.isUnspent(input)).to.equal(false);
+  }
+  for (const output of outputs) {
+    expect(await noto.isUnspent(output)).to.equal(false);
   }
   for (const output of lockedOutputs) {
     expect(await noto.isLocked(output)).to.equal(true);
@@ -192,7 +385,7 @@ export async function doUnlock(
     expect(await noto.isUnspent(output)).to.equal(false);
   }
   for (const output of outputs) {
-    expect(await noto.isUnspent(output)).to.equal(true);
+    expect(await noto.isUnspent(output)).to.equal(false);
   }
 }
 

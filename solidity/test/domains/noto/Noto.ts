@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Noto } from "../../../typechain-types";
 import {
+  deployNotoFactory,
   deployNotoInstance,
   doDelegateLock,
   doLock,
@@ -14,13 +15,13 @@ import {
   newUnlockHash,
   randomBytes32,
 } from "./util";
+import { deploy } from "@openzeppelin/hardhat-upgrades/dist/utils";
 
 describe("Noto", function () {
   async function deployNotoFixture() {
     const [notary, other] = await ethers.getSigners();
 
-    const NotoFactory = await ethers.getContractFactory("NotoFactory");
-    const notoFactory = await NotoFactory.deploy();
+    const { notoFactory } = await deployNotoFactory();
     const Noto = await ethers.getContractFactory("Noto");
     const noto = Noto.attach(
       await deployNotoInstance(notoFactory, notary.address)
