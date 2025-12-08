@@ -212,8 +212,8 @@ func (t *Transaction) SignatureAttestationName() (string, error) {
 	return "", nil
 }
 
-func (t *Transaction) SetChainedTxInProgress() bool {
-	return t.chainedTxAlreadyDispatched
+func (t *Transaction) SetChainedTxInProgress() {
+	t.chainedTxAlreadyDispatched = true
 }
 
 func (t *Transaction) Originator() string {

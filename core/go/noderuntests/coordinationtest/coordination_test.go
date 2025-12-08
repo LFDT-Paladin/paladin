@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -949,7 +951,7 @@ func TestTransactionRevertOnBaseLedger(t *testing.T) {
 	assert.Len(t, txFull.Public, 2)
 }
 
-func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndorsementStopNodesBeforeCompletion(t *testing.T) {
+func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testing.T) {
 
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "alice")
@@ -969,6 +971,16 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 	domainConfig := &domains.SimpleDomainConfig{
 		SubmitMode: domains.ONE_TIME_USE_KEYS,
 	}
+
+	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial fire-and-forget delegate fails
+	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the delegate timeout.
+	// Reduce it down a little here to speed up the test.
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.DelegateTimeout = confutil.P("2s")
+
+	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
+	carol.OverrideSequencerConfig(&sequencerConfig)
 
 	startNode(t, alice, domainConfig)
 	startNode(t, bob, domainConfig)
@@ -1042,14 +1054,17 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 		stopNode(t, alice)
 	})
 
-	// Alice's node should have the full transaction as well as the receipt that Wait checks for
-	_, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
-	require.NoError(t, err)
-
-	// Bob's node has the receipt, but not necesarily the original transaction
+	customDuration := 10 * time.Second
 	assert.Eventually(t,
-		transactionReceiptConditionReceiptOnly(t, ctx, aliceTx.ID(), bob.GetClient()),
-		transactionLatencyThreshold(t),
+		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
+		transactionLatencyThresholdCustom(t, &customDuration),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt",
+	)
+
+	assert.Eventually(t,
+		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionLatencyThresholdCustom(t, &customDuration),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
 	)

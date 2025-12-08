@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
@@ -73,7 +74,6 @@ func (r *SentMessageRecorder) HasSentHeartbeat() bool {
 
 type CoordinatorBuilderForTesting struct {
 	state                                    State
-	maxInflightTransactions                  int
 	originatorIdentityPool                   []string
 	domainAPI                                *componentsmocks.DomainSmartContract
 	txManager                                *componentsmocks.TXManager
@@ -89,7 +89,7 @@ type CoordinatorBuilderForTesting struct {
 	transactions                             []*transaction.Transaction
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
-	maxDispatchAhead                         *int
+	sequencerConfig                          *pldconf.SequencerConfig
 }
 
 type CoordinatorDependencyMocks struct {
@@ -105,11 +105,11 @@ func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuil
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
 	txManager := componentsmocks.NewTXManager(t)
 	return &CoordinatorBuilderForTesting{
-		state:                   state,
-		domainAPI:               domainAPI,
-		txManager:               txManager,
-		metrics:                 metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
-		maxInflightTransactions: 500,
+		state:           state,
+		domainAPI:       domainAPI,
+		txManager:       txManager,
+		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		sequencerConfig: &pldconf.SequencerDefaults,
 	}
 }
 
@@ -163,8 +163,16 @@ func (b *CoordinatorBuilderForTesting) GetDomainAPI() *componentsmocks.DomainSma
 	return b.domainAPI
 }
 
-func (b *CoordinatorBuilderForTesting) MaxDispatchAhead(maxDispatchAhead int) *CoordinatorBuilderForTesting {
-	b.maxDispatchAhead = &maxDispatchAhead
+func (b *CoordinatorBuilderForTesting) GetTXManager() *componentsmocks.TXManager {
+	return b.txManager
+}
+
+func (b *CoordinatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerConfig {
+	return b.sequencerConfig
+}
+
+func (b *CoordinatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfig) *CoordinatorBuilderForTesting {
+	b.sequencerConfig = config
 	return b
 }
 
@@ -194,14 +202,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		mocks.Clock,
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
-		mocks.Clock.Duration(1000),  // Request timeout
-		mocks.Clock.Duration(5000),  // Assemble timeout
-		100,                         // Block range size
-		5,                           // Block height tolerance
-		5,                           // Closing grace period (measured in number of heartbeat intervals)
-		b.maxInflightTransactions,   // Max inflight transactions
-		10,                          // Max dispatch ahead
-		mocks.Clock.Duration(10000), // Hearbeat interval
+		b.sequencerConfig,
 		"node1",
 		b.metrics,
 		func(context.Context, *transaction.Transaction) {},                    // onReadyForDispatch function, not used in tests
@@ -214,10 +215,6 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 
 	for _, tx := range b.transactions {
 		coordinator.transactionsByID[tx.ID] = tx
-	}
-
-	if b.maxDispatchAhead != nil {
-		coordinator.maxDispatchAhead = *b.maxDispatchAhead
 	}
 
 	coordinator.stateMachine.currentState = b.state
@@ -272,9 +269,4 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 	}
 
 	return coordinator, mocks
-}
-
-func (b *CoordinatorBuilderForTesting) SetMaxInflightTransactions(maxInflightTransactions int) *CoordinatorBuilderForTesting {
-	b.maxInflightTransactions = maxInflightTransactions
-	return b
 }

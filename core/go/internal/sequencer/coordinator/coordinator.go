@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -130,20 +132,14 @@ func NewCoordinator(
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
-	requestTimeout,
-	assembleTimeout common.Duration,
-	blockRangeSize uint64,
-	blockHeightTolerance uint64,
-	closingGracePeriod int,
-	maxInflightTransactions int,
-	maxDispatchAhead int,
-	heartbeatInterval common.Duration,
+	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
 	readyForDispatch func(context.Context, *transaction.Transaction),
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
+	maxInflightTransactions := confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c := &coordinator{
 		ctx:                                ctx,
 		cancelCtx:                          cancelCtx,
@@ -154,33 +150,36 @@ func NewCoordinator(
 		txManager:                          txManager,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
-		blockHeightTolerance:               blockHeightTolerance,
-		closingGracePeriod:                 closingGracePeriod,
 		maxInflightTransactions:            maxInflightTransactions,
-		maxDispatchAhead:                   maxDispatchAhead,
 		grapher:                            transaction.NewGrapher(ctx),
 		clock:                              clock,
-		requestTimeout:                     requestTimeout,
-		assembleTimeout:                    assembleTimeout,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
 		readyForDispatch:                   readyForDispatch,
 		coordinatorActive:                  coordinatorActive,
 		coordinatorIdle:                    coordinatorIdle,
-		heartbeatInterval:                  heartbeatInterval,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
 		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:                      make(chan struct{}),
-		coordinatorSelectionBlockRange:     blockRangeSize,
-		dispatchQueue:                      make(chan *transaction.Transaction, maxInflightTransactions),
 		stopDispatchLoop:                   make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
 	c.transactionSelector = NewTransactionSelector(ctx, c)
+	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
+	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
+
+	// Configuration
+	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
+	c.assembleTimeout = confutil.DurationMin(configuration.AssembleTimeout, pldconf.SequencerMinimum.AssembleTimeout, *pldconf.SequencerDefaults.AssembleTimeout)
+	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
+	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
+	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
+	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
+	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
 	// Start event processing loop
 	go c.eventLoop(ctx)
@@ -448,6 +447,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return err
 		}
 		if hasChainedTransaction {
+			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
 			newTransaction.SetChainedTxInProgress()
 		}
 

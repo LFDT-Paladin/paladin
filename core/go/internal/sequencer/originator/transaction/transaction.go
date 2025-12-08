@@ -45,6 +45,7 @@ type Transaction struct {
 	transportWriter                  transport.TransportWriter
 	eventHandler                     func(context.Context, common.Event) error
 	currentDelegate                  string
+	lastDelegatedTime                *common.Time
 	latestAssembleRequest            *assembleRequestFromCoordinator
 	latestFulfilledAssembleRequestID uuid.UUID
 	latestPreDispatchRequestID       uuid.UUID
@@ -66,8 +67,8 @@ func NewTransaction(
 	txn := &Transaction{
 		PrivateTransaction: pt,
 		engineIntegration:  engineIntegration,
-		eventHandler:       eventHandler,
 		transportWriter:    transportWriter,
+		eventHandler:       eventHandler,
 		metrics:            metrics,
 	}
 
@@ -151,4 +152,12 @@ func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
 
 func (t *Transaction) GetNonce() *uint64 {
 	return t.nonce
+}
+
+func (t *Transaction) GetLastDelegatedTime() *common.Time {
+	return t.lastDelegatedTime
+}
+
+func (t *Transaction) UpdateLastDelegatedTime() {
+	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
 }

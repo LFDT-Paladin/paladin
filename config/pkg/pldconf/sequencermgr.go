@@ -26,7 +26,9 @@ type SequencerConfig struct {
 	BlockHeightTolerance          *uint64           `json:"blockHeightTolerance"`
 	BlockRange                    *uint64           `json:"blockRange"`
 	ClosingGracePeriod            *int              `json:"closingGracePeriod"`
+	DelegateTimeout               *string           `json:"delegateTimeout"`
 	HeartbeatInterval             *string           `json:"heartbeatInterval"`
+	HeartbeatThreshold            *int              `json:"heartbeatThreshold"`
 	MaxInflightTransactions       *int              `json:"maxInflightTransactions"`
 	MaxDispatchAhead              *int              `json:"maxDispatchAhead"`
 	TargetActiveCoordinators      *int              `json:"targetActiveCoordinators"`
@@ -41,6 +43,7 @@ type SequencerMinimumConfig struct {
 	BlockHeightTolerance          uint64
 	BlockRange                    uint64
 	ClosingGracePeriod            int
+	DelegateTimeout               time.Duration
 	HeartbeatInterval             time.Duration
 	MaxInflightTransactions       int
 	MaxDispatchAhead              int
@@ -57,9 +60,10 @@ var SequencerDefaults = SequencerConfig{
 	},
 	AssembleTimeout:               confutil.P("60s"),
 	RequestTimeout:                confutil.P("10s"),
-	BlockHeightTolerance:          confutil.P(uint64(10)),
+	BlockHeightTolerance:          confutil.P(uint64(5)),
 	BlockRange:                    confutil.P(uint64(100)),
 	ClosingGracePeriod:            confutil.P(4),
+	DelegateTimeout:               confutil.P("5s"),
 	HeartbeatInterval:             confutil.P("10s"),
 	MaxInflightTransactions:       confutil.P(500),
 	MaxDispatchAhead:              confutil.P(10),
@@ -74,6 +78,7 @@ var SequencerMinimum = SequencerMinimumConfig{
 	BlockHeightTolerance:          1,
 	BlockRange:                    10,
 	ClosingGracePeriod:            1,
+	DelegateTimeout:               100 * time.Millisecond,
 	HeartbeatInterval:             1 * time.Second,
 	MaxInflightTransactions:       1,
 	MaxDispatchAhead:              1,
