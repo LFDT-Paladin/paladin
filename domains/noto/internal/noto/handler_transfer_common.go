@@ -91,10 +91,20 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	if from != tx.Transaction.From {
 		infoDistributionList = append(infoDistributionList, from)
 	}
-	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistributionList)
+	txData, err := h.noto.prepareTransactionDataInfo(data, tx.DomainConfig.Variant, infoDistributionList)
 	if err != nil {
 		return nil, err
 	}
+	infoStates := make([]*prototk.NewState, 0, 2)
+	if !tx.DomainConfig.IsV0() {
+		manifest, err := h.noto.prepareManifestInfo(txData, inputStates, outputStates)
+		if err != nil {
+			return nil, err
+		}
+		// The manifest goes first in the info
+		infoStates = append(infoStates, manifest)
+	}
+	infoStates = append(infoStates, txData)
 
 	if inputStates.total.Cmp(amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())

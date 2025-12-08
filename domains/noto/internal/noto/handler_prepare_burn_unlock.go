@@ -130,7 +130,7 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}
 
 	// No outputs - this will burn when unlocked
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
+	infoStates, err := h.noto.prepareTransactionDataInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
 	if err != nil {
 		return nil, err
 	}

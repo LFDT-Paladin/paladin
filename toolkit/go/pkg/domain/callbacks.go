@@ -18,8 +18,11 @@ package domain
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
+
+var _ plugintk.DomainCallbacks = &MockDomainCallbacks{}
 
 type MockDomainCallbacks struct {
 	MockFindAvailableStates func() (*prototk.FindAvailableStatesResponse, error)
@@ -50,5 +53,9 @@ func (dc *MockDomainCallbacks) LocalNodeName(context.Context, *prototk.LocalNode
 }
 
 func (dc *MockDomainCallbacks) GetStatesByID(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
+	return nil, nil
+}
+
+func (dc *MockDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
 	return nil, nil
 }

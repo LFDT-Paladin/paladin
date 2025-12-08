@@ -136,7 +136,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	for _, entry := range params.Recipients {
 		infoDistribution = append(infoDistribution, entry.To)
 	}
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, infoDistribution)
+	infoStates, err := h.noto.prepareTransactionDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution)
 	if err != nil {
 		return nil, nil, err
 	}

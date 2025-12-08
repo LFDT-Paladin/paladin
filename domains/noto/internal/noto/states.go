@@ -337,14 +337,24 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareTransactionDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
 	newData := &types.TransactionData{
 		Salt:    pldtypes.RandHex(32),
 		Data:    data,
 		Variant: variant,
 	}
 	newState, err := n.makeNewInfoState(newData, distributionList)
-	return []*prototk.NewState{newState}, err
+	return newState, err
+}
+
+func (n *Noto) prepareTransactionDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
+	newData := &types.TransactionData{
+		Salt:    pldtypes.RandHex(32),
+		Data:    data,
+		Variant: variant,
+	}
+	newState, err := n.makeNewInfoState(newData, distributionList)
+	return newState, err
 }
 
 func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, unlockTxId *pldtypes.Bytes32, distributionList []string) (*prototk.NewState, error) {
