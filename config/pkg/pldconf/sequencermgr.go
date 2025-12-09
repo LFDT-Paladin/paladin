@@ -58,8 +58,8 @@ var SequencerDefaults = SequencerConfig{
 		BatchTimeout: confutil.P("25ms"),
 		BatchMaxSize: confutil.P(100),
 	},
-	AssembleTimeout:               confutil.P("60s"),
-	RequestTimeout:                confutil.P("10s"),
+	AssembleTimeout:               confutil.P("10s"), // Time before giving up on assembly of the in progress transaction and re-pooling it
+	RequestTimeout:                confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc.
 	BlockHeightTolerance:          confutil.P(uint64(5)),
 	BlockRange:                    confutil.P(uint64(100)),
 	ClosingGracePeriod:            confutil.P(4),

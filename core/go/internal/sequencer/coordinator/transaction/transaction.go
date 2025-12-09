@@ -61,9 +61,10 @@ type Transaction struct {
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange               int
 	pendingAssembleRequest                           *common.IdempotentRequest
-	cancelAssembleTimeoutSchedule                    func()
-	cancelEndorsementRequestTimeoutSchedule          func()
-	cancelDispatchConfirmationRequestTimeoutSchedule func()
+	cancelAssembleTimeoutSchedule                    func()                                          // Longer timeout for assembly to complete, before giving up and trying to assemble the next TX
+	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
+	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
+	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
 	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex

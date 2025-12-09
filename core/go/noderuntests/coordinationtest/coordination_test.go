@@ -328,6 +328,103 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.AssembleTimeout = confutil.P("60s") // In this test we don't want to hit this
+	sequencerConfig.RequestTimeout = confutil.P("10s")  // Extend this enough to give the bob node enough time to restart
+	alice.OverrideSequencerConfig(&sequencerConfig)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ENDORSER_SUBMISSION,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.SelfEndorsement,
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	// Start a private transaction on alice's node
+	// this is a mint to bob so bob should later be able to do a transfer without any mint taking place on bob's node
+	aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, aliceTx.Error())
+
+	// Stop alice's node before submitting a transaction request to bob's node.
+	stopNode(t, alice)
+
+	// Start a private transaction on bob's node, TO alice's identifier. This can't proceed while her node is stopped.
+	bobTx1 := bob.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-bob-" + uuid.New().String()).
+		From(bob.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "` + bob.GetIdentityLocator() + `",
+			"to": "` + alice.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, bobTx1.Error())
+
+	// Check that we don't receive a receipt in the usual time while alice's node is offline
+	result := bobTx1.Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, result.Error(), "timed out")
+
+	startNode(t, alice, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+	})
+
+	// Check that we did receive a receipt once alice's node was restarted
+	customThreshold := 15 * time.Second
+	result = bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
+	require.NoError(t, result.Error())
+}
+
+func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(t *testing.T) {
+	// Test that we can start 2 nodes, stop one of them, then submit a transaction where both nodes
+	// are required verifiers. While one node is offline we shouldn't get a receipt. After the node
+	// is restarted the transaction should proceed to completion.
+
+	// This test is identical to TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission but
+	// intentionally waits longer than RequestTimeout before restarting the node. This exercises AssembleTimeout
+	// separately.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.RequestTimeout = confutil.P("1s")   // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
+	sequencerConfig.AssembleTimeout = confutil.P("10s") // In this test we want to ensure assemble timeout causes the transaction to be re-pooled and re-assembled
+	alice.OverrideSequencerConfig(&sequencerConfig)
+
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
