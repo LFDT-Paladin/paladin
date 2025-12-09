@@ -711,6 +711,7 @@ var (
 	SequencerConfigClosingGracePeriod            = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
 	SequencerConfigDelegateTimeout               = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
 	SequencerConfigHeartbeatInterval             = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
+	SequencerConfigHeartbeatThreshold            = pdm("SequencerConfig.heartbeatThreshold", "Heartbeat threshold")
 	SequencerConfigMaxInflightTransactions       = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
 	SequencerConfigMaxDispatchAhead              = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
 	SequencerConfigTargetActiveCoordinators      = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
