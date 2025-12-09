@@ -25,14 +25,22 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed abis/NotoFactory.json
 var NotoFactoryJSON []byte
 
+//go:embed abis/Noto_V0.json
+var NotoV0JSON []byte
+
 //go:embed abis/INoto.json
 var NotoInterfaceJSON []byte
+
+//go:embed abis/INoto_V0.json
+var NotoV0InterfaceJSON []byte
+
+var NotoFactoryABI = solutils.MustParseBuildABI(NotoFactoryJSON)
 
 type NotoHelper struct {
 	t       *testing.T
@@ -42,13 +50,17 @@ type NotoHelper struct {
 }
 
 func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
+	return DeployNotoImplementation(ctx, t, rpc, domainName, "", notary, hooks)
+}
+
+func DeployNotoImplementation(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, implementation, notary string, hooks *pldtypes.EthAddress) *NotoHelper {
 	notaryMode := types.NotaryModeBasic
 	if hooks != nil {
 		notaryMode = types.NotaryModeHooks
 	}
 
 	var addr pldtypes.EthAddress
-	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, "notary", &types.ConstructorParams{
+	constructorParams := &types.ConstructorParams{
 		Notary:     notary + "@node1",
 		NotaryMode: notaryMode,
 		Options: types.NotoOptions{
@@ -57,9 +69,14 @@ func DeployNoto(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainN
 				DevUsePublicHooks: true,
 			},
 		},
-	})
+	}
+	if implementation != "" {
+		constructorParams.Implementation = implementation
+		constructorParams.Name = implementation // This shouldn't be necessary but it's a workaround for a bug in the factory
+	}
+	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, "notary", constructorParams)
 	if rpcerr != nil {
-		assert.NoError(t, rpcerr)
+		require.NoError(t, rpcerr)
 	}
 	return &NotoHelper{
 		t:       t,

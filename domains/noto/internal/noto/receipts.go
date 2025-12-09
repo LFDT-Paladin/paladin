@@ -103,8 +103,12 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
 		} else {
 			interfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
+			unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New()).String()
+			if receipt.LockInfo != nil && receipt.LockInfo.UnlockTxId != nil && !receipt.LockInfo.UnlockTxId.IsZero() {
+				unlockTxId = receipt.LockInfo.UnlockTxId.HexString0xPrefix()
+			}
 			receipt.LockInfo.UnlockParams = map[string]any{
-				"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(),
+				"txId":          unlockTxId,
 				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
 				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
 				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),

@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
@@ -60,11 +61,25 @@ func (s *notoTestSuite) SetupSuite() {
 
 	s.hdWalletSeed = testbed.HDWalletSeedScopedToTest()
 
-	log.L(ctx).Infof("Deploying Noto factory")
+	log.L(ctx).Infof("Deploying Noto contracts")
 	contractSource := map[string][]byte{
 		"factory": helpers.NotoFactoryJSON,
+		"noto_v0": helpers.NotoV0JSON,
 	}
-	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notaryName, contractSource)
+	configureV0 := func(deployed map[string]string, rpc rpcclient.Client) {
+		result := pldclient.Wrap(rpc).ReceiptPollingInterval(200*time.Millisecond).
+			ForABI(ctx, helpers.NotoFactoryABI).
+			Public().
+			From(notaryName).
+			To(pldtypes.MustEthAddress(deployed["factory"])).
+			Function("registerImplementation").
+			Inputs(pldtypes.RawJSON(fmt.Sprintf(`["noto_v0", "%s"]`, deployed["noto_v0"]))).
+			BuildTX().
+			Send().
+			Wait(5 * time.Second)
+		require.NoError(s.T(), result.Error())
+	}
+	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notaryName, contractSource, configureV0)
 	for name, address := range contracts {
 		log.L(ctx).Infof("%s deployed to %s", name, address)
 	}
@@ -77,7 +92,15 @@ func toJSON(t *testing.T, v any) []byte {
 	return result
 }
 
-func (s *notoTestSuite) TestNoto() {
+func (s *notoTestSuite) TestNotoV1() {
+	s.testNoto("v1")
+}
+
+func (s *notoTestSuite) TestNotoV0() {
+	s.testNoto("v0")
+}
+
+func (s *notoTestSuite) testNoto(version string) {
 	t := s.T()
 	ctx := t.Context()
 	log.L(ctx).Infof("TestNoto")
@@ -101,7 +124,12 @@ func (s *notoTestSuite) TestNoto() {
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Deploying an instance of Noto")
-	noto := helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
+	var noto *helpers.NotoHelper
+	if version == "v1" {
+		noto = helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
+	} else {
+		noto = helpers.DeployNotoImplementation(ctx, t, paladinClient, s.domainName, "noto_v0", notary, nil)
+	}
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 
 	log.L(ctx).Infof("Mint 100 from notary to notary")
@@ -274,7 +302,15 @@ func (s *notoTestSuite) TestNoto() {
 	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
 }
 
-func (s *notoTestSuite) TestNotoLock() {
+func (s *notoTestSuite) TestNotoLockV1() {
+	s.testNotoLock("v1")
+}
+
+func (s *notoTestSuite) TestNotoLockV0() {
+	s.testNotoLock("v0")
+}
+
+func (s *notoTestSuite) testNotoLock(version string) {
 	t := s.T()
 	ctx := t.Context()
 	log.L(ctx).Infof("TestNotoLock")
@@ -296,7 +332,12 @@ func (s *notoTestSuite) TestNotoLock() {
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Deploying an instance of Noto")
-	noto := helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
+	var noto *helpers.NotoHelper
+	if version == "v1" {
+		noto = helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
+	} else {
+		noto = helpers.DeployNotoImplementation(ctx, t, paladinClient, s.domainName, "noto_v0", notary, nil)
+	}
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 
 	log.L(ctx).Infof("Mint 100 from notary to recipient1")
@@ -410,25 +451,32 @@ func (s *notoTestSuite) TestNotoLock() {
 
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo)
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams)
-	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"]) // V0??
-	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockTxId)           // V1??
-	// unlockTXID := pldtypes.MustParseBytes32(unlockReceipt.LockInfo.UnlockParams.TxId).UUIDFirst16()
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"])
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockTxId)
+	assert.Equal(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"], prepareUnlockReceipt.LockInfo.UnlockTxId.HexString0xPrefix())
+	unlockTXID := pldtypes.MustParseBytes32(prepareUnlockReceipt.LockInfo.UnlockTxId.HexString0xPrefix()).UUIDFirst16()
 
 	log.L(ctx).Infof("Delegate lock to recipient2")
+	delegateLockParams := &types.DelegateLockParams{
+		LockID:   prepareUnlockReceipt.LockInfo.LockID,
+		Delegate: pldtypes.MustEthAddress(recipient2Key),
+	}
+	delegateLockABI := types.NotoABI
+	if version == "v0" {
+		var unlockParams types.UnlockPublicParams
+		err = json.Unmarshal(toJSON(t, prepareUnlockReceipt.LockInfo.UnlockParams), &unlockParams)
+		require.NoError(t, err)
+		delegateLockParams.Unlock = &unlockParams
+		delegateLockABI = types.NotoV0ABI
+	}
 	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
 			Function: "delegateLock",
-			Data: toJSON(t, &types.DelegateLockParams{
-				// LockID:   unlockReceipt.LockInfo.LockID,
-				// Delegate: pldtypes.MustEthAddress(recipient2Key.Verifier.Verifier),
-				LockID: prepareUnlockReceipt.LockInfo.LockID,
-				// Unlock:   prepareUnlockReceipt.LockInfo.UnlockParams,
-				Delegate: pldtypes.MustEthAddress(recipient2Key),
-			}),
+			Data:     toJSON(t, delegateLockParams),
 		},
-		ABI: types.NotoABI,
+		ABI: delegateLockABI,
 	}, false)
 	require.NoError(t, rpcerr)
 
@@ -438,7 +486,12 @@ func (s *notoTestSuite) TestNotoLock() {
 	assert.Equal(t, recipient2Key, delegateLockReceipt.LockInfo.Delegate.String())
 
 	log.L(ctx).Infof("Unlock from recipient2")
-	notoBuild := solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
+	var notoBuild *solutils.SolidityBuild
+	if version == "v1" {
+		notoBuild = solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
+	} else {
+		notoBuild = solutils.MustLoadBuild(helpers.NotoV0InterfaceJSON)
+	}
 	tx := paladinClient.ForABI(ctx, notoBuild.ABI).
 		Public().
 		From(recipient2Name).
@@ -450,7 +503,7 @@ func (s *notoTestSuite) TestNotoLock() {
 	require.NoError(t, tx.Error())
 
 	unlockReceipt := <-notoReceipts
-	// require.Equal(t, prepareUnlockReceipt.LockInfo.UnlockParams.TxId, pldtypes.Bytes32UUIDFirst16(unlockReceipt.txID).String())
+	require.Equal(t, unlockReceipt.txID, unlockTXID)
 	require.Len(t, unlockReceipt.Transfers, 1)
 	assert.Equal(t, int64(50), unlockReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, unlockReceipt.Transfers[0].To.String())
@@ -531,7 +584,7 @@ func subscribeAndSendNotoReceiptsToChannel(t *testing.T, wsClient pldclient.Pala
 	}()
 }
 
-// TODO AM: move the new tests to use websockets with assertions on domain receipts
+// TODO: move the new tests to use websockets with assertions on domain receipts
 func (s *notoTestSuite) TestNotoCreateMintLock() {
 	ctx := context.Background()
 	t := s.T()

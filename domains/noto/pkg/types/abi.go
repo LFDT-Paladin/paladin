@@ -26,7 +26,11 @@ import (
 //go:embed abis/INotoPrivate.json
 var notoPrivateJSON []byte
 
+//go:embed abis/INotoPrivate_V0.json
+var notoV0PrivateJSON []byte
+
 var NotoABI = solutils.MustParseBuildABI(notoPrivateJSON)
+var NotoV0ABI = solutils.MustParseBuildABI(notoV0PrivateJSON)
 
 type ConstructorParams struct {
 	Name           string      `json:"name,omitempty"`           // Name of the token
