@@ -141,7 +141,7 @@ type DomainContext interface {
 	// without inserting them into the database.
 	//
 	// The dbTX is passed in to allow re-use of a connection during read operations.
-	ValidateStates(dbTX persistence.DBTX, states ...*StateUpsert) (s []*pldapi.State, err error)
+	ValidateStates(dbTX persistence.DBTX, stateUpserts ...*StateUpsert) (states []*pldapi.StateBase, err error)
 
 	// UpsertStates creates or updates states.
 	// They are available immediately within the domain for return in FindAvailableStates

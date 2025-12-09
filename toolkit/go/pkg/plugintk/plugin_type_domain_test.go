@@ -166,6 +166,19 @@ func TestDomainCallback_LookupKeyIdentifiers(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDomainCallback_ValidateStates(t *testing.T) {
+	ctx, _, _, callbacks, inOutMap, done := setupDomainTests(t)
+	defer done()
+
+	inOutMap[fmt.Sprintf("%T", &prototk.DomainMessage_ValidateStates{})] = func(dm *prototk.DomainMessage) {
+		dm.ResponseToDomain = &prototk.DomainMessage_ValidateStatesRes{
+			ValidateStatesRes: &prototk.ValidateStatesResponse{},
+		}
+	}
+	_, err := callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{})
+	require.NoError(t, err)
+}
+
 func TestDomainFunction_ConfigureDomain(t *testing.T) {
 	_, exerciser, funcs, _, _, done := setupDomainTests(t)
 	defer done()

@@ -56,6 +56,7 @@ type DomainCallbacks interface {
 	LocalNodeName(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
 	GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
 	LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 type DomainFactory func(callbacks DomainCallbacks) DomainAPI
@@ -315,6 +316,17 @@ func (dp *domainHandler) LookupKeyIdentifiers(ctx context.Context, req *prototk.
 	}))
 	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_LookupKeyIdentifiersRes) *prototk.LookupKeyIdentifiersResponse {
 		return msg.LookupKeyIdentifiersRes
+	})
+}
+
+func (dp *domainHandler) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	res, err := dp.proxy.RequestFromPlugin(ctx, dp.Wrap(&prototk.DomainMessage{
+		RequestFromDomain: &prototk.DomainMessage_ValidateStates{
+			ValidateStates: req,
+		},
+	}))
+	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_ValidateStatesRes) *prototk.ValidateStatesResponse {
+		return msg.ValidateStatesRes
 	})
 }
 

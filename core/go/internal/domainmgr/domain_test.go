@@ -1672,3 +1672,65 @@ func TestLookupKeyIdentifiersFail(t *testing.T) {
 	})
 	require.Regexp(t, "pop", err)
 }
+
+func TestValidateStates(t *testing.T) {
+	td, done := newTestDomain(t, true /* use real state store for this one */, goodDomainConf())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Good state
+	state := &fakeState{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
+		Amount: ethtypes.NewHexIntegerU64(100000000),
+	}
+	stateJSON, err := json.Marshal(state)
+	require.NoError(t, err)
+	res, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(stateJSON), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.States, 1)
+
+	// Bad state
+	_, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.Regexp(t, "FF22040", err)
+}
+
+func TestValidateStatesBadContext(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: "wrong",
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011649.*wrong", err)
+}
+
+func TestValidateStatesBadSchmea(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011613.*schema1", err)
+}

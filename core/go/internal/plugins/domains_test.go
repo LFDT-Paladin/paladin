@@ -49,6 +49,7 @@ type testDomainManager struct {
 	localNodeName        func(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
 	getStates            func(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
 	lookupKeyIdentifiers func(context.Context, *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	validateStates       func(context.Context, *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 func (tp *testDomainManager) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -81,6 +82,10 @@ func (tp *testDomainManager) GetStatesByID(ctx context.Context, req *prototk.Get
 
 func (tp *testDomainManager) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
 	return tp.lookupKeyIdentifiers(ctx, req)
+}
+
+func (tp *testDomainManager) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	return tp.validateStates(ctx, req)
 }
 
 func domainConnectFactory(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[prototk.DomainMessage, prototk.DomainMessage], error) {
@@ -352,6 +357,15 @@ func TestDomainRequestsOK(t *testing.T) {
 		}, nil
 	}
 
+	tdm.validateStates = func(ctx context.Context, vsr *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		assert.Equal(t, "state1", *vsr.States[0].Id)
+		return &prototk.ValidateStatesResponse{
+			States: []*prototk.EndorsableState{
+				{Id: "state1r"},
+			},
+		}, nil
+	}
+
 	ctx, pc, done := newTestDomainPluginManager(t, &testManagers{
 		testDomainManager: tdm,
 	})
@@ -560,6 +574,13 @@ func TestDomainRequestsOK(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, lkir.Results, 1)
 	assert.Equal(t, "v1", lkir.Results[0].Verifier)
+
+	vsr, err := callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
+		States: []*prototk.NewState{{Id: confutil.P("state1")}},
+	})
+	require.NoError(t, err)
+	require.Len(t, vsr.States, 1)
+	assert.Equal(t, "state1r", vsr.States[0].Id)
 }
 
 func TestDomainRegisterFail(t *testing.T) {

@@ -399,10 +399,13 @@ func (dc *domainContext) UpsertStates(dbTX persistence.DBTX, stateUpserts ...*co
 	return dc.upsertStates(dbTX, false, stateUpserts...)
 }
 
-func (dc *domainContext) ValidateStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.State, err error) {
+func (dc *domainContext) ValidateStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.StateBase, err error) {
 	ss, err := dc.validateStates(dbTX, stateUpserts...)
 	if err == nil {
-		states = ss.states
+		states = make([]*pldapi.StateBase, len(ss.states))
+		for i, s := range ss.states {
+			states[i] = &s.StateBase
+		}
 	}
 	return states, err
 }

@@ -109,6 +109,7 @@ message DomainMessage {
     LocalNodeNameRequest         local_node_name =            2060;
     GetStatesByIDRequest         get_states_by_id =           2070;
     LookupKeyIdentifiersRequest  lookup_key_identifiers =     2080;
+    ValidateStatesRequest        validate_states =            2090;
   }
 
   oneof response_to_domain {
@@ -120,6 +121,7 @@ message DomainMessage {
     LocalNodeNameResponse        local_node_name_res =        2061;
     GetStatesByIDResponse        get_states_by_id_res =       2071;
     LookupKeyIdentifiersResponse lookup_key_identifiers_res = 2081;
+    ValidateStatesResponse       validate_states_res =        2091;
   }
     
 }

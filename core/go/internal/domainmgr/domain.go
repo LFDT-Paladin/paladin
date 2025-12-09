@@ -880,6 +880,55 @@ func (d *domain) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKe
 	return &prototk.LookupKeyIdentifiersResponse{Results: results}, nil
 }
 
+func (d *domain) mapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (newStatesToWrite []*components.StateUpsert, err error) {
+	newStatesToWrite = make([]*components.StateUpsert, len(potentialStates))
+	for i, s := range potentialStates {
+		schema := d.schemasByID[s.SchemaId]
+		if schema == nil {
+			schema = d.schemasBySignature[s.SchemaId]
+		}
+		if schema == nil {
+			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
+		}
+		var id pldtypes.HexBytes
+		if s.Id != nil {
+			id, err = pldtypes.ParseHexBytes(dCtx.Ctx(), *s.Id)
+			if err != nil {
+				return nil, err
+			}
+		}
+		stateUpsert := &components.StateUpsert{
+			ID:     id,
+			Schema: schema.ID(),
+			Data:   pldtypes.RawJSON(s.StateDataJson),
+		}
+		if isOutput {
+			// These are marked as locked and creating in the transaction, and become available for other transaction to read
+			stateUpsert.CreatedBy = &createdByTX.ID
+		}
+		newStatesToWrite[i] = stateUpsert
+	}
+	return newStatesToWrite, nil
+}
+
+func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	c, err := d.checkInFlight(ctx, req.StateQueryContext, false)
+	if err != nil {
+		return nil, err
+	}
+	statesToValidate, err := d.mapPotentialStates(c.dCtx, req.States, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	states, err := c.dCtx.ValidateStates(c.dbTX, statesToValidate...)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.ValidateStatesResponse{
+		States: d.toEndorsableListBase(states),
+	}, nil
+}
+
 func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error) {
 	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	res, err := d.api.ConfigurePrivacyGroup(ctx, &prototk.ConfigurePrivacyGroupRequest{

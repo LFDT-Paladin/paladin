@@ -59,3 +59,7 @@ func (dc *MockDomainCallbacks) GetStatesByID(context.Context, *prototk.GetStates
 func (dc *MockDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
 	return nil, nil
 }
+
+func (dc *MockDomainCallbacks) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	return nil, nil
+}
