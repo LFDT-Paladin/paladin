@@ -137,3 +137,13 @@ func TestRouterAddr(t *testing.T) {
 	assert.Equal(t, expectedAddr, addr)
 	mockServer.AssertCalled(t, "Addr")
 }
+
+func TestRouterRouter(t *testing.T) {
+	expectedRouter := mux.NewRouter()
+	r := &router{router: expectedRouter}
+
+	actualRouter := r.Router()
+
+	assert.Equal(t, expectedRouter, actualRouter)
+	assert.NotNil(t, actualRouter)
+}
