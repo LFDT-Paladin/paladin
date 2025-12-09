@@ -64,6 +64,9 @@ func NewTransaction(
 	metrics metrics.DistributedSequencerMetrics,
 
 ) (*Transaction, error) {
+	if pt == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
+	}
 	txn := &Transaction{
 		PrivateTransaction: pt,
 		engineIntegration:  engineIntegration,
