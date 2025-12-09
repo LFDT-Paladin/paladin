@@ -388,12 +388,6 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 		dbTX.AddPostCommit(ptm.postCommitNewTransactions(toNotify))
 	}
 
-	// Hand off to the sequencer
-	err = ptm.sequencerManager.HandlePublicTXsWritten(ctx, dbTX, transactionsToDistribute)
-	if err != nil {
-		return nil, err
-	}
-
 	return pubTxns, err
 }
 

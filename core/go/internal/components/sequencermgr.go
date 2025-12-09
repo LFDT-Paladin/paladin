@@ -19,7 +19,6 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -80,7 +79,6 @@ type SequencerManager interface {
 	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error
 	HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error
 	HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txnID uuid.UUID) error
-	HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, newPtxs []*pldapi.PublicTxToDistribute) error
 	HandleTransactionConfirmed(ctx context.Context, receipt *TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error
 	HandleTransactionConfirmedByChainedTransaction(ctx context.Context, receipt *TxCompletion) error
 	HandleTransactionFailed(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error

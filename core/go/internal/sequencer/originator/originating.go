@@ -101,6 +101,10 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 		log.L(ctx).Errorf("expected event type *TransactionCreatedEvent, got %T", event)
 		return false, nil
 	}
+	if transactionCreatedEvent.Transaction == nil {
+		// If transaction is nil, let createTransaction handle the error
+		return true, nil
+	}
 	if o.transactionsByID[transactionCreatedEvent.Transaction.ID] != nil {
 		log.L(ctx).Debugf("transaction %s already in progress, not resuming", transactionCreatedEvent.Transaction.ID.String())
 		return false, nil

@@ -623,36 +623,6 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 	return nil
 }
 
-// Distribute locally written public transactions to the originator who also needs to have the public TX
-func (sMgr *sequencerManager) HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, persistedTxns []*pldapi.PublicTxToDistribute) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXsWritten %d", len(persistedTxns))
-
-	for _, persistedTxn := range persistedTxns {
-		for _, binding := range persistedTxn.Bindings {
-			if persistedTxn.To == nil {
-				// Deploy not handled by sequencer
-				continue
-			}
-
-			senderNode := strings.Split(binding.TransactionSender, "@")[1]
-			if senderNode != sMgr.nodeName {
-				log.L(sMgr.ctx).Debugf("Send public TX to %s", binding.TransactionSender)
-				// Send reliable message to the node under the current DBTX
-				err := sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
-					MessageType: pldapi.RMTPublicTransaction.Enum(),
-					Metadata:    pldtypes.JSONString(persistedTxn),
-					Node:        senderNode,
-				})
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
 func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, confirmedTxn *components.TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error {
 	log.L(sMgr.ctx).Tracef("HandleTransactionConfirmed %s %s %+v", confirmedTxn.TransactionID.String(), from.String(), nonce)
 	sMgr.metrics.IncConfirmedTransactions()
