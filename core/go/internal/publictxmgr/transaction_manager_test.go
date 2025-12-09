@@ -214,7 +214,6 @@ func TestTransactionLifecycleRealKeyMgrAndDB(t *testing.T) {
 	defer done()
 
 	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	m.sequencerManager.On("HandlePublicTXsWritten", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
 	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)
@@ -514,8 +513,6 @@ func TestHandleNewTransactionTransferOnlyWithProvideGas(t *testing.T) {
 	})
 	defer done()
 
-	m.sequencerManager.On("HandlePublicTXsWritten", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
 	// create transaction succeeded
 	tx, err := ptm.SingleTransactionSubmit(ctx, &components.PublicTxSubmission{
 		PublicTxInput: pldapi.PublicTxInput{
@@ -542,7 +539,6 @@ func TestEngineSuspendResumeRealDB(t *testing.T) {
 	defer done()
 
 	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	m.sequencerManager.On("HandlePublicTXsWritten", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
 	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)
@@ -634,7 +630,6 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 	defer done()
 
 	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	m.sequencerManager.On("HandlePublicTXsWritten", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
 	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)

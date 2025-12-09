@@ -37,7 +37,6 @@ const (
 	RMHMessageTypeNack                        = "nack"
 	RMHMessageTypeStateDistribution           = string(pldapi.RMTState)
 	RMHMessageTypeReceipt                     = string(pldapi.RMTReceipt)
-	RMHMessageTypePublicTransaction           = string(pldapi.RMTPublicTransaction)
 	RMHMessageTypePublicTransactionSubmission = string(pldapi.RMTPublicTransactionSubmission)
 	RMHMessageTypePreparedTransaction         = string(pldapi.RMTPreparedTransaction)
 	RMHMessageTypePrivacyGroup                = string(pldapi.RMTPrivacyGroup)
@@ -175,20 +174,6 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
 				txReceiptsToFinalize = append(txReceiptsToFinalize, &receipt)
 			}
-		case RMHMessageTypePublicTransaction:
-			log.L(ctx).Debugf("received public TX, parsePublicTransactionMsg: %+v", v.msg)
-			var publicTXToDistribute pldapi.PublicTxToDistribute
-			err := json.Unmarshal(v.msg.Payload, &publicTXToDistribute)
-			if err != nil {
-				acksToSend = append(acksToSend,
-					&ackInfo{node: v.p.Name, id: v.msg.MessageID, Error: err.Error()}, // reject the message permanently
-				)
-			} else {
-				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
-				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
-				txPublicTransactionsToPersist = append(txPublicTransactionsToPersist, &publicTXToDistribute)
-			}
-
 		case RMHMessageTypePublicTransactionSubmission:
 			log.L(ctx).Debugf("received public TX submission, parsePublicTransactionSubmissionMsg: %+v", v.msg)
 			var publicTXSubmissionToDistribute pldapi.PublicTxToDistribute
@@ -600,22 +585,6 @@ func parseMessageReceiptDistribution(ctx context.Context, msgID uuid.UUID, data 
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)
 	}
 	return
-}
-
-func (tm *transportManager) buildPublicTransactionMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
-
-	// Validate the message first (not retryable)
-	submission, parseErr := parseMessagePublicTransactionDistribution(ctx, rm.ID, rm.Metadata)
-	if parseErr != nil {
-		return nil, parseErr, nil
-	}
-
-	return &prototk.PaladinMsg{
-		MessageId:   rm.ID.String(),
-		Component:   prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER,
-		MessageType: RMHMessageTypePublicTransaction,
-		Payload:     pldtypes.JSONString(submission),
-	}, nil, nil
 }
 
 func (tm *transportManager) buildPublicTransactionSubmissionMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
