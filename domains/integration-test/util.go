@@ -195,7 +195,6 @@ func newZetoDomain(t *testing.T, config *zetotypes.DomainFactoryConfig, factoryA
 	return waitForDomain, tbd
 }
 
-// TODO AM: refactor onto actual PaladinClient?
 func findAvailableCoins[T any](t *testing.T, ctx context.Context, rpc rpcclient.Client, domainName, coinSchemaID, methodName string, address *pldtypes.EthAddress, jq *query.QueryJSON, readiness ...func(coins []*T) bool) []*T {
 	if jq == nil {
 		jq = query.NewQueryBuilder().Limit(100).Query()
