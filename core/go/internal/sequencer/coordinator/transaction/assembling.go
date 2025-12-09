@@ -45,14 +45,24 @@ func (t *Transaction) revertTransaction(ctx context.Context, revertReason string
 	return nil
 }
 
-func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
-
-	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
-	t.PostAssembly = postAssembly
+func (t *Transaction) cancelAssembleTimeoutSchedules() {
 	if t.cancelAssembleTimeoutSchedule != nil {
 		t.cancelAssembleTimeoutSchedule()
 		t.cancelAssembleTimeoutSchedule = nil
 	}
+	if t.cancelAssembleRequestTimeoutSchedule != nil {
+		t.cancelAssembleRequestTimeoutSchedule()
+		t.cancelAssembleRequestTimeoutSchedule = nil
+	}
+}
+
+func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
+
+	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
+	t.PostAssembly = postAssembly
+
+	t.cancelAssembleTimeoutSchedules()
+
 	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
 		return t.revertTransaction(ctx, *postAssembly.RevertReason)
 	}
@@ -94,6 +104,8 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.ID, idempotencyKey, t.PreAssembly, stateLocks, blockHeight)
 	})
+
+	// Schedule a short retry timeout for e.g. network blip
 	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.requestTimeout, func() {
 		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -101,7 +113,20 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 			},
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error handling RequestTimeoutIntervalEvent: %s", err)
+			log.L(ctx).Errorf("error handling assemble request timeout interval: %s", err)
+			return
+		}
+	})
+
+	// Schedule a longer retry timeout for assembly to complete. If this timeout fires we start assembly from scratch after other transactions have had a turn to be assembled.
+	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.assembleTimeout, func() {
+		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: t.ID,
+			},
+		})
+		if err != nil {
+			log.L(ctx).Errorf("error handling assemble timeout interval: %s", err)
 			return
 		}
 	})
@@ -116,22 +141,21 @@ func (t *Transaction) nudgeAssembleRequest(ctx context.Context) error {
 }
 
 func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
-	log.L(ctx).Debugf("assembleTimeoutExceeded called on transaction %s with pending assemble request %+v", t.ID.String(), t.pendingAssembleRequest)
 	if t.pendingAssembleRequest == nil {
 		//strange situation to be in if we get to the point of this being nil, should immediately leave the state where we ever ask this question
 		// however we go here, the answer to the question is "false" because there is no pending request to timeout but log this as it is a strange situation
 		// and might be an indicator of another issue
-		log.L(ctx).Infof("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.ID)
+		log.L(ctx).Warnf("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.ID)
 		return false
 	}
+	log.L(ctx).Debugf("checking assemble timeout exceeded for transaction %s request idempotency key %s", t.ID.String(), t.pendingAssembleRequest.IdempotencyKey())
 	if t.pendingAssembleRequest.FirstRequestTime() == nil {
 		// No request has ever been sent so nothing to measure expiry against
 		return false
 	}
 	assembleTimedOut := t.clock.HasExpired(t.pendingAssembleRequest.FirstRequestTime(), t.assembleTimeout)
 	if assembleTimedOut {
-		// This shouldn't be too frequent that info logging is preferable here until we find it's too noisy
-		log.L(ctx).Infof("assembly of TX %s timed out. Moving back to pooled.", t.ID)
+		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.ID)
 	}
 	return assembleTimedOut
 
@@ -303,7 +327,6 @@ func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
 }
 
 func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("Incrementing assemble errors for transaction %s", txn.ID.String())
 	txn.resetEndorsementRequests(ctx)
 	return txn.incrementAssembleErrors()
 }
