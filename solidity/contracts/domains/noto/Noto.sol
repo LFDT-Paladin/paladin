@@ -41,15 +41,15 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     // Config follows the convention of a 4 byte type selector, followed by ABI encoded bytes
     bytes4 public constant NotoConfigID_V1 = 0x00020000;
 
-    uint64 public NotoVariantDefault = 0x0001;
+    uint64 public constant NotoVariantDefault = 0x0001;
 
     bytes32 private constant UNLOCK_TYPEHASH =
         keccak256(
             "Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)"
         );
 
-    string private _name;
-    string private _symbol;
+    string internal _name;
+    string internal _symbol;
     address public notary;
 
     mapping(bytes32 => bool) private _unspent;
@@ -111,7 +111,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
     function buildConfig(
         bytes calldata data
-    ) external view returns (bytes memory) {
+    ) external virtual view returns (bytes memory) {
         return
             _encodeConfig(
                 NotoConfig_V1({
@@ -417,10 +417,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
                     data
                 );
                 if (actualHash != lockInfo.unlockHash) {
-                    revert NotoInvalidUnlockHash(
-                        lockInfo.unlockHash,
-                        actualHash
-                    );
+                    revert NotoInvalidUnlockHash(lockInfo.unlockHash, actualHash);
                 }
             }
         }

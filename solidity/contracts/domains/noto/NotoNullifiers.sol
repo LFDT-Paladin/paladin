@@ -13,6 +13,8 @@ contract NotoNullifiers is Noto {
     SmtLib.Data internal _commitmentsTree;
     using SmtLib for SmtLib.Data;
 
+    uint64 public constant NotoVariantNullifiers = 0x0002;
+
     mapping(bytes32 => bool) private _nullifiers;
     IHasher private _hasher;
 
@@ -25,7 +27,22 @@ contract NotoNullifiers is Noto {
         _commitmentsTree.initialize(MAX_SMT_DEPTH);
         _hasher = new Keccak256Hasher();
         _commitmentsTree.setHasher(_hasher);
-        NotoVariantDefault = 0x0002;
+    }
+
+    function buildConfig(
+        bytes calldata data
+    ) external view override returns (bytes memory) {
+        return
+            _encodeConfig(
+                NotoConfig_V1({
+                    name: _name,
+                    symbol: _symbol,
+                    decimals: decimals(),
+                    notary: notary,
+                    variant: NotoVariantNullifiers,
+                    data: data
+                })
+            );
     }
 
     function transfer(
