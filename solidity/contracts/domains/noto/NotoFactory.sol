@@ -25,14 +25,7 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         address notary,
         bytes calldata data
     ) external {
-        _deploy(
-            implementations["default"],
-            transactionId,
-            name,
-            symbol,
-            notary,
-            data
-        );
+        _deploy(implementations["default"], transactionId, name, symbol, notary, data);
     }
 
     /**
