@@ -113,6 +113,10 @@ func init() {
 				Event_Received: { //TODO rename this event type because it is the first one we see in this struct and it seems like we are saying this is a definition related to receiving an event (at one level that is correct but it is not what is meant by Event_Received)
 					Transitions: []Transition{
 						{
+							To: State_Submitted,
+							If: guard_HasChainedTxInProgress,
+						},
+						{
 							To: State_Pooled,
 							If: guard_And(guard_Not(guard_HasUnassembledDependencies), guard_Not(guard_HasUnknownDependencies)),
 						},

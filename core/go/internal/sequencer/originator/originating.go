@@ -27,22 +27,28 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
 
-func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool) error {
+func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
 	transactions, err := o.transactionsOrderedByCreatedTime(ctx)
 	if err != nil {
 		log.L(ctx).Errorf("failed to get transactions ordered by created time: %v", err)
 		return err
 	}
 
-	// Find pending transactions only (others don't need re-delegating)
+	// Find pending transactions only and (optionally) already delegated transactions
 	// TODO - this is another place where we are checking state outside the state machine
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	for _, txn := range transactions {
-		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated {
+		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
+			// only re-delegate after the delegate timeout
 			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
-		} else if txn.GetCurrentState() == transaction.State_Pending {
-			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
+			txn.UpdateLastDelegatedTime()
 		}
+
+		if txn.GetCurrentState() == transaction.State_Pending {
+			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
+			txn.UpdateLastDelegatedTime()
+		}
+
 	}
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
@@ -65,11 +71,15 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 }
 
 func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator) error {
-	return sendDelegationRequest(ctx, o, true)
+	return sendDelegationRequest(ctx, o, true, true)
+}
+
+func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator) error {
+	return sendDelegationRequest(ctx, o, true, false)
 }
 
 func action_SendDelegationRequest(ctx context.Context, o *originator) error {
-	return sendDelegationRequest(ctx, o, false)
+	return sendDelegationRequest(ctx, o, false, false)
 }
 
 func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
@@ -100,6 +110,10 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 	if !ok {
 		log.L(ctx).Errorf("expected event type *TransactionCreatedEvent, got %T", event)
 		return false, nil
+	}
+	if transactionCreatedEvent.Transaction == nil {
+		// If transaction is nil, let createTransaction handle the error
+		return true, nil
 	}
 	if o.transactionsByID[transactionCreatedEvent.Transaction.ID] != nil {
 		log.L(ctx).Debugf("transaction %s already in progress, not resuming", transactionCreatedEvent.Transaction.ID.String())

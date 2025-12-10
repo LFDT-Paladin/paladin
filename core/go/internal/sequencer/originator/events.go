@@ -51,6 +51,18 @@ func (*HeartbeatReceivedEvent) TypeString() string {
 	return "Event_HeartbeatReceived"
 }
 
+type DelegateTimeoutEvent struct {
+	common.BaseEvent
+}
+
+func (*DelegateTimeoutEvent) Type() EventType {
+	return Event_Delegate_Timeout
+}
+
+func (*DelegateTimeoutEvent) TypeString() string {
+	return "Event_Delegate_Timeout"
+}
+
 type TransactionCreatedEvent struct {
 	common.BaseEvent
 	Transaction *components.PrivateTransaction

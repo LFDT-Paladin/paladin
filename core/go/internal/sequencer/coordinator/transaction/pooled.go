@@ -137,3 +137,7 @@ func guard_HasUnknownDependencies(ctx context.Context, txn *Transaction) bool {
 func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
 	return txn.hasDependenciesNotReady(ctx)
 }
+
+func guard_HasChainedTxInProgress(ctx context.Context, txn *Transaction) bool {
+	return txn.chainedTxAlreadyDispatched
+}

@@ -18,6 +18,7 @@ package originator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
@@ -74,6 +75,7 @@ type OriginatorBuilderForTesting struct {
 	contractAddress  *pldtypes.EthAddress
 	transactions     []*transaction.Transaction
 	metrics          metrics.DistributedSequencerMetrics
+	sequencerConfig  *pldconf.SequencerConfig
 }
 
 type OriginatorDependencyMocks struct {
@@ -84,8 +86,9 @@ type OriginatorDependencyMocks struct {
 
 func NewOriginatorBuilderForTesting(state State) *OriginatorBuilderForTesting {
 	return &OriginatorBuilderForTesting{
-		state:   state,
-		metrics: metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		state:           state,
+		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
+		sequencerConfig: &pldconf.SequencerDefaults,
 	}
 }
 
@@ -117,6 +120,14 @@ func (b *OriginatorBuilderForTesting) GetCoordinatorHeartbeatThresholdMs() int {
 	return TestDefault_HeartbeatThreshold * TestDefault_HeartbeatIntervalMs
 }
 
+func (b *OriginatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerConfig {
+	return b.sequencerConfig
+}
+
+func (b *OriginatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.SequencerConfig) {
+	b.sequencerConfig = config
+}
+
 func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *OriginatorDependencyMocks) {
 
 	if b.nodeName == nil {
@@ -145,8 +156,8 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		mocks.SentMessageRecorder,
 		mocks.Clock,
 		mocks.EngineIntegration,
-		100, // Block range size
 		b.contractAddress,
+		&pldconf.SequencerDefaults,
 		TestDefault_HeartbeatIntervalMs,
 		TestDefault_HeartbeatThreshold,
 		b.metrics,
