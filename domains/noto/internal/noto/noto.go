@@ -1025,8 +1025,8 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 		VerifierType: verifiers.ETH_ADDRESS,
 	}
 	uniqueAddresses := make(map[string]struct{})
-	for _, state := range manifest.Distributions {
-		for _, target := range state.Targets {
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
 			uniqueAddresses[target.String()] = struct{}{}
 		}
 	}
@@ -1039,8 +1039,8 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 	}
 	// Now we build a list of all states we expect to find for this
 	var requiredStateIDs []string
-	for _, state := range manifest.Distributions {
-		for _, target := range state.Targets {
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
 			for _, keyLookup := range lookupRes.Results {
 				if target.String() == keyLookup.Verifier && keyLookup.Found {
 					log.L(ctx).Debugf("Require state %s as we own key %s for address %s", state.ID, *keyLookup.KeyIdentifier, target)

@@ -162,13 +162,25 @@ func (n *Noto) makeNewLockedCoinState(coin *types.NotoLockedCoin, distributionLi
 	}, nil
 }
 
-func (n *Noto) makeNewInfoState(info *types.TransactionData, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) makeNewTxDataInfoState(info *types.TransactionData, distributionList []string) (*prototk.NewState, error) {
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
 		return nil, err
 	}
 	return &prototk.NewState{
 		SchemaId:         n.dataSchemaV1.Id,
+		StateDataJson:    string(infoJSON),
+		DistributionList: distributionList,
+	}, nil
+}
+
+func (n *Noto) makeNewManifestInfoState(manifest *types.NotoManifest, distributionList []string) (*prototk.NewState, error) {
+	infoJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.NewState{
+		SchemaId:         n.manifestSchema.Id,
 		StateDataJson:    string(infoJSON),
 		DistributionList: distributionList,
 	}, nil
@@ -199,61 +211,14 @@ type preparedLockedInputs struct {
 }
 
 type preparedOutputs struct {
-	coins  []*types.NotoCoin
-	states []*prototk.NewState
+	recipients []coinLogicalOwner
+	coins      []*types.NotoCoin
+	states     []*prototk.NewState
 }
 
 type preparedLockedOutputs struct {
 	coins  []*types.NotoLockedCoin
 	states []*prototk.NewState
-}
-
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
-	var lastStateTimestamp int64
-	total := big.NewInt(0)
-	stateRefs := []*prototk.StateRef{}
-	coins := []*types.NotoCoin{}
-	for {
-		// TODO: make this configurable
-		queryBuilder := query.NewQueryBuilder().
-			Limit(10).
-			Sort(".created").
-			Equal("owner", owner.String())
-
-		if lastStateTimestamp > 0 {
-			queryBuilder.GreaterThan(".created", lastStateTimestamp)
-		}
-
-		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
-		if err != nil {
-			return nil, false, err
-		}
-		if len(states) == 0 {
-			return nil, true, i18n.NewError(ctx, msgs.MsgInsufficientFunds, total.Text(10))
-		}
-		for _, state := range states {
-			lastStateTimestamp = state.CreatedAt
-			coin, err := n.unmarshalCoin(state.DataJson)
-			if err != nil {
-				return nil, false, i18n.NewError(ctx, msgs.MsgInvalidStateData, state.Id, err)
-			}
-			total = total.Add(total, coin.Amount.Int())
-			stateRefs = append(stateRefs, &prototk.StateRef{
-				SchemaId: state.SchemaId,
-				Id:       state.Id,
-			})
-			coins = append(coins, coin)
-			log.L(ctx).Debugf("Selecting coin %s value=%s total=%s required=%s)", state.Id, coin.Amount.Int().Text(10), total.Text(10), amount.Int().Text(10))
-			if total.Cmp(amount.Int()) >= 0 {
-				return &preparedInputs{
-					coins:  coins,
-					states: stateRefs,
-					total:  total,
-				}, false, nil
-			}
-		}
-	}
 }
 
 func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int) (inputs *preparedLockedInputs, revert bool, err error) {
@@ -306,21 +271,6 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 	}
 }
 
-func (n *Noto) prepareOutputs(ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedOutputs, error) {
-	// Always produce a single coin for the entire output amount
-	// TODO: make this configurable
-	newCoin := &types.NotoCoin{
-		Salt:   pldtypes.RandBytes32(),
-		Owner:  ownerAddress,
-		Amount: amount,
-	}
-	newState, err := n.makeNewCoinState(newCoin, distributionList)
-	return &preparedOutputs{
-		coins:  []*types.NotoCoin{newCoin},
-		states: []*prototk.NewState{newState},
-	}, err
-}
-
 func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedLockedOutputs, error) {
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
@@ -339,21 +289,11 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.
 
 func (n *Noto) prepareTransactionDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
 	newData := &types.TransactionData{
-		Salt:    pldtypes.RandHex(32),
+		Salt:    pldtypes.RandBytes32(),
 		Data:    data,
 		Variant: variant,
 	}
-	newState, err := n.makeNewInfoState(newData, distributionList)
-	return newState, err
-}
-
-func (n *Noto) prepareTransactionDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
-	newData := &types.TransactionData{
-		Salt:    pldtypes.RandHex(32),
-		Data:    data,
-		Variant: variant,
-	}
-	newState, err := n.makeNewInfoState(newData, distributionList)
+	newState, err := n.makeNewTxDataInfoState(newData, distributionList)
 	return newState, err
 }
 

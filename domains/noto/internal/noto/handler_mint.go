@@ -77,21 +77,20 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	params := tx.Params.(*types.MintParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", params.To, req.ResolvedVerifiers)
+	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, "", params.To)
 	if err != nil {
 		return nil, err
 	}
 
-	outputStates, err := h.noto.prepareOutputs(toAddress, params.Amount, []string{notary, tx.Transaction.From, params.To})
-	if err != nil {
-		return nil, err
-	}
-	infoStates, err := h.noto.prepareTransactionDataInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From, params.To})
-	if err != nil {
+	if err := mb.prepareOutputCoin(TO, params.Amount); err != nil {
 		return nil, err
 	}
 
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, nil, outputStates.coins)
+	if err := mb.prepareTransferInfoStates(ctx, tx, params.Data); err != nil {
+		return nil, err
+	}
+
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, nil, mb.outputs.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +98,8 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			OutputStates: outputStates.states,
-			InfoStates:   infoStates,
+			OutputStates: mb.outputs.states,
+			InfoStates:   mb.infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature

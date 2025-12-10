@@ -56,16 +56,12 @@ func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTrans
 func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
+	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, from, to)
 	if err != nil {
 		return nil, err
 	}
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount)
+	revert, err := mb.selectAndPrepareInputCoins(ctx, amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -77,50 +73,22 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 
-	// Avoid duplicating the sender in distribution lists
-	outputDistributionList := []string{notary, tx.Transaction.From, to}
-	if from != tx.Transaction.From {
-		outputDistributionList = append(outputDistributionList, from)
-	}
-	outputStates, err := h.noto.prepareOutputs(toAddress, amount, outputDistributionList)
-	if err != nil {
+	if err := mb.prepareOutputCoin(TO, amount); err != nil {
 		return nil, err
 	}
 
-	infoDistributionList := []string{notary, tx.Transaction.From, to}
-	if from != tx.Transaction.From {
-		infoDistributionList = append(infoDistributionList, from)
+	if mb.inputs.total.Cmp(amount.Int()) == 1 {
+		remainder := big.NewInt(0).Sub(mb.inputs.total, amount.Int())
+		if err := mb.prepareOutputCoin(FROM, (*pldtypes.HexUint256)(remainder)); err != nil {
+			return nil, err
+		}
 	}
-	txData, err := h.noto.prepareTransactionDataInfo(data, tx.DomainConfig.Variant, infoDistributionList)
-	if err != nil {
+
+	if err := mb.prepareTransferInfoStates(ctx, tx, data); err != nil {
 		return nil, err
 	}
-	infoStates := make([]*prototk.NewState, 0, 2)
-	if !tx.DomainConfig.IsV0() {
-		manifest, err := h.noto.prepareManifestInfo(txData, inputStates, outputStates)
-		if err != nil {
-			return nil, err
-		}
-		// The manifest goes first in the info
-		infoStates = append(infoStates, manifest)
-	}
-	infoStates = append(infoStates, txData)
 
-	if inputStates.total.Cmp(amount.Int()) == 1 {
-		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-		remainderDistributionList := []string{notary, tx.Transaction.From}
-		if from != tx.Transaction.From {
-			remainderDistributionList = append(remainderDistributionList, from)
-		}
-		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), remainderDistributionList)
-		if err != nil {
-			return nil, err
-		}
-		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
-		outputStates.states = append(outputStates.states, returnedStates.states...)
-	}
-
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputStates.coins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, mb.inputs.coins, mb.outputs.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +116,9 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			InputStates:  inputStates.states,
-			OutputStates: outputStates.states,
-			InfoStates:   infoStates,
+			InputStates:  mb.inputs.states,
+			OutputStates: mb.outputs.states,
+			InfoStates:   mb.infoStates,
 		},
 		AttestationPlan: attestation,
 	}, nil

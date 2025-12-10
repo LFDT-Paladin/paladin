@@ -116,13 +116,13 @@ type NotoManifestState struct {
 }
 
 type NotoManifest struct {
-	Salt          pldtypes.Bytes32            `json:"salt"`
-	Distributions []*NotoManifestDistribution `json:"distributions"`
+	Salt   pldtypes.Bytes32          `json:"salt"`
+	States []*NotoManifestStateEntry `json:"states"`
 }
 
-type NotoManifestDistribution struct {
-	ID      pldtypes.Bytes32       `json:"state"`
-	Targets []*pldtypes.EthAddress `json:"receivers"`
+type NotoManifestStateEntry struct {
+	ID           pldtypes.Bytes32       `json:"state"`
+	Participants []*pldtypes.EthAddress `json:"participants"`
 }
 
 var NotoManifestABI = &abi.Parameter{
@@ -132,12 +132,12 @@ var NotoManifestABI = &abi.Parameter{
 	Components: abi.ParameterArray{
 		{Name: "salt", Type: "bytes32"},
 		{
-			Name:         "distributions",
+			Name:         "states",
 			Type:         "[]tuple",
-			InternalType: "struct NotoManifest",
+			InternalType: "struct NotoManifestStateEntry[]",
 			Components: abi.ParameterArray{
 				{Name: "state", Type: "bytes32"},
-				{Name: "receivers", Type: "[]string"},
+				{Name: "participants", Type: "string[]"},
 			},
 		},
 	},
@@ -184,7 +184,7 @@ var NotoLockInfoABI_V1 = &abi.Parameter{
 }
 
 type TransactionData struct {
-	Salt    string             `json:"salt"`
+	Salt    pldtypes.Bytes32   `json:"salt"`
 	Data    pldtypes.HexBytes  `json:"data"`
 	Variant pldtypes.HexUint64 `json:"variant"` // Noto contract variant
 }

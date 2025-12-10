@@ -66,12 +66,12 @@ func (h *burnCommon) initBurn(ctx context.Context, tx *types.ParsedTransaction, 
 func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, from, "")
 	if err != nil {
 		return nil, err
 	}
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount)
+	revert, err := mb.selectAndPrepareInputCoins(ctx, amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -82,24 +82,15 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		}
 		return nil, err
 	}
-	infoStates, err := h.noto.prepareTransactionDataInfo(data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From, from})
-	if err != nil {
-		return nil, err
-	}
 
-	var outputCoins []*types.NotoCoin
-	var outputStates []*prototk.NewState
-	if inputStates.total.Cmp(amount.Int()) == 1 {
-		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), []string{notary, tx.Transaction.From, from})
-		if err != nil {
+	if mb.inputs.total.Cmp(amount.Int()) == 1 {
+		remainder := big.NewInt(0).Sub(mb.inputs.total, amount.Int())
+		if err := mb.prepareOutputCoin(FROM, (*pldtypes.HexUint256)(remainder)); err != nil {
 			return nil, err
 		}
-		outputCoins = append(outputCoins, returnedStates.coins...)
-		outputStates = append(outputStates, returnedStates.states...)
 	}
 
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputCoins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, mb.outputs.coins, mb.outputs.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +98,9 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			InputStates:  inputStates.states,
-			OutputStates: outputStates,
-			InfoStates:   infoStates,
+			InputStates:  mb.inputs.states,
+			OutputStates: mb.outputs.states,
+			InfoStates:   mb.infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature
