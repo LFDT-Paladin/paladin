@@ -102,54 +102,34 @@ export function eip712Nullifier(coin: UTXO): string {
 }
 
 export async function deployNotoFactory(): Promise<any> {
+  const NotoFactory = await ethers.getContractFactory("NotoFactory");
+  const notoFactory = await NotoFactory.deploy();
+  return notoFactory;
+}
+
+export async function registerNotoNullifiersImplementation(
+  notoFactory: NotoFactory
+) {
   const [deployer] = await ethers.getSigners();
-
-  // deploy PoseidonUnit2L library
-  const poseidonUnit2LArtifact = PoseidonArtifact(2);
-  const PoseidonUnit2LFactory = new ethers.ContractFactory(poseidonUnit2LArtifact.abi, poseidonUnit2LArtifact.bytecode, deployer);
-  const poseidonUnit2L = await PoseidonUnit2LFactory.deploy();
-
-  // deploy PoseidonUnit3L library
-  const poseidonUnit3LArtifact = PoseidonArtifact(3);
-  const PoseidonUnit3LFactory = new ethers.ContractFactory(poseidonUnit3LArtifact.abi, poseidonUnit3LArtifact.bytecode, deployer);
-  const poseidonUnit3L = await PoseidonUnit3LFactory.deploy();
-
   // deploy SmtLib library
-  const SmtLibFactory = await ethers.getContractFactory("SmtLib", {
-    libraries: {
-      PoseidonUnit2L: poseidonUnit2L.target,
-      PoseidonUnit3L: poseidonUnit3L.target,
-    },
-  });
+  const SmtLibFactory = await ethers.getContractFactory("SmtLib");
   const smtLib = await SmtLibFactory.deploy();
 
-  const NotoFactory = await ethers.getContractFactory("NotoFactory", {
+  // deploy NotoNullifiers implementation
+  const NotoNullifiersFactory = await ethers.getContractFactory("NotoNullifiers", {
     libraries: {
       SmtLib: smtLib.target,
     },
   });
-  const notoFactory = await NotoFactory.deploy();
-  return {
-    poseidonUnit3L,
-    smtLib,
-    notoFactory,
-  };
-}
+  const notoNullifiersImpl = await NotoNullifiersFactory.deploy();
 
-function PoseidonArtifact(param: number): Artifact {
-  const abi = poseidonContract.generateABI(param);
-  const bytecode = poseidonContract.createCode(param);
-  const artifact: Artifact = {
-    _format: "hh-sol-artifact-1",
-    contractName: `Poseidon${param}`,
-    sourceName: "",
-    abi: abi,
-    bytecode: bytecode,
-    deployedBytecode: "", // "0x"-prefixed hex string
-    linkReferences: {},
-    deployedLinkReferences: {},
-  };
-  return artifact;
+  // register the implementation in the factory
+  const tx = await notoFactory
+    .connect(deployer)
+    .registerImplementation("nullifiers", notoNullifiersImpl.target);
+  await tx.wait();
+
+  return { smtLib };
 }
 
 export async function deployNotoInstance(
@@ -245,7 +225,8 @@ export async function doMint(
   notary: Signer,
   noto: Noto,
   outputs: string[],
-  data: string
+  data: string,
+  asNullifiers: boolean = false
 ) {
   const tx = await noto.connect(notary).mint(txId, outputs, "0x", data);
   const results = await tx.wait();
@@ -259,7 +240,7 @@ export async function doMint(
     expect(event?.args.data).to.deep.equal(data);
   }
   for (const output of outputs) {
-    expect(await noto.isUnspent(output)).to.equal(false);
+    expect(await noto.isUnspent(output)).to.equal(asNullifiers ? false : true);
   }
 }
 
@@ -353,7 +334,8 @@ export async function doUnlock(
   lockedOutputs: string[],
   outputs: string[],
   data: string,
-  lockId: string
+  lockId: string,
+  asNullifiers: boolean = false
 ) {
   const unlockParams = {
     lockedInputs,
@@ -385,7 +367,7 @@ export async function doUnlock(
     expect(await noto.isUnspent(output)).to.equal(false);
   }
   for (const output of outputs) {
-    expect(await noto.isUnspent(output)).to.equal(false);
+    expect(await noto.isUnspent(output)).to.equal(asNullifiers ? false : true);
   }
 }
 

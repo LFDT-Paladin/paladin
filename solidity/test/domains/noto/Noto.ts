@@ -21,7 +21,7 @@ describe("Noto", function () {
   async function deployNotoFixture() {
     const [notary, other] = await ethers.getSigners();
 
-    const { notoFactory } = await deployNotoFactory();
+    const notoFactory = await deployNotoFactory();
     const Noto = await ethers.getContractFactory("Noto");
     const noto = Noto.attach(
       await deployNotoInstance(notoFactory, notary.address)

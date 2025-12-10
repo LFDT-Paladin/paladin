@@ -5,6 +5,7 @@ import { Merkletree, InMemoryDB, str2Bytes, HashAlgorithm, Hash } from "@iden3/j
 import { Noto } from "../../../typechain-types";
 import {
   deployNotoFactory,
+  registerNotoNullifiersImplementation,
   deployNotoInstance,
   doDelegateLock,
   doLock,
@@ -20,13 +21,14 @@ import {
   randomBytes32,
   UTXO,
 } from "./util";
-import { NotoNullifiers } from "../../../typechain-types/contracts/domains/noto/Noto_nullifiers.sol";
+import { NotoNullifiers } from "../../../typechain-types/contracts/domains/noto/NotoNullifiers";
 
 describe("NotoNullifiers", function () {
   async function deployNotoFixture() {
     const [notary, other] = await ethers.getSigners();
 
-    const { smtLib, notoFactory } = await deployNotoFactory();
+    const notoFactory = await deployNotoFactory();
+    const { smtLib } = await registerNotoNullifiersImplementation(notoFactory);
     const Noto = await ethers.getContractFactory("NotoNullifiers", {
       libraries: {
         SmtLib: smtLib.target,
@@ -66,7 +68,8 @@ describe("NotoNullifiers", function () {
         notary,
         noto as unknown as Noto,
         [txo1.hash!, txo2.hash!],
-        randomBytes32()
+        randomBytes32(),
+        true
       );
       const hash1 = BigInt(txo1.hash!);
       const hash2 = BigInt(txo2.hash!);
@@ -76,7 +79,7 @@ describe("NotoNullifiers", function () {
 
     it("Check for double-mint protection", async function () {
       await expect(
-        doMint(randomBytes32(), notary, noto as unknown as Noto, [txo1.hash!], randomBytes32())
+        doMint(randomBytes32(), notary, noto as unknown as Noto, [txo1.hash!], randomBytes32(), true)
       ).rejectedWith("NotoInvalidOutput");
     });
 
@@ -174,7 +177,8 @@ describe("NotoNullifiers", function () {
           notary,
           noto as unknown as Noto,
           [txo1.hash!, txo2.hash!],
-          randomBytes32()
+          randomBytes32(),
+          true
         );
         await smtAlice.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
         await smtAlice.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
@@ -227,7 +231,8 @@ describe("NotoNullifiers", function () {
           [locked2.hash!],
           [txo4.hash!],
           randomBytes32(),
-          lockId
+          lockId,
+          true
         );
         await smtAlice.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
       });
@@ -242,7 +247,8 @@ describe("NotoNullifiers", function () {
             [],
             [],
             randomBytes32(),
-            lockId
+            lockId,
+            true
           )
         ).to.be.rejectedWith("NotoInvalidInput");
       });
@@ -281,12 +287,13 @@ describe("NotoNullifiers", function () {
             [],
             [txo5.hash!],
             randomBytes32(),
-            lockId
+            lockId,
+            true
           ) // wrong data
         ).to.be.rejectedWith("NotoInvalidUnlockHash");
 
         await expect(
-          doUnlock(randomBytes32(), other, noto, [locked2.hash!], [], [txo5.hash!], unlockData, lockId) // wrong delegate
+          doUnlock(randomBytes32(), other, noto, [locked2.hash!], [], [txo5.hash!], unlockData, lockId, true) // wrong delegate
         ).to.be.rejectedWith("NotoInvalidDelegate");
 
         // Perform the prepared unlock
@@ -298,7 +305,8 @@ describe("NotoNullifiers", function () {
           [],
           [txo5.hash!],
           unlockData,
-          lockId
+          lockId,
+          true
         );
       });
     });
@@ -316,7 +324,7 @@ describe("NotoNullifiers", function () {
         const txId1 = randomBytes32();
 
         // Make two UTXOs - should succeed
-        await doMint(txId1, notary, noto, [txo1.hash!, txo2.hash!], randomBytes32());
+        await doMint(txId1, notary, noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
 
         // Make two more UTXOs with the same TX ID - should fail
         await expect(
@@ -347,7 +355,7 @@ describe("NotoNullifiers", function () {
         txId1 = randomBytes32();
 
         // Make two UTXOs
-        await doMint(txId1, notary, noto, [txo1.hash!, txo2.hash!], randomBytes32());
+        await doMint(txId1, notary, noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
         await smtAlice.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
         await smtAlice.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
       });
@@ -397,7 +405,8 @@ describe("NotoNullifiers", function () {
             [locked2.hash!],
             [txo4.hash!],
             randomBytes32(),
-            lockId
+            lockId,
+            true
           )
         ).to.be.rejectedWith("NotoDuplicateTransaction");
       });

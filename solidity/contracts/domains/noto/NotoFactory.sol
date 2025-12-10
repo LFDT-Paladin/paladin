@@ -5,7 +5,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {INoto} from "../interfaces/INoto.sol";
 import {Noto} from "./Noto.sol";
-import {NotoNullifiers} from "./NotoNullifiers.sol";
 import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
 
 // NotoFactory version: 1
@@ -14,7 +13,6 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
 
     constructor() Ownable(_msgSender()) {
         implementations["default"] = address(new Noto());
-        implementations["nullifiers"] = address(new NotoNullifiers());
     }
 
     /**
