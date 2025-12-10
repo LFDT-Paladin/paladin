@@ -5,7 +5,6 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {INoto} from "../interfaces/INoto.sol";
 import {INotoErrors} from "../interfaces/INotoErrors.sol";
-import "hardhat/console.sol";
 
 /**
  * @title Noto
@@ -552,7 +551,6 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             if (isUnspent(outputs[i]) || getLockId(outputs[i]) != bytes32(0)) {
                 revert NotoInvalidOutput(outputs[i]);
             }
-            console.logBytes32(outputs[i]);
             _locked[outputs[i]] = lockId;
         }
     }
