@@ -951,13 +951,13 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 
 func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
 
-	// There may be some public reverts that are unrecoverable. This function is potentially where we enforce that. For now, no public revert
-	// is considered irrecoverable for private transactions so we don't persist a private TX failure receipt here, we assume that with enough
-	// successful re-assembles we will end up with a successful private TX receipt. An assemle revert will still finalise the private TX with
-	// a revert receipt.
-	// sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
+	// TODO Reverts here do not distinguish between assemble reverts and base ledger reverts. There will be some revert types that
+	// we deem to be temporary for which we will want to re-assemble and resubmit. Currently we treat all reverts as final
 
-	return nil
+	// Note: the sequencer state machines are responsible for tearing down any transactions that were assembled after this one, and which will need
+	// re-assembling and re-dispatching. See https://github.com/LFDT-Paladin/paladin/issues/941 and https://github.com/LFDT-Paladin/paladin/issues/917
+
+	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
