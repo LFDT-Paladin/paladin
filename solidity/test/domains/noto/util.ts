@@ -2,8 +2,6 @@ import { expect } from "chai";
 import { randomBytes } from "crypto";
 import { Signer, TypedDataEncoder } from "ethers";
 import hre, { ethers } from "hardhat";
-import { Artifact } from "hardhat/types";
-import { poseidonContract } from "circomlibjs";
 
 import { Noto, NotoFactory } from "../../../typechain-types";
 import { NotoNullifiers } from "../../../typechain-types/contracts/domains/noto";
