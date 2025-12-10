@@ -41,13 +41,14 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
 			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
+			txn.UpdateLastDelegatedTime()
 		}
 
 		if txn.GetCurrentState() == transaction.State_Pending {
 			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
+			txn.UpdateLastDelegatedTime()
 		}
 
-		txn.UpdateLastDelegatedTime()
 	}
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
@@ -73,7 +74,7 @@ func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator) e
 	return sendDelegationRequest(ctx, o, true, true)
 }
 
-func action_ReSendTimedOutDelegationRequest(ctx context.Context, o *originator) error {
+func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator) error {
 	return sendDelegationRequest(ctx, o, true, false)
 }
 

@@ -145,7 +145,7 @@ func init() {
 				},
 				Event_Delegate_Timeout: {
 					Actions: []ActionRule{{
-						Action: action_ReSendTimedOutDelegationRequest, // Periodically re-delegate transactions that have reached their delegate timeout
+						Action: action_ResendTimedOutDelegationRequest, // Periodically re-delegate transactions that have reached their delegate timeout
 					}},
 				},
 			},
