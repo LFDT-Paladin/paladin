@@ -19,7 +19,6 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
      * Deploy a default instance of Noto.
      */
     function deploy(
-        string calldata implementationName,
         bytes32 transactionId,
         string calldata name,
         string calldata symbol,
@@ -27,7 +26,7 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         bytes calldata data
     ) external {
         _deploy(
-            implementations[implementationName],
+            implementations["default"],
             transactionId,
             name,
             symbol,
@@ -59,20 +58,14 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
      * Deploy an instance of Noto by cloning a specific implementation.
      */
     function deployImplementation(
+        string calldata implName,
         bytes32 transactionId,
         string calldata name,
         string calldata symbol,
         address notary,
         bytes calldata data
     ) external {
-        _deploy(
-            implementations[name],
-            transactionId,
-            name,
-            symbol,
-            notary,
-            data
-        );
+        _deploy(implementations[implName], transactionId, name, symbol, notary, data);
     }
 
     function _deploy(
