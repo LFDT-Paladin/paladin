@@ -213,7 +213,6 @@ describe("NotoNullifiers", function () {
       });
 
       it("Check that locked value cannot be spent", async function () {
-        console.log("locked1.hash:", locked1.hash);
         await expect(
           doTransfer(randomBytes32(), notary, noto, [locked1.hash!], [], randomBytes32())
         ).to.be.rejectedWith("NotoInvalidInput");

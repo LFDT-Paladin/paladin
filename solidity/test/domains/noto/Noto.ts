@@ -15,7 +15,6 @@ import {
   newUnlockHash,
   randomBytes32,
 } from "./util";
-import { deploy } from "@openzeppelin/hardhat-upgrades/dist/utils";
 
 describe("Noto", function () {
   async function deployNotoFixture() {
