@@ -1,6 +1,6 @@
 # Data flows between nodes
 
-Paladin nodes communicate data between themselves in order to build the correct on-chain transaction for a private Paladin transaction.
+Paladin nodes communicate data between themselves in order to build the correct on-chain transaction for a Paladin transaction.
 
 The basic rules for distribution of data between nodes are as follows:
 
@@ -20,3 +20,9 @@ The following diagram gives an example of the data flows between nodes for a pri
 Any queries to nodes 3 and 4 about the transaction to not return any information. The nodes have not received private or public transaction data.
 
 Queries to node 1 return both private and public transaction data. However, data about the transaction is only returned to the originating identity of the transaction. If another identity on node 1 (e.g. member2 in the diagram above) requests data about TX1, the node does not return information about the transaction to it.
+
+## Chained transactions
+
+Some Paladin transactions are assembled into a new private transaction, called a "chained" transaction. A typical example of this is where a `Noto` token is deployed with a hook to delegate transaction approval to a private smart contract deployed to a `Pente` privacy group.
+
+![Chained transaction flows](diagrams/paladin-node-data-flows-chained-transactions.svg){.zoomable-image}

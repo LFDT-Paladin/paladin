@@ -86,6 +86,23 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		})
 	}
 
+	for _, dispatch := range dispatchBatch.PublicDispatches {
+		for _, txDispatch := range dispatch.PrivateTransactionDispatches {
+			sequencingProgress := &pldapi.SequencingProgressActivity{
+				CorrelationID:  txDispatch.ID,
+				Timestamp:      pldtypes.TimestampNow(),
+				ActivityType:   string(pldapi.SequencingProgressActivityType_Dispatched),
+				SubmittingNode: s.transportMgr.LocalNodeName(),
+			}
+			node, _ := pldtypes.PrivateIdentityLocator(stateDistribution.IdentityLocator).Node(dCtx.Ctx(), false)
+			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
+				Node:        node,
+				MessageType: pldapi.RMTSequencingProgress.Enum(),
+				Metadata:    pldtypes.JSONString(sequencingProgress),
+			})
+		}
+	}
+
 	// Send the write operation with all of the batch sequence operations to the flush worker
 	op := s.writer.Queue(dCtx.Ctx(), &syncPointOperation{
 		domainContext:   dCtx,

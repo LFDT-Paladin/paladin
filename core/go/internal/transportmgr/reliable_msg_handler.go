@@ -38,6 +38,7 @@ const (
 	RMHMessageTypeStateDistribution           = string(pldapi.RMTState)
 	RMHMessageTypeReceipt                     = string(pldapi.RMTReceipt)
 	RMHMessageTypePublicTransactionSubmission = string(pldapi.RMTPublicTransactionSubmission)
+	RMHMessageTypeSequencingProgress          = string(pldapi.RMTSequencingProgress)
 	RMHMessageTypePreparedTransaction         = string(pldapi.RMTPreparedTransaction)
 	RMHMessageTypePrivacyGroup                = string(pldapi.RMTPrivacyGroup)
 	RMHMessageTypePrivacyGroupMessage         = string(pldapi.RMTPrivacyGroupMessage)
@@ -581,6 +582,30 @@ func (tm *transportManager) buildReceiptDistributionMsg(ctx context.Context, dbT
 
 func parseMessageReceiptDistribution(ctx context.Context, msgID uuid.UUID, data []byte) (receipt *components.ReceiptInput, err error) {
 	err = json.Unmarshal(data, &receipt)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)
+	}
+	return
+}
+
+func (tm *transportManager) buildSequencingProgressActivityMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
+
+	// Validate the message first (not retryable)
+	sequencingProgress, parseErr := parseMessageSequencingProgress(ctx, rm.ID, rm.Metadata)
+	if parseErr != nil {
+		return nil, parseErr, nil
+	}
+
+	return &prototk.PaladinMsg{
+		MessageId:   rm.ID.String(),
+		Component:   prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER,
+		MessageType: RMHMessageTypeSequencingProgress,
+		Payload:     pldtypes.JSONString(sequencingProgress),
+	}, nil, nil
+}
+
+func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *pldapi.SequencingProgressActivity, err error) {
+	err = json.Unmarshal(data, &sequencingProgress)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)
 	}
