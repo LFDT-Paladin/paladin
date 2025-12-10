@@ -43,7 +43,7 @@ func (m *mockTransactionPool) AddTransactionToBackOfPool(_ context.Context, txn 
 	m.transactionsByID[txn.ID] = txn
 }
 
-func (m *mockTransactionPool) GetNextPooledTransaction(_ context.Context) *transaction.Transaction {
+func (m *mockTransactionPool) PopNextPooledTransaction(_ context.Context) *transaction.Transaction {
 	if len(m.pooledTransactions) == 0 {
 		return nil
 	}

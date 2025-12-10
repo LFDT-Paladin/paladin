@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -97,6 +99,7 @@ type coordinator struct {
 	transportWriter   transport.TransportWriter
 	clock             common.Clock
 	engineIntegration common.EngineIntegration
+	txManager         components.TXManager
 	syncPoints        syncpoints.SyncPoints
 	readyForDispatch  func(context.Context, *transaction.Transaction)
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
@@ -124,24 +127,19 @@ func NewCoordinator(
 	cancelCtx context.CancelFunc,
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
+	txManager components.TXManager,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
-	requestTimeout,
-	assembleTimeout common.Duration,
-	blockRangeSize uint64,
-	blockHeightTolerance uint64,
-	closingGracePeriod int,
-	maxInflightTransactions int,
-	maxDispatchAhead int,
-	heartbeatInterval common.Duration,
+	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
 	readyForDispatch func(context.Context, *transaction.Transaction),
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
+	maxInflightTransactions := confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c := &coordinator{
 		ctx:                                ctx,
 		cancelCtx:                          cancelCtx,
@@ -149,35 +147,39 @@ func NewCoordinator(
 		transactionsByID:                   make(map[uuid.UUID]*transaction.Transaction),
 		pooledTransactions:                 make([]*transaction.Transaction, 0, maxInflightTransactions),
 		domainAPI:                          domainAPI,
+		txManager:                          txManager,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
-		blockHeightTolerance:               blockHeightTolerance,
-		closingGracePeriod:                 closingGracePeriod,
 		maxInflightTransactions:            maxInflightTransactions,
-		maxDispatchAhead:                   maxDispatchAhead,
 		grapher:                            transaction.NewGrapher(ctx),
 		clock:                              clock,
-		requestTimeout:                     requestTimeout,
-		assembleTimeout:                    assembleTimeout,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
 		readyForDispatch:                   readyForDispatch,
 		coordinatorActive:                  coordinatorActive,
 		coordinatorIdle:                    coordinatorIdle,
-		heartbeatInterval:                  heartbeatInterval,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
 		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:                      make(chan struct{}),
-		coordinatorSelectionBlockRange:     blockRangeSize,
-		dispatchQueue:                      make(chan *transaction.Transaction, maxInflightTransactions),
 		stopDispatchLoop:                   make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
 	c.transactionSelector = NewTransactionSelector(ctx, c)
+	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
+	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
+
+	// Configuration
+	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
+	c.assembleTimeout = confutil.DurationMin(configuration.AssembleTimeout, pldconf.SequencerMinimum.AssembleTimeout, *pldconf.SequencerDefaults.AssembleTimeout)
+	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
+	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
+	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
+	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
+	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
 	// Start event processing loop
 	go c.eventLoop(ctx)
@@ -358,6 +360,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	for _, txn := range transactions {
 
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
+			// We'll rely on the fact that originators retry incomplete transactions periodically
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
@@ -435,6 +438,19 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 
 		receivedEvent := &transaction.ReceivedEvent{}
 		receivedEvent.TransactionID = txn.ID
+
+		// The newly delegated TX might be after the restart of an originator, for which we've already
+		// instantiated a chained TX
+		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
+		if err != nil {
+			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
+			return err
+		}
+		if hasChainedTransaction {
+			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
+			newTransaction.SetChainedTxInProgress()
+		}
+
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
@@ -555,10 +571,8 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 	for _, dispatchedTransaction := range c.transactionsByID {
 		if dispatchedTransaction.ID == txId {
 			if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-				// Is this not the transaction that we are looking for?
-				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash nil, confirmed hash %s", dispatchedTransaction.ID.String(), hash.String())
+				// The transaction created a chained private transaction so there is no hash to compare
+				log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.ID.String(), hash.String())
 			} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
 				// Is this not the transaction that we are looking for?
 				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?

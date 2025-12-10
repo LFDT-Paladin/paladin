@@ -780,14 +780,16 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleTimeout | Timeout for transaction assembly | `string` | `"60s"` |
-| blockHeightTolerance | Tolerance for block height differences | `uint64` | `10` |
+| assembleTimeout | Timeout for transaction assembly | `string` | `"10s"` |
+| blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |
 | closingGracePeriod | Grace period for closing operations | `int` | `4` |
+| delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
+| heartbeatThreshold | Heartbeat threshold | `int` | - |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `10` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
-| requestTimeout | Timeout for sequencer requests | `string` | `"10s"` |
+| requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |

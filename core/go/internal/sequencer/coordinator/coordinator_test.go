@@ -19,6 +19,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
@@ -50,9 +52,24 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		emit:              func(event common.Event) {},
 	}
 	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockTXManager := componentsmocks.NewTXManager(t)
 	mocks.transportWriter.On("Start", mock.Anything).Return(nil)
 	ctx, cancelCtx := context.WithCancel(ctx)
-	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, mocks.clock.Duration(1000), mocks.clock.Duration(5000), 100, 5, 5, 500, 10, mocks.clock.Duration(10000), "node1",
+
+	config := &pldconf.SequencerConfig{
+		HeartbeatInterval:        confutil.P("10s"),
+		AssembleTimeout:          confutil.P("5s"),
+		RequestTimeout:           confutil.P("1s"),
+		BlockRange:               confutil.P(uint64(100)),
+		BlockHeightTolerance:     confutil.P(uint64(5)),
+		ClosingGracePeriod:       confutil.P(5),
+		MaxInflightTransactions:  confutil.P(500),
+		MaxDispatchAhead:         confutil.P(10),
+		TargetActiveCoordinators: confutil.P(50),
+		TargetActiveSequencers:   confutil.P(50),
+	}
+
+	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mockTXManager, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, config, "node1",
 		metrics,
 		func(context.Context, *transaction.Transaction) {
 			// Not used
@@ -88,7 +105,10 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.MaxDispatchAhead(0) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
+	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.Build(ctx)
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
@@ -261,7 +281,9 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.SetMaxInflightTransactions(5)
+	config := builder.GetSequencerConfig()
+	config.MaxInflightTransactions = confutil.P(5)
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
