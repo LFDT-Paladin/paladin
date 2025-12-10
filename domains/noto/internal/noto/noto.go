@@ -49,6 +49,9 @@ type ParamValidator interface {
 //go:embed abis/NotoFactory.json
 var notoFactoryJSON []byte
 
+//go:embed abis/NotoFactory_V1.json
+var notoFactoryV1JSON []byte
+
 //go:embed abis/NotoFactory_V0.json
 var notoFactoryV0JSON []byte
 
@@ -69,6 +72,7 @@ var notoHooksJSON []byte
 
 var (
 	factoryBuild     = solutils.MustLoadBuild(notoFactoryJSON)
+	factoryV1Build   = solutils.MustLoadBuild(notoFactoryV1JSON)
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
 	interfaceBuild   = solutils.MustLoadBuild(notoInterfaceJSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
@@ -133,11 +137,12 @@ type Noto struct {
 }
 
 type NotoDeployParams struct {
-	TransactionID string              `json:"transactionId"`
-	Name          string              `json:"name"`
-	Symbol        string              `json:"symbol"`
-	Notary        pldtypes.EthAddress `json:"notary"`
-	Data          pldtypes.HexBytes   `json:"data"`
+	TransactionID      string              `json:"transactionId"`
+	ImplementationName string              `json:"implementationName,omitempty"`
+	Name               string              `json:"name"`
+	Symbol             string              `json:"symbol"`
+	Notary             pldtypes.EthAddress `json:"notary"`
+	Data               pldtypes.HexBytes   `json:"data"`
 }
 
 type NotoMintParams struct {
@@ -511,9 +516,14 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	}
 
 	// Default to the V0 NotoFactory ABI if no version is specified
-	abi := factoryV0Build.ABI
-	if n.config.FactoryVersion == 1 {
+	var abi abi.ABI
+	switch n.config.FactoryVersion {
+	case 1:
+		abi = factoryV1Build.ABI
+	case 2:
 		abi = factoryBuild.ABI
+	default:
+		abi = factoryV0Build.ABI
 	}
 
 	functionName := "deploy"
@@ -525,23 +535,28 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		deployDataJSON, err = json.Marshal(deployData)
 	}
 	if err == nil {
+		var deployParams *NotoDeployParams
 		// For V0 factories, we need to omit name and symbol parameters
 		if n.config.FactoryVersion == 0 {
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
+			deployParams = &NotoDeployParams{
 				TransactionID: req.Transaction.TransactionId,
 				Notary:        *notaryAddress,
 				Data:          deployDataJSON,
-			})
+			}
 		} else {
-			// For V1 factories, include name and symbol
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
+			// For V1 and V2 factories, include name and symbol
+			deployParams = &NotoDeployParams{
 				TransactionID: req.Transaction.TransactionId,
 				Name:          params.Name,
 				Symbol:        params.Symbol,
 				Notary:        *notaryAddress,
 				Data:          deployDataJSON,
-			})
+			}
+			if n.config.FactoryVersion == 2 && params.Implementation != "" {
+				deployParams.ImplementationName = params.Implementation
+			}
 		}
+		paramsJSON, err = json.Marshal(deployParams)
 	}
 
 	return &prototk.PrepareDeployResponse{

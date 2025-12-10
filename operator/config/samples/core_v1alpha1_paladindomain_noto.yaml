@@ -13,5 +13,5 @@ spec:
     library: /app/domains/libnoto.so
   configJSON: |
     {
-      "factoryVersion": 1
+      "factoryVersion": 2
     }

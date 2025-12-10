@@ -7,8 +7,8 @@ import {INoto} from "../interfaces/INoto.sol";
 import {Noto} from "./Noto.sol";
 import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
 
-// NotoFactory version: 2
-contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
+// NotoFactory version: 1
+contract NotoFactory_V1 is Ownable, IPaladinContractRegistry_V0 {
     mapping(string => address) internal implementations;
 
     constructor() Ownable(_msgSender()) {
@@ -52,13 +52,12 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
      */
     function deployImplementation(
         bytes32 transactionId,
-        string calldata implementationName,
         string calldata name,
         string calldata symbol,
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations[implementationName], transactionId, name, symbol, notary, data);
+        _deploy(implementations[name], transactionId, name, symbol, notary, data);
     }
 
     function _deploy(
