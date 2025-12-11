@@ -14,7 +14,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         zetoFactory:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
@@ -258,7 +258,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -335,7 +335,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -411,7 +411,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -498,7 +498,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         zetoFactory:
           address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
@@ -643,7 +643,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -732,7 +732,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -812,7 +812,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
         registry:
           address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -897,7 +897,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
         zetoFactory:
@@ -1020,7 +1020,7 @@ tests:
     set:
       mode: attach
       smartContractsReferences:
-        notoFactory:
+        notoFactoryProxy:
           address: "0xd93630936d854fb718b89537cce4acc97fd50463"
           deployment: ""
         zetoFactory:

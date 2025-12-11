@@ -46,33 +46,35 @@ var scope = map[string][]string{
 // Map of snake_case keys to camelCase keys for smart contract deployments and transaction invokes
 var snakeToCamelMap = map[string]string{
 	// Smart Contract Deployments
-	"default":                                           "default",
-	"registry":                                          "registry",
-	"noto_factory":                                      "notoFactory",
-	"pente_factory":                                     "penteFactory",
-	"zeto_g16_anon":                                     "zetoG16Anon",
-	"zeto_g16_anon_batch":                               "zetoG16AnonBatch",
-	"zeto_g16_anon_enc":                                 "zetoG16AnonEnc",
-	"zeto_g16_anon_enc_batch":                           "zetoG16AnonEncBatch",
-	"zeto_g16_anon_nullifier_transfer":                  "zetoG16AnonNullifierTransfer",
-	"zeto_g16_anon_nullifier_transfer_batch":            "zetoG16AnonNullifierTransferBatch",
-	"zeto_g16_anon_nullifier_kyc_transfer":              "zetoG16AnonNullifierKycTransfer",
-	"zeto_g16_anon_nullifier_kyc_transfer_batch":        "zetoG16AnonNullifierKycTransferBatch",
-	"zeto_g16_anon_nullifier_kyc_transfer_locked":       "zetoG16AnonNullifierKycTransferLocked",
+	"default":                                     "default",
+	"registry":                                    "registry",
+	"noto":                                        "noto",
+	"noto_factory":                                "notoFactory",
+	"noto_factory_proxy":                          "notoFactoryProxy",
+	"pente_factory":                               "penteFactory",
+	"zeto_g16_anon":                               "zetoG16Anon",
+	"zeto_g16_anon_batch":                         "zetoG16AnonBatch",
+	"zeto_g16_anon_enc":                           "zetoG16AnonEnc",
+	"zeto_g16_anon_enc_batch":                     "zetoG16AnonEncBatch",
+	"zeto_g16_anon_nullifier_transfer":            "zetoG16AnonNullifierTransfer",
+	"zeto_g16_anon_nullifier_transfer_batch":      "zetoG16AnonNullifierTransferBatch",
+	"zeto_g16_anon_nullifier_kyc_transfer":        "zetoG16AnonNullifierKycTransfer",
+	"zeto_g16_anon_nullifier_kyc_transfer_batch":  "zetoG16AnonNullifierKycTransferBatch",
+	"zeto_g16_anon_nullifier_kyc_transfer_locked": "zetoG16AnonNullifierKycTransferLocked",
 	"zeto_g16_anon_nullifier_kyc_transfer_locked_batch": "zetoG16AnonNullifierKycTransferLockedBatch",
-	"zeto_g16_deposit":                                  "zetoG16Deposit",
-	"zeto_g16_withdraw":                                 "zetoG16Withdraw",
-	"zeto_g16_withdraw_batch":                           "zetoG16WithdrawBatch",
-	"zeto_g16_withdraw_nullifier":                       "zetoG16WithdrawNullifier",
-	"zeto_g16_withdraw_nullifier_batch":                 "zetoG16WithdrawNullifierBatch",
-	"zeto_poseidon_unit2l":                              "zetoPoseidonUnit2l",
-	"zeto_poseidon_unit3l":                              "zetoPoseidonUnit3l",
-	"zeto_smt_lib":                                      "zetoSmtLib",
-	"zeto_impl_anon":                                    "zetoImplAnon",
-	"zeto_impl_anon_enc":                                "zetoImplAnonEnc",
-	"zeto_impl_anon_nullifier":                          "zetoImplAnonNullifier",
-	"zeto_impl_anon_nullifier_kyc":                      "zetoImplAnonNullifierKyc",
-	"zeto_factory":                                      "zetoFactory",
+	"zeto_g16_deposit":                  "zetoG16Deposit",
+	"zeto_g16_withdraw":                 "zetoG16Withdraw",
+	"zeto_g16_withdraw_batch":           "zetoG16WithdrawBatch",
+	"zeto_g16_withdraw_nullifier":       "zetoG16WithdrawNullifier",
+	"zeto_g16_withdraw_nullifier_batch": "zetoG16WithdrawNullifierBatch",
+	"zeto_poseidon_unit2l":              "zetoPoseidonUnit2l",
+	"zeto_poseidon_unit3l":              "zetoPoseidonUnit3l",
+	"zeto_smt_lib":                      "zetoSmtLib",
+	"zeto_impl_anon":                    "zetoImplAnon",
+	"zeto_impl_anon_enc":                "zetoImplAnonEnc",
+	"zeto_impl_anon_nullifier":          "zetoImplAnonNullifier",
+	"zeto_impl_anon_nullifier_kyc":      "zetoImplAnonNullifierKyc",
+	"zeto_factory":                      "zetoFactory",
 
 	// Transaction Invokes
 	"zeto_anon":               "zetoAnon",
@@ -84,9 +86,10 @@ var snakeToCamelMap = map[string]string{
 type ContractMap map[string]*ContractMapBuild
 
 type ContractMapBuild struct {
-	Filename   string            `json:"filename"`
-	LinkedLibs map[string]string `json:"linkedContracts"`
-	Params     any               `json:"params"`
+	Filename            string            `json:"filename"`
+	LinkedLibs          map[string]string `json:"linkedContracts"`
+	Params              any               `json:"params"`
+	RequiredDeployments []string          `json:"requiredDeployments"` // Additional deployment dependencies (for constructor params referencing other contracts)
 }
 
 var cmd = map[string]func() error{
@@ -156,6 +159,10 @@ func (m *ContractMap) process(name string, b *ContractMapBuild) error {
 		b.Params = map[string]any{}
 	}
 	requiredBuilds := []string{}
+	// Include any explicitly declared deployment dependencies (for constructor params that reference other contracts)
+	for _, dep := range b.RequiredDeployments {
+		requiredBuilds = append(requiredBuilds, strings.ReplaceAll(dep, "_", "-"))
+	}
 	linkedContracts := map[string]string{}
 
 	if build.ABI == nil {
@@ -346,9 +353,17 @@ func template() error {
 			if err := yaml.Unmarshal(content, &domain); err != nil {
 				return fmt.Errorf("error unmarshalling content: %v", err)
 			}
-			n := fmt.Sprintf(".Values.smartContractsReferences.%sFactory", domain.Name)
-			domain.Spec.RegistryAddress = fmt.Sprintf("{{ %s.address }}", n)
-			domain.Spec.SmartContractDeployment = fmt.Sprintf("{{- if ne .Values.mode \"attach\" }}%s-factory{{- end }}", domain.Name)
+			// For noto, reference the proxy; for others, reference the factory directly
+			var valuesRef, deploymentName string
+			if domain.Name == "noto" {
+				valuesRef = ".Values.smartContractsReferences.notoFactoryProxy"
+				deploymentName = "noto-factory-proxy"
+			} else {
+				valuesRef = fmt.Sprintf(".Values.smartContractsReferences.%sFactory", domain.Name)
+				deploymentName = fmt.Sprintf("%s-factory", domain.Name)
+			}
+			domain.Spec.RegistryAddress = fmt.Sprintf("{{ %s.address }}", valuesRef)
+			domain.Spec.SmartContractDeployment = fmt.Sprintf("{{- if ne .Values.mode \"attach\" }}%s{{- end }}", deploymentName)
 
 			domain.Spec.FixedSigningIdentity = fmt.Sprintf("{{ .Values.domains.%s.fixedSigningIdentity }}", domain.Name)
 			if content, err = yaml.Marshal(domain); err != nil {

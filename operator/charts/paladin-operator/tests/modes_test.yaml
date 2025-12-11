@@ -663,7 +663,9 @@ tests:
       - samples/core_v1alpha1_paladindomain_pente.yaml
       - samples/core_v1alpha1_paladinregistry.yaml
       - samples/core_v1alpha1_smartcontractdeployment_registry.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
     set:
@@ -689,7 +691,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_registry.yaml
       - hasDocuments:
           count: 1
+        template: samples/core_v1alpha1_smartcontractdeployment_noto.yaml
+      - hasDocuments:
+          count: 1
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - hasDocuments:
+          count: 1
+        template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 1
         template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
@@ -704,7 +712,9 @@ tests:
       - samples/core_v1alpha1_paladindomain_pente.yaml
       - samples/core_v1alpha1_paladinregistry.yaml
       - samples/core_v1alpha1_smartcontractdeployment_registry.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
     set:
@@ -727,7 +737,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_registry.yaml
       - hasDocuments:
           count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_noto.yaml
+      - hasDocuments:
+          count: 0
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - hasDocuments:
+          count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 0
         template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
@@ -742,7 +758,9 @@ tests:
       - samples/core_v1alpha1_paladindomain_pente.yaml
       - samples/core_v1alpha1_paladinregistry.yaml
       - samples/core_v1alpha1_smartcontractdeployment_registry.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
     set:
@@ -765,7 +783,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_registry.yaml
       - hasDocuments:
           count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_noto.yaml
+      - hasDocuments:
+          count: 0
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
+      - hasDocuments:
+          count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 0
         template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml

@@ -1,18 +1,53 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {INoto} from "../interfaces/INoto.sol";
-import {Noto} from "./Noto.sol";
 import {IPaladinContractRegistry_V0} from "../interfaces/IPaladinContractRegistry.sol";
 
 // NotoFactory version: 2
-contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
-    mapping(string => address) internal implementations;
+contract NotoFactory is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable,
+    IPaladinContractRegistry_V0
+{
+    /// @custom:storage-location erc7201:paladin.storage.NotoFactory
+    struct NotoFactoryStorage {
+        mapping(string => address) implementations;
+    }
 
-    constructor() Ownable(_msgSender()) {
-        implementations["default"] = address(new Noto());
+    // keccak256(abi.encode(uint256(keccak256("paladin.storage.NotoFactory")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant NOTO_FACTORY_STORAGE_LOCATION =
+        0xe67f96c01195ce35b5ff7e8a6398509283372467daaa337070e1893bae2d8600;
+
+    function _getNotoFactoryStorage()
+        private
+        pure
+        returns (NotoFactoryStorage storage $)
+    {
+        assembly {
+            $.slot := NOTO_FACTORY_STORAGE_LOCATION
+        }
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
+     * Initialize the factory with a default Noto implementation.
+     * @param defaultImplementation Address of the deployed Noto implementation contract
+     */
+    function initialize(address defaultImplementation) public initializer {
+        __Ownable_init(_msgSender());
+        __UUPSUpgradeable_init();
+        NotoFactoryStorage storage $ = _getNotoFactoryStorage();
+        $.implementations["default"] = defaultImplementation;
     }
 
     /**
@@ -25,7 +60,8 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations["default"], transactionId, name, symbol, notary, data);
+        NotoFactoryStorage storage $ = _getNotoFactoryStorage();
+        _deploy($.implementations["default"], transactionId, name, symbol, notary, data);
     }
 
     /**
@@ -35,7 +71,8 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         string calldata name,
         address implementation
     ) public onlyOwner {
-        implementations[name] = implementation;
+        NotoFactoryStorage storage $ = _getNotoFactoryStorage();
+        $.implementations[name] = implementation;
     }
 
     /**
@@ -44,7 +81,8 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
     function getImplementation(
         string calldata name
     ) public view returns (address implementation) {
-        return implementations[name];
+        NotoFactoryStorage storage $ = _getNotoFactoryStorage();
+        return $.implementations[name];
     }
 
     /**
@@ -58,7 +96,8 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations[implementationName], transactionId, name, symbol, notary, data);
+        NotoFactoryStorage storage $ = _getNotoFactoryStorage();
+        _deploy($.implementations[implementationName], transactionId, name, symbol, notary, data);
     }
 
     function _deploy(
@@ -82,4 +121,6 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
             INoto(instance).buildConfig(data)
         );
     }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 }
