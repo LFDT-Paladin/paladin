@@ -29,7 +29,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (t *Transaction) revertTransaction(ctx context.Context, revertReason string) error {
+func (t *Transaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) error {
 	var tryFinalize func()
 	tryFinalize = func() {
 		t.syncPoints.QueueTransactionFinalize(ctx, t.Domain, pldtypes.EthAddress{}, t.originator, t.ID, revertReason,
@@ -64,7 +64,7 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 	t.cancelAssembleTimeoutSchedules()
 
 	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
-		return t.revertTransaction(ctx, *postAssembly.RevertReason)
+		return t.revertTransactionFailedAssembly(ctx, *postAssembly.RevertReason)
 	}
 	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
 		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.ID.String())

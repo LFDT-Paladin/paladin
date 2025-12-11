@@ -418,6 +418,6 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	// Wait for the event to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify that events can still be processed after Stop() is called
-	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event loop should continue processing events after receiving stop signal")
+	// Verify that events can't still be processed after Stop() is called
+	require.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event loop should not continue processing events after receiving stop signal")
 }

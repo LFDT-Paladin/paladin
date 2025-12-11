@@ -198,8 +198,8 @@ func NewCoordinator(
 }
 
 func (c *coordinator) eventLoop(ctx context.Context) {
+	log.L(ctx).Debugf("coordinator event loop started")
 	for {
-		log.L(ctx).Debug("coordinator event loop waiting for next event")
 		select {
 		case event := <-c.coordinatorEvents:
 			log.L(ctx).Debugf("coordinator pulled event from the queue: %s", event.TypeString())
@@ -208,8 +208,10 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-c.stopEventLoop:
+			log.L(ctx).Debugf("coordinator event loop cancelled")
+			return
 		case <-c.ctx.Done():
-			log.L(ctx).Infof("coordinator event loop cancelled")
+			log.L(ctx).Debugf("coordinator event loop cancelled")
 			return
 		}
 	}

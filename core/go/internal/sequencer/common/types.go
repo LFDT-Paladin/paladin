@@ -38,22 +38,11 @@ type CoordinatorSnapshot struct {
 	DispatchedTransactions []*DispatchedTransaction `json:"dispatchedTransactions"`
 	PooledTransactions     []*Transaction           `json:"pooledTransactions"`
 	ConfirmedTransactions  []*ConfirmedTransaction  `json:"confirmedTransactions"`
-	CoordinatorState       CoordinatorState         `json:"coordinatorState"`
+	CoordinatorState       string                   `json:"coordinatorState"`
 	BlockHeight            uint64                   `json:"blockHeight"`
 }
 
 type CoordinatorState string
-
-const (
-	CoordinatorState_Idle      CoordinatorState = "Idle"
-	CoordinatorState_Observing CoordinatorState = "Observing"
-	CoordinatorState_Standby   CoordinatorState = "Standby"
-	CoordinatorState_Elect     CoordinatorState = "Elect"
-	CoordinatorState_Prepared  CoordinatorState = "Prepared"
-	CoordinatorState_Active    CoordinatorState = "Active"
-	CoordinatorState_Flush     CoordinatorState = "Flush"
-	CoordinatorState_Closing   CoordinatorState = "Closing"
-)
 
 type Transaction struct {
 	//components.PrivateTransaction

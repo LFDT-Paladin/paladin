@@ -17,7 +17,6 @@ package originator
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -113,38 +112,46 @@ func NewOriginator(
 }
 
 func (o *originator) eventLoop(ctx context.Context) {
+	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
-		log.L(ctx).Infof("originator event loop waiting for next event")
+		log.L(ctx).Debugf("originator event loop waiting for next event")
 		select {
 		case event := <-o.originatorEvents:
-			log.L(ctx).Infof("originator pulled event from the queue: %s", event.TypeString())
+			log.L(ctx).Debugf("originator pulled event from the queue: %s", event.TypeString())
 			err := o.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-o.stopEventLoop:
-			log.L(ctx).Infof("originator event loop cancelled")
+			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
+			return
+		case <-ctx.Done():
+			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
+			return
 		}
 	}
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Starting delegate loop", o.contractAddress.String()[0:8])
+	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 
 	// Check for transactions still waiting to be delegated
 	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
-	defer ticker.Stop()
+	defer func() {
+		log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
+		ticker.Stop()
+	}()
 	for {
 		select {
 		case <-ticker.C:
-			log.L(ctx).Tracef("delegate loop fired for contract %s", o.contractAddress.String())
+			log.L(ctx).Debugf("delegate loop fired for contract %s", o.contractAddress.String())
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
-			fmt.Println("Firing delegate timeout event")
+			log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 			o.QueueEvent(ctx, delegateTimeoutEvent)
 		case <-ctx.Done():
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Stopping delegate loop", o.contractAddress.String()[0:8])
+			log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 			return
 		}
 	}

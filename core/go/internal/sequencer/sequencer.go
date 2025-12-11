@@ -947,13 +947,21 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 
 func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
 
-	// TODO Reverts here do not distinguish between assemble reverts and base ledger reverts. There will be some revert types that
-	// we deem to be temporary for which we will want to re-assemble and resubmit. Currently we treat all reverts as final
+	// Note: This specifically finalises only off-chain reverts. This logic may be open for discussion, but for clarity the current logic is intentionally:
+	// 1. Off-chain reverts are considered to be final. So assembly of a transaction results in that transaction being finalised as failed. And assembly of a
+	// chained transaction causes the parent transaction to be finalised as failed.
+	// 2. On-chain reverts are considered to be (at least potentially) retriable based on decisions made in the coordinator.
+	assemblyReverts := make([]*components.ReceiptInputWithOriginator, 0, len(receipts))
+	for _, nextReceipt := range receipts {
+		if nextReceipt.OnChain.Type == 0 {
+			assemblyReverts = append(assemblyReverts, nextReceipt)
+		}
+	}
 
-	// Note: the sequencer state machines are responsible for tearing down any transactions that were assembled after this one, and which will need
+	// Note & TODO: the sequencer state machines are responsible for tearing down any transactions that were assembled after this one, and which will need
 	// re-assembling and re-dispatching. See https://github.com/LFDT-Paladin/paladin/issues/941 and https://github.com/LFDT-Paladin/paladin/issues/917
 
-	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
+	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, assemblyReverts)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
