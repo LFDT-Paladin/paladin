@@ -7,11 +7,11 @@ metadata:
     paladin.io/domain-name: noto
   name: noto
 spec:
-  smartContractDeployment: noto-factory
+  smartContractDeployment: noto-factory-proxy
   plugin:
     type: c-shared
     library: /app/domains/libnoto.so
   configJSON: |
     {
-      "factoryVersion": 1
+      "factoryVersion": 2
     }
