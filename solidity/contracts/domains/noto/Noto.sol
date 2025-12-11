@@ -48,15 +48,15 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             "Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)"
         );
 
-    string private _name;
-    string private _symbol;
+    string internal _name;
+    string internal _symbol;
     address public notary;
 
     mapping(bytes32 => bool) private _unspent;
     mapping(bytes32 => bool) private _txIds;
 
     mapping(bytes32 => bytes32) private _locked; // state ID => lock ID
-    mapping(bytes32 => LockInfo) private _locks; // lock ID => lock info
+    mapping(bytes32 => LockInfo) internal _locks; // lock ID => lock info
     mapping(bytes32 => bytes32) private _lockTxIds; // tx ID => lock ID (for prepared transactions)
 
     function requireNotary(address addr) internal view {
@@ -75,6 +75,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             revert NotoDuplicateTransaction(txId);
         }
         _txIds[txId] = true;
+        _;
+    }
+
+    modifier lockIdNotUsed(bytes32 txId) {
+        bytes32 lockId = computeLockId(txId);
+        if (_locks[lockId].owner != address(0)) {
+            revert NotoDuplicateLock(lockId);
+        }
         _;
     }
 
@@ -103,7 +111,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
     function buildConfig(
         bytes calldata data
-    ) external view returns (bytes memory) {
+    ) external virtual view returns (bytes memory) {
         return
             _encodeConfig(
                 NotoConfig_V1({
@@ -246,7 +254,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check the inputs are all unspent, and remove them
      */
-    function _processInputs(bytes32[] memory inputs) internal {
+    function _processInputs(bytes32[] memory inputs) internal virtual {
         for (uint256 i = 0; i < inputs.length; ++i) {
             if (!_unspent[inputs[i]]) {
                 revert NotoInvalidInput(inputs[i]);
@@ -258,7 +266,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     /**
      * @dev Check the outputs are all new, and mark them as unspent
      */
-    function _processOutputs(bytes32[] memory outputs) internal {
+    function _processOutputs(bytes32[] memory outputs) internal virtual {
         for (uint256 i = 0; i < outputs.length; ++i) {
             if (isUnspent(outputs[i]) || getLockId(outputs[i]) != bytes32(0)) {
                 revert NotoInvalidOutput(outputs[i]);
@@ -317,11 +325,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32[] calldata lockedOutputs,
         bytes calldata signature,
         bytes calldata data
-    ) public virtual override onlyNotary txIdNotUsed(txId) {
+    ) public virtual override onlyNotary txIdNotUsed(txId) lockIdNotUsed(txId) {
         bytes32 lockId = computeLockId(txId);
-        if (_locks[lockId].owner != address(0)) {
-            revert NotoDuplicateLock(lockId);
-        }
 
         _processInputs(inputs);
         _processOutputs(outputs);
