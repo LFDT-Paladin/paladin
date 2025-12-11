@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -539,7 +538,7 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 		coordTx := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
 
 		if coordTx == nil {
-			return fmt.Errorf("transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
 		}
 
 		// Forward the event to the originator
@@ -691,7 +690,7 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 			}
 
 			if from == nil {
-				return fmt.Errorf("nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
 			}
 
 			confirmedEvent := &coordinator.TransactionConfirmedEvent{
@@ -823,7 +822,7 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 			}
 
 			if tx.From == nil {
-				return fmt.Errorf("nil From address for confirmed transaction %s", tx.TransactionID)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
 			}
 
 			failedEvent := &coordinator.TransactionConfirmedEvent{
