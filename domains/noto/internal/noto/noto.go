@@ -215,6 +215,7 @@ type NotoDelegateLockParams struct {
 }
 
 type NotoTransfer_Event struct {
+	TxId      pldtypes.Bytes32   `json:"txId"`
 	Inputs    []pldtypes.Bytes32 `json:"inputs"`
 	Outputs   []pldtypes.Bytes32 `json:"outputs"`
 	Signature pldtypes.HexBytes  `json:"signature"`
@@ -851,7 +852,15 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 	return result, nil
 }
 
-func (n *Noto) encodeTransactionData(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+	if domainConfig.IsV1() {
+		return n.encodeTransactionDataV1(ctx, infoStates)
+	} else {
+		return n.encodeTransactionDataV0(ctx, transaction, infoStates)
+	}
+}
+
+func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
 	var err error
 	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
 	for i, state := range infoStates {
@@ -884,7 +893,35 @@ func (n *Noto) encodeTransactionData(ctx context.Context, transaction *prototk.T
 	return data, nil
 }
 
-func (n *Noto) decodeTransactionData(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V0, error) {
+func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+	var err error
+	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
+	for i, state := range infoStates {
+		stateIDs[i], err = pldtypes.ParseBytes32Ctx(ctx, state.Id)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	dataValues := &types.NotoTransactionData_V1{
+		InfoStates: stateIDs,
+	}
+	dataJSON, err := json.Marshal(dataValues)
+	if err != nil {
+		return nil, err
+	}
+	dataABI, err := types.NotoTransactionDataABI_V1.EncodeABIDataJSONCtx(ctx, dataJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	var data []byte
+	data = append(data, types.NotoTransactionDataID_V1...)
+	data = append(data, dataABI...)
+	return data, nil
+}
+
+func (n *Noto) decodeTransactionDataV0(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V0, error) {
 	var dataValues types.NotoTransactionData_V0
 	if len(data) >= 4 {
 		dataPrefix := data[0:4]
@@ -905,6 +942,28 @@ func (n *Noto) decodeTransactionData(ctx context.Context, data pldtypes.HexBytes
 	if dataValues.TransactionID.IsZero() {
 		// If no transaction ID could be decoded, assign a random one
 		dataValues.TransactionID = pldtypes.RandBytes32()
+		log.L(ctx).Warnf("No transaction ID could be decoded from data %s, assigning a random one %s", data.String(), dataValues.TransactionID.String())
+	}
+	return &dataValues, nil
+}
+
+func (n *Noto) decodeTransactionDataV1(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V1, error) {
+	var dataValues types.NotoTransactionData_V1
+	if len(data) >= 4 {
+		dataPrefix := data[0:4]
+		if dataPrefix.String() == types.NotoTransactionDataID_V1.String() {
+			dataDecoded, err := types.NotoTransactionDataABI_V1.DecodeABIDataCtx(ctx, data, 4)
+			if err == nil {
+				var dataJSON []byte
+				dataJSON, err = dataDecoded.JSON()
+				if err == nil {
+					err = json.Unmarshal(dataJSON, &dataValues)
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	return &dataValues, nil
 }

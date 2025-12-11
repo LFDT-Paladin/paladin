@@ -410,6 +410,12 @@ func TestTransportRegisterPartialSuccess(t *testing.T) {
 	}
 }
 
+func TestTransportBridgeBadOp(t *testing.T) {
+	br := &TransportBridge{}
+	_, err := br.RequestReply(context.Background(), (&plugintk.TransportMessageWrapper{}).Wrap(&prototk.TransportMessage{}))
+	require.Regexp(t, "PD011203", err)
+}
+
 func TestTransportBridgeRequestReplyInvalidRequest(t *testing.T) {
 	// Create a mock TransportBridge with minimal setup
 	br := &TransportBridge{
