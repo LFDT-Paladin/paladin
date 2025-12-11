@@ -382,6 +382,7 @@ task unitTestSQLite(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
 }
 
@@ -390,6 +391,7 @@ task unitTestPostgres(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
     args '-tags', "testdbpostgres"
     mustRunAfter 'unitTestSQLite' // these tests cannot run concurrently

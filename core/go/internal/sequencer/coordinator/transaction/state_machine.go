@@ -407,8 +407,14 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 				seqRevertEvent := &AssembleRevertResponseEvent{}
 				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
 				seqRevertEvent.TransactionID = t.ID
-				t.eventHandler(ctx, seqRevertEvent)
+				err = t.eventHandler(ctx, seqRevertEvent)
+				if err != nil {
+					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
+					log.L(ctx).Error(handlerErr)
+				}
 				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+				// Return the original error
+				return err
 			}
 		}
 		// Assembling resolves the required verifiers which will need passing on for the endorse step
