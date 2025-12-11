@@ -66,10 +66,27 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedInputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.LockedOutputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlock.TxId, unlock.Outputs)...)
+			// Noto V0 included some unversioned changes. If the event has been emitted from a newer Noto V0 contract, it will
+			// include the transaction ID that was selected when the domain receipt was built for the prepareUnlock transaction.
+			// (Noting that this ID is generated on the fly each time the domain receipt is built, so will differ if
+			// repeat ptx_getDomainReceipt calls are made.)
+
+			// txData.TransactionID will always be set to a fallback value since the transaction ID is not encoded into the
+			// data parameter of the calldata for the unlock function. This means that for older contracts it is not possible
+			// to correlate between the unlock transaction included in the domain receipt for the prepareUnlock and receipt that gets
+			// inserted when the unlock is indexed.
+
+			// Some of the other Noto Events include a transaction ID in newer V0 contracts, but since the transaction ID is always
+			// available from the transaction data, it doesn't make sense to start checking the event as well.
+			// V1 has solved this duplication/inconsistency problem by ensuring that the transaction ID is always available in the event.
+			txID := txData.TransactionID
+			if !unlock.TxId.IsZero() {
+				txID = unlock.TxId
+			}
+			n.recordTransactionInfo(ev, txID, txData.InfoStates, res)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txID, unlock.LockedInputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txID, unlock.LockedOutputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txID, unlock.Outputs)...)
 
 			var domainConfig *types.NotoParsedConfig
 			err = json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)

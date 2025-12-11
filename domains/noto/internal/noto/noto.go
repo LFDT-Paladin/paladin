@@ -58,9 +58,6 @@ var notoInterfaceJSON []byte
 //go:embed abis/INoto_V0.json
 var notoInterfaceV0JSON []byte
 
-//go:embed abis/INotoPrivate_V0.json
-var notoPrivateV0JSON []byte
-
 //go:embed abis/INotoErrors.json
 var notoErrorsJSON []byte
 
@@ -72,7 +69,6 @@ var (
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
 	interfaceBuild   = solutils.MustLoadBuild(notoInterfaceJSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
-	privateV0Build   = solutils.MustLoadBuild(notoPrivateV0JSON)
 	errorsBuild      = solutils.MustLoadBuild(notoErrorsJSON)
 	hooksBuild       = solutils.MustLoadBuild(notoHooksJSON)
 )
@@ -712,7 +708,7 @@ func validateTransactionCommon[T any](
 	if functionABI.Name == "delegateLock" {
 		// delegateLock has different signatures in V0 and V1
 		if domainConfig.IsV0() {
-			abi = privateV0Build.ABI.Functions()[functionABI.Name]
+			abi = types.NotoV0ABI.Functions()[functionABI.Name]
 		} else {
 			abi = types.NotoABI.Functions()[functionABI.Name]
 		}
