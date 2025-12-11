@@ -693,13 +693,3 @@ func TestRecoverSignatureInvalid(t *testing.T) {
 	_, err := n.recoverSignature(ctx, nil, nil)
 	assert.ErrorContains(t, err, "FF22087")
 }
-
-func TestDecodeTransactionData(t *testing.T) {
-	n := &Noto{}
-	ctx := context.Background()
-
-	data := pldtypes.MustParseHexBytes("0x0be89a4a7061796d656e742e67622d676263656e7472616c2e66333932623062343239366134303739")
-
-	_, err := n.decodeTransactionData(ctx, data)
-	assert.NoError(t, err)
-}

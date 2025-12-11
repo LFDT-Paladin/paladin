@@ -54,6 +54,7 @@ var NotoConfigABI_V1 = &abi.ParameterArray{
 }
 
 var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00010001")
 
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {
@@ -67,8 +68,12 @@ type NotoConfigData_V0 struct {
 }
 
 type NotoTransactionData_V0 struct {
-	TransactionID pldtypes.Bytes32   `json:"transactionId"`
+	TransactionID pldtypes.Bytes32   `json:"transactionId"` // in V0 the data was the primary place for the transaction ID, but there was some duplication with parameters. Moved to parameter consistently in V1.
 	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`
+}
+
+type NotoTransactionData_V1 struct {
+	InfoStates []pldtypes.Bytes32 `json:"infoStates"`
 }
 
 // This is the structure we parse the config into in InitConfig and gets passed back to us on every call
@@ -108,6 +113,10 @@ type PentePrivateGroup struct {
 
 var NotoTransactionDataABI_V0 = &abi.ParameterArray{
 	{Name: "transactionId", Type: "bytes32"},
+	{Name: "infoStates", Type: "bytes32[]"},
+}
+
+var NotoTransactionDataABI_V1 = &abi.ParameterArray{
 	{Name: "infoStates", Type: "bytes32[]"},
 }
 
