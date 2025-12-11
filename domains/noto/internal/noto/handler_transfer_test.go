@@ -46,6 +46,15 @@ var notoBasicConfig = &types.NotoParsedConfig{
 	},
 }
 
+var notaryAddress = pldtypes.RandAddress()
+
+var notaryVerifierResolved = &prototk.ResolvedVerifier{
+	Lookup:       "notary@node1",
+	Verifier:     pldtypes.RandAddress().String(),
+	Algorithm:    algorithms.ECDSA_SECP256K1,
+	VerifierType: verifiers.ETH_ADDRESS,
+}
+
 func TestTransfer(t *testing.T) {
 	n := &Noto{
 		Callbacks:    mockCallbacks,
@@ -324,11 +333,11 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 		},
 	}
 	req := &prototk.AssembleTransactionRequest{
-		ResolvedVerifiers: []*prototk.ResolvedVerifier{},
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{notaryVerifierResolved},
 	}
 
 	_, err := handler.Assemble(ctx, parsedTx, req)
-	assert.Regexp(t, "PD200011.*'from'", err)
+	assert.Regexp(t, "PD200011.*'sender'", err)
 }
 
 func TestTransferAssembleMissingTo(t *testing.T) {
@@ -360,6 +369,7 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 	}
 	req := &prototk.AssembleTransactionRequest{
 		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			notaryVerifierResolved,
 			{
 				Lookup:       "sender@node1",
 				Algorithm:    algorithms.ECDSA_SECP256K1,

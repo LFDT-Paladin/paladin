@@ -77,25 +77,25 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	params := tx.Params.(*types.MintParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, "", params.To)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", params.To, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	toParticipant, err := mb.addParticipant(ctx, "to", params.To)
+	outputStates, err := h.noto.prepareOutputs(toID, params.Amount, identityList{notaryID, toID})
+	if err != nil {
+		return nil, err
+	}
+	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.To})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := mb.prepareOutputCoin(toParticipant, params.Amount); err != nil {
-		return nil, err
-	}
-
-	if err := mb.prepareTransferInfoStates(ctx, tx, params.Data); err != nil {
-		return nil, err
-	}
-
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, nil, mb.outputs.coins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, nil, outputStates.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -103,8 +103,8 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			OutputStates: mb.outputs.states,
-			InfoStates:   mb.infoStates,
+			OutputStates: outputStates.states,
+			InfoStates:   infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature
@@ -194,11 +194,11 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, req *prototk.Prepare
 func (h *mintHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.MintParams)
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", inParams.To, req.ResolvedVerifiers)
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", inParams.To, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -208,8 +208,8 @@ func (h *mintHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransactio
 		return nil, err
 	}
 	params := &MintHookParams{
-		Sender: fromAddress,
-		To:     toAddress,
+		Sender: senderID.address,
+		To:     toID.address,
 		Amount: inParams.Amount,
 		Data:   inParams.Data,
 		Prepared: PreparedTransaction{

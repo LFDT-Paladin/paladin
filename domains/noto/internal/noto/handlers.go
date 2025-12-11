@@ -158,7 +158,7 @@ func (n *Noto) validateOwners(ctx context.Context, owner string, req *prototk.En
 	}
 
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -172,7 +172,7 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 		return err
 	}
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -180,12 +180,16 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 }
 
 // Parse a resolved verifier as an eth address
-func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*pldtypes.EthAddress, error) {
+func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)
 	}
-	return pldtypes.ParseEthAddress(verifier.Verifier)
+	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
+	if err != nil {
+		return nil, err
+	}
+	return &identityPair{identifier: lookup, address: address}, nil
 }
 
 type TransactionWrapper struct {

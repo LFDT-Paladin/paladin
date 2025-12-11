@@ -200,7 +200,6 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 }
 
 func (z *Zeto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "zeto")
 	z.coinSchema = req.AbiStateSchemas[0]
 	z.nftSchema = req.AbiStateSchemas[1]
 	z.merkleTreeRootSchema = req.AbiStateSchemas[2]
@@ -733,6 +732,7 @@ func (z *Zeto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 
 func (z *Zeto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 	return &prototk.CheckStateCompletionResponse{
-		Complete: !req.UnavailableStates,
+		// TODO: Implement manifests similar to noto, to allow receipts to be delivered to listeners reliably with partial state avaialability.
+		PrimaryMissingStateId: req.UnavailableStates.FirstUnavailableId,
 	}, nil
 }

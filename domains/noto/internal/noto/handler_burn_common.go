@@ -66,17 +66,20 @@ func (h *burnCommon) initBurn(ctx context.Context, tx *types.ParsedTransaction, 
 func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
-	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, from, "")
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", from, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	fromParticipant, err := mb.addParticipant(ctx, "from", from)
-	if err != nil {
-		return nil, err
-	}
-
-	revert, err := mb.selectAndPrepareInputCoins(ctx, fromParticipant.address, amount)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -87,15 +90,25 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		}
 		return nil, err
 	}
-
-	if mb.inputs.total.Cmp(amount.Int()) == 1 {
-		remainder := big.NewInt(0).Sub(mb.inputs.total, amount.Int())
-		if err := mb.prepareOutputCoin(fromParticipant, (*pldtypes.HexUint256)(remainder)); err != nil {
-			return nil, err
-		}
+	infoDistribution := identityList{notaryID, senderID, fromID}
+	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
+	if err != nil {
+		return nil, err
 	}
 
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, mb.outputs.coins, mb.outputs.coins)
+	var outputCoins []*types.NotoCoin
+	var outputStates []*prototk.NewState
+	if inputStates.total.Cmp(amount.Int()) == 1 {
+		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
+		returnedStates, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID, fromID})
+		if err != nil {
+			return nil, err
+		}
+		outputCoins = append(outputCoins, returnedStates.coins...)
+		outputStates = append(outputStates, returnedStates.states...)
+	}
+
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputCoins)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +116,9 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			InputStates:  mb.inputs.states,
-			OutputStates: mb.outputs.states,
-			InfoStates:   mb.infoStates,
+			InputStates:  inputStates.states,
+			OutputStates: outputStates,
+			InfoStates:   infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature
@@ -196,11 +209,11 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, req *prototk.Prep
 }
 
 func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
-	senderAddress, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -210,8 +223,8 @@ func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransac
 		return nil, err
 	}
 	params := &BurnHookParams{
-		Sender: senderAddress,
-		From:   fromAddress,
+		Sender: senderID.address,
+		From:   fromID.address,
 		Amount: amount,
 		Data:   data,
 		Prepared: PreparedTransaction{

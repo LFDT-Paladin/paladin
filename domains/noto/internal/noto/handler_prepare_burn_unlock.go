@@ -102,17 +102,17 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	notary := tx.DomainConfig.NotaryLookup
 	unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
-	_, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read the locked inputs for the existing lock
-	lockedInputStates, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromAddress, params.Amount.Int())
+	lockedInputStates, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromID.address, params.Amount.Int())
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -130,11 +130,11 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}
 
 	// No outputs - this will burn when unlocked
-	infoStates, err := h.noto.prepareTransactionDataInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
+	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, fromAddress, nil, &unlockTxId, []string{notary, params.From})
+	lockState, err := h.noto.prepareLockInfo(params.LockID, fromID.address, nil, &unlockTxId, identityList{notaryID, fromID})
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,7 @@ func (h *prepareBurnUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 func (h *prepareBurnUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
 	params := tx.Params.(*types.PrepareBurnUnlockParams)
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -274,9 +274,9 @@ func (h *prepareBurnUnlockHandler) hookInvoke(ctx context.Context, tx *types.Par
 		return nil, err
 	}
 	hookParams := &PrepareBurnUnlockHookParams{
-		Sender: fromAddress,
+		Sender: fromID.address,
 		LockId: params.LockID,
-		From:   fromAddress,
+		From:   fromID.address,
 		Amount: params.Amount,
 		Data:   params.Data,
 		Prepared: PreparedTransaction{

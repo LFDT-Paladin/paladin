@@ -56,21 +56,24 @@ func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTrans
 func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
-	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, from, to)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", from, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	fromParticipant, err := mb.addParticipant(ctx, "from", from)
-	if err != nil {
-		return nil, err
-	}
-	toParticipant, err := mb.addParticipant(ctx, "to", to)
-	if err != nil {
-		return nil, err
-	}
-
-	revert, err := mb.selectAndPrepareInputCoins(ctx, fromParticipant.address, amount)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -82,22 +85,31 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 
-	if err := mb.prepareOutputCoin(toParticipant, amount); err != nil {
+	// Avoid duplicating the sender in distribution lists
+	outputDistributionList := identityList{notaryID, senderID, fromID, toID} // de-dup done on query
+	outputStates, err := h.noto.prepareOutputs(toID, amount, outputDistributionList)
+	if err != nil {
 		return nil, err
 	}
 
-	if mb.inputs.total.Cmp(amount.Int()) == 1 {
-		remainder := big.NewInt(0).Sub(mb.inputs.total, amount.Int())
-		if err := mb.prepareOutputCoin(toParticipant, (*pldtypes.HexUint256)(remainder)); err != nil {
+	infoDistributionList := identityList{notaryID, senderID, fromID, toID}
+	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistributionList.identities())
+	if err != nil {
+		return nil, err
+	}
+
+	if inputStates.total.Cmp(amount.Int()) == 1 {
+		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
+		remainderDistributionList := identityList{notaryID, senderID, fromID}
+		returnedStates, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), remainderDistributionList)
+		if err != nil {
 			return nil, err
 		}
+		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
+		outputStates.states = append(outputStates.states, returnedStates.states...)
 	}
 
-	if err := mb.prepareTransferInfoStates(ctx, tx, data); err != nil {
-		return nil, err
-	}
-
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, mb.inputs.coins, mb.outputs.coins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputStates.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -125,9 +137,9 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			InputStates:  mb.inputs.states,
-			OutputStates: mb.outputs.states,
-			InfoStates:   mb.infoStates,
+			InputStates:  inputStates.states,
+			OutputStates: outputStates.states,
+			InfoStates:   infoStates,
 		},
 		AttestationPlan: attestation,
 	}, nil
@@ -198,15 +210,15 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, req *prot
 }
 
 func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
-	senderAddress, err := h.noto.findEthAddressVerifier(ctx, "sender", req.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", req.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -216,9 +228,9 @@ func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.Parse
 		return nil, err
 	}
 	params := &TransferHookParams{
-		Sender: senderAddress,
-		From:   fromAddress,
-		To:     toAddress,
+		Sender: senderID.address,
+		From:   fromID.address,
+		To:     toID.address,
 		Amount: amount,
 		Data:   data,
 		Prepared: PreparedTransaction{
