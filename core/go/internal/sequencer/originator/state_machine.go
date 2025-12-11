@@ -43,6 +43,7 @@ const (
 	Event_TransactionConfirmed                                    // a transaction, that was send by this originator, has been confirmed on the base ledger
 	Event_NewBlock                                                // a new block has been mined on the base ledger
 	Event_Base_Ledger_Transaction_Reverted                        // A transaction has moved from the dispatched to pending state because it was reverted on the base ledger
+	Event_Delegate_Timeout                                        // a regular interval to re-delegate transactions that have been delegated but not yet confirmed
 )
 
 type StateMachine struct {
@@ -140,6 +141,11 @@ func init() {
 				Event_Base_Ledger_Transaction_Reverted: {
 					Actions: []ActionRule{{
 						Action: action_SendDelegationRequest, //TODO Is this redundant?, coordinator should retry this unless it has dropped the transaction and we already handle the dropped case
+					}},
+				},
+				Event_Delegate_Timeout: {
+					Actions: []ActionRule{{
+						Action: action_ResendTimedOutDelegationRequest, // Periodically re-delegate transactions that have reached their delegate timeout
 					}},
 				},
 			},

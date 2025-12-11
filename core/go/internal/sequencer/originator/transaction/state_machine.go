@@ -143,6 +143,16 @@ func init() {
 					},
 				},
 				Event_CoordinatorChanged: {},
+				// If we previously delegated i.e. before a node restart, and the result was a chained transaction, the coordinator doesn't need
+				// to go through re-assembly and endorsement if it knows the result is a chained TX. We jump straight back to where we would be
+				// if the chained TX had just been created and we had received an Event_Dispatched from the coordinator.
+				Event_Dispatched: {
+					Transitions: []Transition{
+						{
+							To: State_Dispatched,
+						},
+					},
+				},
 			},
 		},
 		State_Assembling: {

@@ -153,10 +153,6 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 			if err != nil {
 				log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
 			}
-			if len(pendingTx) == 0 {
-				log.L(sMgr.ctx).Infof("No pending transactions to resume")
-				return
-			}
 			resumedTransactions += len(pendingTx)
 			log.L(sMgr.ctx).Infof("Resuming %d transactions", resumedTransactions)
 			for _, tx := range pendingTx {
@@ -175,9 +171,9 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 
 			select {
 			case <-timeoutCtx.Done():
-				log.L(sMgr.ctx).Debugf("timeout - checking for pending DB transactions")
+				log.L(sMgr.ctx).Debug("timeout - checking for pending DB transactions")
 			case <-ctx.Done():
-				log.L(sMgr.ctx).Errorf("context cancelled - ending DB poll")
+				log.L(sMgr.ctx).Debug("context cancelled - ending DB poll")
 				return
 			}
 		}

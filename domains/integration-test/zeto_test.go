@@ -60,7 +60,7 @@ func (s *zetoDomainTestSuite) SetupSuite() {
 	log.L(ctx).Infof("Domain name = %s", domainName)
 	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, "../zeto/zkp")
 	waitForZeto, zetoTestbed := newZetoDomain(s.T(), config, domainContracts.FactoryAddress)
-	done, _, tb, rpc := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
+	done, _, tb, rpc, _ := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		domainName: zetoTestbed,
 	})
 	s.domainName = domainName

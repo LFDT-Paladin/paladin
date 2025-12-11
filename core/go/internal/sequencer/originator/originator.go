@@ -17,7 +17,11 @@ package originator
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
@@ -59,6 +63,7 @@ type originator struct {
 	blockRangeSize       uint64
 	contractAddress      *pldtypes.EthAddress
 	heartbeatThresholdMs common.Duration
+	delegateTimeout      common.Duration
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -66,7 +71,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 
-	/* Event loop */
+	/* Event loop and delegate loop*/
 	originatorEvents chan common.Event
 	stopEventLoop    chan struct{}
 }
@@ -77,8 +82,8 @@ func NewOriginator(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
-	blockRangeSize uint64,
 	contractAddress *pldtypes.EthAddress,
+	configuration *pldconf.SequencerConfig,
 	heartbeatPeriodMs int,
 	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
@@ -88,17 +93,22 @@ func NewOriginator(
 		transactionsByID:            make(map[uuid.UUID]*transaction.Transaction),
 		submittedTransactionsByHash: make(map[pldtypes.Bytes32]*uuid.UUID),
 		transportWriter:             transportWriter,
-		blockRangeSize:              blockRangeSize,
+		blockRangeSize:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
 		contractAddress:             contractAddress,
 		clock:                       clock,
 		engineIntegration:           engineIntegration,
 		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
+		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:                     metrics,
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
 	}
 	o.InitializeStateMachine(State_Idle)
+
 	go o.eventLoop(ctx)
+
+	go o.delegateLoop(ctx)
+
 	return o, nil
 }
 
@@ -114,6 +124,28 @@ func (o *originator) eventLoop(ctx context.Context) {
 			}
 		case <-o.stopEventLoop:
 			log.L(ctx).Infof("originator event loop cancelled")
+		}
+	}
+}
+
+func (o *originator) delegateLoop(ctx context.Context) {
+	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Starting delegate loop", o.contractAddress.String()[0:8])
+
+	// Check for transactions still waiting to be delegated
+	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			log.L(ctx).Tracef("delegate loop fired for contract %s", o.contractAddress.String())
+			delegateTimeoutEvent := &DelegateTimeoutEvent{}
+			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
+			delegateTimeoutEvent.EventTime = time.Now()
+			fmt.Println("Firing delegate timeout event")
+			o.QueueEvent(ctx, delegateTimeoutEvent)
+		case <-ctx.Done():
+			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Stopping delegate loop", o.contractAddress.String()[0:8])
+			return
 		}
 	}
 }

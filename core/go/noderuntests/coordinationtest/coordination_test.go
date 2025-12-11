@@ -40,6 +40,7 @@ import (
 var CONFIG_PATHS = map[string]string{
 	"alice": "./config/postgres.coordinationtest.alice.config.yaml",
 	"bob":   "./config/postgres.coordinationtest.bob.config.yaml",
+	"carol": "./config/postgres.coordinationtest.carol.config.yaml",
 }
 
 func deployDomainRegistry(t *testing.T, nodeName string) *pldtypes.EthAddress {
@@ -1045,4 +1046,123 @@ func TestTransactionRevertOnBaseLedger(t *testing.T) {
 	txFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
 	assert.Len(t, txFull.Public, 2)
+}
+
+func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testing.T) {
+
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	// Create 2 parties, configured to use a hook address when the simple domain is invoked
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	alice.AddPeer(carol.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+	bob.AddPeer(carol.GetNodeConfig())
+	carol.AddPeer(alice.GetNodeConfig())
+	carol.AddPeer(bob.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial fire-and-forget delegate fails
+	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the delegate timeout.
+	// Reduce it down a little here to speed up the test.
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.DelegateTimeout = confutil.P("2s")
+
+	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
+	carol.OverrideSequencerConfig(&sequencerConfig)
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	startNode(t, carol, domainConfig)
+
+	privacyGroupConstructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator(), carol.GetIdentityLocator()},
+	}
+
+	// Deploy a token that will be called as a chained transaction, e.g. like a Pente hook contract
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, privacyGroupConstructorParameters, transactionLatencyThreshold)
+
+	notaryConstructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken2",
+		Symbol:          "FT2",
+		Notary:          bob.GetIdentityLocator(),
+		EndorsementMode: domains.NotaryEndorsement,
+		HookAddress:     contractAddress.String(), // Cause the contract to pass the request on to the contract at the hook address
+	}
+
+	// Deploy a token that will create a chained private transaction to the previous token e.g. like a Noto with a Pente hook
+	chainedContractAddress := bob.DeploySimpleDomainInstanceContract(t, notaryConstructorParameters, transactionLatencyThreshold)
+
+	// Stop Carol's node. She is required in order to endorse the hook transaction, so we are forcing the original and the chained transactions to be
+	// unable to complete initially.
+	stopNode(t, carol)
+
+	// Start a private transaction on alice's node. This should result in 2 Paladin transactions and 1 public transaction. The
+	// original transaction should return a success receipt.
+	aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(chainedContractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, aliceTx.Error(), "timed out")
+
+	// Now we want to stop the world. This exercises 2 code paths:
+	// 1. The originator of the first transaction resuming their transaction
+	// 2. The originator of the second (chained) transaction resuming their transaction
+	stopNode(t, bob)
+	stopNode(t, alice)
+
+	// Wait a mo to ensure shutdown has finished
+	time.Sleep(2 * time.Second)
+
+	// Restart the nodes (order is important)
+	// Starting bob ensures that when alice is restarted, she is successful in re-delegating to bob.
+	// The other way round, typically what happens is alice attempts to delegate first but bob's gRPC
+	// interface isn't ready so we don't actually get a delegation request on bob, which we are specifically
+	// wanting to exercise.
+	startNode(t, bob, domainConfig)
+	startNode(t, alice, domainConfig)
+	startNode(t, carol, domainConfig)
+
+	t.Cleanup(func() {
+		stopNode(t, carol)
+		stopNode(t, bob)
+		stopNode(t, alice)
+	})
+
+	customDuration := 10 * time.Second
+	assert.Eventually(t,
+		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
+		transactionLatencyThresholdCustom(t, &customDuration),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt",
+	)
+
+	assert.Eventually(t,
+		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionLatencyThresholdCustom(t, &customDuration),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt",
+	)
 }

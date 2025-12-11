@@ -19,6 +19,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
@@ -26,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestCoordinator_InitializeOK(t *testing.T) {
@@ -45,6 +47,7 @@ func TestCoordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
 	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState())
@@ -78,6 +81,7 @@ func TestCoordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 		OriginatorIdentityPool(originator).
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(194) // default tolerance is 5 so this is behind
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
 	err := c.ProcessEvent(ctx, &coordinator.TransactionsDelegatedEvent{
@@ -97,6 +101,7 @@ func TestCoordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 		OriginatorIdentityPool(originator).
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(195) // default tolerance is 5 so this is not behind
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, mocks := builder.Build(ctx)
 
 	err := c.ProcessEvent(ctx, &coordinator.TransactionsDelegatedEvent{
@@ -308,10 +313,14 @@ func TestCoordinator_Closing_ToIdle_OnHeartbeatInterval_IfClosingGracePeriodExpi
 
 	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 
-	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
+	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
 		HeartbeatsUntilClosingGracePeriodExpires(1).
-		Transactions(d).
-		Build(ctx)
+		Transactions(d)
+
+	config := builder.GetSequencerConfig()
+	config.ClosingGracePeriod = confutil.P(5)
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
 
 	err := c.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
@@ -325,10 +334,14 @@ func TestCoordinator_ClosingNoTransition_OnHeartbeatInterval_IfNotClosingGracePe
 
 	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 
-	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
+	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
 		HeartbeatsUntilClosingGracePeriodExpires(2).
-		Transactions(d).
-		Build(ctx)
+		Transactions(d)
+	config := builder.GetSequencerConfig()
+	config.ClosingGracePeriod = confutil.P(5)
+	builder.OverrideSequencerConfig(config)
+
+	c, _ := builder.Build(ctx)
 
 	err := c.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
