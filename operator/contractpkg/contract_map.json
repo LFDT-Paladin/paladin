@@ -22,6 +22,14 @@
     "pente_factory": {
         "filename": "test/e2e/abis/PenteFactory.json"
     },
+    "pente_factory_proxy": {
+        "filename": "test/e2e/abis/ERC1967Proxy.json",
+        "requiredDeployments": ["pente_factory"],
+        "params": [
+            "{{index .status.resolvedContractAddresses \"pente-factory\"}}",
+            "0x8129fc1c"
+        ]
+    },
     "zeto_g16_anon": {
         "filename": "test/e2e/abis/zeto/Groth16Verifier_Anon.json"
     },

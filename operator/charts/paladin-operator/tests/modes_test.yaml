@@ -666,8 +666,9 @@ tests:
       - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
-      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
     set:
       mode: basenet
       paladin:
@@ -700,10 +701,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 1
-        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
       - hasDocuments:
           count: 1
-        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - hasDocuments:
+          count: 1
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
 
   - it: none mode - no samples loaded
     templates:
@@ -715,8 +719,9 @@ tests:
       - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
-      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
     set:
       mode: none
     asserts:
@@ -746,10 +751,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 0
-        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
       - hasDocuments:
           count: 0
-        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - hasDocuments:
+          count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
 
   - it: operator-only mode - no samples loaded
     templates:
@@ -761,8 +769,9 @@ tests:
       - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
-      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
     set:
       mode: operator-only
     asserts:
@@ -792,7 +801,10 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 0
-        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
       - hasDocuments:
           count: 0
-        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml 
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - hasDocuments:
+          count: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml 

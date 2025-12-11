@@ -52,6 +52,7 @@ var snakeToCamelMap = map[string]string{
 	"noto_factory":                                "notoFactory",
 	"noto_factory_proxy":                          "notoFactoryProxy",
 	"pente_factory":                               "penteFactory",
+	"pente_factory_proxy":                         "penteFactoryProxy",
 	"zeto_g16_anon":                               "zetoG16Anon",
 	"zeto_g16_anon_batch":                         "zetoG16AnonBatch",
 	"zeto_g16_anon_enc":                           "zetoG16AnonEnc",
@@ -353,12 +354,13 @@ func template() error {
 			if err := yaml.Unmarshal(content, &domain); err != nil {
 				return fmt.Errorf("error unmarshalling content: %v", err)
 			}
-			// For noto, reference the proxy; for others, reference the factory directly
+			// For noto and pente, reference the proxy; for others, reference the factory directly
 			var valuesRef, deploymentName string
-			if domain.Name == "noto" {
-				valuesRef = ".Values.smartContractsReferences.notoFactoryProxy"
-				deploymentName = "noto-factory-proxy"
-			} else {
+			switch domain.Name {
+			case "noto", "pente":
+				valuesRef = fmt.Sprintf(".Values.smartContractsReferences.%sFactoryProxy", domain.Name)
+				deploymentName = fmt.Sprintf("%s-factory-proxy", domain.Name)
+			default:
 				valuesRef = fmt.Sprintf(".Values.smartContractsReferences.%sFactory", domain.Name)
 				deploymentName = fmt.Sprintf("%s-factory", domain.Name)
 			}

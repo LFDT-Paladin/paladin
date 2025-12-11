@@ -657,7 +657,7 @@ tests:
         template: samples/core_v1alpha1_paladindomain_pente.yaml
       - equal:
           path: 'spec.smartContractDeployment'
-          value: 'pente-factory'
+          value: 'pente-factory-proxy'
         documentIndex: 0
         template: samples/core_v1alpha1_paladindomain_pente.yaml
 
@@ -694,8 +694,9 @@ tests:
       - samples/core_v1alpha1_smartcontractdeployment_noto.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
-      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
     asserts:
       - hasDocuments:
           count: 1
@@ -711,10 +712,13 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - hasDocuments:
           count: 1
-        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
       - hasDocuments:
           count: 1
-        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - hasDocuments:
+          count: 1
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
       - equal:
           path: 'metadata.name'
           value: 'registry'
@@ -747,14 +751,24 @@ tests:
         template: samples/core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
       - equal:
           path: 'metadata.name'
-          value: 'zeto-factory'
-        documentIndex: 0
-        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
-      - equal:
-          path: 'metadata.name'
           value: 'pente-factory'
         documentIndex: 0
         template: samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+      - equal:
+          path: 'metadata.name'
+          value: 'pente-factory-proxy'
+        documentIndex: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - contains:
+          path: 'spec.requiredContractDeployments'
+          content: 'pente-factory'
+        documentIndex: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
+      - equal:
+          path: 'metadata.name'
+          value: 'zeto-factory'
+        documentIndex: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
 
   # Tests for image and tag configuration
   - it: operator image and tag configuration

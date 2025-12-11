@@ -25,6 +25,7 @@ resources:
   - core_v1alpha1_smartcontractdeployment_noto_factory.yaml
   - core_v1alpha1_smartcontractdeployment_noto_factory_proxy.yaml
   - core_v1alpha1_smartcontractdeployment_pente_factory.yaml
+  - core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
   - core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
   - core_v1alpha1_smartcontractdeployment_zeto_g16_deposit.yaml
   - core_v1alpha1_smartcontractdeployment_zeto_g16_withdraw.yaml
