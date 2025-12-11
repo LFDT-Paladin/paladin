@@ -50,7 +50,7 @@ var notaryAddress = pldtypes.RandAddress()
 
 var notaryVerifierResolved = &prototk.ResolvedVerifier{
 	Lookup:       "notary@node1",
-	Verifier:     pldtypes.RandAddress().String(),
+	Verifier:     notaryAddress.String(),
 	Algorithm:    algorithms.ECDSA_SECP256K1,
 	VerifierType: verifiers.ETH_ADDRESS,
 }

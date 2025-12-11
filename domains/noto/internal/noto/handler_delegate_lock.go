@@ -56,8 +56,9 @@ func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.
 }
 
 func (h *delegateLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
+	notary := tx.DomainConfig.NotaryLookup
 	return &prototk.InitTransactionResponse{
-		RequiredVerifiers: h.noto.ethAddressVerifiers(tx.Transaction.From),
+		RequiredVerifiers: h.noto.ethAddressVerifiers(notary, tx.Transaction.From),
 	}, nil
 }
 

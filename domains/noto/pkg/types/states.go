@@ -133,7 +133,7 @@ var NotoManifestABI = &abi.Parameter{
 		{Name: "salt", Type: "bytes32"},
 		{
 			Name:         "states",
-			Type:         "[]tuple",
+			Type:         "tuple[]",
 			InternalType: "struct NotoManifestStateEntry[]",
 			Components: abi.ParameterArray{
 				{Name: "state", Type: "bytes32"},
