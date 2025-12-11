@@ -540,7 +540,7 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 					},
 				},
 			}
-			_, err := sMgr.components.TxManager().InsertRemoteTransaction(ctx, dbTx, validatedTransaction, false)
+			_, err := sMgr.components.TxManager().InsertRemoteTransaction(ctx, dbTx, validatedTransaction, true)
 			// If this fails we reject the request to endorse. We need to persist the remote TX. A future endorsement request will eventually be received again
 			return err
 		})
