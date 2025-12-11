@@ -114,10 +114,10 @@ func NewOriginator(
 func (o *originator) eventLoop(ctx context.Context) {
 	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
-		log.L(ctx).Debugf("originator event loop waiting for next event")
+		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
 		select {
 		case event := <-o.originatorEvents:
-			log.L(ctx).Debugf("originator pulled event from the queue: %s", event.TypeString())
+			log.L(ctx).Debugf("originator for contract %s pulled event from the queue: %s", o.contractAddress.String(), event.TypeString())
 			err := o.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
@@ -138,7 +138,7 @@ func (o *originator) delegateLoop(ctx context.Context) {
 	// Check for transactions still waiting to be delegated
 	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
 	defer func() {
-		log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
+		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
 		ticker.Stop()
 	}()
 	for {
@@ -148,10 +148,8 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
-			log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 			o.QueueEvent(ctx, delegateTimeoutEvent)
 		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 			return
 		}
 	}

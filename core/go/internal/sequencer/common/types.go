@@ -42,8 +42,6 @@ type CoordinatorSnapshot struct {
 	BlockHeight            uint64                   `json:"blockHeight"`
 }
 
-type CoordinatorState string
-
 type Transaction struct {
 	//components.PrivateTransaction
 	ID         uuid.UUID
