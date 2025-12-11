@@ -27,33 +27,23 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
-type coinLogicalOwner int
-
-const (
-	FROM coinLogicalOwner = iota
-	TO
-)
-
 type manifestBuilder struct {
-	n                 *Noto
-	tx                *types.ParsedTransaction
-	stateQueryContext string
-	resolvedVerifiers []*prototk.ResolvedVerifier
-	notary            string
-	notaryAddress     *pldtypes.EthAddress
-	sender            string
-	senderAddress     *pldtypes.EthAddress
-	from              string
-	fromAddress       *pldtypes.EthAddress
-	to                string
-	toAddress         *pldtypes.EthAddress
-	manifest          types.NotoManifest
-	inputs            preparedInputs
-	outputs           preparedOutputs
-	infoStates        []*prototk.NewState
+	n                  *Noto
+	tx                 *types.ParsedTransaction
+	stateQueryContext  string
+	resolvedVerifiers  []*prototk.ResolvedVerifier
+	notary             identityPair
+	sender             identityPair
+	manifest           types.NotoManifest
+	inputs             preparedInputs
+	outputs            preparedOutputs
+	lockedOutputs      preparedLockedOutputs
+	commonDistribution identityList
+	infoDistribution   identityList
+	infoStates         []*prototk.NewState
 }
 
-func (n *Noto) newManifestBuilder(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, resolvedVerifiers []*prototk.ResolvedVerifier, from, to string) (mb *manifestBuilder, err error) {
+func (n *Noto) newManifestBuilder(ctx context.Context, tx *types.ParsedTransaction, stateQueryContext string, resolvedVerifiers []*prototk.ResolvedVerifier, from string, recipients ...string) (mb *manifestBuilder, err error) {
 	mb = &manifestBuilder{
 		n:                 n,
 		tx:                tx,
@@ -63,21 +53,9 @@ func (n *Noto) newManifestBuilder(ctx context.Context, tx *types.ParsedTransacti
 			Salt: pldtypes.RandBytes32(),
 		},
 	}
-	mb.notaryAddress, err = n.findEthAddressVerifier(ctx, "notary", tx.DomainConfig.NotaryLookup, mb.resolvedVerifiers)
+	err = mb.initCommonParticipant(ctx, "notary", tx.DomainConfig.NotaryLookup)
 	if err == nil {
-		mb.senderAddress, err = n.findEthAddressVerifier(ctx, "sender", from, mb.resolvedVerifiers)
-	}
-	if err == nil {
-		if mb.from == "" {
-			// If the from is not specified, then the sender is the from
-			mb.from = mb.sender
-			mb.fromAddress = mb.senderAddress
-		} else {
-			mb.fromAddress, err = n.findEthAddressVerifier(ctx, "from", from, mb.resolvedVerifiers)
-		}
-	}
-	if err == nil && to != "" {
-		mb.toAddress, err = n.findEthAddressVerifier(ctx, "to", to, mb.resolvedVerifiers)
+		err = mb.initCommonParticipant(ctx, "sender", tx.Transaction.From)
 	}
 	if err != nil {
 		return nil, err
@@ -85,30 +63,47 @@ func (n *Noto) newManifestBuilder(ctx context.Context, tx *types.ParsedTransacti
 	return mb, nil
 }
 
-func (mb *manifestBuilder) prepareOutputCoin(recipient coinLogicalOwner, amount *pldtypes.HexUint256) error {
-	// Always produce a single coin for the entire output amount
-	// TODO: make this configurable
-	var ownerAddress *pldtypes.EthAddress
-	var paladinDistributionList []string
-	switch recipient {
-	case TO:
-		ownerAddress = mb.toAddress
-		paladinDistributionList = []string{mb.notary, mb.to, mb.sender}
-	case FROM:
-		fallthrough
-	default:
-		ownerAddress = mb.fromAddress
-		paladinDistributionList = []string{mb.notary, mb.sender}
-		if mb.from != mb.sender {
-			paladinDistributionList = append(paladinDistributionList, mb.from)
+// Called during construction with the participants (notary/sender) that receive every state
+func (mb *manifestBuilder) initCommonParticipant(ctx context.Context, description string, identifier string) (err error) {
+	id := &identityPair{identifier: identifier}
+	id.address, err = mb.n.findEthAddressVerifier(ctx, description, identifier, mb.resolvedVerifiers)
+	if err == nil {
+		mb.commonDistribution = append(mb.commonDistribution, id)
+		mb.infoDistribution = append(mb.infoDistribution, id)
+	}
+	return err
+}
+
+// Called by the code using the build to set up a participant to use to build states.
+func (mb *manifestBuilder) addParticipant(ctx context.Context, description string, identifier string) (participant *stateOwner, err error) {
+	participant = &stateOwner{identityPair: identityPair{identifier: identifier}}
+	participant.address, err = mb.n.findEthAddressVerifier(ctx, description, identifier, mb.resolvedVerifiers)
+	if err == nil {
+		duplicateCommon := false
+		for _, existing := range mb.commonDistribution {
+			if existing.identifier == identifier {
+				// For example if the sender and from/to are the same
+				duplicateCommon = true
+				break
+			}
+		}
+		if !duplicateCommon {
+			mb.infoDistribution = append(mb.infoDistribution, &participant.identityPair)
+			participant.distribution = append([]*identityPair{&participant.identityPair}, mb.commonDistribution...)
 		}
 	}
+	return participant, err
+}
+
+func (mb *manifestBuilder) prepareOutputCoin(recipient *stateOwner, amount *pldtypes.HexUint256) error {
+	// Always produce a single coin for the entire output amount
+	// TODO: make this configurable
 	newCoin := &types.NotoCoin{
 		Salt:   pldtypes.RandBytes32(),
-		Owner:  ownerAddress,
+		Owner:  recipient.address,
 		Amount: amount,
 	}
-	newState, err := mb.n.makeNewCoinState(newCoin, paladinDistributionList)
+	newState, err := mb.n.makeNewCoinState(newCoin, recipient.distribution.identities())
 	if err == nil {
 		mb.outputs.recipients = append(mb.outputs.recipients, recipient)
 		mb.outputs.coins = append(mb.outputs.coins, newCoin)
@@ -117,7 +112,25 @@ func (mb *manifestBuilder) prepareOutputCoin(recipient coinLogicalOwner, amount 
 	return err
 }
 
-func (mb *manifestBuilder) selectAndPrepareInputCoins(ctx context.Context, amount *pldtypes.HexUint256) (revert bool, err error) {
+func (mb *manifestBuilder) prepareLockedOutputCoin(id pldtypes.Bytes32, recipient *stateOwner, amount *pldtypes.HexUint256) error {
+	// Always produce a single coin for the entire output amount
+	// TODO: make this configurable
+	newCoin := &types.NotoLockedCoin{
+		Salt:   pldtypes.RandBytes32(),
+		LockID: id,
+		Owner:  recipient.address,
+		Amount: amount,
+	}
+	newState, err := mb.n.makeNewLockedCoinState(newCoin, recipient.distribution.identities())
+	if err == nil {
+		mb.lockedOutputs.recipients = append(mb.lockedOutputs.recipients, recipient)
+		mb.lockedOutputs.coins = append(mb.lockedOutputs.coins, newCoin)
+		mb.lockedOutputs.states = append(mb.lockedOutputs.states, newState)
+	}
+	return err
+}
+
+func (mb *manifestBuilder) selectAndPrepareInputCoins(ctx context.Context, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256) (revert bool, err error) {
 	var lastStateTimestamp int64
 	stateRefs := []*prototk.StateRef{}
 	coins := []*types.NotoCoin{}
@@ -126,7 +139,7 @@ func (mb *manifestBuilder) selectAndPrepareInputCoins(ctx context.Context, amoun
 		queryBuilder := query.NewQueryBuilder().
 			Limit(10).
 			Sort(".created").
-			Equal("owner", mb.fromAddress.String())
+			Equal("owner", owner.String())
 
 		if lastStateTimestamp > 0 {
 			queryBuilder.GreaterThan(".created", lastStateTimestamp)
@@ -179,14 +192,7 @@ func (mb *manifestBuilder) addStateToManifest(ctx context.Context, stateIDStr st
 
 func (mb *manifestBuilder) prepareTransferInfoStates(ctx context.Context, tx *types.ParsedTransaction, data pldtypes.HexBytes) error {
 
-	infoDistributionList := []string{mb.notary, mb.sender}
-	if mb.to != "" {
-		infoDistributionList = append(infoDistributionList, mb.to)
-	}
-	if mb.from != mb.sender {
-		infoDistributionList = append(infoDistributionList, mb.from)
-	}
-	txData, err := mb.n.prepareTransactionDataInfo(data, tx.DomainConfig.Variant, infoDistributionList)
+	txData, err := mb.n.prepareTransactionDataInfo(data, tx.DomainConfig.Variant, mb.infoDistribution.identities())
 	if err != nil {
 		return err
 	}
@@ -197,6 +203,7 @@ func (mb *manifestBuilder) prepareTransferInfoStates(ctx context.Context, tx *ty
 		allOutputStates := make([]*prototk.NewState, 0, 1+len(mb.outputs.states))
 		allOutputStates = append(allOutputStates, txData)
 		allOutputStates = append(allOutputStates, mb.outputs.states...)
+		allOutputStates = append(allOutputStates, mb.lockedOutputs.states...)
 		validatedOutputStates, err := mb.n.Callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
 			StateQueryContext: mb.stateQueryContext,
 			States:            allOutputStates,
@@ -211,38 +218,28 @@ func (mb *manifestBuilder) prepareTransferInfoStates(ctx context.Context, tx *ty
 			s.Id = &preCalculatedHash
 		}
 
-		availableToAll := []*pldtypes.EthAddress{mb.notaryAddress, mb.senderAddress}
-		if mb.to != "" {
-			availableToAll = append(availableToAll, mb.toAddress)
-		}
-		availableToSender := []*pldtypes.EthAddress{mb.notaryAddress, mb.senderAddress}
-		if mb.from != mb.sender {
-			availableToAll = append(availableToAll, mb.fromAddress)
-			availableToSender = append(availableToSender, mb.fromAddress)
-		}
-		err = mb.addStateToManifest(ctx, *txData.Id /* set above */, availableToAll)
+		err = mb.addStateToManifest(ctx, *txData.Id /* set above */, mb.infoDistribution.addresses())
 		for _, state := range mb.inputs.states {
 			if err == nil {
-				err = mb.addStateToManifest(ctx, state.Id, availableToSender)
+				// We only expect the notary and the originator to require the input states
+				err = mb.addStateToManifest(ctx, state.Id, mb.commonDistribution.addresses())
 			}
 		}
 		for i, state := range mb.outputs.states {
 			if err == nil {
-				switch mb.outputs.recipients[i] {
-				case TO:
-					err = mb.addStateToManifest(ctx, *state.Id, availableToAll)
-				case FROM:
-					fallthrough
-				default:
-					err = mb.addStateToManifest(ctx, *state.Id, availableToSender)
-				}
+				err = mb.addStateToManifest(ctx, *state.Id, mb.outputs.recipients[i].distribution.addresses())
+			}
+		}
+		for i, state := range mb.lockedOutputs.states {
+			if err == nil {
+				err = mb.addStateToManifest(ctx, *state.Id, mb.lockedOutputs.recipients[i].distribution.addresses())
 			}
 		}
 		if err != nil {
 			return err
 		}
 		// Now we can seal the manifest
-		manifestState, err := mb.n.makeNewManifestInfoState(&mb.manifest, infoDistributionList)
+		manifestState, err := mb.n.makeNewManifestInfoState(&mb.manifest, mb.infoDistribution.identities())
 		if err != nil {
 			return err
 		}

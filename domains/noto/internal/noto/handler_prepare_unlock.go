@@ -141,7 +141,8 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	if tx.DomainConfig.IsV1() {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 		// Read unlockTxId from LockInfo state
-		lockInfo, err := h.noto.extractLockInfo(ctx, req)
+		var lockInfo *types.NotoLockInfo_V1
+		lockInfo, err = h.noto.extractLockInfo(ctx, req)
 		if err != nil {
 			return nil, err
 		}

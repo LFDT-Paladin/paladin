@@ -100,11 +100,7 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, unlockTxId *pldtypes.Bytes32, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, *unlockStates, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
-	_, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, nil, err
-	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+	mb, err := h.noto.newManifestBuilder(ctx, tx, req.StateQueryContext, req.ResolvedVerifiers, params.From, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -114,7 +110,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 
-	lockedInputStates, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromAddress, requiredTotal)
+	revert, err := mb.selectAndPrepareInputCoins(ctx, (*pldtypes.HexUint256)(requiredTotal))
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -126,7 +122,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, err
 	}
 
-	remainder := big.NewInt(0).Sub(lockedInputStates.total, requiredTotal)
+	remainder := big.NewInt(0).Sub(mb.inputs.total, requiredTotal)
 	unlockedOutputs, lockedOutputs, err := h.assembleUnlockOutputs(ctx, tx, params, req, fromAddress, remainder)
 	if err != nil {
 		return nil, nil, err
@@ -156,7 +152,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		}, nil
 }
 
-func (h *unlockCommon) assembleUnlockOutputs(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, from *pldtypes.EthAddress, remainder *big.Int) (*preparedOutputs, *preparedLockedOutputs, error) {
+func (h *unlockCommon) assembleUnlockOutputs(ctx context.Context, mb *manifestBuilder, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, remainder *big.Int) (*preparedOutputs, *preparedLockedOutputs, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	unlockedOutputs := &preparedOutputs{}

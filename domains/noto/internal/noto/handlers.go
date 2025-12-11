@@ -180,10 +180,10 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 }
 
 // Parse a resolved verifier as an eth address
-func (n *Noto) findEthAddressVerifier(ctx context.Context, label, lookup string, verifierList []*prototk.ResolvedVerifier) (*pldtypes.EthAddress, error) {
+func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*pldtypes.EthAddress, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, label)
+		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)
 	}
 	return pldtypes.ParseEthAddress(verifier.Verifier)
 }

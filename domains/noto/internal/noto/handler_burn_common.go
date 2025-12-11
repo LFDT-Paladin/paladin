@@ -71,7 +71,12 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		return nil, err
 	}
 
-	revert, err := mb.selectAndPrepareInputCoins(ctx, amount)
+	fromParticipant, err := mb.addParticipant(ctx, "from", from)
+	if err != nil {
+		return nil, err
+	}
+
+	revert, err := mb.selectAndPrepareInputCoins(ctx, fromParticipant.address, amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -85,7 +90,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 
 	if mb.inputs.total.Cmp(amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(mb.inputs.total, amount.Int())
-		if err := mb.prepareOutputCoin(FROM, (*pldtypes.HexUint256)(remainder)); err != nil {
+		if err := mb.prepareOutputCoin(fromParticipant, (*pldtypes.HexUint256)(remainder)); err != nil {
 			return nil, err
 		}
 	}

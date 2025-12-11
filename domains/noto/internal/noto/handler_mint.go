@@ -82,7 +82,12 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		return nil, err
 	}
 
-	if err := mb.prepareOutputCoin(TO, params.Amount); err != nil {
+	toParticipant, err := mb.addParticipant(ctx, "to", params.To)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mb.prepareOutputCoin(toParticipant, params.Amount); err != nil {
 		return nil, err
 	}
 

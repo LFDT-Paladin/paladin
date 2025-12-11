@@ -211,14 +211,43 @@ type preparedLockedInputs struct {
 }
 
 type preparedOutputs struct {
-	recipients []coinLogicalOwner
+	recipients []*stateOwner
 	coins      []*types.NotoCoin
 	states     []*prototk.NewState
 }
 
 type preparedLockedOutputs struct {
-	coins  []*types.NotoLockedCoin
-	states []*prototk.NewState
+	recipients []*stateOwner
+	coins      []*types.NotoLockedCoin
+	states     []*prototk.NewState
+}
+
+type identityPair struct {
+	identifier string
+	address    *pldtypes.EthAddress
+}
+
+type stateOwner struct {
+	identityPair
+	distribution identityList
+}
+
+type identityList []*identityPair
+
+func (idl identityList) identities() []string {
+	il := make([]string, len(idl))
+	for i, id := range idl {
+		il[i] = id.identifier
+	}
+	return il
+}
+
+func (idl identityList) addresses() []*pldtypes.EthAddress {
+	al := make([]*pldtypes.EthAddress, len(idl))
+	for i, id := range idl {
+		al[i] = id.address
+	}
+	return al
 }
 
 func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, amount *big.Int) (inputs *preparedLockedInputs, revert bool, err error) {
@@ -269,22 +298,6 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 			}
 		}
 	}
-}
-
-func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedLockedOutputs, error) {
-	// Always produce a single coin for the entire output amount
-	// TODO: make this configurable
-	newCoin := &types.NotoLockedCoin{
-		Salt:   pldtypes.RandBytes32(),
-		LockID: id,
-		Owner:  ownerAddress,
-		Amount: amount,
-	}
-	newState, err := n.makeNewLockedCoinState(newCoin, distributionList)
-	return &preparedLockedOutputs{
-		coins:  []*types.NotoLockedCoin{newCoin},
-		states: []*prototk.NewState{newState},
-	}, err
 }
 
 func (n *Noto) prepareTransactionDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
