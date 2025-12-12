@@ -187,7 +187,7 @@ func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 	})
 	tm.quiesceTimeout = 10 * time.Millisecond
 	tm.reliableMessageResend = 1 * time.Second
-	tm.peerInactivityTimeout = 10 * time.Millisecond
+	tm.peerInactivityTimeout = 100 * time.Millisecond
 
 	mockActivateDeactivateOk(tp)
 
