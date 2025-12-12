@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -400,6 +402,20 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 		err = t.applyPostAssembly(ctx, event.PostAssembly)
 		if err == nil {
 			err = t.writeLockStates(ctx)
+			if err != nil {
+				// Internal error. Only option is to revert the transaction
+				seqRevertEvent := &AssembleRevertResponseEvent{}
+				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
+				seqRevertEvent.TransactionID = t.ID
+				err = t.eventHandler(ctx, seqRevertEvent)
+				if err != nil {
+					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
+					log.L(ctx).Error(handlerErr)
+				}
+				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+				// Return the original error
+				return err
+			}
 		}
 		// Assembling resolves the required verifiers which will need passing on for the endorse step
 		t.PreAssembly.Verifiers = event.PreAssembly.Verifiers

@@ -810,17 +810,19 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				// If the amount is set to 1001 we will revert in the domain at assembly time
 				// If the amount is set to 1002 we will use a fixed, known salt and revert the domain at endorsement time (see EndorseTransaction)
 				// If the amount is set to 1003 we will use a fixed, known salt and the baseledger contract will check for the known input UTXO and revert
-				if amount.Cmp(big.NewInt(1001)) == 0 {
-					revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
-					return &prototk.AssembleTransactionResponse{
-						AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-						RevertReason:   &revertMessage,
-					}, nil
-				}
-				if amount.Cmp(big.NewInt(1003)) == 0 && !revertedOnce[req.Transaction.TransactionId] {
-					// Don't revert, but set the UTXO to a special value that will cause endorsement to revert on the base ledger
-					salt = pldtypes.MustParseHexBytes("0x1212121212121212121212121212121212121212121212121212121212121212")
-					revertedOnce[req.Transaction.TransactionId] = true
+				if config.HookAddress == "" {
+					if amount.Cmp(big.NewInt(1001)) == 0 {
+						revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
+						return &prototk.AssembleTransactionResponse{
+							AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+							RevertReason:   &revertMessage,
+						}, nil
+					}
+					if amount.Cmp(big.NewInt(1003)) == 0 && !revertedOnce[req.Transaction.TransactionId] {
+						// Don't revert, but set the UTXO to a special value that will cause revert on the base ledger
+						salt = pldtypes.MustParseHexBytes("0x1212121212121212121212121212121212121212121212121212121212121212")
+						revertedOnce[req.Transaction.TransactionId] = true
+					}
 				}
 				toKeep := new(big.Int)
 				coinsToSpend := []*simpleTokenParser{}

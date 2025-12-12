@@ -55,15 +55,19 @@ func (c *realClock) HasExpired(start Time, duration Duration) bool {
 }
 
 func (c *realClock) ScheduleInterval(ctx context.Context, duration Duration, f func()) (cancel func()) {
+	timerCtx, cancel := context.WithCancel(ctx)
 	realDuration := duration.(time.Duration)
-	ticker := time.NewTicker(realDuration)
+	timer := time.NewTimer(realDuration)
 	go func() {
-		<-ticker.C
-		f()
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			f()
+		case <-timerCtx.Done():
+			return
+		}
 	}()
-	return func() {
-		ticker.Stop()
-	}
+	return cancel
 }
 
 type FakeClockForTesting struct {
