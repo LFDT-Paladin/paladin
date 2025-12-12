@@ -11,7 +11,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@iden3/contracts": "git+https://github.com/kaleido-io/contracts.git#keccak256",
-    "@iden3/js-merkletree": "git+https://github.com/kaleido-io/js-merkletree",
+    "@iden3/js-merkletree": "file://../../js-merkletree",
     "@lfdecentralizedtrust/zeto-contracts": "v0.2.1",
     "@nomicfoundation/hardhat-network-helpers": "^1.0.10",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
