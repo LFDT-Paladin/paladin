@@ -18,6 +18,7 @@ package domain
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
@@ -27,6 +28,7 @@ var _ plugintk.DomainCallbacks = &MockDomainCallbacks{}
 type MockDomainCallbacks struct {
 	MockFindAvailableStates func() (*prototk.FindAvailableStatesResponse, error)
 	MockLocalNodeName       func() (*prototk.LocalNodeNameResponse, error)
+	MockValidateStates      func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 func (dc *MockDomainCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -61,5 +63,17 @@ func (dc *MockDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *pr
 }
 
 func (dc *MockDomainCallbacks) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
-	return nil, nil
+	if dc.MockValidateStates == nil {
+		// Default for mock is just to echo back the states supplied with randomly generated IDs
+		statesWithIDs := make([]*prototk.EndorsableState, len(req.States))
+		for i, inputState := range req.States {
+			statesWithIDs[i] = &prototk.EndorsableState{
+				Id:            pldtypes.RandBytes32().String(),
+				SchemaId:      inputState.SchemaId,
+				StateDataJson: inputState.StateDataJson,
+			}
+		}
+		return &prototk.ValidateStatesResponse{States: statesWithIDs}, nil
+	}
+	return dc.MockValidateStates(ctx, req)
 }

@@ -70,7 +70,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", from, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -91,33 +91,41 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		return nil, err
 	}
 	infoDistribution := identityList{notaryID, senderID, fromID}
-	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
+	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 
-	var outputCoins []*types.NotoCoin
-	var outputStates []*prototk.NewState
+	outputs := &preparedOutputs{}
 	if inputStates.total.Cmp(amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-		returnedStates, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID, fromID})
+		outputs, err = h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID, fromID})
 		if err != nil {
 			return nil, err
 		}
-		outputCoins = append(outputCoins, returnedStates.coins...)
-		outputStates = append(outputStates, returnedStates.states...)
 	}
 
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputCoins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputs.coins)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addOutputs(outputs).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
 			InputStates:  inputStates.states,
-			OutputStates: outputStates,
+			OutputStates: outputs.states,
 			InfoStates:   infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{

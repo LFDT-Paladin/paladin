@@ -42,6 +42,7 @@ func TestLock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["lock"]

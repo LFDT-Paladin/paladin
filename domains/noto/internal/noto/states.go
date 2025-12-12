@@ -390,7 +390,7 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, am
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
 		Salt:    pldtypes.RandBytes32(),
 		Data:    data,

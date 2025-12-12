@@ -88,11 +88,12 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, senderID.address, params.Delegate, nil, identityList{notaryID, senderID})
+	lockState, err := h.noto.prepareLockInfo(params.LockID, senderID.address, params.Delegate, nil, infoDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +104,16 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	encodedApproval, err := h.noto.encodeDelegateLock(ctx, tx.ContractAddress, params.LockID, params.Delegate, params.Data)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	return &prototk.AssembleTransactionResponse{

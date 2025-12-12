@@ -41,6 +41,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
@@ -128,12 +129,12 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // data + lockInfo (no outputs for burn)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + lockInfo (no outputs for burn)
 	assert.Equal(t, lockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
@@ -284,6 +285,7 @@ func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
@@ -368,6 +370,7 @@ func TestPrepareBurnUnlock_BurnNotAllowed(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]

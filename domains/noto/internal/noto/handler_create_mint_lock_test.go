@@ -40,6 +40,7 @@ func TestCreateMintLock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["createMintLock"]
@@ -121,7 +122,7 @@ func TestCreateMintLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // data, lockInfo, and 2 coins
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 5) // manifest, data, lockInfo, and 2 coins
 
 	// Check that we have 2 output coins (one for each recipient)
 	coinCount := 0

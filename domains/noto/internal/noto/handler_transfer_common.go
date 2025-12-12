@@ -60,7 +60,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	if err != nil {
 		return nil, err
 	}
-	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", from, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +92,8 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 
-	infoDistributionList := identityList{notaryID, senderID, fromID, toID}
-	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistributionList.identities())
+	infoDistribution := identityList{notaryID, senderID, fromID, toID}
+	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +132,17 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 			VerifierType:    verifiers.ETH_ADDRESS,
 			Parties:         []string{notary},
 		},
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addOutputs(outputStates).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	return &prototk.AssembleTransactionResponse{

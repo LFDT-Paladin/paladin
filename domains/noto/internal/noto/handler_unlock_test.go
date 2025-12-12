@@ -42,6 +42,7 @@ func TestUnlock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["unlock"]
@@ -135,16 +136,16 @@ func TestUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + output-info + lock-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)

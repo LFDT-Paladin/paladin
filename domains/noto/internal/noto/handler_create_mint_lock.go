@@ -125,28 +125,41 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		if err != nil {
 			return nil, err
 		}
+		outputs.distributions = append(outputs.distributions, recipientOutputs.distributions...)
 		outputs.coins = append(outputs.coins, recipientOutputs.coins...)
 		outputs.states = append(outputs.states, recipientOutputs.states...)
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(lockID, senderID.address, nil, &unlockTxId, identityList{notaryID, senderID})
+	lockState, err := h.noto.prepareLockInfo(lockID, senderID.address, nil, &unlockTxId, infoDistribution)
 	if err != nil {
 		return nil, err
 	}
 	infoStates = append(infoStates, lockState)
 
-	assembledTransaction := &prototk.AssembledTransaction{}
-	assembledTransaction.InfoStates = infoStates
-	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, outputs.states...)
-
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, outputs.coins)
 	if err != nil {
 		return nil, err
 	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addOutputs(outputs).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
+	}
+
+	assembledTransaction := &prototk.AssembledTransaction{}
+	assembledTransaction.InfoStates = infoStates
+	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, outputs.states...)
 
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult:       prototk.AssembleTransactionResponse_OK,

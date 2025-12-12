@@ -104,6 +104,10 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	if err != nil {
 		return nil, nil, err
 	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, nil, err
+	}
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, nil, err
@@ -132,15 +136,28 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, err
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
+	infoDistribution := identityList{notaryID, senderID, fromID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, fromID.address, nil, unlockTxId, identityList{notaryID, fromID})
+	lockState, err := h.noto.prepareLockInfo(params.LockID, fromID.address, nil, unlockTxId, infoDistribution)
 	if err != nil {
 		return nil, nil, err
 	}
 	infoStates = append(infoStates, lockState)
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addOutputs(unlockedOutputs).
+			addLockedOutputs(lockedOutputs).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
+	}
 
 	return &prototk.AssembleTransactionResponse{
 			AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -174,6 +191,7 @@ func (h *unlockCommon) assembleUnlockOutputs(ctx context.Context, tx *types.Pars
 		if err != nil {
 			return nil, nil, err
 		}
+		unlockedOutputs.distributions = append(unlockedOutputs.distributions, outputs.distributions...)
 		unlockedOutputs.coins = append(unlockedOutputs.coins, outputs.coins...)
 		unlockedOutputs.states = append(unlockedOutputs.states, outputs.states...)
 	}

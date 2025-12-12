@@ -120,15 +120,17 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		if err != nil {
 			return nil, err
 		}
+		unlockedOutputStates.distributions = append(unlockedOutputStates.distributions, returnedStates.distributions...)
 		unlockedOutputStates.coins = append(unlockedOutputStates.coins, returnedStates.coins...)
 		unlockedOutputStates.states = append(unlockedOutputStates.states, returnedStates.states...)
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(lockID, senderID.address, nil, nil, identityList{notaryID, senderID})
+	lockState, err := h.noto.prepareLockInfo(lockID, senderID.address, nil, nil, infoDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +139,18 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	encodedLock, err := h.noto.encodeLock(ctx, tx.ContractAddress, inputStates.coins, unlockedOutputStates.coins, lockedOutputStates.coins)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addLockedOutputs(lockedOutputStates).
+			addOutputs(unlockedOutputStates).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	var outputStates []*prototk.NewState

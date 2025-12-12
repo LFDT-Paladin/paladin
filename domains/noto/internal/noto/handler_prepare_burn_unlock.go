@@ -106,6 +106,10 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	if err != nil {
 		return nil, err
 	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
@@ -130,25 +134,36 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}
 
 	// No outputs - this will burn when unlocked
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.From})
+	infoDistribution := identityList{notaryID, senderID, fromID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, fromID.address, nil, &unlockTxId, identityList{notaryID, fromID})
+	lockState, err := h.noto.prepareLockInfo(params.LockID, fromID.address, nil, &unlockTxId, infoDistribution)
 	if err != nil {
 		return nil, err
 	}
 	infoStates = append(infoStates, lockState)
 
-	assembledTransaction := &prototk.AssembledTransaction{
-		ReadStates: lockedInputStates.states,
-		InfoStates: infoStates,
-	}
-
 	// Prepare unlock with no outputs (for burning)
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, lockedInputStates.coins, nil, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+			addInfoStates(infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
+	}
+
+	assembledTransaction := &prototk.AssembledTransaction{
+		ReadStates: lockedInputStates.states,
+		InfoStates: infoStates,
 	}
 
 	return &prototk.AssembleTransactionResponse{
