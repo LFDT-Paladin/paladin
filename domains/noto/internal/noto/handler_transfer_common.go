@@ -105,6 +105,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		if err != nil {
 			return nil, err
 		}
+		outputStates.distributions = append(outputStates.distributions, returnedStates.distributions...)
 		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
 		outputStates.states = append(outputStates.states, returnedStates.states...)
 	}
