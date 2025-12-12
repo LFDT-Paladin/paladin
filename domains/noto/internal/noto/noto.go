@@ -1036,6 +1036,12 @@ func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }
 
+func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	return &prototk.CheckStateCompletionResponse{
+		Complete: !req.UnavailableStates,
+	}, nil
+}
+
 // getInterfaceABI returns the appropriate interface ABI based on the variant
 func (n *Noto) getInterfaceABI(variant pldtypes.HexUint64) abi.ABI {
 	if variant == types.NotoVariantLegacy {

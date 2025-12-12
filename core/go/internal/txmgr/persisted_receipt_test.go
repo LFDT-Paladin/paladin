@@ -17,10 +17,12 @@ package txmgr
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
@@ -29,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -441,4 +442,44 @@ func TestDecodeEvent(t *testing.T) {
 	_, err = txm.DecodeEvent(ctx, txm.p.NOTX(), []pldtypes.Bytes32{validTopic0, pldtypes.Bytes32(validTopic1)}, []byte{}, "wrong")
 	assert.Regexp(t, "PD020015", err)
 
+}
+
+func TestBuildFullReceiptFailAddStateReceipt(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			// Mock GetTransactionStates to fail
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
+				Return(nil, fmt.Errorf("state retrieval failed"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	// Create a receipt with a domain
+	receipt := &pldapi.TransactionReceipt{
+		ID: txID,
+		TransactionReceiptData: pldapi.TransactionReceiptData{
+			Domain:          "domain1",
+			Sequence:        1000,
+			Success:         true,
+			ContractAddress: pldtypes.RandAddress(),
+		},
+	}
+
+	// This should fail when trying to add state receipt
+	_, err = txm.buildFullReceipt(ctx, receipt, false)
+	assert.Regexp(t, "state retrieval failed", err)
+	close(l.done)
 }

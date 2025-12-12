@@ -730,3 +730,9 @@ func (z *Zeto) InitPrivacyGroup(ctx context.Context, req *prototk.InitPrivacyGro
 func (z *Zeto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error) {
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }
+
+func (z *Zeto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	return &prototk.CheckStateCompletionResponse{
+		Complete: !req.UnavailableStates,
+	}, nil
+}
