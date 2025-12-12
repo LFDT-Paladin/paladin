@@ -147,4 +147,5 @@ type TXManager interface {
 	InsertRemoteTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ValidatedTransaction, ignoreConflicts bool) (int64, error)
 	ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ChainedPrivateTransaction) error
 	WritePreparedTransactions(ctx context.Context, dbTX persistence.DBTX, prepared []*PreparedTransactionWithRefs) error
+	HasChainedTransaction(ctx context.Context, txID uuid.UUID) (bool, error)
 }

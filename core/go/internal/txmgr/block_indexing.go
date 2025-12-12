@@ -33,13 +33,6 @@ func (tm *txManager) blockIndexerPreCommit(
 	blocks []*pldapi.IndexedBlock,
 	transactions []*blockindexer.IndexedTransactionNotify,
 ) error {
-
-	// Log all the transactions we've been passed
-	for _, tx := range transactions {
-		log.L(ctx).Infof("Received block %d transaction %s hash=%s type=%+v. Are we going to put it in the receipts table?",
-			tx.BlockNumber, tx.ContractAddress, tx.Hash, tx.Nonce)
-	}
-
 	// Pass the list of transactions to the public transaction manager, who will pass us back an
 	// ORDERED list of matches to transaction IDs based on the bindings.
 	txMatches, err := tm.publicTxMgr.MatchUpdateConfirmedTransactions(ctx, dbTX, transactions)

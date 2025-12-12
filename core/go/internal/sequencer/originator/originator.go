@@ -17,7 +17,10 @@ package originator
 
 import (
 	"context"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
@@ -59,6 +62,7 @@ type originator struct {
 	blockRangeSize       uint64
 	contractAddress      *pldtypes.EthAddress
 	heartbeatThresholdMs common.Duration
+	delegateTimeout      common.Duration
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -66,7 +70,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 
-	/* Event loop */
+	/* Event loop and delegate loop*/
 	originatorEvents chan common.Event
 	stopEventLoop    chan struct{}
 }
@@ -77,8 +81,8 @@ func NewOriginator(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
-	blockRangeSize uint64,
 	contractAddress *pldtypes.EthAddress,
+	configuration *pldconf.SequencerConfig,
 	heartbeatPeriodMs int,
 	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
@@ -88,32 +92,65 @@ func NewOriginator(
 		transactionsByID:            make(map[uuid.UUID]*transaction.Transaction),
 		submittedTransactionsByHash: make(map[pldtypes.Bytes32]*uuid.UUID),
 		transportWriter:             transportWriter,
-		blockRangeSize:              blockRangeSize,
+		blockRangeSize:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
 		contractAddress:             contractAddress,
 		clock:                       clock,
 		engineIntegration:           engineIntegration,
 		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
+		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:                     metrics,
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
 	}
 	o.InitializeStateMachine(State_Idle)
+
 	go o.eventLoop(ctx)
+
+	go o.delegateLoop(ctx)
+
 	return o, nil
 }
 
 func (o *originator) eventLoop(ctx context.Context) {
+	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
-		log.L(ctx).Infof("originator event loop waiting for next event")
+		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
 		select {
 		case event := <-o.originatorEvents:
-			log.L(ctx).Infof("originator pulled event from the queue: %s", event.TypeString())
+			log.L(ctx).Debugf("originator for contract %s pulled event from the queue: %s", o.contractAddress.String(), event.TypeString())
 			err := o.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-o.stopEventLoop:
-			log.L(ctx).Infof("originator event loop cancelled")
+			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
+			return
+		case <-ctx.Done():
+			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
+			return
+		}
+	}
+}
+
+func (o *originator) delegateLoop(ctx context.Context) {
+	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
+
+	// Check for transactions still waiting to be delegated
+	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
+	defer func() {
+		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
+		ticker.Stop()
+	}()
+	for {
+		select {
+		case <-ticker.C:
+			log.L(ctx).Debugf("delegate loop fired for contract %s", o.contractAddress.String())
+			delegateTimeoutEvent := &DelegateTimeoutEvent{}
+			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
+			delegateTimeoutEvent.EventTime = time.Now()
+			o.QueueEvent(ctx, delegateTimeoutEvent)
+		case <-ctx.Done():
+			return
 		}
 	}
 }

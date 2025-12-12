@@ -229,7 +229,7 @@ func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) erro
 	log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
 
 	if transactionEvent, ok := event.(transaction.Event); ok {
-		log.L(ctx).Debugf("coordinator propogating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
+		log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
 		return c.propagateEventToTransaction(ctx, transactionEvent)
 	}
 
@@ -344,7 +344,7 @@ func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error 
 	case *common.HeartbeatIntervalEvent:
 		c.heartbeatIntervalsSinceStateChange++
 		//TODO is this the right place to do this vs more generically in the handleEvent function?
-		// MRW TODO - propogating a coordinator heartbeat doesn't have an effect on transactions. Not sure we will ever go through this code
+		// MRW TODO - propagating a coordinator heartbeat doesn't have an effect on transactions. Not sure we will ever go through this code
 		err = c.propagateEventToAllTransactions(ctx, event)
 	}
 	if err != nil {

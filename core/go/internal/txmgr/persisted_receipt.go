@@ -184,7 +184,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			Where(`"chained_transaction" IN ?`, possibleChainingRecordIDs).
 			Find(&chainingRecords).
 			Error
-		// Recurse into PrivateTXManager, who will call us back, or send via the transport mgr
+		// Recurse into the sequencer manager, who will call us back, or send via the transport mgr
 		if err == nil {
 			receiptsToWrite := make([]*components.ReceiptInputWithOriginator, 0, len(chainingRecords))
 			for _, cr := range chainingRecords {

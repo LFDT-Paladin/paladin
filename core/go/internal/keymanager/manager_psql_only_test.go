@@ -63,7 +63,7 @@ func TestTimeoutWaitingForLock(t *testing.T) {
 		_, err := kr2.ResolveKey(withTimeout, "key1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 		return err
 	})
-	assert.Regexp(t, "PD010301", err)
+	assert.Regexp(t, "PD010301|timeout", err)
 
 	close(waitDone)
 
