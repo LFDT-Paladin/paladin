@@ -13,6 +13,7 @@ require (
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
 	github.com/go-resty/resty/v2 v2.14.0
+	github.com/google/uuid v1.6.0
 	github.com/hyperledger/firefly-signer v1.1.21
 	github.com/stretchr/testify v1.10.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -32,7 +33,6 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
