@@ -16,14 +16,12 @@
 package testutils
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/ethereum/go-ethereum/common"
@@ -155,7 +153,6 @@ func GetPrefundedAccountsWithMultipleSeeds(seeds []string, derivationPaths []str
 				return nil, fmt.Errorf("duplicate address generated: %s (from seed %d, path %s)", address, i, path)
 			}
 
-			log.L(context.Background()).Infof("Prefunded account path=%s address=%s amount=%s", path, address, funding)
 			prefunded[address] = funding
 		}
 	}
