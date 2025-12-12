@@ -443,7 +443,7 @@ func (ptm *pubTxManager) WriteReceivedTransactions(ctx context.Context, dbTX per
 	return pubTxns, err
 }
 
-func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxToDistribute) (pubTxns []*pldapi.PublicTx, err error) {
+func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxToDistribute) (err error) {
 	log.L(ctx).Debugf("WriteReceivedPublicTransactionSubmissions transactions: %+v", submissions)
 	persistedSubmissions := make([]*DBPubTxnSubmission, 0, len(submissions))
 	for _, submission := range submissions {
@@ -479,7 +479,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			Error
 	}
 
-	return pubTxns, err
+	return err
 }
 
 func (ptm *pubTxManager) writeUpdatedTransaction(ctx context.Context, dbTX persistence.DBTX, pubTXID uint64, from pldtypes.EthAddress, newPtx *DBPublicTxn) error {

@@ -86,6 +86,55 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		})
 	}
 
+	// Allocate dispatch IDs early so we can distribute sequencer dispatch records with a remote ID that correlates to the dispatch ID
+	for _, dispatch := range dispatchBatch.PublicDispatches {
+		for _, dispatches := range dispatch.PrivateTransactionDispatches {
+			dispatches.ID = uuid.New().String()
+		}
+	}
+
+	// Sequencer activity dispatch records for public transactions
+	for _, publicDispatch := range dispatchBatch.PublicDispatches {
+		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
+			sequencingProgress := &pldapi.SequencingProgressActivity{
+				RemoteID:       privateTx.ID, // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
+				Timestamp:      pldtypes.TimestampNow(),
+				ActivityType:   string(pldapi.SequencingProgressActivityType_Dispatched),
+				SubmittingNode: s.transportMgr.LocalNodeName(), // Us
+				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
+			}
+
+			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
+				// Get node from identity locator
+				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
+				if binding.TransactionID.String() == privateTx.PrivateTransactionID {
+					log.L(dCtx.Ctx()).Tracef("Sending sequencerdispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
+					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
+						Node:        node,
+						MessageType: pldapi.RMTSequencingActivity.Enum(),
+						Metadata:    pldtypes.JSONString(sequencingProgress),
+					})
+				}
+			}
+		}
+	}
+
+	// Sequencer activity dispatch records for chained transactions
+	// for _, chainedDispatch := range dispatchBatch.PrivateDispatches {
+	// 	sequencingProgress := &pldapi.SequencingProgressActivity{
+	// 		RemoteID:       chainedDispatch.OriginalTransaction.String(), // This will be remote on the node that receives this message
+	// 		Timestamp:      pldtypes.TimestampNow(),
+	// 		ActivityType:   string(pldapi.SequencingProgressActivityType_Dispatched),
+	// 		SubmittingNode: s.transportMgr.LocalNodeName(),
+	// 	}
+	// 	node := "who?" // who?
+	// 	preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
+	// 		Node:        node,
+	// 		MessageType: pldapi.RMTSequencingProgress.Enum(),
+	// 		Metadata:    pldtypes.JSONString(sequencingProgress),
+	// 	})
+	// }
+
 	// Send the write operation with all of the batch sequence operations to the flush worker
 	op := s.writer.Queue(dCtx.Ctx(), &syncPointOperation{
 		domainContext:   dCtx,
@@ -149,7 +198,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				//fill in the foreign key before persisting in our dispatch table
 				dispatch.PublicTransactionAddress = publicTxns[dispatchIndex].From
 				dispatch.PublicTransactionID = *publicTxns[dispatchIndex].LocalID
-				dispatch.ID = uuid.New().String()
+				// Dispatch ID populated early before queueing the dispatch operations so sequencer activity records can include them
 			}
 
 			log.L(ctx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))

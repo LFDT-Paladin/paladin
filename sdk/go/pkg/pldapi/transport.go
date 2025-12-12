@@ -27,6 +27,7 @@ const (
 	RMTState                       ReliableMessageType = "state"
 	RMTReceipt                     ReliableMessageType = "receipt"
 	RMTPublicTransactionSubmission ReliableMessageType = "public_transaction_submission"
+	RMTSequencingActivity          ReliableMessageType = "sequencing_activity"
 	RMTPreparedTransaction         ReliableMessageType = "prepared_txn"
 	RMTPrivacyGroup                ReliableMessageType = "privacy_group"
 	RMTPrivacyGroupMessage         ReliableMessageType = "privacy_group_message"
@@ -41,6 +42,7 @@ func (t ReliableMessageType) Options() []string {
 		string(RMTState),
 		string(RMTReceipt),
 		string(RMTPublicTransactionSubmission),
+		string(RMTSequencingActivity),
 		string(RMTPreparedTransaction),
 		string(RMTPrivacyGroup),
 		string(RMTPrivacyGroupMessage),

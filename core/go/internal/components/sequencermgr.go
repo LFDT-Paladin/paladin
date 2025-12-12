@@ -19,6 +19,7 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -87,6 +88,8 @@ type SequencerManager interface {
 
 	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*NullifierUpsert, error)
 	BuildNullifiers(ctx context.Context, distributions []*StateDistributionWithData) (nullifiers []*NullifierUpsert, err error)
+
+	WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencingProgressActivity) error
 
 	// Only used for test bed
 	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
