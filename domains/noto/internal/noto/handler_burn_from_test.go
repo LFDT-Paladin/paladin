@@ -27,6 +27,7 @@ import (
 )
 
 func TestBurnFromBasicModeRestriction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},
@@ -70,6 +71,7 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 }
 
 func TestBurnFromHooksModeAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},

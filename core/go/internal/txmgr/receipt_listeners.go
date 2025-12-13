@@ -745,7 +745,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 					Source:      &fr.Source,
 					Sequence:    pr.Sequence,
 					DomainName:  fr.Domain,
-					StateID:     fr.States.FirstUnavailable(),
+					StateID:     primaryMissingStateID,
 					Transaction: fr.ID,
 				})
 				return nil
@@ -755,7 +755,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 					Listener:   l.spec.Name,
 					Sequence:   pr.Sequence,
 					DomainName: fr.Domain,
-					StateID:    fr.States.FirstUnavailable(),
+					StateID:    primaryMissingStateID,
 				})
 				return nil
 			}

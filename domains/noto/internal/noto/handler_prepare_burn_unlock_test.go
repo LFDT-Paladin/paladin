@@ -33,6 +33,7 @@ import (
 )
 
 func TestPrepareBurnUnlock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -277,6 +278,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 }
 
 func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -362,6 +364,7 @@ func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
 }
 
 func TestPrepareBurnUnlock_BurnNotAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},

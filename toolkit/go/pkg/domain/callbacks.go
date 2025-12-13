@@ -18,7 +18,6 @@ package domain
 import (
 	"context"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
@@ -26,9 +25,10 @@ import (
 var _ plugintk.DomainCallbacks = &MockDomainCallbacks{}
 
 type MockDomainCallbacks struct {
-	MockFindAvailableStates func() (*prototk.FindAvailableStatesResponse, error)
-	MockLocalNodeName       func() (*prototk.LocalNodeNameResponse, error)
-	MockValidateStates      func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
+	MockFindAvailableStates  func() (*prototk.FindAvailableStatesResponse, error)
+	MockLocalNodeName        func() (*prototk.LocalNodeNameResponse, error)
+	MockValidateStates       func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
+	MockLookupKeyIdentifiers func(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
 }
 
 func (dc *MockDomainCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -59,21 +59,9 @@ func (dc *MockDomainCallbacks) GetStatesByID(context.Context, *prototk.GetStates
 }
 
 func (dc *MockDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
-	return nil, nil
+	return dc.MockLookupKeyIdentifiers(ctx, req)
 }
 
 func (dc *MockDomainCallbacks) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
-	if dc.MockValidateStates == nil {
-		// Default for mock is just to echo back the states supplied with randomly generated IDs
-		statesWithIDs := make([]*prototk.EndorsableState, len(req.States))
-		for i, inputState := range req.States {
-			statesWithIDs[i] = &prototk.EndorsableState{
-				Id:            pldtypes.RandBytes32().String(),
-				SchemaId:      inputState.SchemaId,
-				StateDataJson: inputState.StateDataJson,
-			}
-		}
-		return &prototk.ValidateStatesResponse{States: statesWithIDs}, nil
-	}
 	return dc.MockValidateStates(ctx, req)
 }

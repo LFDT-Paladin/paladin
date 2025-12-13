@@ -51,12 +51,26 @@ var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	return result
 }
 
-var mockCallbacks = &domain.MockDomainCallbacks{
-	MockLocalNodeName: func() (*prototk.LocalNodeNameResponse, error) {
-		return &prototk.LocalNodeNameResponse{
-			Name: "node1",
-		}, nil
-	},
+func newMockCallbacks() *domain.MockDomainCallbacks {
+	return &domain.MockDomainCallbacks{
+		MockLocalNodeName: func() (*prototk.LocalNodeNameResponse, error) {
+			return &prototk.LocalNodeNameResponse{
+				Name: "node1",
+			}, nil
+		},
+		MockValidateStates: func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+			// Default for mock is just to echo back the states supplied with randomly generated IDs
+			statesWithIDs := make([]*prototk.EndorsableState, len(req.States))
+			for i, inputState := range req.States {
+				statesWithIDs[i] = &prototk.EndorsableState{
+					Id:            pldtypes.RandBytes32().String(),
+					SchemaId:      inputState.SchemaId,
+					StateDataJson: inputState.StateDataJson,
+				}
+			}
+			return &prototk.ValidateStatesResponse{States: statesWithIDs}, nil
+		},
+	}
 }
 
 func TestABIParseFailure(t *testing.T) {
@@ -69,6 +83,7 @@ func TestABIParseFailure(t *testing.T) {
 }
 
 func TestNotoDomainInit(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -102,6 +117,7 @@ func TestNotoDomainInit(t *testing.T) {
 }
 
 func TestNotoDomainDeployDefaults(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -158,6 +174,7 @@ func TestNotoDomainDeployDefaults(t *testing.T) {
 }
 
 func TestNotoDomainDeployBasicConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -221,6 +238,7 @@ func TestNotoDomainDeployBasicConfig(t *testing.T) {
 }
 
 func TestNotoDomainDeployHooksConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -294,6 +312,7 @@ func TestNotoDomainDeployHooksConfig(t *testing.T) {
 }
 
 func TestConfigureDomainBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: "!!wrong",
@@ -302,6 +321,7 @@ func TestConfigureDomainBadConfig(t *testing.T) {
 }
 
 func TestInitDeployBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -312,6 +332,7 @@ func TestInitDeployBadParams(t *testing.T) {
 }
 
 func TestInitDeployBadMode(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -325,6 +346,7 @@ func TestInitDeployBadMode(t *testing.T) {
 }
 
 func TestInitDeployMissingNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -335,6 +357,7 @@ func TestInitDeployMissingNotary(t *testing.T) {
 }
 
 func TestInitDeployMissingHooksOptions(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 
 	_, err := n.InitDeploy(context.Background(), &prototk.InitDeployRequest{
@@ -393,6 +416,7 @@ func TestInitDeployMissingHooksOptions(t *testing.T) {
 }
 
 func TestPrepareDeployBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -403,6 +427,7 @@ func TestPrepareDeployBadParams(t *testing.T) {
 }
 
 func TestPrepareDeployMissingVerifier(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -416,6 +441,7 @@ func TestPrepareDeployMissingVerifier(t *testing.T) {
 }
 
 func TestPrepareDeployBadNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -429,6 +455,7 @@ func TestPrepareDeployBadNotary(t *testing.T) {
 }
 
 func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -459,6 +486,7 @@ func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
 }
 
 func TestPrepareDeployCheckFunction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.PrepareDeploy(context.Background(), &prototk.PrepareDeployRequest{
 		Transaction: &prototk.DeployTransactionSpecification{
@@ -508,6 +536,7 @@ func TestPrepareDeployCheckFunction(t *testing.T) {
 }
 
 func TestInitContractBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	res, err := n.InitContract(context.Background(), &prototk.InitContractRequest{
 		ContractConfig: []byte("!!wrong"),
@@ -517,6 +546,7 @@ func TestInitContractBadConfig(t *testing.T) {
 }
 
 func TestInitContractBadNotary(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitContract(context.Background(), &prototk.InitContractRequest{
 		ContractAddress: pldtypes.RandAddress().String(),
@@ -526,6 +556,7 @@ func TestInitContractBadNotary(t *testing.T) {
 }
 
 func TestInitTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -536,6 +567,7 @@ func TestInitTransactionBadAbi(t *testing.T) {
 }
 
 func TestInitTransactionBadConfig(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -549,6 +581,7 @@ func TestInitTransactionBadConfig(t *testing.T) {
 }
 
 func TestInitTransactionBadFunction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -563,7 +596,8 @@ func TestInitTransactionBadFunction(t *testing.T) {
 
 // TODO: rework this test because Function signature correctness is checked before contractAddress
 // func TestInitTransactionBadAddress(t *testing.T) {
-// 	n := &Noto{Callbacks: mockCallbacks}
+// 	mockCallbacks := mockCallbacks()
+//  n := &Noto{Callbacks: mockCallbacks,}
 // 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 // 		Transaction: &prototk.TransactionSpecification{
 // 			ContractInfo: &prototk.ContractInfo{
@@ -577,6 +611,7 @@ func TestInitTransactionBadFunction(t *testing.T) {
 // }
 
 func TestInitTransactionBadParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -592,6 +627,7 @@ func TestInitTransactionBadParams(t *testing.T) {
 }
 
 func TestInitTransactionMissingTo(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -607,6 +643,7 @@ func TestInitTransactionMissingTo(t *testing.T) {
 }
 
 func TestInitTransactionMissingAmount(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -622,6 +659,7 @@ func TestInitTransactionMissingAmount(t *testing.T) {
 }
 
 func TestInitTransactionBadSignature(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.InitTransaction(context.Background(), &prototk.InitTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -637,6 +675,7 @@ func TestInitTransactionBadSignature(t *testing.T) {
 }
 
 func TestAssembleTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.AssembleTransaction(context.Background(), &prototk.AssembleTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -647,6 +686,7 @@ func TestAssembleTransactionBadAbi(t *testing.T) {
 }
 
 func TestEndorseTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.EndorseTransaction(context.Background(), &prototk.EndorseTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
@@ -657,6 +697,7 @@ func TestEndorseTransactionBadAbi(t *testing.T) {
 }
 
 func TestPrepareTransactionBadAbi(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	_, err := n.PrepareTransaction(context.Background(), &prototk.PrepareTransactionRequest{
 		Transaction: &prototk.TransactionSpecification{
