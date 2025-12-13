@@ -238,8 +238,7 @@
      public void runFrame(MessageFrame initialFrame, List<JsonEVMLog> logAccumulator)  {
          final OperationTracer tracer = new DebugEVMTracer();
          Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
-         final PrecompileContractRegistry precompileContractRegistry = new PrecompileContractRegistry();
-         final MessageCallProcessor mcp = new MessageCallProcessor(this.evmVersion.evm(), precompileContractRegistry);
+         final MessageCallProcessor mcp = new MessageCallProcessor(this.evmVersion.evm(), this.evmVersion.precompileContractRegistry());
          final ContractCreationProcessor ccp =
                  new ContractCreationProcessor(
                          this.evmVersion.gasCalculator(),
