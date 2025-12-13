@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -230,4 +231,22 @@ func TestMint(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, notaryKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryKey.Address.String()).
+		completeForIdentity(receiverAddress)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(outCoin1State).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
 }
