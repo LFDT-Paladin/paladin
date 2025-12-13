@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -184,10 +185,14 @@ func TestCreateMintLock(t *testing.T) {
 	signatureBytes := pldtypes.HexBytes(signature.CompactRSV())
 
 	infoStates := []*prototk.EndorsableState{}
-	for _, state := range assembleRes.AssembledTransaction.InfoStates {
+	for i, state := range assembleRes.AssembledTransaction.InfoStates {
+		if state.Id == nil {
+			assert.Equal(t, 0, i) // just the manifest
+			state.Id = confutil.P(pldtypes.RandBytes32().String())
+		}
 		infoStates = append(infoStates, &prototk.EndorsableState{
 			SchemaId:      state.SchemaId,
-			Id:            pldtypes.RandBytes32().String(), // Mock state ID
+			Id:            *state.Id,
 			StateDataJson: state.StateDataJson,
 		})
 	}
@@ -303,4 +308,41 @@ func TestCreateMintLock(t *testing.T) {
 	// Verify prepared transaction
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
 	assert.NotEmpty(t, hookParams.Prepared.EncodedCall, "encodedCall should be present and non-empty")
+
+	// Verify manifest
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	receiver1OutputState := assembleRes.AssembledTransaction.InfoStates[3]
+	receiver2OutputState := assembleRes.AssembledTransaction.InfoStates[4]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiver1Address).
+		completeForIdentity(receiver2Address)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiver1Address).
+		incompleteForIdentity(receiver2Address)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiver1Address). // receiver doesn't get data
+		completeForIdentity(receiver2Address)  // receiver doesn't get data
+	mt.withMissingNewStates(lockInfoState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiver1Address). // receiver doesn't get lockInfo
+		completeForIdentity(receiver2Address)  // receiver doesn't get lockInfo
+	mt.withMissingNewStates(receiver1OutputState).
+		incompleteForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiver1Address).
+		completeForIdentity(receiver2Address)
+	mt.withMissingNewStates(receiver2OutputState).
+		incompleteForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiver1Address).
+		incompleteForIdentity(receiver2Address)
 }

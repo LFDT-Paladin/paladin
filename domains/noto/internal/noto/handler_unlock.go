@@ -148,10 +148,10 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	infoStates = append(infoStates, lockState)
 
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+		manifestState, err := h.noto.newManifestBuilder().
 			addOutputs(unlockedOutputs).
 			addLockedOutputs(lockedOutputs).
-			addInfoStates(infoStates...).
+			addInfoStates(infoDistribution, infoStates...).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, nil, err

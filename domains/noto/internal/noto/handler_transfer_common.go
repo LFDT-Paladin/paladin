@@ -136,9 +136,9 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}
 
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
+		manifestState, err := h.noto.newManifestBuilder().
 			addOutputs(outputStates).
-			addInfoStates(infoStates...).
+			addInfoStates(infoDistribution, infoStates...).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err

@@ -107,8 +107,8 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	}
 
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
-			addInfoStates(infoStates...).
+		manifestState, err := h.noto.newManifestBuilder().
+			addInfoStates(infoDistribution, infoStates...).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err

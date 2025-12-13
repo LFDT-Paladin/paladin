@@ -152,8 +152,8 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}
 
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
-			addInfoStates(infoStates...).
+		manifestState, err := h.noto.newManifestBuilder().
+			addInfoStates(infoDistribution, infoStates...).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err

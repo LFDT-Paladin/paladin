@@ -29,10 +29,11 @@ import (
 func TestBurnFromBasicModeRestriction(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
-		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
+		Callbacks:      mockCallbacks,
+		coinSchema:     &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
+		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema: &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 
@@ -40,6 +41,7 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 	basicConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeBasic.Enum(),
 		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Basic: &types.NotoBasicOptions{
 				AllowBurn: &pTrue,
@@ -84,6 +86,7 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 	hooksConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeHooks.Enum(),
 		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress: &pldtypes.EthAddress{},

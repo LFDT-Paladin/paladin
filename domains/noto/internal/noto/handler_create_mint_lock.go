@@ -147,23 +147,24 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}
 
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder(infoDistribution).
-			addOutputs(outputs).
-			addInfoStates(infoStates...).
-			buildManifest(ctx, req.StateQueryContext)
+		manifestBuilder := h.noto.newManifestBuilder().addInfoStates(infoDistribution, infoStates...)
+		for i, outputState := range outputs.states {
+			// Outputs are added as info, but with their distribution as an output
+			manifestBuilder = manifestBuilder.addInfoStates(outputs.distributions[i], outputState)
+		}
+		manifestState, err := manifestBuilder.buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
-	assembledTransaction := &prototk.AssembledTransaction{}
-	assembledTransaction.InfoStates = infoStates
-	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, outputs.states...)
-
 	return &prototk.AssembleTransactionResponse{
-		AssemblyResult:       prototk.AssembleTransactionResponse_OK,
-		AssembledTransaction: assembledTransaction,
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+		AssembledTransaction: &prototk.AssembledTransaction{
+			// The output states are written as info states, as they are not outputs of this transaction (but a future one)
+			InfoStates: append(infoStates, outputs.states...),
+		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature
 			{

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Allows individual tests to focus on the different state availability, without huge amounts of boilerplate.
 type manifestTester struct {
 	t             *testing.T
 	ctx           context.Context
@@ -175,17 +176,19 @@ func TestBuildManifestFailValidateStates(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := n.newManifestBuilder(
-		identityList{
-			{
-				identifier: "key1",
-				address:    pldtypes.RandAddress(),
+	_, err := n.newManifestBuilder().
+		addInfoStates(
+			identityList{
+				{
+					identifier: "key1",
+					address:    pldtypes.RandAddress(),
+				},
 			},
-		}).
-		addInfoStates(&prototk.NewState{
-			SchemaId:      pldtypes.RandBytes32().String(),
-			StateDataJson: `{}`,
-		}).
+			&prototk.NewState{
+				SchemaId:      pldtypes.RandBytes32().String(),
+				StateDataJson: `{}`,
+			},
+		).
 		buildManifest(ctx, "state-query-context")
 	require.Regexp(t, "pop", err)
 }
