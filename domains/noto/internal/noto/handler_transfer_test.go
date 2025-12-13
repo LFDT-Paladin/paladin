@@ -315,7 +315,7 @@ func TestTransfer(t *testing.T) {
 	}`, senderKey.Address, senderKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest doesn't get ID allocated by server
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
 	dataState := assembleRes.AssembledTransaction.InfoStates[1]
 	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
 	outCoin2State := assembleRes.AssembledTransaction.OutputStates[1]
@@ -338,8 +338,8 @@ func TestTransfer(t *testing.T) {
 		incompleteForIdentity(receiverAddress)
 	mt.withMissingNewStates(outCoin2State).
 		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		completeForIdentity(receiverAddress)
+		incompleteForIdentity(senderKey.Address.String()). // the sender needs both coins
+		completeForIdentity(receiverAddress)               // the receiver only needs coin one
 
 }
 

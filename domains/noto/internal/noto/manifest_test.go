@@ -17,9 +17,11 @@ package noto
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/require"
@@ -162,4 +164,28 @@ func (mts *manifestTesterAvailabilityScenario) incompleteForIdentity(localAddres
 	require.NoError(mts.t, err)
 	require.NotNil(mts.t, res.PrimaryMissingStateId)
 	return mts
+}
+
+func TestBuildManifestFailValidateStates(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	mockCallbacks.MockValidateStates = func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		return nil, fmt.Errorf("pop")
+	}
+
+	_, err := n.newManifestBuilder(
+		identityList{
+			{
+				identifier: "key1",
+				address:    pldtypes.RandAddress(),
+			},
+		}).
+		addInfoStates(&prototk.NewState{
+			SchemaId:      pldtypes.RandBytes32().String(),
+			StateDataJson: `{}`,
+		}).
+		buildManifest(ctx, "state-query-context")
+	require.Regexp(t, "pop", err)
 }
