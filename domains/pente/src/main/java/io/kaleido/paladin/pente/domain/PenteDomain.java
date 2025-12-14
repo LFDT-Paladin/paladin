@@ -17,7 +17,6 @@
 
  import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  import com.fasterxml.jackson.annotation.JsonProperty;
- import com.fasterxml.jackson.core.type.TypeReference;
  import com.fasterxml.jackson.databind.JsonNode;
  import com.fasterxml.jackson.databind.ObjectMapper;
  import com.fasterxml.jackson.databind.node.*;
@@ -596,7 +595,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<BuildReceiptResponse> buildReceipt(BuildReceiptRequest request) {
          try {
-             if (!request.getComplete()) {
+             if (request.getUnavailableStates()) {
                  throw new IllegalStateException("all states must be available to build an EVM receipt");
              }
 
@@ -843,6 +842,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }
+     }
+
+     @Override
+     protected CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request) {
+         // Very simple for Pente - we expect all the states, so we can just pass back the pre-calculated
+         // first unavailable ID that Paladin provided us
+         var res = CheckStateCompletionResponse.newBuilder();
+         if (request.getUnavailableStates().hasFirstUnavailableId()) {
+             res.setPrimaryMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
+         }
+         return CompletableFuture.completedFuture(res.build());
      }
 
      @NotNull

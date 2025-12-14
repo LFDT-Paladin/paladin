@@ -370,35 +370,36 @@ func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX 
 	return chained, err
 }
 
-func (tm *txManager) InsertRemoteTransaction(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction, ignoreConflicts bool) (int64, error) {
-	var ptx *persistedTransaction
+func (tm *txManager) InsertRemoteTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*components.ValidatedTransaction, ignoreConflicts bool) (int64, error) {
+	var ptxs []*persistedTransaction
 	var transactionDeps []*transactionDep
-	// Resolve the finalized fields on the input object for return
-	tx := txi.Transaction
-	tx.Created = pldtypes.TimestampNow()
-	tx.ABIReference = txi.Function.ABIReference
-	tx.Function = txi.Function.Signature
-	// Build the object to insert
-	ptx = &persistedTransaction{
-		ID:             *tx.ID,
-		SubmitMode:     pldapi.SubmitModeRemote.Enum(),
-		Created:        tx.Created,
-		IdempotencyKey: notEmptyOrNull(tx.IdempotencyKey),
-		Type:           tx.Type,
-		ABIReference:   tx.ABIReference,
-		Function:       notEmptyOrNull(txi.Function.Signature),
-		Domain:         notEmptyOrNull(tx.Domain),
-		From:           tx.From,
-		To:             tx.To,
-		Data:           tx.Data,
-	}
-	for _, d := range txi.DependsOn {
-		transactionDeps = append(transactionDeps, &transactionDep{
-			Transaction: *tx.ID,
-			DependsOn:   d,
+	for _, txi := range txis {
+		// Resolve the finalized fields on the input object for return
+		tx := txi.Transaction
+		tx.Created = pldtypes.TimestampNow()
+		tx.ABIReference = txi.Function.ABIReference
+		tx.Function = txi.Function.Signature
+		// Build the object to insert
+		ptxs = append(ptxs, &persistedTransaction{
+			ID:             *tx.ID,
+			SubmitMode:     pldapi.SubmitModeRemote.Enum(),
+			Created:        tx.Created,
+			IdempotencyKey: notEmptyOrNull(tx.IdempotencyKey),
+			Type:           tx.Type,
+			ABIReference:   tx.ABIReference,
+			Function:       notEmptyOrNull(txi.Function.Signature),
+			Domain:         notEmptyOrNull(tx.Domain),
+			From:           tx.From,
+			To:             tx.To,
+			Data:           tx.Data,
 		})
+		for _, d := range txi.DependsOn {
+			transactionDeps = append(transactionDeps, &transactionDep{
+				Transaction: *tx.ID,
+				DependsOn:   d,
+			})
+		}
 	}
-
 	log.L(ctx).Tracef("insertTransactions to table 'transactions'")
 	insert := dbTX.DB().
 		WithContext(ctx).
@@ -407,7 +408,7 @@ func (tm *txManager) InsertRemoteTransaction(ctx context.Context, dbTX persisten
 	if ignoreConflicts {
 		insert = insert.Clauses(clause.OnConflict{DoNothing: true})
 	}
-	txInsertResult := insert.Create(ptx)
+	txInsertResult := insert.Create(ptxs)
 	err := txInsertResult.Error
 	if err == nil && len(transactionDeps) > 0 {
 		log.L(ctx).Debugf("insertTransactions to table 'transaction_deps'")
@@ -492,6 +493,7 @@ func (tm *txManager) HasChainedTransaction(ctx context.Context, txID uuid.UUID) 
 	var chainingRecords []*persistedChainedPrivateTxn
 	err := tm.p.NOTX().DB().
 		Where(`"transaction" = ?`, txID).
+		Limit(1).
 		Find(&chainingRecords).
 		Error
 	return len(chainingRecords) > 0, err

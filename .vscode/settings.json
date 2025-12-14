@@ -10,7 +10,7 @@
     ],
     "go.testTimeout": "30s",
     "java.configuration.updateBuildConfiguration": "disabled",
-    "go.testTags": "testdbpostgres",
-    "go.buildTags": "testdbpostgres"
+    "go.testTags": "testdbpostgres,besu_free_gas",
+    "go.buildTags": "testdbpostgres,besu_free_gas"
   }
   

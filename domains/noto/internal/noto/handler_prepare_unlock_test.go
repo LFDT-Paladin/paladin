@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -33,6 +34,7 @@ import (
 )
 
 func TestPrepareUnlock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -41,6 +43,7 @@ func TestPrepareUnlock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareUnlock"]
@@ -134,16 +137,16 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + output-info + lock + output-coin
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
-	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
+	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.InfoStates[3].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
@@ -165,17 +168,17 @@ func TestPrepareUnlock(t *testing.T) {
 		{
 			SchemaId:      "data",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 		{
 			SchemaId:      "lockInfo",
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
 		{
 			SchemaId:      "coin",
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[3].StateDataJson,
 		},
 	}
 
@@ -290,4 +293,31 @@ func TestPrepareUnlock(t *testing.T) {
 	// Verify prepared transaction
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
 	assert.NotEmpty(t, hookParams.Prepared.EncodedCall)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	lockState := assembleRes.AssembledTransaction.InfoStates[2]
+	outputCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress) // receivers don't get the data
+	mt.withMissingNewStates(lockState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress) // receivers don't get the lock
+	mt.withMissingNewStates(outputCoinState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
 }

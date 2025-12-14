@@ -27,6 +27,7 @@ import (
 )
 
 func TestTransferFromBasicModeRestriction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},
@@ -71,6 +72,7 @@ func TestTransferFromBasicModeRestriction(t *testing.T) {
 }
 
 func TestTransferFromHooksModeAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},

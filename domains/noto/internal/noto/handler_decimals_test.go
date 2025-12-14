@@ -34,6 +34,7 @@ func TestDecimalsValidateParams(t *testing.T) {
 }
 
 func TestDecimalsInitCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
@@ -55,6 +56,7 @@ func TestDecimalsInitCall(t *testing.T) {
 }
 
 func TestDecimalsExecCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
