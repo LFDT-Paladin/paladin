@@ -1460,6 +1460,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	missingStateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	missingStateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	missingStateID3 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingStateID4 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	ctx, txm, done := newTestTransactionManager(t, true,
 		mockDomainStateCompletion,
@@ -1484,13 +1485,13 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 					},
 				}, nil).
 				Once()
-			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID3).
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID4).
 				Return(&pldapi.TransactionStates{
 					Info: []*pldapi.StateBase{
-						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}, // Now we have the manifest
+						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}, // we have the manifest
 					},
 					Unavailable: &pldapi.UnavailableStates{
-						Read: []pldtypes.HexBytes{missingStateID3}, // but not one required state
+						Read: []pldtypes.HexBytes{missingStateID4}, // but not one required state
 					},
 				}, nil).
 				Once()
@@ -1500,6 +1501,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	)
 	defer done()
 
+	txm.receiptsStateGapCheckTime = 50 * time.Millisecond
 	txm.receiptsReadPageSize = pageSize
 
 	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
@@ -1559,7 +1561,6 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 
 	// We get all the complete ones, regardless of the fact that means skipping
 	requireStrEqual(t, txID1, (<-r1.receipts).ID)
-	requireStrEqual(t, txID4, (<-r1.receipts).ID)
 	requireStrEqual(t, txID5, (<-r1.receipts).ID)
 
 	// We can get new batches on the unblocked contracts
@@ -1608,6 +1609,18 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 
 	// .. and TX3 is unblocked
 	requireStrEqual(t, txID3, (<-r1.receipts).ID)
+
+	// And the fourth
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID4, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. and TX3 is unblocked
+	requireStrEqual(t, txID4, (<-r1.receipts).ID)
 
 }
 

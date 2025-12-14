@@ -270,7 +270,6 @@ func (tm *txManager) StopReceiptListener(ctx context.Context, name string) error
 }
 
 func (tm *txManager) NotifyStatesDBChanged(ctx context.Context) {
-	// ctx = log.WithComponent(ctx, "txmanager")
 	tm.lastStateUpdateTime.Store(int64(pldtypes.TimestampNow()))
 }
 

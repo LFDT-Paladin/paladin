@@ -1674,3 +1674,20 @@ func TestPrepareInsertRemoteTransactionErr(t *testing.T) {
 	})
 	require.Regexp(t, "pop", err)
 }
+
+func TestHasChainedTransaction(t *testing.T) {
+	txID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(
+				sqlmock.NewRows([]string{"transaction"}).AddRow(txID))
+		},
+	)
+	defer done()
+
+	hasChained, err := txm.HasChainedTransaction(ctx, txID)
+	require.NoError(t, err)
+	require.True(t, hasChained)
+}

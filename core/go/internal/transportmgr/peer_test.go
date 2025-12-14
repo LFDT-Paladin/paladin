@@ -173,7 +173,7 @@ func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, true,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			conf.PeerReaperInterval = confutil.P("50ms")
+			conf.PeerReaperInterval = confutil.P("500ms")
 		},
 		mockGoodTransport,
 		mockGetStateOk,
@@ -304,10 +304,15 @@ func TestSendBadReliableMessageMarkedFailRealDB(t *testing.T) {
 	require.Regexp(t, "PD012016", rmWithAck.Ack.Error)
 
 	// Second nack
-	rmWithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+	var rm2WithAck *pldapi.ReliableMessage
+	for (rm2WithAck == nil || rm2WithAck.Ack == nil) && !t.Failed() {
+		time.Sleep(10 * time.Millisecond)
+		rm2WithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+		require.NoError(t, err)
+	}
 	require.NoError(t, err)
-	require.NotNil(t, rmWithAck.Ack)
-	require.Regexp(t, "PD012014", rmWithAck.Ack.Error)
+	require.NotNil(t, rm2WithAck.Ack)
+	require.Regexp(t, "PD012014", rm2WithAck.Ack.Error)
 
 }
 
