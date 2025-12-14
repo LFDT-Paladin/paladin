@@ -34,6 +34,7 @@ import (
 )
 
 func TestDelegateLockV1(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -42,6 +43,7 @@ func TestDelegateLockV1(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["delegateLock"]
@@ -97,8 +99,9 @@ func TestDelegateLockV1(t *testing.T) {
 		Transaction: tx,
 	})
 	require.NoError(t, err)
-	require.Len(t, initRes.RequiredVerifiers, 1)
-	assert.Equal(t, "sender@node1", initRes.RequiredVerifiers[0].Lookup)
+	require.Len(t, initRes.RequiredVerifiers, 2)
+	assert.Equal(t, "notary@node1", initRes.RequiredVerifiers[0].Lookup)
+	assert.Equal(t, "sender@node1", initRes.RequiredVerifiers[1].Lookup)
 
 	verifiers := []*prototk.ResolvedVerifier{
 		{
@@ -124,20 +127,20 @@ func TestDelegateLockV1(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest, data, lock-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
 
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
+	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[1].DistributionList)
 
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, delegateAddress, lockInfo.Delegate.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
-	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[1].DistributionList)
+	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[2].DistributionList)
 
 	encodedDelegateLock, err := n.encodeDelegateLock(ctx, ethtypes.MustNewAddress(contractAddress), lockID, (*pldtypes.EthAddress)(ethtypes.MustNewAddress(delegateAddress)), pldtypes.MustParseHexBytes("0x1234"))
 	require.NoError(t, err)
@@ -156,12 +159,12 @@ func TestDelegateLockV1(t *testing.T) {
 		{
 			SchemaId:      "data_v1",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 		{
 			SchemaId:      "lockInfo_v1",
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
 	}
 
@@ -267,6 +270,7 @@ func TestDelegateLockV1(t *testing.T) {
 }
 
 func TestDelegateLockV0(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -278,7 +282,7 @@ func TestDelegateLockV0(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Use V0 private ABI
-	fn := privateV0Build.ABI.Functions()["delegateLock"]
+	fn := types.NotoV0ABI.Functions()["delegateLock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
 	delegateAddress := "0x2000000000000000000000000000000000000000"
@@ -425,6 +429,7 @@ func TestDelegateLockV0(t *testing.T) {
 
 // TestDelegateLockV1MintLock tests that delegating a mint lock (with no input states) fails at Assemble stage
 func TestDelegateLockV1MintLock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -433,6 +438,7 @@ func TestDelegateLockV1MintLock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["delegateLock"]
