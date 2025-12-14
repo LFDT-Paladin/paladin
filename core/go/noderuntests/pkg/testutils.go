@@ -383,15 +383,6 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 
 }
 
-func getBesuPort() int {
-	if portStr := os.Getenv("BESU_PORT"); portStr != "" {
-		if port, err := strconv.Atoi(portStr); err == nil {
-			return port
-		}
-	}
-	return 0
-}
-
 func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.PaladinConfig, pldconf.WSClientConfig) {
 	ctx := t.Context()
 

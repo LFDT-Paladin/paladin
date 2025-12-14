@@ -17,9 +17,9 @@ package example
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/key-manager/signingmodules/example/internal/examplesigningmodule"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/key-manager/signingmodules/example/internal/examplesigningmodule"
 )
 
 func NewPlugin(ctx context.Context) plugintk.PluginBase {

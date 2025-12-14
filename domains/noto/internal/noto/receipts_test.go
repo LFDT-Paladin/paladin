@@ -28,7 +28,9 @@ import (
 )
 
 func TestReceiptTransfers(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
+		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
 		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
 	}

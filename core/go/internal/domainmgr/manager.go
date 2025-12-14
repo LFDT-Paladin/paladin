@@ -339,19 +339,18 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.Quer
 		DefaultSort: "domainAddress",
 		Filters:     smartContractFilters,
 		Query:       jq,
-		MapResult: func(pt *PrivateSmartContract) (*pldapi.DomainSmartContract, error) {
+		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
 			_, dc, err := dm.enrichContractWithDomain(ctx, pt)
-			if err != nil {
-				return nil, err
+			if err == nil {
+				result = &pldapi.DomainSmartContract{
+					DomainAddress: &pt.RegistryAddress,
+					Address:       pt.Address,
+				}
+				if dc != nil {
+					result.DomainName = dc.Domain().Name()
+				}
 			}
-			result := &pldapi.DomainSmartContract{
-				DomainAddress: &pt.RegistryAddress,
-				Address:       pt.Address,
-			}
-			if dc != nil {
-				result.DomainName = dc.Domain().Name()
-			}
-			return result, nil
+			return result, err
 		},
 	}
 	return qw.Run(ctx, nil)

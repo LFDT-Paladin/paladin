@@ -90,14 +90,15 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	notary := tx.DomainConfig.NotaryLookup
 	unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
-	notaryAddress, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
+	notaryAddress := notaryID.address
 
 	// Pre-compute the lockId as it will be generated on the smart contract
 	var senderAddress *pldtypes.EthAddress
@@ -116,40 +117,54 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 
 	outputs := &preparedOutputs{}
 	for _, entry := range params.Recipients {
-		toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
+		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
-		recipientOutputs, err := h.noto.prepareOutputs(toAddress, entry.Amount, []string{notary, entry.To})
+		recipientOutputs, err := h.noto.prepareOutputs(toID, entry.Amount, identityList{notaryID, toID})
 		if err != nil {
 			return nil, err
 		}
+		outputs.distributions = append(outputs.distributions, recipientOutputs.distributions...)
 		outputs.coins = append(outputs.coins, recipientOutputs.coins...)
 		outputs.states = append(outputs.states, recipientOutputs.states...)
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(lockID, fromAddress, nil, &unlockTxId, []string{notary, tx.Transaction.From})
+	lockState, err := h.noto.prepareLockInfo(lockID, senderID.address, nil, &unlockTxId, infoDistribution)
 	if err != nil {
 		return nil, err
 	}
 	infoStates = append(infoStates, lockState)
-
-	assembledTransaction := &prototk.AssembledTransaction{}
-	assembledTransaction.InfoStates = infoStates
-	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, outputs.states...)
 
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, outputs.coins)
 	if err != nil {
 		return nil, err
 	}
 
+	if !tx.DomainConfig.IsV0() {
+		manifestBuilder := h.noto.newManifestBuilder().addInfoStates(infoDistribution, infoStates...)
+		for i, outputState := range outputs.states {
+			// Outputs are added as info, but with their distribution as an output
+			manifestBuilder = manifestBuilder.addInfoStates(outputs.distributions[i], outputState)
+		}
+		manifestState, err := manifestBuilder.buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
+	}
+
 	return &prototk.AssembleTransactionResponse{
-		AssemblyResult:       prototk.AssembleTransactionResponse_OK,
-		AssembledTransaction: assembledTransaction,
+		AssemblyResult: prototk.AssembleTransactionResponse_OK,
+		AssembledTransaction: &prototk.AssembledTransaction{
+			// The output states are written as info states, as they are not outputs of this transaction (but a future one)
+			InfoStates: append(infoStates, outputs.states...),
+		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature
 			{
@@ -221,7 +236,7 @@ func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	data, err := h.noto.encodeTransactionData(ctx, req.Transaction, req.InfoStates)
+	data, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}
@@ -256,17 +271,17 @@ func (h *createMintLockHandler) hookInvoke(ctx context.Context, tx *types.Parsed
 	}
 	lockID := lockInfo.LockID
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 	recipients := make([]*ResolvedUnlockRecipient, len(inParams.Recipients))
 	for i, entry := range inParams.Recipients {
-		to, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
+		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
-		recipients[i] = &ResolvedUnlockRecipient{To: to, Amount: entry.Amount}
+		recipients[i] = &ResolvedUnlockRecipient{To: toID.address, Amount: entry.Amount}
 	}
 
 	encodedCall, err := baseTransaction.encode(ctx)
@@ -274,7 +289,7 @@ func (h *createMintLockHandler) hookInvoke(ctx context.Context, tx *types.Parsed
 		return nil, err
 	}
 	params := &UnlockHookParams{
-		Sender:     fromAddress,
+		Sender:     fromID.address,
 		LockID:     lockID,
 		Recipients: recipients,
 		Data:       inParams.Data,

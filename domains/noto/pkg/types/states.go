@@ -108,6 +108,41 @@ var NotoLockedCoinABI = &abi.Parameter{
 	},
 }
 
+type NotoManifestState struct {
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoManifest        `json:"data"`
+}
+
+type NotoManifest struct {
+	Salt   pldtypes.Bytes32          `json:"salt"`
+	States []*NotoManifestStateEntry `json:"states"`
+}
+
+type NotoManifestStateEntry struct {
+	ID           pldtypes.Bytes32       `json:"state"`
+	Participants []*pldtypes.EthAddress `json:"participants"`
+}
+
+var NotoManifestABI = &abi.Parameter{
+	Name:         "NotoManifest",
+	Type:         "tuple",
+	InternalType: "struct NotoManifest",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{
+			Name:         "states",
+			Type:         "tuple[]",
+			InternalType: "struct NotoManifestStateEntry[]",
+			Components: abi.ParameterArray{
+				{Name: "state", Type: "bytes32"},
+				{Name: "participants", Type: "string[]"},
+			},
+		},
+	},
+}
+
 type NotoLockInfo_V0 struct {
 	Salt     pldtypes.Bytes32     `json:"salt"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
@@ -149,7 +184,7 @@ var NotoLockInfoABI_V1 = &abi.Parameter{
 }
 
 type TransactionData struct {
-	Salt    string             `json:"salt"`
+	Salt    pldtypes.Bytes32   `json:"salt"`
 	Data    pldtypes.HexBytes  `json:"data"`
 	Variant pldtypes.HexUint64 `json:"variant"` // Noto contract variant
 }

@@ -198,18 +198,20 @@ func NewCoordinator(
 }
 
 func (c *coordinator) eventLoop(ctx context.Context) {
+	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
 	for {
-		log.L(ctx).Debug("coordinator event loop waiting for next event")
 		select {
 		case event := <-c.coordinatorEvents:
-			log.L(ctx).Debugf("coordinator pulled event from the queue: %s", event.TypeString())
+			log.L(ctx).Debugf("coordinator for contract %s pulled event from the queue: %s", c.contractAddress.String(), event.TypeString())
 			err := c.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-c.stopEventLoop:
+			log.L(ctx).Debugf("coordinator event loop stopped for contract %s", c.contractAddress.String())
+			return
 		case <-c.ctx.Done():
-			log.L(ctx).Infof("coordinator event loop cancelled")
+			log.L(ctx).Debugf("coordinator event loop cancelled for contract %s", c.contractAddress.String())
 			return
 		}
 	}
@@ -217,9 +219,9 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
 	dispatchedAhead := 0 // Number of transactions we've dispatched without confirming they are in the state machine's in-flight list
+	log.L(ctx).Debugf("coordinator dispatch loop started for contract %s", c.contractAddress.String())
 
 	for {
-		log.L(ctx).Debug("coordinator dispatch loop waiting for next TX to dispatch")
 		select {
 		case tx := <-c.dispatchQueue:
 			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. In-flight count: %d, dispatched ahead: %d, max dispatch ahead: %d", tx.ID.String(), len(c.inFlightTxns), dispatchedAhead, c.maxDispatchAhead)
@@ -258,10 +260,10 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			}
 			c.inFlightMutex.L.Unlock()
 		case <-c.stopDispatchLoop:
-			log.L(ctx).Infof("coordinator dispatch loop stopped")
+			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
 			return
 		case <-ctx.Done():
-			log.L(ctx).Infof("coordinator dispatch loop cancelled")
+			log.L(ctx).Debugf("coordinator dispatch loop for contract %s cancelled", c.contractAddress.String())
 			return
 		}
 	}
@@ -292,7 +294,7 @@ func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, 
 	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {
 		// E.g. Noto
 		if c.domainAPI.ContractConfig().GetStaticCoordinator() == "" {
-			return "", fmt.Errorf("static coordinator mode is configured but static coordinator node is not set")
+			return "", i18n.NewError(ctx, "static coordinator mode is configured but static coordinator node is not set")
 		}
 		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in static coordinator mode", c.domainAPI.ContractConfig().GetStaticCoordinator())
 		// If the static coordinator returns a fully qualified identity extract just the node name

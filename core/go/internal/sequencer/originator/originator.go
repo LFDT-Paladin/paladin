@@ -17,7 +17,6 @@ package originator
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -74,6 +73,7 @@ type originator struct {
 	/* Event loop and delegate loop*/
 	originatorEvents chan common.Event
 	stopEventLoop    chan struct{}
+	eventLoopStopped chan struct{}
 }
 
 func NewOriginator(
@@ -102,6 +102,7 @@ func NewOriginator(
 		metrics:                     metrics,
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
+		eventLoopStopped:            make(chan struct{}),
 	}
 	o.InitializeStateMachine(State_Idle)
 
@@ -113,38 +114,45 @@ func NewOriginator(
 }
 
 func (o *originator) eventLoop(ctx context.Context) {
+	defer close(o.eventLoopStopped)
+	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
-		log.L(ctx).Infof("originator event loop waiting for next event")
+		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
 		select {
 		case event := <-o.originatorEvents:
-			log.L(ctx).Infof("originator pulled event from the queue: %s", event.TypeString())
+			log.L(ctx).Debugf("originator for contract %s pulled event from the queue: %s", o.contractAddress.String(), event.TypeString())
 			err := o.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-o.stopEventLoop:
-			log.L(ctx).Infof("originator event loop cancelled")
+			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
+			return
+		case <-ctx.Done():
+			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
+			return
 		}
 	}
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Starting delegate loop", o.contractAddress.String()[0:8])
+	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 
 	// Check for transactions still waiting to be delegated
 	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
-	defer ticker.Stop()
+	defer func() {
+		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
+		ticker.Stop()
+	}()
 	for {
 		select {
 		case <-ticker.C:
-			log.L(ctx).Tracef("delegate loop fired for contract %s", o.contractAddress.String())
+			log.L(ctx).Debugf("delegate loop fired for contract %s", o.contractAddress.String())
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
-			fmt.Println("Firing delegate timeout event")
 			o.QueueEvent(ctx, delegateTimeoutEvent)
 		case <-ctx.Done():
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("orig     | %s   | Stopping delegate loop", o.contractAddress.String()[0:8])
 			return
 		}
 	}
@@ -227,6 +235,7 @@ func ptrTo[T any](v T) *T {
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
 	o.stopEventLoop <- struct{}{}
+	<-o.eventLoopStopped
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.

@@ -1,5 +1,5 @@
 name: 'Free Up Disk Space'
-description: 'Removes large, pre-installed toolsets like .NET, Android, and Swift to free up disk space.'
+description: 'Removes large, pre-installed toolsets like .NET, Android, Swift, and others to free up disk space on GitHub runners.'
 runs:
   using: "composite"
   steps:
@@ -8,11 +8,38 @@ runs:
       run: |
         echo "--- Disk Usage Before Cleanup ---"
         df -h
+        echo ""
         echo "Removing large pre-installed toolsets..."
+        
+        # .NET (~1.7GB)
         sudo rm -rf /usr/share/dotnet
+        
+        # Android SDK (~12GB)
         sudo rm -rf /usr/local/lib/android
+        
+        # Swift (~1.3GB)
         sudo rm -rf /usr/share/swift
+        
+        # Haskell/GHC (~5GB)
         sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/.ghcup
+        
+        # CodeQL (~300MB)
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        
+        # PowerShell (~300MB)
+        sudo rm -rf /usr/local/share/powershell
+        
+        # Rust (~700MB) - only remove if not needed
+        # sudo rm -rf /usr/share/rust
+        
+        # Google Cloud SDK (~1GB)
+        sudo rm -rf /usr/lib/google-cloud-sdk
+        
+        # Azure CLI (~600MB)
+        sudo rm -rf /opt/az
+        
+        echo ""
         echo "--- Disk Usage After Cleanup ---"
         df -h
 

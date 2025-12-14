@@ -18,11 +18,12 @@ package transport
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -382,7 +383,7 @@ func (tw *transportWriter) SendHandoverRequest(ctx context.Context, activeCoordi
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send handover request to node %s", activeCoordinator)
 
 	if contractAddress == nil {
-		err := fmt.Errorf("attempt to send handover request without specifying contract address")
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send handover request without specifying contract address")
 		return err
 	}
 	handoverRequest := &HandoverRequest{
@@ -410,7 +411,7 @@ func (tw *transportWriter) SendNonceAssigned(ctx context.Context, txID uuid.UUID
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send nonce assigned message to node %s", originatorNode)
 
 	if contractAddress == nil {
-		err := fmt.Errorf("attempt to send nonce assigned event request without specifying contract address")
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send nonce assigned event request without specifying contract address")
 		return err
 	}
 	nonceAssigned := &engineProto.NonceAssigned{
@@ -441,7 +442,7 @@ func (tw *transportWriter) SendTransactionSubmitted(ctx context.Context, txID uu
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send transaction submitted message to node %s", originatorNode)
 
 	if contractAddress == nil {
-		err := fmt.Errorf("attempt to send TX submitted event without specifying contract address")
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send TX submitted event without specifying contract address")
 		return err
 	}
 	txSubmitted := &engineProto.TransactionSubmitted{
@@ -472,7 +473,7 @@ func (tw *transportWriter) SendTransactionConfirmed(ctx context.Context, txID uu
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send transaction confirmed message to node %s", originatorNode)
 
 	if contractAddress == nil {
-		err := fmt.Errorf("attempt to send TX submitted event without specifying contract address")
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send TX submitted event without specifying contract address")
 		return err
 	}
 
@@ -632,7 +633,7 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 
 func (tw *transportWriter) send(ctx context.Context, payload *components.FireAndForgetMessageSend) error {
 	if payload.Node == "" {
-		err := fmt.Errorf("attempt to send message without specifying destination node name")
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send message without specifying destination node name")
 		return err
 	}
 

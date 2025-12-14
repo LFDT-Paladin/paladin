@@ -184,7 +184,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			Where(`"chained_transaction" IN ?`, possibleChainingRecordIDs).
 			Find(&chainingRecords).
 			Error
-		// Recurse into PrivateTXManager, who will call us back, or send via the transport mgr
+		// Recurse into the sequencer manager, who will call us back, or send via the transport mgr
 		if err == nil {
 			receiptsToWrite := make([]*components.ReceiptInputWithOriginator, 0, len(chainingRecords))
 			for _, cr := range chainingRecords {
@@ -394,21 +394,32 @@ func (tm *txManager) GetTransactionReceiptByID(ctx context.Context, id uuid.UUID
 	return prs[0], nil
 }
 
+func (tm *txManager) addStateReceipt(ctx context.Context, receipt *pldapi.TransactionReceiptFull) (err error) {
+	receipt.States, err = tm.stateMgr.GetTransactionStates(ctx, tm.p.NOTX(), receipt.ID)
+	return err
+}
+
+func (tm *txManager) addDomainReceipt(ctx context.Context, d components.Domain, receipt *pldapi.TransactionReceiptFull) {
+	var err error
+	receipt.DomainReceipt, err = d.BuildDomainReceipt(ctx, tm.p.NOTX(), receipt.ID, receipt.States)
+	if err != nil {
+		receipt.DomainReceiptError = err.Error()
+	}
+}
+
 func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.TransactionReceipt, domainReceipt bool) (fullReceipt *pldapi.TransactionReceiptFull, err error) {
 	log.L(ctx).Debugf("Building full transaction receipt by ID: %s", receipt.ID)
 	fullReceipt = &pldapi.TransactionReceiptFull{TransactionReceipt: receipt}
 	if receipt.Domain != "" {
-		fullReceipt.States, err = tm.stateMgr.GetTransactionStates(ctx, tm.p.NOTX(), fullReceipt.ID)
-		if err != nil {
+		if err = tm.addStateReceipt(ctx, fullReceipt); err != nil {
 			return nil, err
 		}
 		if domainReceipt {
-			d, domainErr := tm.domainMgr.GetDomainByName(ctx, receipt.Domain)
-			if domainErr == nil {
-				fullReceipt.DomainReceipt, domainErr = d.BuildDomainReceipt(ctx, tm.p.NOTX(), fullReceipt.ID, fullReceipt.States)
-			}
-			if domainErr != nil {
-				fullReceipt.DomainReceiptError = domainErr.Error()
+			d, err := tm.domainMgr.GetDomainByName(ctx, receipt.Domain)
+			if err == nil {
+				tm.addDomainReceipt(ctx, d, fullReceipt)
+			} else {
+				fullReceipt.DomainReceiptError = err.Error()
 			}
 		}
 	}
