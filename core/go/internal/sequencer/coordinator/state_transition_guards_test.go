@@ -50,66 +50,82 @@ func TestGuard_Not(t *testing.T) {
 	assert.True(t, notFalse(ctx, c))
 }
 
-func TestGuard_Behind(t *testing.T) {
+func TestGuard_Behind_BehindByMoreThanTolerance(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _ := builder.Build(ctx)
 
 	// Set block height tolerance to 5
 	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 10
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.True(t, result, "10 < 20 - 5 = 15 should return true")
+}
 
-	tests := []struct {
-		name                         string
-		currentBlockHeight           uint64
-		activeCoordinatorBlockHeight uint64
-		expected                     bool
-	}{
-		{
-			name:                         "behind by more than tolerance",
-			currentBlockHeight:           10,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     true, // 10 < 20 - 5 = 15
-		},
-		{
-			name:                         "behind by exactly tolerance",
-			currentBlockHeight:           15,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     false, // 15 is not < 20 - 5 = 15
-		},
-		{
-			name:                         "behind by less than tolerance",
-			currentBlockHeight:           16,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     false, // 16 is not < 20 - 5 = 15
-		},
-		{
-			name:                         "ahead of active coordinator",
-			currentBlockHeight:           25,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     false, // 25 is not < 20 - 5 = 15
-		},
-		{
-			name:                         "equal to active coordinator minus tolerance",
-			currentBlockHeight:           15,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     false, // 15 is not < 15
-		},
-		{
-			name:                         "same height",
-			currentBlockHeight:           20,
-			activeCoordinatorBlockHeight: 20,
-			expected:                     false, // 20 is not < 20 - 5 = 15
-		},
-	}
+func TestGuard_Behind_BehindByExactlyTolerance(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _ := builder.Build(ctx)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c.currentBlockHeight = tt.currentBlockHeight
-			c.activeCoordinatorBlockHeight = tt.activeCoordinatorBlockHeight
-			result := guard_Behind(ctx, c)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+	// Set block height tolerance to 5
+	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 15
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.False(t, result, "15 is not < 20 - 5 = 15 should return false")
+}
+
+func TestGuard_Behind_BehindByLessThanTolerance(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _ := builder.Build(ctx)
+
+	// Set block height tolerance to 5
+	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 16
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.False(t, result, "16 is not < 20 - 5 = 15 should return false")
+}
+
+func TestGuard_Behind_AheadOfActiveCoordinator(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _ := builder.Build(ctx)
+
+	// Set block height tolerance to 5
+	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 25
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.False(t, result, "25 is not < 20 - 5 = 15 should return false")
+}
+
+func TestGuard_Behind_EqualToActiveCoordinatorMinusTolerance(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _ := builder.Build(ctx)
+
+	// Set block height tolerance to 5
+	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 15
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.False(t, result, "15 is not < 15 should return false")
+}
+
+func TestGuard_Behind_SameHeight(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _ := builder.Build(ctx)
+
+	// Set block height tolerance to 5
+	c.blockHeightTolerance = 5
+	c.currentBlockHeight = 20
+	c.activeCoordinatorBlockHeight = 20
+	result := guard_Behind(ctx, c)
+	assert.False(t, result, "20 is not < 20 - 5 = 15 should return false")
 }
 
 func TestGuard_ActiveCoordinatorFlushComplete_EmptyFlushPointsMap(t *testing.T) {

@@ -52,7 +52,7 @@ func (c *coordinator) AddTransactionToBackOfPool(ctx context.Context, txn *trans
 }
 
 /* Functions of the TransactionPool interface required by the transactionSelector */
-func (c *coordinator) GetNextPooledTransaction(ctx context.Context) *transaction.Transaction {
+func (c *coordinator) PopNextPooledTransaction(ctx context.Context) *transaction.Transaction {
 	c.pooledTransactionsMutex.Lock()
 	defer c.pooledTransactionsMutex.Unlock()
 	if len(c.pooledTransactions) == 0 {
@@ -77,8 +77,8 @@ type TransactionSelector interface {
 type TransactionPool interface {
 	// Put this transaction to the back of the pooled queue
 	AddTransactionToBackOfPool(ctx context.Context, txn *transaction.Transaction)
-	// Return the next transaction that is pooled, in FIFO order (i.e. from the front of the queue/slice)
-	GetNextPooledTransaction(ctx context.Context) *transaction.Transaction
+	// Remove and return the next transaction that is pooled, in FIFO order (i.e. from the front of the queue)
+	PopNextPooledTransaction(ctx context.Context) *transaction.Transaction
 
 	GetTransactionByID(ctx context.Context, txnID uuid.UUID) *transaction.Transaction
 }
@@ -192,7 +192,7 @@ func (ts *transactionSelector) SelectNextTransactionToAssemble(ctx context.Conte
 	if !txStillBeingAssembled {
 		// Initial distributed sequencer implementation just pulls transactions in FIFO order. This needs implementing to be fairer, potentially based
 		// on the initial fast-queue/slow-queue in the PoC distributed sequencer.
-		nextPooledTx := ts.transactionPool.GetNextPooledTransaction(ctx)
+		nextPooledTx := ts.transactionPool.PopNextPooledTransaction(ctx)
 
 		if nextPooledTx != nil {
 			// Pop first item from the front of the slice

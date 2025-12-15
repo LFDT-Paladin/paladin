@@ -18,53 +18,18 @@ package originator
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-func NewOriginatorForUnitTest(t *testing.T, ctx context.Context, originatorIdentityPool []string) (*originator, *originatorDependencyMocks) {
-
-	if originatorIdentityPool == nil {
-		originatorIdentityPool = []string{"member1@node1"}
-	}
-	mocks := &originatorDependencyMocks{
-		transportWriter:   transport.NewMockTransportWriter(t),
-		clock:             &common.FakeClockForTesting{},
-		engineIntegration: common.NewMockEngineIntegration(t),
-		emit:              func(event common.Event) {},
-	}
-
-	originator, err := NewOriginator(
-		ctx,
-		"member1@node1",
-		mocks.transportWriter,
-		mocks.clock,
-		mocks.engineIntegration,
-		100,
-		pldtypes.RandAddress(),
-		5,
-		5,
-		nil,
-	)
-	require.NoError(t, err)
-
-	return originator, mocks
-}
-
-type originatorDependencyMocks struct {
-	transportWriter   *transport.MockTransportWriter
-	clock             *common.FakeClockForTesting
-	engineIntegration *common.MockEngineIntegration
-	emit              common.EmitEvent
-}
 
 func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	// Test the progression of a single transaction through the originator's lifecycle
@@ -175,6 +140,9 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	config := builder.GetSequencerConfig()
+	config.DelegateTimeout = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
 	s, mocks := builder.Build(ctx)
 
 	//ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
@@ -223,6 +191,8 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 		},
 	}
 
+	// Wait delegate-timeout before sending the heartbeat event
+	time.Sleep(110 * time.Millisecond)
 	err = s.ProcessEvent(ctx, heartbeatEvent)
 	assert.NoError(t, err)
 
@@ -448,6 +418,6 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	// Wait for the event to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify that events can still be processed after Stop() is called
-	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event loop should continue processing events after receiving stop signal")
+	// Verify that events can't still be processed after Stop() is called
+	require.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event loop should not continue processing events after receiving stop signal")
 }

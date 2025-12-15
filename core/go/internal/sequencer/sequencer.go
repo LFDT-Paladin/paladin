@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -153,10 +152,6 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 			if err != nil {
 				log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
 			}
-			if len(pendingTx) == 0 {
-				log.L(sMgr.ctx).Infof("No pending transactions to resume")
-				return
-			}
 			resumedTransactions += len(pendingTx)
 			log.L(sMgr.ctx).Infof("Resuming %d transactions", resumedTransactions)
 			for _, tx := range pendingTx {
@@ -175,9 +170,9 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 
 			select {
 			case <-timeoutCtx.Done():
-				log.L(sMgr.ctx).Debugf("timeout - checking for pending DB transactions")
+				log.L(sMgr.ctx).Debug("timeout - checking for pending DB transactions")
 			case <-ctx.Done():
-				log.L(sMgr.ctx).Errorf("context cancelled - ending DB poll")
+				log.L(sMgr.ctx).Debug("context cancelled - ending DB poll")
 				return
 			}
 		}
@@ -543,7 +538,7 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 		coordTx := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
 
 		if coordTx == nil {
-			return fmt.Errorf("transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
 		}
 
 		// Forward the event to the originator
@@ -665,7 +660,7 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 			}
 
 			if from == nil {
-				return fmt.Errorf("nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
 			}
 
 			confirmedEvent := &coordinator.TransactionConfirmedEvent{
@@ -797,7 +792,7 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 			}
 
 			if tx.From == nil {
-				return fmt.Errorf("nil From address for confirmed transaction %s", tx.TransactionID)
+				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
 			}
 
 			failedEvent := &coordinator.TransactionConfirmedEvent{
@@ -921,13 +916,21 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 
 func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
 
-	// There may be some public reverts that are unrecoverable. This function is potentially where we enforce that. For now, no public revert
-	// is considered irrecoverable for private transactions so we don't persist a private TX failure receipt here, we assume that with enough
-	// successful re-assembles we will end up with a successful private TX receipt. An assemle revert will still finalise the private TX with
-	// a revert receipt.
-	// sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
+	// Note: This specifically finalises only off-chain reverts. This logic may be open for discussion, but for clarity the current logic is intentionally:
+	// 1. Off-chain reverts are considered to be final. So assembly of a transaction results in that transaction being finalised as failed. And assembly of a
+	// chained transaction causes the parent transaction to be finalised as failed.
+	// 2. On-chain reverts are considered to be (at least potentially) retriable based on decisions made in the coordinator.
+	assemblyReverts := make([]*components.ReceiptInputWithOriginator, 0, len(receipts))
+	for _, nextReceipt := range receipts {
+		if nextReceipt.OnChain.Type == 0 {
+			assemblyReverts = append(assemblyReverts, nextReceipt)
+		}
+	}
 
-	return nil
+	// Note & TODO: the sequencer state machines are responsible for tearing down any transactions that were assembled after this one, and which will need
+	// re-assembling and re-dispatching. See https://github.com/LFDT-Paladin/paladin/issues/941 and https://github.com/LFDT-Paladin/paladin/issues/917
+
+	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, assemblyReverts)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {

@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -112,6 +114,10 @@ func init() {
 			Events: map[EventType]EventHandler{
 				Event_Received: { //TODO rename this event type because it is the first one we see in this struct and it seems like we are saying this is a definition related to receiving an event (at one level that is correct but it is not what is meant by Event_Received)
 					Transitions: []Transition{
+						{
+							To: State_Submitted,
+							If: guard_HasChainedTxInProgress,
+						},
 						{
 							To: State_Pooled,
 							If: guard_And(guard_Not(guard_HasUnassembledDependencies), guard_Not(guard_HasUnknownDependencies)),
@@ -396,6 +402,20 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 		err = t.applyPostAssembly(ctx, event.PostAssembly)
 		if err == nil {
 			err = t.writeLockStates(ctx)
+			if err != nil {
+				// Internal error. Only option is to revert the transaction
+				seqRevertEvent := &AssembleRevertResponseEvent{}
+				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
+				seqRevertEvent.TransactionID = t.ID
+				err = t.eventHandler(ctx, seqRevertEvent)
+				if err != nil {
+					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
+					log.L(ctx).Error(handlerErr)
+				}
+				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+				// Return the original error
+				return err
+			}
 		}
 		// Assembling resolves the required verifiers which will need passing on for the endorse step
 		t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
