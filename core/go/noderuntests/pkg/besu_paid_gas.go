@@ -20,5 +20,5 @@ package testutils
 
 // This is what you use when you're running from the commandline
 func getBesuPort() int {
-	return 8545
+	return 8555
 }
