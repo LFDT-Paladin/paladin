@@ -27,7 +27,6 @@ ext {
         include "core.go"
         include "internal/**/*.go"
         include "pkg/**/*.go"
-        include "componenttest/**/*.go"
         include "noderuntests/**/*.go"
         include "mocks/**/*.go"
     }
