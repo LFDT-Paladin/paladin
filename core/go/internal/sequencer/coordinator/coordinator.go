@@ -21,7 +21,6 @@ import (
 	"hash/fnv"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -114,12 +113,13 @@ type coordinator struct {
 	/* Event loop */
 	coordinatorEvents chan common.Event
 	stopEventLoop     chan struct{}
-
+	eventLoopStopped  chan struct{}
 	/* Dispatch loop */
-	dispatchQueue    chan *transaction.Transaction
-	stopDispatchLoop chan struct{}
-	inFlightTxns     map[uuid.UUID]*transaction.Transaction
-	inFlightMutex    *sync.Cond
+	dispatchQueue       chan *transaction.Transaction
+	stopDispatchLoop    chan struct{}
+	dispatchLoopStopped chan struct{}
+	inFlightTxns        map[uuid.UUID]*transaction.Transaction
+	inFlightMutex       *sync.Cond
 }
 
 func NewCoordinator(
@@ -162,7 +162,9 @@ func NewCoordinator(
 		metrics:                            metrics,
 		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:                      make(chan struct{}),
+		eventLoopStopped:                   make(chan struct{}),
 		stopDispatchLoop:                   make(chan struct{}),
+		dispatchLoopStopped:                make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
@@ -188,16 +190,13 @@ func NewCoordinator(
 	go c.dispatchLoop(ctx)
 
 	// Handle loopback messages to the same node in FIFO order without blocking the event loop
-	err := transportWriter.Start(ctx)
-	if err != nil {
-		log.L(ctx).Errorf("error starting transport writer: %v", err)
-		return nil, err
-	}
+	transportWriter.StartLoopbackWriter(ctx)
 
 	return c, nil
 }
 
 func (c *coordinator) eventLoop(ctx context.Context) {
+	defer close(c.eventLoopStopped)
 	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
 	for {
 		select {
@@ -218,6 +217,7 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 }
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
+	defer close(c.dispatchLoopStopped)
 	dispatchedAhead := 0 // Number of transactions we've dispatched without confirming they are in the state machine's in-flight list
 	log.L(ctx).Debugf("coordinator dispatch loop started for contract %s", c.contractAddress.String())
 
@@ -290,7 +290,7 @@ func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActi
 }
 
 func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, error) {
-	coordinator := ""
+	coordinatorNode := ""
 	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {
 		// E.g. Noto
 		if c.domainAPI.ContractConfig().GetStaticCoordinator() == "" {
@@ -298,12 +298,13 @@ func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, 
 		}
 		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in static coordinator mode", c.domainAPI.ContractConfig().GetStaticCoordinator())
 		// If the static coordinator returns a fully qualified identity extract just the node name
-		if strings.Contains(c.domainAPI.ContractConfig().GetStaticCoordinator(), "@") {
-			parts := strings.Split(c.domainAPI.ContractConfig().GetStaticCoordinator(), "@")
-			coordinator = parts[1]
-		} else {
-			coordinator = c.domainAPI.ContractConfig().GetStaticCoordinator()
+
+		coordinator, err := pldtypes.PrivateIdentityLocator(c.domainAPI.ContractConfig().GetStaticCoordinator()).Node(ctx, false)
+		if err != nil {
+			log.L(ctx).Errorf("error getting static coordinator node id for %s: %s", c.domainAPI.ContractConfig().GetStaticCoordinator(), err)
+			return "", err
 		}
+		coordinatorNode = coordinator
 	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_ENDORSER {
 		// E.g. Pente
 		// Make a fair choice about the next coordinator
@@ -319,22 +320,18 @@ func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, 
 			// Take a numeric hash of the identities using the current block range
 			h := fnv.New32a()
 			h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
-			coordinator = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
-			log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinator, c.originatorNodePool)
+			coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
+			log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
 		}
 	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_SENDER {
 		// E.g. Zeto
 		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in originator coordinator mode", c.nodeName)
-		coordinator = c.nodeName
+		coordinatorNode = c.nodeName
 	}
 
-	log.L(ctx).Debugf("selected active coordinator for contract %s: %s", c.contractAddress.String(), coordinator)
+	log.L(ctx).Debugf("selected active coordinator for contract %s: %s", c.contractAddress.String(), coordinatorNode)
 
-	if strings.Contains(coordinator, "@") || coordinator == "" {
-		return "", i18n.NewError(ctx, msgs.MsgSequencerInternalError, "coordinator node is invalid")
-	}
-
-	return coordinator, nil
+	return coordinatorNode, nil
 }
 
 // The originator node pool is the list of all parties who should receive heartbeats, and who are
@@ -452,7 +449,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
 			newTransaction.SetChainedTxInProgress()
 		}
-
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
@@ -623,9 +619,13 @@ func (c *coordinator) Stop() {
 
 	// MRW TODO - The state machine doesn't really have a "please take over from me" path. Not a current priority
 	// but it will be needed in the future.
+
 	c.stopEventLoop <- struct{}{}
 	c.stopDispatchLoop <- struct{}{}
 	c.cancelCtx()
+	<-c.eventLoopStopped
+	<-c.dispatchLoopStopped
+	c.transportWriter.StopLoopbackWriter()
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.

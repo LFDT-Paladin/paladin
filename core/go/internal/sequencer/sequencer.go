@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -602,7 +601,10 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 			},
 		}
 
-		senderNode := strings.Split(sender, "@")[1]
+		senderNode, err := pldtypes.PrivateIdentityLocator(sender).Node(ctx, false)
+		if err != nil {
+			return err
+		}
 		if senderNode != sMgr.nodeName {
 			// Send reliable message to the node under the current DBTX
 			err = sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
@@ -629,7 +631,10 @@ func (sMgr *sequencerManager) HandlePublicTXsWritten(ctx context.Context, dbTX p
 				continue
 			}
 
-			senderNode := strings.Split(binding.TransactionSender, "@")[1]
+			senderNode, err := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(ctx, false)
+			if err != nil {
+				return err
+			}
 			if senderNode != sMgr.nodeName {
 				log.L(sMgr.ctx).Debugf("Send public TX to %s", binding.TransactionSender)
 				// Send reliable message to the node under the current DBTX
