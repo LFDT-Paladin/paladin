@@ -341,8 +341,8 @@ func (_c *MockTransportWriter_SendAssembleResponse_Call) RunAndReturn(run func(c
 }
 
 // SendDelegationRequest provides a mock function for the type MockTransportWriter
-func (_mock *MockTransportWriter) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
-	ret := _mock.Called(ctx, coordinatorLocator, transactions, blockHeight)
+func (_mock *MockTransportWriter) SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
+	ret := _mock.Called(ctx, coordinatorNode, transactions, blockHeight)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendDelegationRequest")
@@ -350,7 +350,7 @@ func (_mock *MockTransportWriter) SendDelegationRequest(ctx context.Context, coo
 
 	var r0 error
 	if returnFunc, ok := ret.Get(0).(func(context.Context, string, []*components.PrivateTransaction, uint64) error); ok {
-		r0 = returnFunc(ctx, coordinatorLocator, transactions, blockHeight)
+		r0 = returnFunc(ctx, coordinatorNode, transactions, blockHeight)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -364,14 +364,14 @@ type MockTransportWriter_SendDelegationRequest_Call struct {
 
 // SendDelegationRequest is a helper method to define mock.On call
 //   - ctx context.Context
-//   - coordinatorLocator string
+//   - coordinatorNode string
 //   - transactions []*components.PrivateTransaction
 //   - blockHeight uint64
-func (_e *MockTransportWriter_Expecter) SendDelegationRequest(ctx interface{}, coordinatorLocator interface{}, transactions interface{}, blockHeight interface{}) *MockTransportWriter_SendDelegationRequest_Call {
-	return &MockTransportWriter_SendDelegationRequest_Call{Call: _e.mock.On("SendDelegationRequest", ctx, coordinatorLocator, transactions, blockHeight)}
+func (_e *MockTransportWriter_Expecter) SendDelegationRequest(ctx interface{}, coordinatorNode interface{}, transactions interface{}, blockHeight interface{}) *MockTransportWriter_SendDelegationRequest_Call {
+	return &MockTransportWriter_SendDelegationRequest_Call{Call: _e.mock.On("SendDelegationRequest", ctx, coordinatorNode, transactions, blockHeight)}
 }
 
-func (_c *MockTransportWriter_SendDelegationRequest_Call) Run(run func(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64)) *MockTransportWriter_SendDelegationRequest_Call {
+func (_c *MockTransportWriter_SendDelegationRequest_Call) Run(run func(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64)) *MockTransportWriter_SendDelegationRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -404,7 +404,7 @@ func (_c *MockTransportWriter_SendDelegationRequest_Call) Return(err error) *Moc
 	return _c
 }
 
-func (_c *MockTransportWriter_SendDelegationRequest_Call) RunAndReturn(run func(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error) *MockTransportWriter_SendDelegationRequest_Call {
+func (_c *MockTransportWriter_SendDelegationRequest_Call) RunAndReturn(run func(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error) *MockTransportWriter_SendDelegationRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

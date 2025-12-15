@@ -230,7 +230,7 @@ func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *com
 	if tx != nil && tx.PreAssembly != nil && tx.PreAssembly.RequiredVerifiers != nil {
 		log.L(ctx).Debugf("setting initial coordinator for %s, updating origininator node pool to include required verifiers of transaction %s", sequencer.contractAddress, tx.ID.String())
 		for _, verifier := range tx.PreAssembly.RequiredVerifiers {
-			node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Node(ctx, false)
+			_, node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Validate(ctx, sMgr.nodeName, false)
 			if err != nil {
 				return err
 			}

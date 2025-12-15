@@ -36,7 +36,7 @@ import (
 type TransportWriter interface {
 	StartLoopbackWriter(ctx context.Context)
 	StopLoopbackWriter()
-	SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error
+	SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error
 	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error
 	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
 	SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error
@@ -86,16 +86,10 @@ func (tw *transportWriter) StopLoopbackWriter() {
 
 func (tw *transportWriter) SendDelegationRequest(
 	ctx context.Context,
-	coordinatorLocator string,
+	coordinatorNode string,
 	transactions []*components.PrivateTransaction,
 	blockHeight uint64,
 ) error {
-	delegateNode, err := pldtypes.PrivateIdentityLocator(coordinatorLocator).Node(ctx, false)
-	if err != nil {
-		log.L(ctx).Errorf("error getting delegate node id for coordinator locator %s: %s", coordinatorLocator, err)
-		return err
-	}
-
 	for _, transaction := range transactions {
 		transactionBytes, err := json.Marshal(transaction)
 
@@ -105,7 +99,7 @@ func (tw *transportWriter) SendDelegationRequest(
 
 		delegationRequest := &engineProto.DelegationRequest{
 			TransactionId:      transaction.ID.String(),
-			DelegateNodeId:     delegateNode,
+			DelegateNodeId:     coordinatorNode,
 			PrivateTransaction: transactionBytes,
 			BlockHeight:        int64(blockHeight),
 		}
@@ -118,7 +112,7 @@ func (tw *transportWriter) SendDelegationRequest(
 			MessageType: MessageType_DelegationRequest,
 			Payload:     delegationRequestBytes,
 			Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-			Node:        delegateNode,
+			Node:        coordinatorNode,
 		}); err != nil {
 			log.L(ctx).Errorf("error sending delegationRequest message: %s", err)
 		}
@@ -570,15 +564,14 @@ func (tw *transportWriter) SendPreDispatchRequest(ctx context.Context, originato
 	return err
 }
 
-func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
+func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transactionOriginatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginator)
+	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginatorNode)
 
 	dispatchResponseEvent := &engineProto.TransactionDispatched{
 		Id:              idempotencyKey.String(),
 		TransactionId:   transactionSpecification.TransactionId,
 		ContractAddress: tw.contractAddress.HexString(),
-		Signer:          transactionOriginator,
 	}
 
 	dispatchResponseEventBytes, err := proto.Marshal(dispatchResponseEvent)
@@ -586,18 +579,11 @@ func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transact
 		log.L(ctx).Errorf("error marshalling dispatch confirmation request  message: %s", err)
 	}
 
-	// Split transactionOriginator into node and domain
-	node, err := pldtypes.PrivateIdentityLocator(transactionOriginator).Node(ctx, false)
-	if err != nil {
-		log.L(ctx).Errorf("error getting transaction originator node id for %s: %s", transactionOriginator, err)
-		return err
-	}
-
 	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
 		MessageType: MessageType_PreDispatchResponse,
 		Payload:     dispatchResponseEventBytes,
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Node:        node,
+		Node:        transactionOriginatorNode,
 	}); err != nil {
 		log.L(ctx).Errorf("error sending dispatched event: %s", err)
 	}
@@ -622,7 +608,7 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 
 	node, err := pldtypes.PrivateIdentityLocator(transactionOriginator).Node(ctx, false)
 	if err != nil {
-		log.L(ctx).Errorf("error getting transaction originator node id for %s: %s", transactionOriginator, err)
+		log.L(ctx).Errorf("error getting transaction dispatched originator node id for %s: %s", transactionOriginator, err)
 		return err
 	}
 
