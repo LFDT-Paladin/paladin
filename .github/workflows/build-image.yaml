@@ -60,8 +60,12 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - uses: ./.github/actions/print-disk-usage
+
       - name: Free up disk space on runner
         uses: ./.github/actions/free-up-disk-space
+
+      - uses: ./.github/actions/print-disk-usage
 
       - name: Print inputs
         run: |
@@ -72,12 +76,18 @@ jobs:
           echo "push: ${{ inputs.push }}"
           echo "platforms: ${{ inputs.platforms }}"
 
+      - uses: ./.github/actions/print-disk-usage
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
+      - uses: ./.github/actions/print-disk-usage
 
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@v3
+
+      - uses: ./.github/actions/print-disk-usage
 
       - name: Docker registry login
         if: ${{ inputs.push }}
@@ -86,6 +96,8 @@ jobs:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.username }}
           password: ${{ secrets.password }}
+
+      - uses: ./.github/actions/print-disk-usage
       
       - name: Set build tag
         id: build_tag_generator
@@ -93,12 +105,16 @@ jobs:
           echo "BUILD_TAG=$(date +"%Y%m%d")-$GITHUB_RUN_NUMBER" >> $GITHUB_OUTPUT
           echo "BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
 
+      - uses: ./.github/actions/print-disk-usage
+
       - name: Set sanitized artifact name
         id: image-name-sanitizer
         run: |
           echo "IMAGE_NAME_SANITIZED=${IMAGE//\//-}" >> $GITHUB_OUTPUT
         env:
           IMAGE: ${{ inputs.image }}
+
+      - uses: ./.github/actions/print-disk-usage
           
       - name: cache image
         id: image-cache
@@ -110,6 +126,8 @@ jobs:
             echo "IMAGE_CACHE_FROM=type=registry,ref=${{ inputs.registry }}/${{ inputs.image }}:cache" >> $GITHUB_OUTPUT
             echo "IMAGE_CACHE_TO=type=registry,ref=${{ inputs.registry }}/${{ inputs.image }}:cache,mode=max" >> $GITHUB_OUTPUT
           fi
+
+      - uses: ./.github/actions/print-disk-usage
 
       # cache the image in the registry
       - name: Build and push
@@ -129,6 +147,8 @@ jobs:
           cache-to: ${{ steps.image-cache.outputs.IMAGE_CACHE_TO }}
           outputs: type=docker,dest=/tmp/${{ steps.image-name-sanitizer.outputs.IMAGE_NAME_SANITIZED }}-${{ github.sha }}.tar
 
+      - uses: ./.github/actions/print-disk-usage
+
       - name: Upload artifact
         if: ${{ inputs.upload-artifact }}
         uses: actions/upload-artifact@v4
@@ -136,3 +156,5 @@ jobs:
           name: ${{ inputs.image }}-${{ github.sha }}
           path: /tmp/${{ steps.image-name-sanitizer.outputs.IMAGE_NAME_SANITIZED }}-${{ github.sha }}.tar
           retention-days: 7
+
+      - uses: ./.github/actions/print-disk-usage
