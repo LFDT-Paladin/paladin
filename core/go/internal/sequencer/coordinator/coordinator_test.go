@@ -599,14 +599,14 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	select {
 	case _, ok := <-c.eventLoopStopped:
 		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
 		require.False(t, ok, "dispatch loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
 
@@ -647,14 +647,14 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 	select {
 	case _, ok := <-c.eventLoopStopped:
 		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
 		require.False(t, ok, "dispatch loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
 }
@@ -675,14 +675,14 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	select {
 	case _, ok := <-c.eventLoopStopped:
 		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
 		require.False(t, ok, "dispatch loop stopped channel should be closed")
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Millisecond):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
 }
