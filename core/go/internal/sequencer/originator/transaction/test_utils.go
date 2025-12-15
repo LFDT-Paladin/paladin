@@ -43,8 +43,10 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 	return &SentMessageRecorder{}
 }
 
-func (r *SentMessageRecorder) Start(ctx context.Context) error {
-	return nil
+func (r *SentMessageRecorder) StartLoopbackWriter(ctx context.Context) {
+}
+
+func (r *SentMessageRecorder) StopLoopbackWriter() {
 }
 
 func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {

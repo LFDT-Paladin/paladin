@@ -162,7 +162,9 @@ func NewCoordinator(
 		metrics:                            metrics,
 		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:                      make(chan struct{}),
+		eventLoopStopped:                   make(chan struct{}),
 		stopDispatchLoop:                   make(chan struct{}),
+		dispatchLoopStopped:                make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
@@ -447,7 +449,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
 			newTransaction.SetChainedTxInProgress()
 		}
-
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)

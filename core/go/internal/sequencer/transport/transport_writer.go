@@ -18,7 +18,6 @@ package transport
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -258,10 +257,9 @@ func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid
 		return err
 	}
 
-	partyFull := strings.Split(party, "@")
-	partyNode := partyFull[0]
-	if len(partyFull) > 1 {
-		partyNode = partyFull[1]
+	partyNode, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, false)
+	if err != nil {
+		return err
 	}
 
 	err = tw.send(ctx, &components.FireAndForgetMessageSend{

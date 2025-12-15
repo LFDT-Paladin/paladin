@@ -1282,35 +1282,24 @@ func (_c *MockTransportWriter_SendTransactionSubmitted_Call) RunAndReturn(run fu
 	return _c
 }
 
-// Start provides a mock function for the type MockTransportWriter
-func (_mock *MockTransportWriter) Start(ctx context.Context) error {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Start")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
+// StartLoopbackWriter provides a mock function for the type MockTransportWriter
+func (_mock *MockTransportWriter) StartLoopbackWriter(ctx context.Context) {
+	_mock.Called(ctx)
+	return
 }
 
-// MockTransportWriter_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
-type MockTransportWriter_Start_Call struct {
+// MockTransportWriter_StartLoopbackWriter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartLoopbackWriter'
+type MockTransportWriter_StartLoopbackWriter_Call struct {
 	*mock.Call
 }
 
-// Start is a helper method to define mock.On call
+// StartLoopbackWriter is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockTransportWriter_Expecter) Start(ctx interface{}) *MockTransportWriter_Start_Call {
-	return &MockTransportWriter_Start_Call{Call: _e.mock.On("Start", ctx)}
+func (_e *MockTransportWriter_Expecter) StartLoopbackWriter(ctx interface{}) *MockTransportWriter_StartLoopbackWriter_Call {
+	return &MockTransportWriter_StartLoopbackWriter_Call{Call: _e.mock.On("StartLoopbackWriter", ctx)}
 }
 
-func (_c *MockTransportWriter_Start_Call) Run(run func(ctx context.Context)) *MockTransportWriter_Start_Call {
+func (_c *MockTransportWriter_StartLoopbackWriter_Call) Run(run func(ctx context.Context)) *MockTransportWriter_StartLoopbackWriter_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1323,12 +1312,45 @@ func (_c *MockTransportWriter_Start_Call) Run(run func(ctx context.Context)) *Mo
 	return _c
 }
 
-func (_c *MockTransportWriter_Start_Call) Return(err error) *MockTransportWriter_Start_Call {
-	_c.Call.Return(err)
+func (_c *MockTransportWriter_StartLoopbackWriter_Call) Return() *MockTransportWriter_StartLoopbackWriter_Call {
+	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockTransportWriter_Start_Call) RunAndReturn(run func(ctx context.Context) error) *MockTransportWriter_Start_Call {
-	_c.Call.Return(run)
+func (_c *MockTransportWriter_StartLoopbackWriter_Call) RunAndReturn(run func(ctx context.Context)) *MockTransportWriter_StartLoopbackWriter_Call {
+	_c.Run(run)
+	return _c
+}
+
+// StopLoopbackWriter provides a mock function for the type MockTransportWriter
+func (_mock *MockTransportWriter) StopLoopbackWriter() {
+	_mock.Called()
+	return
+}
+
+// MockTransportWriter_StopLoopbackWriter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopLoopbackWriter'
+type MockTransportWriter_StopLoopbackWriter_Call struct {
+	*mock.Call
+}
+
+// StopLoopbackWriter is a helper method to define mock.On call
+func (_e *MockTransportWriter_Expecter) StopLoopbackWriter() *MockTransportWriter_StopLoopbackWriter_Call {
+	return &MockTransportWriter_StopLoopbackWriter_Call{Call: _e.mock.On("StopLoopbackWriter")}
+}
+
+func (_c *MockTransportWriter_StopLoopbackWriter_Call) Run(run func()) *MockTransportWriter_StopLoopbackWriter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockTransportWriter_StopLoopbackWriter_Call) Return() *MockTransportWriter_StopLoopbackWriter_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockTransportWriter_StopLoopbackWriter_Call) RunAndReturn(run func()) *MockTransportWriter_StopLoopbackWriter_Call {
+	_c.Run(run)
 	return _c
 }
