@@ -181,7 +181,7 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Twice()
-	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-coordinator")}).Maybe()
+	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mockDomainSmartContract, nil)
 	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Twice()
 

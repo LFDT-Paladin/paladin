@@ -71,9 +71,11 @@ type originator struct {
 	metrics           metrics.DistributedSequencerMetrics
 
 	/* Event loop and delegate loop*/
-	originatorEvents chan common.Event
-	stopEventLoop    chan struct{}
-	eventLoopStopped chan struct{}
+	originatorEvents    chan common.Event
+	stopEventLoop       chan struct{}
+	eventLoopStopped    chan struct{}
+	stopDelegateLoop    chan struct{}
+	delegateLoopStopped chan struct{}
 }
 
 func NewOriginator(
@@ -103,6 +105,8 @@ func NewOriginator(
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
 		eventLoopStopped:            make(chan struct{}),
+		stopDelegateLoop:            make(chan struct{}),
+		delegateLoopStopped:         make(chan struct{}),
 	}
 	o.InitializeStateMachine(State_Idle)
 
@@ -136,6 +140,7 @@ func (o *originator) eventLoop(ctx context.Context) {
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {
+	defer close(o.delegateLoopStopped)
 	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 
 	// Check for transactions still waiting to be delegated
@@ -152,7 +157,11 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
 			o.QueueEvent(ctx, delegateTimeoutEvent)
+		case <-o.stopDelegateLoop:
+			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
+			return
 		case <-ctx.Done():
+			log.L(ctx).Debugf("delegate loop cancelled for contract %s", o.contractAddress.String())
 			return
 		}
 	}
@@ -235,7 +244,9 @@ func ptrTo[T any](v T) *T {
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
 	o.stopEventLoop <- struct{}{}
+	o.stopDelegateLoop <- struct{}{}
 	<-o.eventLoopStopped
+	<-o.delegateLoopStopped
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
