@@ -196,7 +196,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		}
 	}
 
-	if identity := os.Getenv("FIXED_SIGNING_IDENTITY"); identity != "" {
+	if identity := getFixedSigningIdentity(); identity != "" {
 		for _, domainConfig := range i.conf.Domains {
 			domainConfig.FixedSigningIdentity = identity
 		}
@@ -439,7 +439,6 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 
 	// Configure Besu connection with the port determined by environment variable
 	besuPort := getBesuPort()
-	require.NotZero(t, besuPort, "BESU_PORT environment variable is not set")
 	conf.Blockchain.HTTP.URL = fmt.Sprintf("http://localhost:%d", besuPort)
 	conf.Blockchain.WS.URL = fmt.Sprintf("ws://localhost:%d", besuPort+1) // WS port is typically HTTP port + 1
 

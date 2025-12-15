@@ -22,3 +22,9 @@ package testutils
 func getBesuPort() int {
 	return 8555
 }
+
+// Configures the test to use a fixed signing identity that should have been pre-funded,
+// rather than generating a new anonymous signing key every time.
+func getFixedSigningIdentity() string {
+	return "fixed"
+}

@@ -32,7 +32,21 @@ To run individual tests with the `Go` VS Code extension
 gradle startTestInfra
 ```
 
-1. Set `go.testEnvFile` to the absolute path to `core/go/noderuntests/.env` file
+Choose which variant of the tests you would like to run, using `.vscode/settings.json`
+
+To debug the tests in zero gas price mode - or "free gas" mode:
+
+```js
+    "go.testTags": "testdbpostgres,besu_free_gas",
+    "go.buildTags": "testdbpostgres,besu_free_gas"
+```
+
+To debug the tests in non-zero gas price mode - or "paid gas" mode:
+
+```js
+    "go.testTags": "testdbpostgres,besu_paid_gas",
+    "go.buildTags": "testdbpostgres,besu_paid_gas"
+```
 
 ## Unit tests
 

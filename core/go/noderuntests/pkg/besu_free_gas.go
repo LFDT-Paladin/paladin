@@ -22,3 +22,8 @@ package testutils
 func getBesuPort() int {
 	return 8545
 }
+
+// Do not use a fixed signing identity - preserve maximum anonymity using a regularly re-allocated signing keys
+func getFixedSigningIdentity() string {
+	return ""
+}
