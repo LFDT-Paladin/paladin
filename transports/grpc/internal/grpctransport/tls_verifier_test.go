@@ -134,7 +134,8 @@ func newTestGRPCTransport(t *testing.T, nodeCert, nodeKey string, conf *Config) 
 		if panicked != nil {
 			panic(panicked)
 		}
-		transport.grpcServer.Stop()
+		_, err := transport.StopTransport(context.Background(), &prototk.StopTransportRequest{})
+		require.NoError(t, err)
 		<-transport.serverDone
 	}
 }
@@ -831,4 +832,15 @@ func TestGRPCTransport_GetLocalDetails_WorksWithoutCA(t *testing.T) {
 
 	// The certificate should be the node certificate
 	require.Equal(t, "CN=test-node-self-signed", issuerCerts[0].Subject.String(), "Should contain the node certificate")
+}
+
+func TestStopTransportTimeout(t *testing.T) {
+
+	node1Cert, node1Key := buildTestCertificate(t, pkix.Name{CommonName: "node1"}, nil, nil)
+	plugin, _, _, done := newTestGRPCTransport(t, node1Cert, node1Key, &Config{})
+	defer done()
+
+	plugin.gracefulShutdownTimeout = 1 * time.Microsecond
+	plugin.waitStopOrForce(make(chan struct{}))
+
 }
