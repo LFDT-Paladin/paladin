@@ -70,7 +70,7 @@ type PublicTxManager interface {
 	// Write a set of received transactions to the public TX mgr database. These are informational transactions, not for us to act on
 	WriteReceivedTransactions(ctx context.Context, dbTX persistence.DBTX, transactions []*pldapi.PublicTxToDistribute) ([]*pldapi.PublicTx, error)
 	// Write a set of received public transaction submissions to the public TX mgr database. These are informational submissions, not for us to act on
-	WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxToDistribute) ([]*pldapi.PublicTx, error)
+	WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxToDistribute) error
 	// Convenience function that does ValidateTransaction+WriteNewTransactions for a single Tx
 	SingleTransactionSubmit(ctx context.Context, transaction *PublicTxSubmission) (*pldapi.PublicTx, error)
 
