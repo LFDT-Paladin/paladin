@@ -1,5 +1,5 @@
-//go:build besu_free_gas && !besu_paid_gas
-// +build besu_free_gas,!besu_paid_gas
+//go:build !besu_paid_gas
+// +build !besu_paid_gas
 
 /*
  * Copyright © 2024 Kaleido, Inc.

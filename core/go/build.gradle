@@ -406,7 +406,7 @@ task componentTestPostgres(type: ComponentTest, dependsOn: [
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
     mustRunAfter 'unitTestPostgres' // these tests cannot run concurrently
-    args '-tags', "testdbpostgres,besu_free_gas" // uses free gas, and dynamic signing identities
+    args '-tags', "testdbpostgres" // uses free gas, and dynamic signing identities
 }
 
 task componentTestWithGasSQLite(type: GasComponentTest, dependsOn: [
@@ -427,7 +427,6 @@ task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
         goGet,
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
-    args '-tags', "besu_free_gas"
 }
 
 task buildCoverageTxt(type: Exec, dependsOn: [

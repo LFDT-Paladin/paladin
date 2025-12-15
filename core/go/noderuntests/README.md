@@ -34,18 +34,18 @@ gradle startTestInfra
 
 Choose which variant of the tests you would like to run, using `.vscode/settings.json`
 
-To debug the tests in zero gas price mode - or "free gas" mode:
+To debug the tests in zero gas price mode - or "free gas" mode with PSQL:
 
 ```js
-    "go.testTags": "testdbpostgres,besu_free_gas",
-    "go.buildTags": "testdbpostgres,besu_free_gas"
+    "go.testTags": "testdbpostgres",
+    "go.buildTags": "testdbpostgres"
 ```
 
-To debug the tests in non-zero gas price mode - or "paid gas" mode:
+To debug the tests in non-zero gas price mode - or "paid gas" mode with SQLite:
 
 ```js
-    "go.testTags": "testdbpostgres,besu_paid_gas",
-    "go.buildTags": "testdbpostgres,besu_paid_gas"
+    "go.testTags": "testdbsqlite,besu_paid_gas",
+    "go.buildTags": "testdbsqlite,besu_paid_gas"
 ```
 
 ## Unit tests
