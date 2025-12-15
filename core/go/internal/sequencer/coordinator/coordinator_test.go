@@ -592,32 +592,20 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	default:
 	}
 
-	// Call Stop() - should complete without blocking
-	done := make(chan struct{})
-	go func() {
-		c.Stop()
-		close(done)
-	}()
-
-	// Wait for Stop() to complete (with timeout)
-	select {
-	case <-done:
-		// Stop completed successfully
-	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not complete within timeout")
-	}
+	// Should block until shutdown is complete
+	c.Stop()
 
 	// Verify both loops have stopped (reading from closed channel returns immediately with ok=false)
 	select {
 	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
-		require.False(t, ok, "dispatch loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "dispatch loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
@@ -642,19 +630,7 @@ func TestCoordinator_Stop_CallsStopLoopbackWriterOnTransport(t *testing.T) {
 	// Replace the transport writer
 	c.transportWriter = mockTransport
 
-	// Call Stop()
-	done := make(chan struct{})
-	go func() {
-		c.Stop()
-		close(done)
-	}()
-
-	// Wait for Stop() to complete
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not complete within timeout")
-	}
+	c.Stop()
 
 	// Verify StopLoopbackWriter was called
 	mockTransport.AssertExpectations(t)
@@ -665,32 +641,19 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Call Stop() - should complete without blocking
-	done := make(chan struct{})
-	go func() {
-		c.Stop()
-		close(done)
-	}()
-
-	// Wait for Stop() to complete
-	select {
-	case <-done:
-		// Stop completed successfully
-	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not complete within timeout")
-	}
+	c.Stop()
 
 	// Verify both loops have stopped
 	select {
 	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
-		require.False(t, ok, "dispatch loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "dispatch loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
@@ -706,31 +669,19 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
 	}
 
-	// Call Stop() - should still complete
-	done := make(chan struct{})
-	go func() {
-		c.Stop()
-		close(done)
-	}()
+	c.Stop()
 
-	// Wait for Stop() to complete
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("Stop() did not complete within timeout")
-	}
-
-	// Verify both loops have stopped (reading from closed channel returns immediately with ok=false)
+	// Verify both loops have stopped
 	select {
 	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("event loop did not stop within timeout")
 	}
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
-		require.False(t, ok, "dispatch loop stopped channel should be closed (ok should be false)")
+		require.False(t, ok, "dispatch loop stopped channel should be closed")
 	case <-time.After(1 * time.Second):
 		t.Fatal("dispatch loop did not stop within timeout")
 	}
