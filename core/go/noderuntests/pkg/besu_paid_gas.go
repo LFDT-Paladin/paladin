@@ -1,5 +1,5 @@
-//go:build besu_paid_gas && !besu_free_gas
-// +build besu_paid_gas,!besu_free_gas
+//go:build besu_paid_gas
+// +build besu_paid_gas
 
 /*
  * Copyright © 2024 Kaleido, Inc.
@@ -20,5 +20,11 @@ package testutils
 
 // This is what you use when you're running from the commandline
 func getBesuPort() int {
-	return 8545
+	return 8555
+}
+
+// Configures the test to use a fixed signing identity that should have been pre-funded,
+// rather than generating a new anonymous signing key every time.
+func getFixedSigningIdentity() string {
+	return "fixed"
 }

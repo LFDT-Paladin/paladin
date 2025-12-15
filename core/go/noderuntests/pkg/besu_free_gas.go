@@ -1,5 +1,5 @@
-//go:build besu_free_gas && !besu_paid_gas
-// +build besu_free_gas,!besu_paid_gas
+//go:build !besu_paid_gas
+// +build !besu_paid_gas
 
 /*
  * Copyright © 2024 Kaleido, Inc.
@@ -21,4 +21,9 @@ package testutils
 // This is what you use when you're running from the commandline
 func getBesuPort() int {
 	return 8545
+}
+
+// Do not use a fixed signing identity - preserve maximum anonymity using a regularly re-allocated signing keys
+func getFixedSigningIdentity() string {
+	return ""
 }

@@ -710,7 +710,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			// Domains supporting PARTIAL completion processing use the FIRST "info" state for
 			// the manifest of the transaction. This allows us to determine that:
 			//
-			// ** Any transaction without missing the first info state, is incomplete on the first info state **
+			// ** Any transaction which is missing the first info state, is incomplete on the first info state **
 			//
 			// This avoids the need for every transaction from every participant in the network to be
 			// passed to the domain for complex processing when we have zero states.
