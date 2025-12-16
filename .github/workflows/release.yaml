@@ -205,8 +205,6 @@ jobs:
       ref: ${{ needs.setup.outputs.rc_tag }}
       sdk_version: ${{ needs.setup.outputs.tag }}
       sdk_tag: ${{ needs.setup.outputs.sdk_tag }}
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }} 
 
   # ================================ Prepare release ================================
   # Override SDK version in examples and create a release branch

@@ -5,10 +5,6 @@ permissions:
   id-token: write
 on:
   workflow_call:
-    secrets:
-      NPM_TOKEN:
-        description: 'NPM token'
-        required: true
     inputs:
       ref:
         description: 'Commit ref for checkout'
@@ -40,8 +36,6 @@ on:
         type: string
 jobs:
   publish:
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,8 +94,6 @@ jobs:
           set -e
           ../../gradlew build
           npm publish --provenance --access public --tag ${{ steps.parse_tags.outputs.primary_tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Add additional dist-tags
         if: steps.parse_tags.outputs.additional_tags != ''
@@ -119,8 +111,7 @@ jobs:
               npm dist-tag add "$PACKAGE_SPEC" "$tag"
             fi
           done <<< "${{ steps.parse_tags.outputs.additional_tags }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Print disk usage
         uses: ./.github/actions/print-disk-usage
+  

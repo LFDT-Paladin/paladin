@@ -149,8 +149,6 @@ jobs:
       # For a tag like 'v0.1.0-rc.1', this will become "rc;rc.1"
       # We can't use the rc_number (e.g. 1)because it's not a valid npm tag
       sdk_tag: "rc;${{ needs.setup.outputs.npm_prerelease_tag }}"
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ================================ PRE-RELEASE TESTING ================================
   # Test that the built artifacts are compatible and functional before creating the RC release
