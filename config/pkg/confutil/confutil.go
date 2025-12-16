@@ -148,6 +148,14 @@ func DurationMin(sVal *string, min time.Duration, def string) time.Duration {
 			dVal = &d
 		}
 	}
+
+	// If duration is negative don't apply min val enforcement. Provides
+	// a shortcut to disable function by passing a negative duration while still
+	// enforcing a minimum for positive durations
+	if dVal != nil && *dVal < 0 {
+		return *dVal
+	}
+
 	if dVal == nil {
 		defDuration, _ := time.ParseDuration(def)
 		dVal = &defDuration

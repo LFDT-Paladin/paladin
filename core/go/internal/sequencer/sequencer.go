@@ -53,7 +53,6 @@ type sequencerManager struct {
 	components                    components.AllComponents
 	nodeName                      string
 	sequencersLock                sync.RWMutex
-	shutdown                      bool
 	syncPoints                    syncpoints.SyncPoints
 	metrics                       metrics.DistributedSequencerMetrics
 	sequencers                    map[string]*sequencer
@@ -120,6 +119,10 @@ func NewDistributedSequencerManager(ctx context.Context, config *pldconf.Sequenc
 
 // We may have in-flight transactions that never completed. Load any we have pending and and resume them
 func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context, rePollInterval time.Duration) {
+	if rePollInterval <= 0 {
+		log.L(ctx).Warnf("Sequencer transaction resumption disabled")
+		return
+	}
 	// Repeat getting pending transactions until none are returned. Run in a goroutine to avoid blocking the main thread
 	go func() {
 	waitForIndexerReady:

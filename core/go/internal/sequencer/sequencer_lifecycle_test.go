@@ -671,19 +671,9 @@ func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	// Verify shutdown is initially false
-	sm.sequencersLock.RLock()
-	initialShutdown := sm.shutdown
-	sm.sequencersLock.RUnlock()
-	assert.False(t, initialShutdown)
-
 	// Call StopAllSequencers with empty sequencers map
 	sm.StopAllSequencers(ctx)
 
-	// Verify shutdown flag is set to true
-	sm.sequencersLock.RLock()
-	defer sm.sequencersLock.RUnlock()
-	assert.True(t, sm.shutdown)
 	assert.Empty(t, sm.sequencers)
 }
 
@@ -703,19 +693,9 @@ func TestSequencerManager_StopAllSequencers_SingleSequencer(t *testing.T) {
 	mocks.coordinator.EXPECT().Stop().Once()
 	mocks.originator.EXPECT().Stop().Once()
 
-	// Verify shutdown is initially false
-	sm.sequencersLock.RLock()
-	initialShutdown := sm.shutdown
-	sm.sequencersLock.RUnlock()
-	assert.False(t, initialShutdown)
-
 	// Call StopAllSequencers
 	sm.StopAllSequencers(ctx)
 
-	// Verify shutdown flag is set to true
-	sm.sequencersLock.RLock()
-	defer sm.sequencersLock.RUnlock()
-	assert.True(t, sm.shutdown)
 	// Sequencers map should still contain the sequencer (it's not deleted, just stopped)
 	assert.Contains(t, sm.sequencers, contractAddr.String())
 
@@ -754,10 +734,8 @@ func TestSequencerManager_StopAllSequencers_MultipleSequencers(t *testing.T) {
 
 	// Verify shutdown is initially false
 	sm.sequencersLock.RLock()
-	initialShutdown := sm.shutdown
 	initialCount := len(sm.sequencers)
 	sm.sequencersLock.RUnlock()
-	assert.False(t, initialShutdown)
 	assert.Equal(t, 3, initialCount)
 
 	// Call StopAllSequencers
@@ -766,7 +744,6 @@ func TestSequencerManager_StopAllSequencers_MultipleSequencers(t *testing.T) {
 	// Verify shutdown flag is set to true
 	sm.sequencersLock.RLock()
 	defer sm.sequencersLock.RUnlock()
-	assert.True(t, sm.shutdown)
 	// All sequencers should still be in the map (they're not deleted, just stopped)
 	assert.Contains(t, sm.sequencers, contractAddr1.String())
 	assert.Contains(t, sm.sequencers, contractAddr2.String())
@@ -779,33 +756,4 @@ func TestSequencerManager_StopAllSequencers_MultipleSequencers(t *testing.T) {
 	mocks2.originator.AssertExpectations(t)
 	mocks3.coordinator.AssertExpectations(t)
 	mocks3.originator.AssertExpectations(t)
-}
-
-func TestSequencerManager_StopAllSequencers_ShutdownFlagSet(t *testing.T) {
-	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create and store a sequencer
-	seq := newSequencerForTesting(contractAddr, mocks)
-	sm.sequencersLock.Lock()
-	sm.sequencers[contractAddr.String()] = seq
-	sm.shutdown = false // Explicitly set to false
-	sm.sequencersLock.Unlock()
-
-	// Setup expectations
-	mocks.coordinator.EXPECT().Stop().Once()
-	mocks.originator.EXPECT().Stop().Once()
-
-	// Call StopAllSequencers
-	sm.StopAllSequencers(ctx)
-
-	// Verify shutdown flag is set to true even if it was false before
-	sm.sequencersLock.RLock()
-	defer sm.sequencersLock.RUnlock()
-	assert.True(t, sm.shutdown)
-
-	mocks.coordinator.AssertExpectations(t)
-	mocks.originator.AssertExpectations(t)
 }
