@@ -362,3 +362,58 @@ func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
 	// Verify that the originator successfully processed the valid event
 	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Originator should still be functional after handling error in eventLoop")
 }
+
+func TestOriginator_EventLoop_StopSignal(t *testing.T) {
+	// Test that the eventLoop properly handles the stop signal from Stop()
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, mocks := builder.Build(ctx)
+
+	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	contractAddress := builder.GetContractAddress()
+	heartbeatEvent.ContractAddress = &contractAddress
+
+	err := s.ProcessEvent(ctx, heartbeatEvent)
+	assert.NoError(t, err)
+	assert.True(t, s.GetCurrentState() == State_Observing)
+
+	// Queue a valid event to verify the event loop is working before Stop()
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+	event := &TransactionCreatedEvent{
+		Transaction: txn,
+	}
+
+	s.QueueEvent(ctx, event)
+
+	// Wait for the event to be processed
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify that the event was processed before Stop()
+	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event should be processed before Stop()")
+
+	// Reset the message recorder to track events after Stop()
+	mocks.SentMessageRecorder.Reset(ctx)
+
+	// Call Stop() - this should send a signal to stopEventLoop channel, and then wait for it
+	s.Stop()
+
+	// Verify that Stop() completed without blocking (the channel send should succeed)
+	transactionBuilder2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
+	txn2 := transactionBuilder2.BuildSparse()
+	event2 := &TransactionCreatedEvent{
+		Transaction: txn2,
+	}
+
+	// We have to get past the buffer in the channel to validate it doesn't block
+	for i := 0; i < len(s.originatorEvents)+1; i++ {
+		// This just needs to not block - it checks the event loop is not done
+		s.QueueEvent(ctx, event2)
+	}
+
+}
