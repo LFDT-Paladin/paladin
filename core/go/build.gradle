@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 92
+    targetCoverage = 93
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
