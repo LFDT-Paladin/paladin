@@ -580,3 +580,60 @@ No information is leaked to Party C, that allows them to infer that Party A and 
     - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
     - b) Receives the confirmation from the blockchain that `TX2` created `#7`
     - Now `Party C` has `S7` confirmed in its wallet and ready to spend
+
+## Locking and atomic settlement
+
+The following state machine summarizes how value can be locked in Noto.
+
+![Noto locking state machine](../images/noto_lock_state_machine.svg)
+
+This model supports advanced DvP and PvP transactions, where `prepareLocked()` `delegate()` are used to defer on-chain atomic settlement to a smart contract that coordinates multiple legs of a transaction.
+
+The delegated smart contract can either:
+
+1. Complete the predetermined transaction outcome (logically "commit")
+2. Revert ownership back to the owner (logically "rollback")
+
+The delegated smart contract can perform either of these actions directly on-chain without involvement of the notary. This is possible because the notary pre-verifies and records the transaction inputs and outputs, and records the hash of that prepared transaction for comparison on-chain at the final unlock.
+
+Transaction legs might include Noto token transactions from multiple smart contracts with different notaries, alongside transparent ERC-20 token legs, ZKP token legs (Zeto and other ZKP domains), and preparation of the transaction that occurs in EVM privacy groups (Pente).
+
+The atomic coordination smart contract can be set up to ensure that all of these legs commit with a pre-agreed outcome across all legs, or they all rollback.
+
+As such fully atomic settlement.
+
+<details>
+  <summary>Diagram source</summary>
+
+> Mermaid syntax rendered above using ELK layout.
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Original coins"]) -- owner:lock(coins) --> B["Locked[coins,lockId,owner]
+(unprepared)
+(undelegated)"]
+    B -- owner:prepareLocked(inputs,outputs) --> C["Locked[coins,lockId,owner,unlockHash]
+PREPARED
+(undlegated)"]
+    C -- owner:prepareLocked(inputs,outputs) --> C
+    C -- owner:unlock() --> X(["New Coins (any)"])
+    C -- owner:delegate(address) --> D["Locked(coins,lockId,unlockHash,delegate)
+PREPARED
+DELEGATED"]
+    B -- owner:delegate(address) --> E["Locked(coins,lockId,delegate)
+(unprepared)
+DELEGATED"]
+    D -- delegate:delegate(address) --> D
+    D -- delegate:delegate(nil) --> C
+    D -- delegate:unlock(matching hash) --> Y(["New Coins - PREPARED SET"])
+    E -- delegate:delegate(address) --> E
+    E -- delegate:unlock() --> X
+    E -- delegate:delegate(nil) --> B
+```
+
+</details>
