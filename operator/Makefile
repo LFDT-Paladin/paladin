@@ -201,7 +201,7 @@ helm-template: ## Install operator using Helm.
 # install helm unittest
 .PHONY: helm-unittest-install
 helm-unittest-install: ## Install helm unittest.
-	$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git || true
+	$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3 || true
 
 .PHONY: helm-unittest
 helm-unittest: helm-unittest-install ## Test operator using Helm.

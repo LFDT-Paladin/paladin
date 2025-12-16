@@ -50,6 +50,9 @@ jobs:
           submodules: recursive
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - uses: actions/setup-node@v4
         with:
           node-version: '18.x'
@@ -118,4 +121,6 @@ jobs:
           done <<< "${{ steps.parse_tags.outputs.additional_tags }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-  
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage

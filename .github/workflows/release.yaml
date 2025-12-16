@@ -251,6 +251,9 @@ jobs:
           submodules: recursive
           ref: ${{ needs.setup.outputs.rc_tag }}
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
       - name: Download Helm artifacts
         uses: actions/download-artifact@v4
         with:
@@ -285,3 +288,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
