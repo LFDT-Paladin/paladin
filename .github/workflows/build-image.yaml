@@ -72,6 +72,9 @@ jobs:
           echo "push: ${{ inputs.push }}"
           echo "platforms: ${{ inputs.platforms }}"
 
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -136,3 +139,6 @@ jobs:
           name: ${{ inputs.image }}-${{ github.sha }}
           path: /tmp/${{ steps.image-name-sanitizer.outputs.IMAGE_NAME_SANITIZED }}-${{ github.sha }}.tar
           retention-days: 7
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
