@@ -53,6 +53,7 @@ type sequencerManager struct {
 	components                    components.AllComponents
 	nodeName                      string
 	sequencersLock                sync.RWMutex
+	shutdown                      bool
 	syncPoints                    syncpoints.SyncPoints
 	metrics                       metrics.DistributedSequencerMetrics
 	sequencers                    map[string]*sequencer
@@ -89,9 +90,7 @@ func (sMgr *sequencerManager) PostInit(c components.AllComponents) error {
 
 func (sMgr *sequencerManager) Start() error {
 	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Starting distributed sequencer manager")
-
 	sMgr.syncPoints.Start()
-
 	sMgr.pollForIncompleteTransactions(sMgr.ctx, confutil.DurationMin(sMgr.config.TransactionResumePollInterval, pldconf.SequencerMinimum.TransactionResumePollInterval, *pldconf.SequencerDefaults.TransactionResumePollInterval))
 
 	return nil
@@ -99,6 +98,9 @@ func (sMgr *sequencerManager) Start() error {
 
 func (sMgr *sequencerManager) Stop() {
 	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Stopping distributed sequencer manager")
+	sMgr.StopAllSequencers(sMgr.ctx)
+	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Stopped all sequencers")
+	sMgr.syncPoints.Close()
 	sMgr.cancelCtx()
 }
 

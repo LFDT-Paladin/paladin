@@ -49,6 +49,18 @@ func (*TransactionsDelegatedEvent) TypeString() string {
 	return "Event_TransactionsDelegated"
 }
 
+type CoordinatorClosedEvent struct {
+	common.BaseEvent
+}
+
+func (*CoordinatorClosedEvent) Type() EventType {
+	return Event_Closed
+}
+
+func (*CoordinatorClosedEvent) TypeString() string {
+	return "Event_Closed"
+}
+
 type CoordinatorFlushedEvent struct{}
 
 func (*CoordinatorFlushedEvent) Type() EventType {

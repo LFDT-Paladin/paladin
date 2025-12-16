@@ -129,9 +129,6 @@ func (o *originator) eventLoop(ctx context.Context) {
 		case <-o.stopEventLoop:
 			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
 			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
-			return
 		}
 	}
 }
@@ -156,9 +153,6 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			o.QueueEvent(ctx, delegateTimeoutEvent)
 		case <-o.stopDelegateLoop:
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop cancelled for contract %s", o.contractAddress.String())
 			return
 		}
 	}
@@ -240,6 +234,8 @@ func ptrTo[T any](v T) *T {
 // This hook point provides a place to perform any tidy up actions needed in the originator
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
+
+	// Stop the event and delegate loops
 	o.stopEventLoop <- struct{}{}
 	o.stopDelegateLoop <- struct{}{}
 	<-o.delegateLoopStopped

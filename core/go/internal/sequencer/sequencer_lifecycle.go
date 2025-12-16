@@ -90,6 +90,13 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			sMgr.sequencersLock.RUnlock()
 		}
 	}()
+
+	if sMgr.shutdown {
+		// Log warning that the sequencer manager component has been shut down
+		log.L(ctx).Warnf("Attempt to load sequencer after shutdown")
+		return nil, nil
+	}
+
 	if sMgr.sequencers[contractAddr.String()] == nil {
 		//swap the read lock for a write lock
 		sMgr.sequencersLock.RUnlock()
@@ -223,6 +230,16 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 	}
 
 	return sMgr.sequencers[contractAddr.String()], nil
+}
+
+func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
+	sMgr.sequencersLock.Lock()
+	defer sMgr.sequencersLock.Unlock()
+	for _, sequencer := range sMgr.sequencers {
+		sequencer.GetCoordinator().Stop()
+		sequencer.GetOriginator().Stop()
+	}
+	sMgr.shutdown = true
 }
 
 func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *components.PrivateTransaction, sequencer *sequencer) error {
