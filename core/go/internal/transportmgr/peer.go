@@ -481,7 +481,9 @@ func (p *peer) sender() {
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
-					msg.errorHandler(p.ctx, err)
+					if msg.errorHandler != nil {
+						msg.errorHandler(p.ctx, err)
+					}
 				}
 			}
 		}
