@@ -15,6 +15,9 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
           
       - name: Install pre-requisites
         uses: ./.github/actions/setup
@@ -24,6 +27,9 @@ jobs:
       # It does run Go/Java/Solidity component and integration tests that use PostgreSQL and Besu
       - name: Build with Gradle
         run: ./gradlew -PverboseTests=true --no-daemon --parallel --max-workers=5 build
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
 
       - name: Upload testbed logs
         uses: actions/upload-artifact@v4
