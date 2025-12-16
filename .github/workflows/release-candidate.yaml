@@ -198,6 +198,14 @@ jobs:
     needs: [setup, prepare-release]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
 
       - name: Download Helm artifacts
         uses: actions/download-artifact@v4
@@ -229,3 +237,6 @@ jobs:
             contracts/zeto-abis.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage

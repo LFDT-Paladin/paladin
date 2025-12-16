@@ -69,6 +69,9 @@ jobs:
           submodules: recursive
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - name: Install Kind
         uses: helm/kind-action@v1
         with:
@@ -132,6 +135,9 @@ jobs:
           RUN_COMMANDS: ${{ inputs.run_commands }}
         run: |
           ./scripts/run-examples.sh
+       
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage    
 
       - name: Cleanup cluster
         if: always()
