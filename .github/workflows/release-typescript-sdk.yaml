@@ -49,8 +49,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
+      
+      - name: Install latest npm
+        run: npm install -g npm@latest
+
       - name: Install pre-requisites
         uses: ./.github/actions/setup
       
