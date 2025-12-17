@@ -3,27 +3,9 @@ name: TypeScript SDK Release
 permissions:
   contents: read
   id-token: write
+
 on:
   workflow_call:
-    secrets:
-      NPM_TOKEN:
-        description: 'NPM token'
-        required: true
-    inputs:
-      ref:
-        description: 'Commit ref for checkout'
-        required: false
-        type: string
-        default: ''
-      sdk_version:
-        description: 'The version to publish (e.g. v1.0.0)'
-        required: true
-        type: string
-      sdk_tag:
-        description: 'Semicolon-separated list of tags (e.g., "rc;rc.1"). First tag is primary.'
-        required: true
-        type: string
-  workflow_dispatch:
     inputs:
       ref:
         description: 'Commit ref for checkout'
@@ -40,8 +22,6 @@ on:
         type: string
 jobs:
   publish:
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,8 +35,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
+
       - name: Install pre-requisites
         uses: ./.github/actions/setup
       
@@ -100,11 +84,11 @@ jobs:
           set -e
           ../../gradlew build
           npm publish --provenance --access public --tag ${{ steps.parse_tags.outputs.primary_tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Add additional dist-tags
         if: steps.parse_tags.outputs.additional_tags != ''
+        # allowing this step to fail until https://github.com/npm/cli/issues/8547 is resolved
+        continue-on-error: true
         shell: bash
         run: |
           # The version for `dist-tag add` must not have the 'v' prefix
@@ -119,8 +103,6 @@ jobs:
               npm dist-tag add "$PACKAGE_SPEC" "$tag"
             fi
           done <<< "${{ steps.parse_tags.outputs.additional_tags }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Print disk usage
         uses: ./.github/actions/print-disk-usage
