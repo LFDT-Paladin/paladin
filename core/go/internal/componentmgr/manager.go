@@ -31,9 +31,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/plugins"
-	"github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr"
 	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr"
 	"github.com/LFDT-Paladin/paladin/core/internal/registrymgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/rpcauthmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
 	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
 	"github.com/LFDT-Paladin/paladin/core/internal/transportmgr"
 	"github.com/LFDT-Paladin/paladin/core/internal/txmgr"
@@ -74,16 +75,18 @@ type componentManager struct {
 	metricsManager   metrics.Metrics
 
 	// managers
-	stateManager     components.StateManager
-	domainManager    components.DomainManager
-	transportManager components.TransportManager
-	registryManager  components.RegistryManager
-	pluginManager    components.PluginManager
-	publicTxManager  components.PublicTxManager
-	privateTxManager components.PrivateTxManager
-	txManager        components.TXManager
-	identityResolver components.IdentityResolver
-	groupManager     components.GroupManager
+	stateManager             components.StateManager
+	domainManager            components.DomainManager
+	transportManager         components.TransportManager
+	loopbackTransportManager components.TransportManager
+	registryManager          components.RegistryManager
+	pluginManager            components.PluginManager
+	publicTxManager          components.PublicTxManager
+	sequencerManager         components.SequencerManager
+	txManager                components.TXManager
+	identityResolver         components.IdentityResolver
+	groupManager             components.GroupManager
+	rpcAuthManager           components.RPCAuthManager
 	// managers that are not a core part of the engine, but allow Paladin to operate in an extended mode - the testbed is an example.
 	// these cannot be queried by other components (no AdditionalManagers() function on AllComponents)
 	additionalManagers []components.AdditionalManager
@@ -141,6 +144,8 @@ func (cm *componentManager) startDebugServer() (httpserver.Server, error) {
 }
 
 func (cm *componentManager) Init() (err error) {
+	log.L(cm.bgCtx).Info("Initializing component manager")
+
 	// start the debug server as early as possible
 	if confutil.Bool(cm.conf.DebugServer.Enabled, *pldconf.DebugServerDefaults.Enabled) {
 		cm.debugServer, err = cm.startDebugServer()
@@ -205,6 +210,11 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
+		cm.rpcAuthManager = rpcauthmgr.NewRPCAuthManager(cm.bgCtx, cm.conf.RPCAuthorizers)
+		cm.initResults["rpc_auth_manager"], err = cm.rpcAuthManager.PreInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentRPCAuthManagerInitError)
+	}
+	if err == nil {
 		cm.pluginManager = plugins.NewPluginManager(cm.bgCtx, cm.grpcTarget, cm.instanceUUID, &cm.conf.PluginManagerInlineConfig)
 		cm.initResults["plugin_manager"], err = cm.pluginManager.PreInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentPluginInitError)
@@ -217,9 +227,9 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
-		cm.privateTxManager = privatetxnmgr.NewPrivateTransactionMgr(cm.bgCtx, &cm.conf.PrivateTxManager)
-		cm.initResults["private_tx_manager"], err = cm.privateTxManager.PreInit(cm)
-		err = cm.wrapIfErr(err, msgs.MsgComponentPrivateTxManagerInitError)
+		cm.sequencerManager = sequencer.NewDistributedSequencerManager(cm.bgCtx, &cm.conf.SequencerManager)
+		cm.initResults["distributed_sequencer_manager"], err = cm.sequencerManager.PreInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentDistributedSequencerManagerInitError)
 	}
 
 	if err == nil {
@@ -275,6 +285,11 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
+		err = cm.rpcAuthManager.PostInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentRPCAuthManagerInitError)
+	}
+
+	if err == nil {
 		err = cm.pluginManager.PostInit(cm)
 		err = cm.wrapIfErr(err, msgs.MsgComponentPluginInitError)
 	}
@@ -285,8 +300,8 @@ func (cm *componentManager) Init() (err error) {
 	}
 
 	if err == nil {
-		err = cm.privateTxManager.PostInit(cm)
-		err = cm.wrapIfErr(err, msgs.MsgComponentPrivateTxManagerInitError)
+		err = cm.sequencerManager.PostInit(cm)
+		err = cm.wrapIfErr(err, msgs.MsgComponentDistributedSequencerManagerInitError)
 	}
 
 	if err == nil {
@@ -349,6 +364,11 @@ func (cm *componentManager) StartManagers() (err error) {
 
 	// start the managers
 	if err == nil {
+		err = cm.rpcAuthManager.Start()
+		err = cm.addIfStarted("rpc_auth_manager", cm.rpcAuthManager, err, msgs.MsgComponentRPCAuthManagerStartError)
+	}
+
+	if err == nil {
 		err = cm.pluginManager.Start()
 		err = cm.addIfStarted("plugin_manager", cm.pluginManager, err, msgs.MsgComponentPluginStartError)
 	}
@@ -390,11 +410,6 @@ func (cm *componentManager) StartManagers() (err error) {
 	}
 
 	if err == nil {
-		err = cm.privateTxManager.Start()
-		err = cm.addIfStarted("private_tx_manager", cm.privateTxManager, err, msgs.MsgComponentPrivateTxManagerStartError)
-	}
-
-	if err == nil {
 		err = cm.txManager.Start()
 		err = cm.addIfStarted("tx_manager", cm.txManager, err, msgs.MsgComponentTxManagerStartError)
 	}
@@ -419,16 +434,64 @@ func (cm *componentManager) CompleteStart() error {
 	err := cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_DOMAIN)
 	err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
 
+	// Wait for RPC auth plugins if configured
+	if len(cm.conf.RPCAuthorizers) > 0 {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_RPC_AUTH)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
 	// then start the block indexer
 	if err == nil {
 		err = cm.startBlockIndexer()
 	}
 
+	// We need the domains to have initialised before we can use them in the sequencer
+	if err == nil {
+		err = cm.sequencerManager.Start()
+		err = cm.addIfStarted("sequencer_manager", cm.sequencerManager, err, msgs.MsgComponentDistributedSequencerStartError)
+	}
+
 	// start the RPC server last
 	if err == nil {
 		cm.registerRPCModules()
-		err = cm.rpcServer.Start()
-		err = cm.addIfStarted("rpc_server", cm.rpcServer, err, msgs.MsgComponentRPCServerStartError)
+
+		// Validate that all configured RPC authorizers are included in the authorizers array
+		if len(cm.conf.RPCAuthorizers) > 0 {
+			authorizersMap := make(map[string]bool, len(cm.conf.RPCServer.Authorizers))
+			for _, authName := range cm.conf.RPCServer.Authorizers {
+				authorizersMap[authName] = true
+			}
+			for authName := range cm.conf.RPCAuthorizers {
+				if !authorizersMap[authName] {
+					err = i18n.NewError(cm.bgCtx, msgs.MsgRPCAuthorizerMissing, authName)
+					break
+				}
+			}
+		}
+
+		// Set RPC authorizers if configured
+		if err == nil && len(cm.conf.RPCServer.Authorizers) > 0 {
+			// Only set authorizers if explicitly configured in RPCServer config
+			auths := make([]rpcserver.Authorizer, 0, len(cm.conf.RPCServer.Authorizers))
+			for _, authPluginName := range cm.conf.RPCServer.Authorizers {
+				rpcAuthorizer := cm.rpcAuthManager.GetRPCAuthorizer(authPluginName)
+				if rpcAuthorizer == nil {
+					err = i18n.NewError(cm.bgCtx, msgs.MsgRPCAuthorizerNotFound, authPluginName)
+					break
+				}
+				// RPCAuthorizer interface already matches rpcserver.Authorizer
+				auths = append(auths, rpcAuthorizer)
+			}
+			if err == nil {
+				cm.rpcServer.SetAuthorizers(auths)
+			}
+		}
+
+		// Only start RPC server if no errors occurred during authorizer setup
+		if err == nil {
+			err = cm.rpcServer.Start()
+			err = cm.addIfStarted("rpc_server", cm.rpcServer, err, msgs.MsgComponentRPCServerStartError)
+		}
 	}
 	if err == nil {
 		httpEndpoint := "disabled"
@@ -549,6 +612,10 @@ func (cm *componentManager) TransportManager() components.TransportManager {
 	return cm.transportManager
 }
 
+func (cm *componentManager) LoopbackTransportManager() components.TransportManager {
+	return cm.loopbackTransportManager
+}
+
 func (cm *componentManager) RegistryManager() components.RegistryManager {
 	return cm.registryManager
 }
@@ -561,8 +628,8 @@ func (cm *componentManager) PublicTxManager() components.PublicTxManager {
 	return cm.publicTxManager
 }
 
-func (cm *componentManager) PrivateTxManager() components.PrivateTxManager {
-	return cm.privateTxManager
+func (cm *componentManager) SequencerManager() components.SequencerManager {
+	return cm.sequencerManager
 }
 
 func (cm *componentManager) TxManager() components.TXManager {
@@ -579,4 +646,8 @@ func (cm *componentManager) IdentityResolver() components.IdentityResolver {
 
 func (cm *componentManager) MetricsManager() metrics.Metrics {
 	return cm.metricsManager
+}
+
+func (cm *componentManager) RPCAuthManager() components.RPCAuthManager {
+	return cm.rpcAuthManager
 }

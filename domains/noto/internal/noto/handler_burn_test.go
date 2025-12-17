@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -34,16 +35,17 @@ import (
 )
 
 func TestBurn(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:      mockCallbacks,
+		coinSchema:     &prototk.StateSchema{Id: "coin"},
+		dataSchemaV1:   &prototk.StateSchema{Id: "data"},
+		manifestSchema: &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["burn"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
-	receiverAddress := "0x2000000000000000000000000000000000000000"
 	senderKey, err := secp256k1.GenerateSecp256k1KeyPair()
 	require.NoError(t, err)
 
@@ -80,7 +82,6 @@ func TestBurn(t *testing.T) {
 		FunctionAbiJson:   mustParseJSON(fn),
 		FunctionSignature: fn.SolString(),
 		FunctionParamsJson: `{
-			"to": "receiver@node2",
 			"amount": 100,
 			"data": "0x1234"
 		}`,
@@ -107,12 +108,6 @@ func TestBurn(t *testing.T) {
 			VerifierType: verifiers.ETH_ADDRESS,
 			Verifier:     senderKey.Address.String(),
 		},
-		{
-			Lookup:       "receiver@node2",
-			Algorithm:    algorithms.ECDSA_SECP256K1,
-			VerifierType: verifiers.ETH_ADDRESS,
-			Verifier:     receiverAddress,
-		},
 	}
 
 	assembleRes, err := n.AssembleTransaction(ctx, &prototk.AssembleTransactionRequest{
@@ -124,9 +119,9 @@ func TestBurn(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
 
@@ -147,7 +142,7 @@ func TestBurn(t *testing.T) {
 		{
 			SchemaId:      "data",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 	}
 
@@ -195,9 +190,9 @@ func TestBurn(t *testing.T) {
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"inputs": ["%s"],
 		"outputs": [],
-		"proof": "%s",
+		"signature": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
+		"data": "0x00010001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
 	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -250,4 +245,20 @@ func TestBurn(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, senderKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	// Verify manifest
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+
 }

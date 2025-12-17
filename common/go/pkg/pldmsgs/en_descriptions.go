@@ -176,7 +176,7 @@ var (
 	TransactionReceiptFiltersType                           = pdm("TransactionReceiptFilters.type", "Only deliver receipts for one transaction type (public/private)")
 	TransactionReceiptFiltersDomain                         = pdm("TransactionReceiptFilters.domain", "Only deliver receipts for an individual domain (only valid with type=private)")
 	TransactionReceiptOptionsDomainReceipts                 = pdm("TransactionReceiptOptions.domainReceipts", "When true, a full domain receipt will be generated for each event with complete state data")
-	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "When set to 'block_contract', if a transaction with incomplete state data is detected then delivery of all receipts on that individual smart contract address will pause until the missing state arrives. Receipts for other contract addresses continue to be delivered")
+	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "Controls delivery behavior when receipt state data is incomplete. 'block_contract' pauses delivery for each individual smart contract address when incomplete states are detected. 'process' delivers all receipts immediately, regardless of what private state data is available. 'complete_only' delivers receipts whenever the domain confirms all expected states are complete, without regard for strict ordering")
 	BlockchainEventListenerName                             = pdm("BlockchainEventListener.name", "Unique name for the blockchain event listener")
 	BlockchainEventListenerCreated                          = pdm("BlockchainEventListener.created", "Time the listener was created")
 	BlockchainEventListenerStarted                          = pdm("BlockchainEventListener.started", "If the listener is started - can be set to false to disable delivery server-side")
@@ -376,7 +376,7 @@ var (
 	PaladinConfigBlockIndexer     = pdm("PaladinConfig.blockIndexer", "Block indexer configuration")
 	PaladinConfigTempDir          = pdm("PaladinConfig.tempDir", "Temporary directory path")
 	PaladinConfigTxManager        = pdm("PaladinConfig.txManager", "Transaction manager configuration")
-	PaladinConfigPrivateTxManager = pdm("PaladinConfig.privateTxManager", "Private transaction manager configuration")
+	PaladinConfigSequencerManager = pdm("PaladinConfig.sequencerManager", "Sequencer manager configuration")
 	PaladinConfigPublicTxManager  = pdm("PaladinConfig.publicTxManager", "Public transaction manager configuration")
 	PaladinConfigIdentityResolver = pdm("PaladinConfig.identityResolver", "Identity resolver configuration")
 	PaladinConfigGroupManager     = pdm("PaladinConfig.groupManager", "Group manager configuration")
@@ -563,8 +563,16 @@ var (
 	RPCServerConfigWSWriteBufferSize = pdm("RPCServerConfigWS.writeBufferSize", "Write buffer size for WebSocket connections")
 
 	// RPCServerConfig field descriptions
-	RPCServerConfigHTTPField = pdm("RPCServerConfig.http", "HTTP server configuration")
-	RPCServerConfigWSField   = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigHTTPField   = pdm("RPCServerConfig.http", "HTTP server configuration")
+	RPCServerConfigWSField     = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigAuthorizers = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+
+	// RPCAuthManagerConfig field descriptions
+	RPCAuthManagerConfigRPCAuthorizers = pdm("RPCAuthManagerConfig.rpcAuthorizers", "Map of RPC authorizer configurations")
+
+	// RPCAuthorizerConfig field descriptions
+	RPCAuthorizerConfigPlugin = pdm("RPCAuthorizerConfig.plugin", "Plugin configuration (library, type, etc.)")
+	RPCAuthorizerConfigConfig = pdm("RPCAuthorizerConfig.config", "Plugin-specific config (JSON string)")
 
 	// HTTPServerConfig field descriptions
 	HTTPServerConfigTLS                   = pdm("HTTPServerConfig.tls", "TLS configuration")
@@ -695,15 +703,21 @@ var (
 	DistributerConfigAcknowledgementWriter = pdm("DistributerConfig.acknowledgementWriter", "Acknowledgement writer configuration")
 	DistributerConfigReceivedObjectWriter  = pdm("DistributerConfig.receivedStateWriter", "Received state writer configuration")
 
-	// PrivateTxManagerSequencerConfig field descriptions
-	PrivateTxManagerSequencerConfigMaxConcurrentProcess                = pdm("PrivateTxManagerSequencerConfig.maxConcurrentProcess", "Maximum concurrent processes")
-	PrivateTxManagerSequencerConfigMaxInflightTransactions             = pdm("PrivateTxManagerSequencerConfig.maxInflightTransactions", "Maximum inflight transactions")
-	PrivateTxManagerSequencerConfigMaxPendingEvents                    = pdm("PrivateTxManagerSequencerConfig.maxPendingEvents", "Maximum pending events")
-	PrivateTxManagerSequencerConfigEvaluationInterval                  = pdm("PrivateTxManagerSequencerConfig.evalInterval", "Evaluation interval")
-	PrivateTxManagerSequencerConfigPersistenceRetryTimeout             = pdm("PrivateTxManagerSequencerConfig.persistenceRetryTimeout", "Persistence retry timeout")
-	PrivateTxManagerSequencerConfigStaleTimeout                        = pdm("PrivateTxManagerSequencerConfig.staleTimeout", "Stale timeout")
-	PrivateTxManagerSequencerConfigRoundRobinCoordinatorBlockRangeSize = pdm("PrivateTxManagerSequencerConfig.roundRobinCoordinatorBlockRangeSize", "Round robin coordinator block range size")
-	PrivateTxManagerSequencerConfigAssembleRequestTimeout              = pdm("PrivateTxManagerSequencerConfig.assembleRequestTimeout", "Assemble request timeout")
+	// SequencerConfig field descriptions
+	SequencerConfigAssembleTimeout               = pdm("SequencerConfig.assembleTimeout", "Timeout for transaction assembly")
+	SequencerConfigRequestTimeout                = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
+	SequencerConfigBlockHeightTolerance          = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
+	SequencerConfigBlockRange                    = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")
+	SequencerConfigClosingGracePeriod            = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
+	SequencerConfigDelegateTimeout               = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
+	SequencerConfigHeartbeatInterval             = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
+	SequencerConfigHeartbeatThreshold            = pdm("SequencerConfig.heartbeatThreshold", "Heartbeat threshold")
+	SequencerConfigMaxInflightTransactions       = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
+	SequencerConfigMaxDispatchAhead              = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
+	SequencerConfigTargetActiveCoordinators      = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
+	SequencerConfigTargetActiveSequencers        = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
+	SequencerConfigTransactionResumePollInterval = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
+	SequencerConfigWriter                        = pdm("SequencerConfig.writer", "Writer configuration")
 
 	// PublicTxManagerConfig field descriptions
 	PublicTxManagerConfigManager        = pdm("PublicTxManagerConfig.manager", "Manager configuration")

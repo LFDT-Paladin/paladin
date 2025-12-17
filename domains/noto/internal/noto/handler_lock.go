@@ -72,16 +72,17 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	params := tx.Params.(*types.LockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	notaryAddress, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
+	notaryAddress := notaryID.address
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, params.Amount)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -94,8 +95,8 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract
-	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
 	var senderAddress *pldtypes.EthAddress
+	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
 	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
 		tx.DomainConfig.Options.Hooks != nil &&
 		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
@@ -108,7 +109,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		return nil, err
 	}
 
-	lockedOutputStates, err := h.noto.prepareLockedOutputs(lockID, fromAddress, params.Amount, []string{notary, tx.Transaction.From})
+	lockedOutputStates, err := h.noto.prepareLockedOutputs(lockID, senderID, params.Amount, identityList{notaryID, senderID})
 	if err != nil {
 		return nil, err
 	}
@@ -116,19 +117,26 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	unlockedOutputStates := &preparedOutputs{}
 	if inputStates.total.Cmp(params.Amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(inputStates.total, params.Amount.Int())
-		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), []string{notary, tx.Transaction.From})
+		returnedStates, err := h.noto.prepareOutputs(senderID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID})
 		if err != nil {
 			return nil, err
 		}
+		unlockedOutputStates.distributions = append(unlockedOutputStates.distributions, returnedStates.distributions...)
 		unlockedOutputStates.coins = append(unlockedOutputStates.coins, returnedStates.coins...)
 		unlockedOutputStates.states = append(unlockedOutputStates.states, returnedStates.states...)
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(lockID, fromAddress, nil, []string{notary, tx.Transaction.From})
+	var lockState *prototk.NewState
+	if tx.DomainConfig.IsV0() {
+		lockState, err = h.noto.prepareLockInfo_V0(lockID, senderID.address, nil, infoDistribution)
+	} else {
+		lockState, err = h.noto.prepareLockInfo_V1(lockID, senderID.address, nil, infoDistribution)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +145,18 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	encodedLock, err := h.noto.encodeLock(ctx, tx.ContractAddress, inputStates.coins, unlockedOutputStates.coins, lockedOutputStates.coins)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder().
+			addLockedOutputs(lockedOutputStates).
+			addOutputs(unlockedOutputStates).
+			addInfoStates(infoDistribution, infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	var outputStates []*prototk.NewState
@@ -224,7 +244,7 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	data, err := h.noto.encodeTransactionData(ctx, req.InfoStates)
+	data, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +294,7 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.LockParams)
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -284,9 +304,9 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 		return nil, err
 	}
 	params := &LockHookParams{
-		Sender: fromAddress,
+		Sender: senderID.address,
 		LockID: lockID,
-		From:   fromAddress,
+		From:   senderID.address,
 		Amount: inParams.Amount,
 		Data:   inParams.Data,
 		Prepared: PreparedTransaction{
@@ -312,23 +332,12 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 	}, nil
 }
 
-func (h *lockHandler) extractLockID(ctx context.Context, req *prototk.PrepareTransactionRequest) (pldtypes.Bytes32, error) {
-	lockStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchema.Id})
-	if len(lockStates) == 1 {
-		lock, err := h.noto.unmarshalLock(lockStates[0].StateDataJson)
-		if err != nil {
-			return pldtypes.Bytes32{}, err
-		}
-		return lock.LockID, nil
-	}
-	return pldtypes.Bytes32{}, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
-}
-
 func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	lockID, err := h.extractLockID(ctx, req)
+	lockInfo, err := h.noto.extractLockInfo(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	lockID := lockInfo.LockID
 
 	endorsement := domain.FindAttestation("notary", req.AttestationResult)
 	if endorsement == nil || endorsement.Verifier.Lookup != tx.DomainConfig.NotaryLookup {

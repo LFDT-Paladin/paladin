@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
@@ -34,12 +34,16 @@ import (
 )
 
 func TestPrepareUnlock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
 		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchema:   &prototk.StateSchema{Id: "lockInfo"},
-		dataSchema:       &prototk.StateSchema{Id: "data"},
+		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
+		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
+		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
+		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareUnlock"]
@@ -53,7 +57,6 @@ func TestPrepareUnlock(t *testing.T) {
 	inputCoin := &types.NotoLockedCoinState{
 		ID: pldtypes.RandBytes32(),
 		Data: types.NotoLockedCoin{
-			Salt:   pldtypes.RandBytes32(),
 			LockID: lockID,
 			Owner:  (*pldtypes.EthAddress)(&senderKey.Address),
 			Amount: pldtypes.Int64ToInt256(100),
@@ -135,7 +138,7 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + output-info + lock + output-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
 	dataState := assembleRes.AssembledTransaction.InfoStates[0]
@@ -154,13 +157,12 @@ func TestPrepareUnlock(t *testing.T) {
 	assert.Equal(t, "100", cancelCoin.Amount.Int().String())
 	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
-	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(lockInfoState.StateDataJson)
+	lockInfo, err := n.unmarshalLockV1(lockInfoState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
 
-	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{spendCoin})
+	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{outputCoin})
 	require.NoError(t, err)
 	signature, err := senderKey.SignDirect(encodedUnlock)
 	require.NoError(t, err)
@@ -175,24 +177,19 @@ func TestPrepareUnlock(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      n.dataSchema.Id,
+			SchemaId:      "data",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: dataState.StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 		{
-			SchemaId:      n.lockInfoSchema.Id,
+			SchemaId:      "lockInfo",
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: lockInfoState.StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
 		{
-			SchemaId:      n.coinSchema.Id,
+			SchemaId:      "coin",
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
-			StateDataJson: spendCoinState.StateDataJson,
-		},
-		{
-			SchemaId:      n.coinSchema.Id,
-			Id:            "0xfdae13d798c19f84df28d52b9d66be6d29289045b0f41fd83e1f09df33f5f41f",
-			StateDataJson: cancelCoinState.StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[3].StateDataJson,
 		},
 	}
 
@@ -234,7 +231,7 @@ func TestPrepareUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["updateLock"])
+	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["prepareUnlock"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
@@ -250,10 +247,9 @@ func TestPrepareUnlock(t *testing.T) {
 	err = json.Unmarshal(optionsJSON, &actualOptions)
 	require.NoError(t, err)
 
-	// Compute the expected hashes using the generated SpendTxId (not the prepareUnlock transaction ID)
-	spendHash, err := n.unlockHashFromStates(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), readStates, infoStates[2:3], pldtypes.MustParseHexBytes("0x1234"))
+	spendHash, err := n.unlockHashFromID_V1(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[2:3]), pldtypes.MustParseHexBytes("0x1234"))
 	require.NoError(t, err)
-	cancelHash, err := n.unlockHashFromStates(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), readStates, infoStates[3:4], pldtypes.MustParseHexBytes("0x1234"))
+	cancelHash, err := n.unlockHashFromID_V1(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[3:4]), pldtypes.MustParseHexBytes("0x1234"))
 	require.NoError(t, err)
 
 	// Verify the options have the correct structure
@@ -281,12 +277,6 @@ func TestPrepareUnlock(t *testing.T) {
 		},
 		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000044cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945fdae13d798c19f84df28d52b9d66be6d29289045b0f41fd83e1f09df33f5f41f"
 	}`, lockID.HexString0xPrefix(), inputCoin.ID, signatureBytes, expectedOptionsHex), prepareRes.Transaction.ParamsJson)
-
-	var invokeFn abi.Entry
-	err = json.Unmarshal([]byte(prepareRes.Transaction.FunctionAbiJson), &invokeFn)
-	require.NoError(t, err)
-	encodedCall, err := invokeFn.EncodeCallDataJSONCtx(ctx, []byte(prepareRes.Transaction.ParamsJson))
-	require.NoError(t, err)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"
@@ -322,17 +312,50 @@ func TestPrepareUnlock(t *testing.T) {
 	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onPrepareUnlock"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
-	assert.JSONEq(t, fmt.Sprintf(`{
-		"sender": "%s",
-		"lockId": "%s",
-		"recipients": [{
-			"to": "0x2000000000000000000000000000000000000000",
-			"amount": "0x64"
-		}],
-		"data": "0x1234",
-		"prepared": {
-			"contractAddress": "%s",
-			"encodedCall": "%s"
-		}
-	}`, senderKey.Address, lockID, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	// Verify hook invoke params
+	var hookParams UnlockHookParams
+	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &hookParams)
+	require.NoError(t, err)
+	require.NotNil(t, hookParams.Sender)
+	assert.Equal(t, senderKey.Address.String(), hookParams.Sender.String())
+	assert.Equal(t, lockID, hookParams.LockID)
+	assert.Equal(t, pldtypes.MustParseHexBytes("0x1234"), hookParams.Data)
+
+	// Verify recipients
+	require.Len(t, hookParams.Recipients, 1)
+	require.NotNil(t, hookParams.Recipients[0].To)
+	assert.Equal(t, pldtypes.MustEthAddress("0x2000000000000000000000000000000000000000").String(), hookParams.Recipients[0].To.String())
+	require.NotNil(t, hookParams.Recipients[0].Amount)
+	assert.Equal(t, pldtypes.Int64ToInt256(100).String(), hookParams.Recipients[0].Amount.String())
+
+	// Verify prepared transaction
+	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
+	assert.NotEmpty(t, hookParams.Prepared.EncodedCall)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	lockState := assembleRes.AssembledTransaction.InfoStates[2]
+	outputCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress) // receivers don't get the data
+	mt.withMissingNewStates(lockState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress) // receivers don't get the lock
+	mt.withMissingNewStates(outputCoinState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
 }

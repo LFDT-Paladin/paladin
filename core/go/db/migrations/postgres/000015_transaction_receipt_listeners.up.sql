@@ -63,7 +63,7 @@ CREATE TABLE receipt_listeners (
     PRIMARY KEY("name")
 );
 
-CREATE TABLE receipt_listener_gap (
+CREATE TABLE receipt_listener_gap (  
     "listener"           TEXT    NOT NULL,
     "source"             TEXT    NOT NULL,
     "transaction"        UUID    NOT NULL,
@@ -83,6 +83,5 @@ CREATE TABLE receipt_listener_checkpoints (
     PRIMARY KEY ("listener"),
     FOREIGN KEY ("listener") REFERENCES receipt_listeners ("name") ON DELETE CASCADE
 );
-
 
 COMMIT;

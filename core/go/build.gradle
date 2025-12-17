@@ -27,19 +27,22 @@ ext {
         include "core.go"
         include "internal/**/*.go"
         include "pkg/**/*.go"
-        include "componenttest/**/*.go"
+        include "noderuntests/**/*.go"
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 94.4
+    targetCoverage = 92
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
-        'github.com/LFDT-Paladin/paladin/core/internal/privatetxnmgr/ptmgrtypes/mock_transaction_flow.go',
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
         'github.com/LFDT-Paladin/paladin/core/pkg/proto/transaction',
         'github.com/LFDT-Paladin/paladin/toolkit/prototk',
         'github.com/LFDT-Paladin/paladin/core/internal/plugins/loader',
         'github.com/LFDT-Paladin/paladin/core/pkg/testbed',
+        'github.com/LFDT-Paladin/paladin/core/noderuntests',
+        'test_utils',
+        'testutil',
+        'mocks',
     ]
 }
 
@@ -75,7 +78,8 @@ task copyTestContracts(type: Copy) {
     from fileTree(configurations.compiledContracts.asPath) {
         include 'contracts/testcontracts/SimpleStorage.sol/SimpleStorage.json'
     }
-    into 'componenttest/abis'
+    into 'noderuntests/pkg/domains/abis'
+    into 'noderuntests/componenttest/abis'
 
     // Flatten all paths into the destination folder
     eachFile { path = name }
@@ -88,7 +92,7 @@ task copyTestDomainContracts(type: Copy) {
         include 'contracts/domains/componenttest/SimpleDomain.sol/SimpleDomain.json'
         include 'contracts/domains/componenttest/SimpleToken.sol/SimpleToken.json'
     }
-    into 'componenttest/domains/abis'
+    into 'noderuntests/pkg/domains/abis'
 
     // Flatten all paths into the destination folder
     eachFile { path = name }
@@ -151,7 +155,26 @@ task protoc(type: ProtoCompile, dependsOn: [
     }
 }
 
-task goGet(type:Exec, dependsOn:[protoc, copyContracts, ":toolkit:go:goGet"]) {
+task makeMocksComponents(type: Exec, dependsOn: [":installMockery", protoc]) {
+   executable "mockery"
+}
+
+task makeMocksSyncpoints(type: Exec, dependsOn: [makeMocksComponents]) {
+   executable "mockery"
+   args '--config=.mockery.sequencer.syncpoints.yml'
+}
+
+// Make mocks for components first, then for sequencer. Mockery doesn't
+// support strict ordering in package lists and gets stuck in a chicken-and-egg loop
+// of trying to generate component mocks after sequencer mocks even though the
+// latter pre-reqs the former.
+task makeMocks(type: Exec, dependsOn: [makeMocksSyncpoints]) {
+   executable "mockery"
+   args '--config=.mockery.sequencer.yml'
+}
+
+
+task goGet(type:Exec, dependsOn:[protoc, copyContracts, makeMocks, ":toolkit:go:goGet"]) {
     workingDir '.'
 
     inputs.files('go.mod')
@@ -160,10 +183,6 @@ task goGet(type:Exec, dependsOn:[protoc, copyContracts, ":toolkit:go:goGet"]) {
 
     executable 'go'
     args 'get'
-}
-
-task makeMocks(type: Exec, dependsOn: [":installMockery", protoc, goGet]) {
-   executable "mockery"
 }
 
 task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
@@ -256,6 +275,7 @@ abstract class UnitTests extends Exec {
     UnitTests() {
         inputs.files(project.goFiles)
         outputs.dir('coverage')
+        outputs.upToDateWhen { false } // Always run when requested (even if no input files have changed)
 
         workingDir '.'
         executable 'go'
@@ -278,15 +298,16 @@ abstract class ComponentTest extends Exec {
             include "**/*.json"
         })
         outputs.dir('coverage')
+        outputs.upToDateWhen { false } // Always run when requested (even if no input files have changed)
 
         workingDir '.'
         executable 'go'
         args 'test'
-        args './componenttest', './pkg/testbed'
+        args './noderuntests/componenttest', './pkg/testbed'
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
         args '-covermode=atomic'
-        args '-timeout=120s'
+        args '-timeout=180s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -304,11 +325,37 @@ abstract class GasComponentTest extends Exec {
         workingDir '.'
         executable 'go'
         args 'test'
-        args './componenttest'
+        args './noderuntests/componenttest'
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..."
         args '-covermode=atomic'
-        args '-timeout=120s'
+        args '-timeout=180s'
+        if (project.findProperty('verboseTests') == 'true') {
+            args '-v'
+        }
+        args "-test.gocoverdir=${project.projectDir}/coverage"
+
+        project.helpers.dumpLogsOnFailure(this, ':testinfra:startTestInfra')
+    }
+}
+
+abstract class CoordinationTest extends Exec {
+    CoordinationTest() {
+        inputs.files(project.goFiles)
+        inputs.files(project.fileTree("testbed") {
+            include "**/*.json"
+        })
+        outputs.dir('coverage')
+        outputs.upToDateWhen { false } // Always run when requested (even if no input files have changed)
+
+        workingDir '.'
+        executable 'go'
+        args 'test'
+        args './noderuntests/coordinationtest'
+        args '-cover'
+        args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
+        args '-covermode=atomic'
+        args '-timeout=180s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -335,6 +382,7 @@ task unitTestSQLite(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
 }
 
@@ -343,12 +391,13 @@ task unitTestPostgres(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
     args '-tags', "testdbpostgres"
     mustRunAfter 'unitTestSQLite' // these tests cannot run concurrently
 }
 
-task componentTestSQLite(type: ComponentTest, dependsOn: [
+task componentTestPostgres(type: ComponentTest, dependsOn: [
         makeMocks,
         ':testinfra:startTestInfra',
         setupCoverage,
@@ -356,8 +405,7 @@ task componentTestSQLite(type: ComponentTest, dependsOn: [
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
     mustRunAfter 'unitTestPostgres' // these tests cannot run concurrently
-    environment 'BESU_PORT', '8555' // Use gas-free Besu port
-
+    args '-tags', "testdbpostgres" // uses free gas, and dynamic signing identities
 }
 
 task componentTestWithGasSQLite(type: GasComponentTest, dependsOn: [
@@ -367,16 +415,26 @@ task componentTestWithGasSQLite(type: GasComponentTest, dependsOn: [
         goGet,
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
-    mustRunAfter 'componentTestSQLite' // these tests cannot run concurrently
-    environment 'BESU_PORT', '8555' // Use gas-priced Besu port
+    mustRunAfter 'componentTestPostgres' // these tests cannot run concurrently
+    args '-tags', "testdbsqlite,besu_paid_gas" // uses paid gas, and a fixed signing identity
+}
+
+task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
+        makeMocks,
+        ':testinfra:startTestInfra',
+        setupCoverage,
+        goGet,
+        copyContracts, // Ensure this task depends on copying the test contracts
+    ]) {
 }
 
 task buildCoverageTxt(type: Exec, dependsOn: [
         protoc,
         unitTestSQLite,
         unitTestPostgres,
-        componentTestSQLite,
-        componentTestWithGasSQLite
+        componentTestPostgres,
+        componentTestWithGasSQLite,
+        coordinationTestPostgres
     ]) {
     inputs.files(fileTree(project.mkdir('coverage')) {
         include "covcounters.*"

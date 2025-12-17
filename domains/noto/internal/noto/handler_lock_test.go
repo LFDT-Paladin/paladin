@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -34,12 +35,16 @@ import (
 )
 
 func TestLock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
 		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchema:   &prototk.StateSchema{Id: "lockInfo"},
-		dataSchema:       &prototk.StateSchema{Id: "data"},
+		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
+		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
+		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
+		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["lock"]
@@ -73,7 +78,7 @@ func TestLock(t *testing.T) {
 		From:          "sender@node1",
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress:    contractAddress,
-			ContractConfigJson: mustParseJSON(notoBasicConfig),
+			ContractConfigJson: mustParseJSON(notoBasicConfigV1),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
 		FunctionSignature: fn.SolString(),
@@ -115,7 +120,7 @@ func TestLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3)
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
 	outputCoin, err := n.unmarshalLockedCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
@@ -124,12 +129,12 @@ func TestLock(t *testing.T) {
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.OutputStates[0].DistributionList)
 
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
 
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockInfo.LockID, outputCoin.LockID)
@@ -159,12 +164,12 @@ func TestLock(t *testing.T) {
 		{
 			SchemaId:      "data",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 		{
 			SchemaId:      "lockInfo",
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
 	}
 
@@ -275,4 +280,26 @@ func TestLock(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, lockInfo.LockID, senderKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	lockState := assembleRes.AssembledTransaction.InfoStates[2]
+	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(outCoin1State).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(lockState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
 }

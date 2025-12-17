@@ -12,6 +12,8 @@ interface INotoErrors {
 
     error NotoNotNotary(address sender);
 
+    error NotoInvalidDelegate(bytes32 txhash, address delegate, address sender); // V0 only
+
     error NotoDuplicateLock(bytes32 lockId);
 
     error NotoInvalidUnlockHash(bytes32 expected, bytes32 actual);

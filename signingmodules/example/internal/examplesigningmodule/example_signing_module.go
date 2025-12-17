@@ -19,13 +19,13 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/LFDT-Paladin/key-manager/signingmodules/example/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
-	"github.com/kaleido-io/key-manager/signingmodules/example/internal/msgs"
 )
 
 type exampleSigningModule struct {

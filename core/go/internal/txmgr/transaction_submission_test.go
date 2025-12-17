@@ -383,7 +383,7 @@ func TestSendTransactionPrivateDeploy(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -408,7 +408,7 @@ func TestSendTransactionPrivateInvoke(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -435,7 +435,7 @@ func TestSendTransactionPrivateInvokeFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(false), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -960,7 +960,7 @@ func TestCallTransactionPrivOk(t *testing.T) {
 			res, err := fnDef.Outputs.ParseJSON([]byte(`{"spins": 42}`))
 			require.NoError(t, err)
 
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(res, nil)
 		})
 	defer done()
@@ -989,7 +989,7 @@ func TestCallTransactionPrivFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIBeginCommit,
 		mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(nil, fmt.Errorf("snap"))
 		})
 	defer done()
@@ -1066,7 +1066,7 @@ func TestChainedPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 		mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			// Only the parent Txn we create will get a callback
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		},
 	)
 	defer done()
@@ -1607,4 +1607,87 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, "0x76458e36bbb1e4f5e5742aa62b3122eb2e4622e19489dd2eb4c7370858085511", validatedTransaction.ResolvedTransaction.Function.ABIReference.HexString0xPrefix())
 	assert.Equal(t, `{"value":"46"}`, validatedTransaction.Transaction.Data.String())
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
+}
+
+func TestPrepareInsertRemoteTransactionOK(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectExec("INSERT.*transactions").WillReturnResult(driver.ResultNoRows)
+			mc.db.ExpectExec("INSERT.*transaction_deps").WillReturnResult(driver.ResultNoRows)
+			mc.db.ExpectCommit()
+		},
+	)
+	defer done()
+
+	txID := uuid.New()
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
+			{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Function: &components.ResolvedFunction{},
+					Transaction: &pldapi.Transaction{
+						ID: &txID,
+						TransactionBase: pldapi.TransactionBase{
+							Type:         pldapi.TransactionTypePublic.Enum(),
+							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+						},
+					},
+					DependsOn: []uuid.UUID{uuid.New()},
+				},
+			},
+		}, true)
+		return err
+	})
+	require.NoError(t, err)
+
+}
+
+func TestPrepareInsertRemoteTransactionErr(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectExec("INSERT.*transactions").WillReturnError(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	txID := uuid.New()
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
+			{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Function: &components.ResolvedFunction{},
+					Transaction: &pldapi.Transaction{
+						ID: &txID,
+						TransactionBase: pldapi.TransactionBase{
+							Type:         pldapi.TransactionTypePublic.Enum(),
+							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
+						},
+					},
+				},
+			},
+		}, true)
+		return err
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestHasChainedTransaction(t *testing.T) {
+	txID := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(
+				sqlmock.NewRows([]string{"transaction"}).AddRow(txID))
+		},
+	)
+	defer done()
+
+	hasChained, err := txm.HasChainedTransaction(ctx, txID)
+	require.NoError(t, err)
+	require.True(t, hasChained)
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
@@ -30,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
 type delegateLockHandler struct {
@@ -44,6 +46,9 @@ func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.
 	if delegateParams.LockID.IsZero() {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "lockId")
 	}
+	if config.IsV0() && delegateParams.Unlock == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "unlock")
+	}
 	if delegateParams.Delegate.IsZero() {
 		return nil, i18n.NewError(ctx, msgs.MsgInvalidDelegate, delegateParams.Delegate)
 	}
@@ -51,8 +56,9 @@ func (h *delegateLockHandler) ValidateParams(ctx context.Context, config *types.
 }
 
 func (h *delegateLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
+	notary := tx.DomainConfig.NotaryLookup
 	return &prototk.InitTransactionResponse{
-		RequiredVerifiers: h.noto.ethAddressVerifiers(tx.Transaction.From),
+		RequiredVerifiers: h.noto.ethAddressVerifiers(notary, tx.Transaction.From),
 	}, nil
 }
 
@@ -60,13 +66,17 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	params := tx.Params.(*types.DelegateLockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
 	// Requester must own at least one locked coin state to show ownership of the lock
-	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, fromAddress, big.NewInt(1), false)
+	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -78,11 +88,17 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, tx.Transaction.From})
+	infoDistribution := identityList{notaryID, senderID}
+	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
-	lockState, err := h.noto.prepareLockInfo(params.LockID, fromAddress, nil, []string{notary, tx.Transaction.From})
+	var lockState *prototk.NewState
+	if tx.DomainConfig.IsV0() {
+		lockState, err = h.noto.prepareLockInfo_V0(params.LockID, senderID.address, params.Delegate, infoDistribution)
+	} else {
+		lockState, err = h.noto.prepareLockInfo_V1(params.LockID, senderID.address, nil, infoDistribution)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +109,16 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	encodedApproval, err := h.noto.encodeDelegateLock(ctx, tx.ContractAddress, params.LockID, params.Delegate, params.Data)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder().
+			addInfoStates(infoDistribution, infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	return &prototk.AssembleTransactionResponse{
@@ -122,6 +148,18 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 			},
 		},
 	}, nil
+}
+
+func (h *delegateLockHandler) decodeStates(states []*pldapi.StateEncoded) []*prototk.EndorsableState {
+	result := make([]*prototk.EndorsableState, len(states))
+	for i, state := range states {
+		result[i] = &prototk.EndorsableState{
+			Id:            state.ID.String(),
+			SchemaId:      state.Schema.String(),
+			StateDataJson: pldtypes.RawJSON(state.Data).String(),
+		}
+	}
+	return result
 }
 
 func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
@@ -160,10 +198,11 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	txData, err := h.noto.encodeTransactionData(ctx, req.InfoStates)
+	txData, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}
+
 	delegateLockData := DelegateLockDataStrings{
 		TxId: pldtypes.MustParseBytes32(req.Transaction.TransactionId).String(),
 		Data: txData,
@@ -181,8 +220,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 	var functionName string
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
+	if tx.DomainConfig.IsV1() {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 		functionName = "delegateLock"
 		params := &NotoDelegateLockParams{
@@ -191,12 +229,19 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 			Data:       delegateLockDataEncoded,
 		}
 		paramsJSON, err = json.Marshal(params)
-	default:
+	} else {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		functionName = "delegateLock"
+		// V0: delegateLock requires unlockHash
+		var unlockHash ethtypes.HexBytes0xPrefix
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, inParams.Unlock.LockedInputs, inParams.Unlock.LockedOutputs, inParams.Unlock.Outputs, inParams.Unlock.Data)
+		if err != nil {
+			return nil, err
+		}
+		unlockHashBytes32 := pldtypes.Bytes32(unlockHash)
 		params := &NotoDelegateLock_V0_Params{
 			TxId:       req.Transaction.TransactionId,
-			UnlockHash: inParams.LockID.String(),
+			UnlockHash: &unlockHashBytes32,
 			Delegate:   inParams.Delegate,
 			Signature:  sender.Payload,
 			Data:       txData,
@@ -215,7 +260,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 func (h *delegateLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.DelegateLockParams)
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +270,7 @@ func (h *delegateLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTr
 		return nil, err
 	}
 	params := &ApproveUnlockHookParams{
-		Sender:   fromAddress,
+		Sender:   senderID.address,
 		LockID:   inParams.LockID,
 		Delegate: inParams.Delegate,
 		Data:     inParams.Data,

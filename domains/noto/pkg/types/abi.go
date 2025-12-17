@@ -26,7 +26,11 @@ import (
 //go:embed abis/INotoPrivate.json
 var notoPrivateJSON []byte
 
+//go:embed abis/INotoPrivate_V0.json
+var notoV0PrivateJSON []byte
+
 var NotoABI = solutils.MustParseBuildABI(notoPrivateJSON)
+var NotoV0ABI = solutils.MustParseBuildABI(notoV0PrivateJSON)
 
 type ConstructorParams struct {
 	Name           string      `json:"name,omitempty"`           // Name of the token
@@ -104,8 +108,21 @@ type UnlockParams struct {
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
+type CreateMintLockParams struct {
+	Recipients []*UnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes  `json:"data"`
+}
+
+type PrepareBurnUnlockParams struct {
+	LockID pldtypes.Bytes32     `json:"lockId"`
+	From   string               `json:"from"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+	Data   pldtypes.HexBytes    `json:"data"`
+}
+
 type DelegateLockParams struct {
 	LockID   pldtypes.Bytes32     `json:"lockId"`
+	Unlock   *UnlockPublicParams  `json:"unlock,omitempty"` // Required for V0, omitted for V1
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 	Data     pldtypes.HexBytes    `json:"data"`
 }
@@ -113,6 +130,15 @@ type DelegateLockParams struct {
 type UnlockRecipient struct {
 	To     string               `json:"to"`
 	Amount *pldtypes.HexUint256 `json:"amount"`
+}
+
+type UnlockPublicParams struct {
+	TxId          string            `json:"txId"`
+	LockedInputs  []string          `json:"lockedInputs"`
+	LockedOutputs []string          `json:"lockedOutputs"`
+	Outputs       []string          `json:"outputs"`
+	Signature     pldtypes.HexBytes `json:"signature"`
+	Data          pldtypes.HexBytes `json:"data"`
 }
 
 type SpendLockPublicParams struct {

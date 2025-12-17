@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 func (tm *txManager) blockIndexerPreCommit(
@@ -32,7 +33,6 @@ func (tm *txManager) blockIndexerPreCommit(
 	blocks []*pldapi.IndexedBlock,
 	transactions []*blockindexer.IndexedTransactionNotify,
 ) error {
-
 	// Pass the list of transactions to the public transaction manager, who will pass us back an
 	// ORDERED list of matches to transaction IDs based on the bindings.
 	txMatches, err := tm.publicTxMgr.MatchUpdateConfirmedTransactions(ctx, dbTX, transactions)
@@ -47,8 +47,11 @@ func (tm *txManager) blockIndexerPreCommit(
 	// separate ordering context of the block listener of that domain (we do not promise
 	// order of confirmation delivery between public and private transactions)
 	finalizeInfo := make([]*components.ReceiptInput, 0, len(txMatches))
-	failedForPrivateTx := make([]*components.PublicTxMatch, 0)
+	privateTxResults := make(map[uuid.UUID]pldapi.EthTransactionResult)
+
+	// First finalize all public transactions, and record all failed public submissions for private transactions
 	for _, match := range txMatches {
+		log.L(ctx).Infof("blockIndexerPreCommit: processing next TX match %+v", match)
 		switch match.TransactionType.V() {
 		case pldapi.TransactionTypePublic:
 			log.L(ctx).Infof("Writing receipt for transaction %s hash=%s block=%d result=%s",
@@ -56,11 +59,26 @@ func (tm *txManager) blockIndexerPreCommit(
 			// Map to the common format for finalizing transactions whether the make it on chain or not
 			finalizeInfo = append(finalizeInfo, tm.mapBlockchainReceipt(match))
 		case pldapi.TransactionTypePrivate:
-			if match.Result.V() != pldapi.TXResult_SUCCESS {
-				log.L(ctx).Infof("Base ledger transaction for private transaction %s FAILED hash=%s block=%d result=%s",
-					match.TransactionID, match.Hash, match.BlockNumber, match.Result)
-				failedForPrivateTx = append(failedForPrivateTx, match)
+			result := match.Result.V()
+			_, duplicateInBlock := privateTxResults[match.TransactionID]
+			log.L(ctx).Infof("Base ledger transaction for private transaction %s result=%s publicTxhash=%s hash=%s block=%d result=%s duplicateInBlock=%t",
+				match.TransactionID, match.Result, match.TransactionID, match.Hash, match.BlockNumber, match.Result, duplicateInBlock)
+			if !duplicateInBlock || result == pldapi.TXResult_SUCCESS {
+				// It's technically possible that more than 1 public transaction result is received for the same
+				// private transaction, even within the same block. If any one public TX is successful the private
+				// TX is considered successful so we need to double check if any failures can be ignored because of
+				// a success that overrides it.
+				privateTxResults[match.TransactionID] = match.Result.V()
 			}
+		}
+	}
+	// Order the list of failures (after de-dup above where success overrides failure)
+	failedForPrivateTx := make([]*components.PublicTxMatch, 0)
+	for _, match := range txMatches {
+		if match.TransactionType.V() == pldapi.TransactionTypePrivate && privateTxResults[match.TransactionID] != pldapi.TXResult_SUCCESS {
+			log.L(ctx).Infof("Base ledger transaction for private transaction %s FAILED hash=%s block=%d result=%s",
+				match.TransactionID, match.Hash, match.BlockNumber, match.Result)
+			failedForPrivateTx = append(failedForPrivateTx, match)
 		}
 	}
 
@@ -71,9 +89,9 @@ func (tm *txManager) blockIndexerPreCommit(
 		return err
 	}
 
-	// Deliver the failures to the private transaction manager
+	// Deliver the failures to the distributed sequencer
 	if len(failedForPrivateTx) > 0 {
-		err = tm.privateTxMgr.NotifyFailedPublicTx(ctx, dbTX, failedForPrivateTx)
+		err = tm.sequencerMgr.HandleTransactionFailed(ctx, dbTX, failedForPrivateTx)
 		if err != nil {
 			return err
 		}

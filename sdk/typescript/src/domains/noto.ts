@@ -117,6 +117,18 @@ export interface NotoLockParams {
   data: string;
 }
 
+export interface NotoCreateMintLockParams {
+  recipients: UnlockRecipient[];
+  data: string;
+}
+
+export interface NotoPrepareBurnUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  amount: string | number;
+  data: string;
+}
+
 export interface NotoUnlockParams {
   lockId: string;
   from: PaladinVerifier;
@@ -131,7 +143,17 @@ export interface UnlockRecipient {
 
 export interface NotoDelegateLockParams {
   lockId: string;
+  unlock?: NotoUnlockPublicParams; // Required for V0, omitted for V1
   delegate: string;
+  data: string;
+}
+
+export interface NotoUnlockPublicParams {
+  txId: string;
+  lockedInputs: string[];
+  lockedOutputs: string[];
+  outputs: string[];
+  signature: string;
   data: string;
 }
 
@@ -289,6 +311,7 @@ export class NotoInstance {
     );
   }
 
+  // @deprecated - use createLock instead
   lock(from: PaladinVerifier, data: NotoLockParams) {
     return new TransactionFuture(
       this.paladin,
@@ -299,6 +322,40 @@ export class NotoInstance {
         to: this.address,
         from: from.lookup,
         data,
+      })
+    );
+  }
+
+  createLock(from: PaladinVerifier, data: NotoLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createLock",
+        to: this.address,
+        from: from.lookup,
+        data,
+      })
+    );
+  }
+
+  createMintLock(from: PaladinVerifier, data: NotoCreateMintLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createMintLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
       })
     );
   }
@@ -374,6 +431,23 @@ export class NotoInstance {
             to: recipient.to.lookup,
             amount: recipient.amount,
           })),
+        },
+      })
+    );
+  }
+
+  prepareBurnUnlock(from: PaladinVerifier, data: NotoPrepareBurnUnlockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareBurnUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
         },
       })
     );

@@ -47,29 +47,21 @@ func TestSolidityEventSignatures(t *testing.T) {
 	assert.Equal(t, "event PaladinRegisterSmartContract_V0(bytes32 indexed txId, address indexed instance, bytes config)", eventSolSig_PaladinRegisterSmartContract_V0)
 }
 
-func TestEventIndexingWithDB(t *testing.T) {
-
-	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
-	defer done()
-	ctx := td.ctx
-	tp := td.tp
-	dm := td.dm
-
-	deployTX := uuid.New()
-	contractAddr := pldtypes.EthAddress(pldtypes.RandBytes(20))
-
+func registerTestSmartContract(t *testing.T, td *testDomainContext) (deployTX uuid.UUID, contractAddr pldtypes.EthAddress) {
 	// Index an event indicating deployment of a new smart contract instance
+	deployTX = uuid.New()
+	contractAddr = pldtypes.EthAddress(pldtypes.RandBytes(20))
 	var batchTxs txCompletionsOrdered
 	var unprocessedEvents []*pldapi.EventWithData
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		unprocessedEvents, batchTxs, err = dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
+	err := td.dm.persistence.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		unprocessedEvents, batchTxs, err = td.dm.registrationIndexer(ctx, dbTX, &blockindexer.EventDeliveryBatch{
 			StreamID:   uuid.New(),
 			StreamName: "name_given_by_component_mgr",
 			BatchID:    uuid.New(),
 			Events: []*pldapi.EventWithData{
 				{
 					SoliditySignature: eventSolSig_PaladinRegisterSmartContract_V0,
-					Address:           (pldtypes.EthAddress)(*tp.d.RegistryAddress()),
+					Address:           (pldtypes.EthAddress)(*td.tp.d.RegistryAddress()),
 					IndexedEvent: &pldapi.IndexedEvent{
 						BlockNumber:      12345,
 						TransactionIndex: 0,
@@ -78,10 +70,10 @@ func TestEventIndexingWithDB(t *testing.T) {
 						Signature:        eventSig_PaladinRegisterSmartContract_V0,
 					},
 					Data: pldtypes.RawJSON(`{
-						 "txId": "` + pldtypes.Bytes32UUIDFirst16(deployTX).String() + `",
-						 "instance": "` + contractAddr.String() + `",
-						 "config": "0xfeedbeef"
-					 }`),
+						  "txId": "` + pldtypes.Bytes32UUIDFirst16(deployTX).String() + `",
+						  "instance": "` + contractAddr.String() + `",
+						  "config": "0xfeedbeef"
+					  }`),
 				},
 			},
 		})
@@ -91,7 +83,7 @@ func TestEventIndexingWithDB(t *testing.T) {
 	assert.Len(t, batchTxs, 1)
 	assert.Empty(t, unprocessedEvents) // we consumed all the events there were
 
-	tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
 		return &prototk.InitContractResponse{
 			Valid: true,
 			ContractConfig: &prototk.ContractConfig{
@@ -101,6 +93,20 @@ func TestEventIndexingWithDB(t *testing.T) {
 			},
 		}, nil
 	}
+
+	return deployTX, contractAddr
+}
+
+func TestEventIndexingWithDB(t *testing.T) {
+
+	td, done := newTestDomain(t, true /* real DB */, goodDomainConf())
+	defer done()
+	ctx := td.ctx
+	tp := td.tp
+	dm := td.dm
+
+	// Index an event indicating deployment of a new smart contract instance
+	deployTX, contractAddr := registerTestSmartContract(t, td)
 
 	// Lookup the instance against the domain
 	psc, err := dm.GetSmartContractByAddress(ctx, td.c.dbTX, contractAddr)
@@ -143,8 +149,8 @@ func TestEventIndexingBadEvent(t *testing.T) {
 					Address:           *td.d.registryAddress,
 					SoliditySignature: eventSolSig_PaladinRegisterSmartContract_V0,
 					Data: pldtypes.RawJSON(`{
-						  "config": "cannot parse this"
-					  }`),
+						   "config": "cannot parse this"
+					   }`),
 				},
 			},
 		})
@@ -185,10 +191,10 @@ func TestEventIndexingInsertError(t *testing.T) {
 						Signature:        eventSig_PaladinRegisterSmartContract_V0,
 					},
 					Data: pldtypes.RawJSON(`{
-						 "txId": "` + pldtypes.Bytes32UUIDFirst16(deployTX).String() + `",
-						 "domain": "` + contractAddr.String() + `",
-						 "data": "0xfeedbeef"
-					 }`),
+						  "txId": "` + pldtypes.Bytes32UUIDFirst16(deployTX).String() + `",
+						  "domain": "` + contractAddr.String() + `",
+						  "data": "0xfeedbeef"
+					  }`),
 				},
 			},
 		})
@@ -210,6 +216,8 @@ func TestHandleEventBatch(t *testing.T) {
 	stateInfo := pldtypes.RandHex(32)
 	fakeHash1 := pldtypes.RandHex(32)
 	fakeSchema := pldtypes.RandBytes32()
+	eventTx2Hash := pldtypes.RandHex(32)
+
 	event1 := &pldapi.EventWithData{
 		Address: *contract1,
 		IndexedEvent: &pldapi.IndexedEvent{
@@ -228,7 +236,7 @@ func TestHandleEventBatch(t *testing.T) {
 			BlockNumber:      2000,
 			TransactionIndex: 30,
 			LogIndex:         40,
-			TransactionHash:  pldtypes.MustParseBytes32(pldtypes.RandHex(32)),
+			TransactionHash:  pldtypes.MustParseBytes32(eventTx2Hash),
 			Signature:        pldtypes.MustParseBytes32(pldtypes.RandHex(32)),
 		},
 		SoliditySignature: "some event signature 2",
@@ -271,7 +279,7 @@ func TestHandleEventBatch(t *testing.T) {
 			return true
 		})).Return(nil)
 
-		mc.privateTxManager.On("PrivateTransactionConfirmed", mock.Anything, mock.Anything).Return()
+		mc.sequencerManager.On("PrivateTransactionConfirmed", mock.Anything, mock.Anything).Return(nil)
 
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).Return([]uuid.UUID{txID}, nil)
 

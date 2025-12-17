@@ -112,9 +112,12 @@ var eventSignaturesV0 = mustLoadEventSignatures(interfaceV0Build.ABI, allEventsV
 
 var allSchemas = []*abi.Parameter{
 	types.NotoCoinABI,
-	types.NotoLockInfoABI,
+	types.NotoLockInfoABI_V0,
+	types.NotoLockInfoABI_V1,
 	types.NotoLockedCoinABI,
-	types.TransactionDataABI,
+	types.TransactionDataABI_V0,
+	types.TransactionDataABI_V1,
+	types.NotoManifestABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -128,8 +131,11 @@ type Noto struct {
 	fixedSigningIdentity string
 	coinSchema           *prototk.StateSchema
 	lockedCoinSchema     *prototk.StateSchema
-	dataSchema           *prototk.StateSchema
-	lockInfoSchema       *prototk.StateSchema
+	dataSchemaV0         *prototk.StateSchema
+	dataSchemaV1         *prototk.StateSchema
+	lockInfoSchemaV0     *prototk.StateSchema
+	lockInfoSchemaV1     *prototk.StateSchema
+	manifestSchema       *prototk.StateSchema
 }
 
 type NotoDeployParams struct {
@@ -355,7 +361,7 @@ type NotoPrepareUnlock_V0_Params struct {
 
 type NotoDelegateLock_V0_Params struct {
 	TxId       string               `json:"txId"`
-	UnlockHash string               `json:"unlockHash"`
+	UnlockHash *pldtypes.Bytes32    `json:"unlockHash"`
 	Delegate   *pldtypes.EthAddress `json:"delegate"`
 	Signature  pldtypes.HexBytes    `json:"signature"`
 	Data       pldtypes.HexBytes    `json:"data"`
@@ -459,15 +465,18 @@ func (n *Noto) LockedCoinSchemaID() string {
 }
 
 func (n *Noto) LockInfoSchemaID() string {
-	return n.lockInfoSchema.Id
+	return n.lockInfoSchemaV1.Id
 }
 
 func (n *Noto) DataSchemaID() string {
-	return n.dataSchema.Id
+	return n.dataSchemaV1.Id
+}
+
+func (n *Noto) ManifestSchemaID() string {
+	return n.manifestSchema.Id
 }
 
 func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	var config types.DomainConfig
 	err := json.Unmarshal([]byte(req.ConfigJson), &config)
 	if err != nil {
@@ -488,17 +497,22 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 }
 
 func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	for i, schema := range allSchemas {
 		switch schema.Name {
 		case types.NotoCoinABI.Name:
 			n.coinSchema = req.AbiStateSchemas[i]
 		case types.NotoLockedCoinABI.Name:
 			n.lockedCoinSchema = req.AbiStateSchemas[i]
-		case types.TransactionDataABI.Name:
-			n.dataSchema = req.AbiStateSchemas[i]
-		case types.NotoLockInfoABI.Name:
-			n.lockInfoSchema = req.AbiStateSchemas[i]
+		case types.TransactionDataABI_V0.Name:
+			n.dataSchemaV0 = req.AbiStateSchemas[i]
+		case types.TransactionDataABI_V1.Name:
+			n.dataSchemaV1 = req.AbiStateSchemas[i]
+		case types.NotoLockInfoABI_V0.Name:
+			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
+		case types.NotoLockInfoABI_V1.Name:
+			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case types.NotoManifestABI.Name:
+			n.manifestSchema = req.AbiStateSchemas[i]
 		}
 	}
 	return &prototk.InitDomainResponse{}, nil
@@ -555,10 +569,11 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	notaryAddress, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
+	notaryInfo, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
+	notaryAddress := notaryInfo.address
 
 	deployData := &types.NotoConfigData_V0{
 		NotaryLookup: notaryQualified.String(),
@@ -793,7 +808,19 @@ func validateTransactionCommon[T any](
 		return nil, zero, err
 	}
 
-	abi := types.NotoABI.Functions()[functionABI.Name]
+	// Get the expected ABI for validation
+	var abi *abi.Entry
+	if functionABI.Name == "delegateLock" {
+		// delegateLock has different signatures in V0 and V1
+		if domainConfig.IsV0() {
+			abi = types.NotoV0ABI.Functions()[functionABI.Name]
+		} else {
+			abi = types.NotoABI.Functions()[functionABI.Name]
+		}
+	} else {
+		abi = types.NotoABI.Functions()[functionABI.Name]
+	}
+
 	handler := getHandler(functionABI.Name)
 	handlerValue := reflect.ValueOf(handler)
 	if abi == nil || handlerValue.IsNil() {
@@ -926,7 +953,15 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 	return result, nil
 }
 
-func (n *Noto) encodeTransactionData_V0(ctx context.Context, transactionID string, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+	if domainConfig.IsV1() {
+		return n.encodeTransactionDataV1(ctx, infoStates)
+	} else {
+		return n.encodeTransactionDataV0(ctx, transaction, infoStates)
+	}
+}
+
+func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
 	var err error
 	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
 	for i, state := range infoStates {
@@ -936,8 +971,12 @@ func (n *Noto) encodeTransactionData_V0(ctx context.Context, transactionID strin
 		}
 	}
 
+	transactionID, err := pldtypes.ParseBytes32Ctx(ctx, transaction.TransactionId)
+	if err != nil {
+		return nil, err
+	}
 	dataValues := &types.NotoTransactionData_V0{
-		TransactionID: pldtypes.MustParseBytes32(transactionID),
+		TransactionID: transactionID,
 		InfoStates:    stateIDs,
 	}
 	dataJSON, err := json.Marshal(dataValues)
@@ -955,7 +994,7 @@ func (n *Noto) encodeTransactionData_V0(ctx context.Context, transactionID strin
 	return data, nil
 }
 
-func (n *Noto) encodeTransactionData(ctx context.Context, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
 	var err error
 	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
 	for i, state := range infoStates {
@@ -983,39 +1022,17 @@ func (n *Noto) encodeTransactionData(ctx context.Context, infoStates []*prototk.
 	return data, nil
 }
 
-func (n *Noto) decodeTransactionData(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V0, error) {
+func (n *Noto) decodeTransactionDataV0(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V0, error) {
 	var dataValues types.NotoTransactionData_V0
 	if len(data) >= 4 {
 		dataPrefix := data[0:4]
-
-		switch dataPrefix.String() {
-		case types.NotoTransactionDataID_V1.String():
-			dataDecoded, err := types.NotoTransactionDataABI_V1.DecodeABIDataCtx(ctx, data, 4)
-			if err == nil {
-				var dataJSON []byte
-				dataJSON, err = dataDecoded.JSON()
-				if err == nil {
-					// Note that V1 is a subset of V0, so we can use the same struct
-					err = json.Unmarshal(dataJSON, &dataValues)
-					if err == nil {
-						return &dataValues, nil
-					}
-				}
-			}
-			if err != nil {
-				return nil, err
-			}
-
-		case types.NotoTransactionDataID_V0.String():
+		if dataPrefix.String() == types.NotoTransactionDataID_V0.String() {
 			dataDecoded, err := types.NotoTransactionDataABI_V0.DecodeABIDataCtx(ctx, data, 4)
 			if err == nil {
 				var dataJSON []byte
 				dataJSON, err = dataDecoded.JSON()
 				if err == nil {
 					err = json.Unmarshal(dataJSON, &dataValues)
-					if err == nil {
-						return &dataValues, nil
-					}
 				}
 			}
 			if err != nil {
@@ -1023,7 +1040,32 @@ func (n *Noto) decodeTransactionData(ctx context.Context, data pldtypes.HexBytes
 			}
 		}
 	}
+	if dataValues.TransactionID.IsZero() {
+		// If no transaction ID could be decoded, assign a random one
+		dataValues.TransactionID = pldtypes.RandBytes32()
+		log.L(ctx).Warnf("No transaction ID could be decoded from data %s, assigning a random one %s", data.String(), dataValues.TransactionID.String())
+	}
+	return &dataValues, nil
+}
 
+func (n *Noto) decodeTransactionDataV1(ctx context.Context, data pldtypes.HexBytes) (*types.NotoTransactionData_V1, error) {
+	var dataValues types.NotoTransactionData_V1
+	if len(data) >= 4 {
+		dataPrefix := data[0:4]
+		if dataPrefix.String() == types.NotoTransactionDataID_V1.String() {
+			dataDecoded, err := types.NotoTransactionDataABI_V1.DecodeABIDataCtx(ctx, data, 4)
+			if err == nil {
+				var dataJSON []byte
+				dataJSON, err = dataDecoded.JSON()
+				if err == nil {
+					err = json.Unmarshal(dataJSON, &dataValues)
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return &dataValues, nil
 }
 
@@ -1099,6 +1141,96 @@ func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }
 
+func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	res := &prototk.CheckStateCompletionResponse{}
+	if req.UnavailableStates == nil || req.UnavailableStates.FirstUnavailableId == nil {
+		// There's nothing unavailable - we have all the states (in reality Paladin does not call us in this case)
+		return res, nil
+	}
+	// Determine if we have a manifest available.
+	var manifestState *prototk.EndorsableState
+	for _, potentialManifest := range req.InfoStates {
+		if potentialManifest.SchemaId == n.ManifestSchemaID() {
+			manifestState = potentialManifest
+			break
+		}
+	}
+	// If we don't (Noto V0, or just not available yet) then we return the pre-calculated FirstUnavailableId
+	// provided by us by Paladin.
+	if manifestState == nil {
+		res.PrimaryMissingStateId = req.UnavailableStates.FirstUnavailableId
+		log.L(ctx).Debugf("No manifest available. Returning pre-calculated first unavailable state for transaction %s: %s", req.TransactionId, *res.PrimaryMissingStateId)
+		return res, nil
+	}
+	// Decode the manifest
+	var manifest types.NotoManifest
+	if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidManifestState, manifestState.Id)
+	}
+	// Now, it get's a little complex - we need to ask the Paladin node which of the addresses
+	// in the state distribution list are "ours". There's a batch API for this provided.
+	// Note we only get to this point if we're involved in the transaction in some way, and
+	// don't have the whole state set (Notary always has full set before submit).
+	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
+	lookupReq := &prototk.LookupKeyIdentifiersRequest{
+		Algorithm:    algorithms.ECDSA_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	uniqueAddresses := make(map[string]struct{})
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			uniqueAddresses[target.String()] = struct{}{}
+		}
+	}
+	for addr := range uniqueAddresses {
+		lookupReq.Verifiers = append(lookupReq.Verifiers, addr)
+	}
+	lookupRes, err := n.Callbacks.LookupKeyIdentifiers(ctx, lookupReq)
+	if err != nil {
+		return nil, err
+	}
+	// Now we build a list of all states we expect to find for this
+	var requiredStateIDs []string
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			for _, keyLookup := range lookupRes.Results {
+				if target.String() == keyLookup.Verifier && keyLookup.Found {
+					log.L(ctx).Debugf("Require state %s as we own key %s for address %s", state.ID, *keyLookup.KeyIdentifier, target)
+					requiredStateIDs = append(requiredStateIDs, state.ID.String())
+				}
+			}
+		}
+	}
+	// The states could be in any set of unavailable
+	for _, requiredStateID := range requiredStateIDs {
+		for _, unavailableID := range req.UnavailableStates.InfoStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required info state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.InputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required input state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.OutputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required output state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.ReadStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required read state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+	}
+	return res, nil
+}
+
 // getInterfaceABI returns the appropriate interface ABI based on the variant
 func (n *Noto) getInterfaceABI(variant pldtypes.HexUint64) abi.ABI {
 	if variant == types.NotoVariantLegacy {
@@ -1133,4 +1265,16 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	}
 
 	return pldtypes.Bytes32Keccak(encoded), nil
+}
+
+func (n *Noto) extractLockInfo(ctx context.Context, req *prototk.PrepareTransactionRequest) (*types.NotoLockInfo_V1, error) {
+	lockStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
+	if len(lockStates) == 1 {
+		lock, err := n.unmarshalLock(lockStates[0].StateDataJson)
+		if err != nil {
+			return nil, err
+		}
+		return lock, nil
+	}
+	return nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 }

@@ -75,18 +75,33 @@ func (sr stateRef) TableName() string {
 	return "states"
 }
 
+// Gaps are a record that a whole source (smart contract emitting the event) is blocked
 type persistedReceiptGap struct {
 	Listener    string               `gorm:"column:listener;primaryKey"`
-	Source      *pldtypes.EthAddress `gorm:"column:source;primaryKey"`
+	Source      *pldtypes.EthAddress `gorm:"column:source;primaryKey"` // one per blocked source
 	Transaction uuid.UUID            `gorm:"column:transaction"`
 	Sequence    uint64               `gorm:"column:sequence"`
 	DomainName  string               `gorm:"column:domain_name"`
 	StateID     pldtypes.HexBytes    `gorm:"column:state"`
-	State       *stateRef            `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"`
+	State       *stateRef            `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the gap is now closed by calling the domain again to evaluate the available state set
 }
 
 func (persistedReceiptGap) TableName() string {
 	return "receipt_listener_gap"
+}
+
+// Incomplete records just are a record that one individual receipt is blocked, and can be resolved independently
+type persistedReceiptIncomplete struct {
+	Listener   string              `gorm:"column:listener;primaryKey"`
+	Sequence   uint64              `gorm:"column:sequence;primaryKey"` // one per blocked receipt
+	DomainName string              `gorm:"column:domain_name"`
+	StateID    pldtypes.HexBytes   `gorm:"column:state"`                                           // we just record one state, returned by the domain as the "next one blocking completion" (and it might get edited later if states arrive and we're still incomplete)
+	State      *stateRef           `gorm:"foreignKey:DomainName,ID;references:DomainName,StateID"` // if resolved by join, we need to re-evaluate if the receipt is complete by calling the domain again to evaluate the available state set
+	Receipt    *transactionReceipt `gorm:"foreignKey:Sequence;references:Sequence"`                // we do the join to avoid additional lookups
+}
+
+func (persistedReceiptIncomplete) TableName() string {
+	return "receipt_listener_incomplete"
 }
 
 type receiptListener struct {
@@ -114,9 +129,56 @@ type registeredReceiptReceiver struct {
 }
 
 type receiptDeliveryBatch struct {
-	ID       uint64
-	Receipts []*pldapi.TransactionReceiptFull
-	Gaps     []*persistedReceiptGap
+	ID                 uint64
+	Receipts           []*pldapi.TransactionReceiptFull
+	Gaps               []*persistedReceiptGap
+	IncompleteReceipts []*persistedReceiptIncomplete
+}
+
+type receiptBatchContext struct {
+	listener *receiptListener
+	domains  map[string]components.Domain
+}
+
+func (l *receiptListener) newReceiptBatchContext() *receiptBatchContext {
+	ctx := &receiptBatchContext{
+		listener: l,
+		domains:  make(map[string]components.Domain),
+	}
+	return ctx
+}
+
+func (ctx *receiptBatchContext) getDomain(domainName string) (components.Domain, error) {
+	if domain, exists := ctx.domains[domainName]; exists {
+		return domain, nil
+	}
+	domain, err := ctx.listener.tm.domainMgr.GetDomainByName(ctx.listener.ctx, domainName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the domain for future use
+	ctx.domains[domainName] = domain
+	return domain, nil
+}
+
+func (ctx *receiptBatchContext) buildFullReceipt(receipt *pldapi.TransactionReceipt, domainReceipt bool) (*pldapi.TransactionReceiptFull, error) {
+	fullReceipt := &pldapi.TransactionReceiptFull{TransactionReceipt: receipt}
+	if receipt.Domain != "" {
+		if err := ctx.listener.tm.addStateReceipt(ctx.listener.ctx, fullReceipt); err != nil {
+			return nil, err
+		}
+		if domainReceipt {
+			domain, err := ctx.getDomain(receipt.Domain)
+			if err != nil {
+				return nil, err
+			}
+			if domain != nil {
+				ctx.listener.tm.addDomainReceipt(ctx.listener.ctx, domain, fullReceipt)
+			}
+		}
+	}
+	return fullReceipt, nil
 }
 
 func (tm *txManager) receiptsInit() {
@@ -208,7 +270,6 @@ func (tm *txManager) StopReceiptListener(ctx context.Context, name string) error
 }
 
 func (tm *txManager) NotifyStatesDBChanged(ctx context.Context) {
-	// ctx = log.WithComponent(ctx, "txmanager")
 	tm.lastStateUpdateTime.Store(int64(pldtypes.TimestampNow()))
 }
 
@@ -572,15 +633,18 @@ func (l *receiptListener) loadCheckpoint() error {
 	return nil
 }
 
-func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
+func (l *receiptListener) readReceiptPageAtHead() ([]*transactionReceipt, error) {
+	behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 		db := l.tm.p.DB()
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, db)
 		if err == nil {
-			// Only return non-blocked sequences
-			q = q.Joins(`Gap`, db.Where(&persistedReceiptGap{Listener: l.spec.Name})).
-				Where(`"Gap"."transaction" IS NULL`)
+			if behavior == pldapi.IncompleteStateReceiptBehaviorBlockContract {
+				// For gaps there are zero/one per listener+source combination (primary key constraint)
+				q = q.Joins(`LEFT JOIN receipt_listener_gap "Gap" ON "Gap"."listener" = ? AND "Gap"."source" = "transaction_receipts"."source"`, l.spec.Name).
+					Where(`"Gap"."transaction" IS NULL`) // cannot have a gap on this source if we're blocking
+			}
 			if l.checkpoint != nil {
 				q = q.Where(`"transaction_receipts"."sequence" > ?`, *l.checkpoint)
 			}
@@ -593,7 +657,7 @@ func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
 	return receipts, err
 }
 
-func (l *receiptListener) readGapPage(gap *persistedReceiptGap) ([]*transactionReceipt, error) {
+func (l *receiptListener) readReceiptPageFromGap(gap *persistedReceiptGap) ([]*transactionReceipt, error) {
 	var receipts []*transactionReceipt
 	err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, l.tm.p.DB())
@@ -613,7 +677,7 @@ func (l *receiptListener) readGapPage(gap *persistedReceiptGap) ([]*transactionR
 	return receipts, err
 }
 
-func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *transactionReceipt) error {
+func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *transactionReceipt, batchCtx *receiptBatchContext) error {
 	if !l.checkMatch(pr) {
 		return nil
 	}
@@ -627,28 +691,76 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 	}
 
 	// Build the full receipt
-	fr, err := l.tm.buildFullReceipt(l.ctx, &pldapi.TransactionReceipt{
+	fr, err := batchCtx.buildFullReceipt(&pldapi.TransactionReceipt{
 		ID:                     pr.TransactionID,
 		TransactionReceiptData: *mapPersistedReceipt(pr),
 	}, l.spec.Options.DomainReceipts)
 	if err != nil {
 		return err
 	}
-	// If we don't have the state receipt, and we're told to block, then block
-	if fr.TransactionReceiptDataOnchainEvent != nil && fr.Domain != "" &&
-		(fr.States == nil || fr.States.FirstUnavailable() != nil) &&
-		l.spec.Options.IncompleteStateReceiptBehavior.V() == pldapi.IncompleteStateReceiptBehaviorBlockContract {
-		log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, fr.TransactionHash, fr.Source)
-		b.Gaps = append(b.Gaps, &persistedReceiptGap{
-			Listener:    l.spec.Name,
-			Source:      &fr.Source,
-			Sequence:    pr.Sequence,
-			DomainName:  fr.Domain,
-			StateID:     fr.States.FirstUnavailable(),
-			Transaction: fr.ID,
-		})
-		return nil
+
+	if fr.TransactionReceiptDataOnchainEvent != nil && fr.Domain != "" {
+		d, err := batchCtx.getDomain(fr.Domain)
+		if err != nil {
+			return err
+		}
+
+		var primaryMissingStateID pldtypes.HexBytes
+		if fr.States != nil && d != nil && fr.States.FirstUnavailable() != nil {
+			// Domains supporting PARTIAL completion processing use the FIRST "info" state for
+			// the manifest of the transaction. This allows us to determine that:
+			//
+			// ** Any transaction which is missing the first info state, is incomplete on the first info state **
+			//
+			// This avoids the need for every transaction from every participant in the network to be
+			// passed to the domain for complex processing when we have zero states.
+			if len(fr.States.Info) == 0 && len(fr.States.Unavailable.Info) > 0 {
+				// We don't have the manifest - no point in calling the domain.
+				// Trigger again when the first info state is available.
+				primaryMissingStateID = fr.States.Unavailable.Info[0]
+			} else {
+				// Otherwise:
+				// - There are > 0 unavailable states
+				// - We require the transaction to be complete
+				// - We're not waiting for a first-info state (manifest)
+				// We need the domain to get involved to determine if the transaction is complete,
+				// or we need to wait for at least one more state. It just needs to return the ID
+				// of one state we're waiting for (any one that we know is required).
+				primaryMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		// Handle incomplete state based on the configured behavior
+		if primaryMissingStateID != nil {
+			behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
+			switch behavior {
+			case pldapi.IncompleteStateReceiptBehaviorBlockContract:
+				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s blocking contract %s", fr.ID, fr.TransactionHash, fr.Source)
+				b.Gaps = append(b.Gaps, &persistedReceiptGap{
+					Listener:    l.spec.Name,
+					Source:      &fr.Source,
+					Sequence:    pr.Sequence,
+					DomainName:  fr.Domain,
+					StateID:     primaryMissingStateID,
+					Transaction: fr.ID,
+				})
+				return nil
+			case pldapi.IncompleteStateReceiptBehaviorCompleteOnly:
+				log.L(l.ctx).Infof("States currently unavailable for TXID %s in blockchain TX %s (deferring delivery)", fr.ID, fr.TransactionHash)
+				b.IncompleteReceipts = append(b.IncompleteReceipts, &persistedReceiptIncomplete{
+					Listener:   l.spec.Name,
+					Sequence:   pr.Sequence,
+					DomainName: fr.Domain,
+					StateID:    primaryMissingStateID,
+				})
+				return nil
+			}
+		}
 	}
+
 	// Otherwise we can process the receipt
 	log.L(l.ctx).Infof("Added receipt %d/%s (domain='%s') to batch %d", pr.Sequence, fr.ID, fr.Domain, b.ID)
 	b.Receipts = append(b.Receipts, fr)
@@ -717,6 +829,15 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 				Create(batch.Gaps).
 				Error
 		}
+		if err == nil && len(batch.IncompleteReceipts) > 0 {
+			err = dbTX.DB().
+				WithContext(ctx).
+				Clauses(clause.OnConflict{
+					DoNothing: true, // note update is handled separately
+				}).
+				Create(batch.IncompleteReceipts).
+				Error
+		}
 		if err != nil {
 			return err
 		}
@@ -727,13 +848,16 @@ func (l *receiptListener) updateCheckpoint(batch *receiptDeliveryBatch, newSeque
 }
 
 func (l *receiptListener) processPage(page []*transactionReceipt) (*receiptDeliveryBatch, error) {
+	batchCtx := l.newReceiptBatchContext()
+
 	// Process each one building up a batch to process
 	var batch receiptDeliveryBatch
 	batch.ID = l.nextBatchID
 	l.nextBatchID++
+
 	for _, r := range page {
 		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.processPersistedReceipt(&batch, r)
+			return true, l.processPersistedReceipt(&batch, r, batchCtx)
 		})
 		if err != nil {
 			return nil, err
@@ -756,30 +880,39 @@ func (l *receiptListener) processPage(page []*transactionReceipt) (*receiptDeliv
 }
 
 func (l *receiptListener) processStaleGaps() error {
+	if l.spec.Options.IncompleteStateReceiptBehavior.V() != pldapi.IncompleteStateReceiptBehaviorBlockContract {
+		// Gaps are a one-per-source construct in the DB, which are thus only applicable to blocking listeners
+		// that expect every transaction to complete in the exact order.
+		// A separate DB construct is used for listeners that allow late completion.
+		return nil
+	}
 
 	// We process stale gaps one at a time, as the outcome is to:
 	// 1) if still a problem, remove the stale flag from the gap
 	// 2) move the gap onwards to the new gap
 	// 3) remove the gap completely so the contract is in the head group again
+	var pageEnd *pldtypes.EthAddress
 	for {
 		var gaps []*persistedReceiptGap
 		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
-			return true, l.tm.p.DB().
+			q := l.tm.p.DB().
 				WithContext(l.ctx).
-				Joins("State").
-				Where(`"State"."id" IS NOT NULL`). // the state exists
+				InnerJoins("State").
+				Where("Listener = ?", l.spec.Name).
 				Limit(l.tm.receiptListenersLoadPageSize).
-				Find(&gaps).
-				Error
+				Order("Source")
+			if pageEnd != nil {
+				q = q.Where("Source > ?", pageEnd)
+			}
+			return true, q.Find(&gaps).Error
 		})
 		if err != nil {
 			return err
 		}
 		if len(gaps) == 0 {
-			// no gaps to process
 			return nil
 		}
-
+		pageEnd = gaps[len(gaps)-1].Source
 		for _, gap := range gaps {
 			if err := l.processStaleGap(gap); err != nil {
 				return err
@@ -789,11 +922,98 @@ func (l *receiptListener) processStaleGaps() error {
 
 }
 
+func (l *receiptListener) processStaleIncompletes() error {
+	if l.spec.Options.IncompleteStateReceiptBehavior.V() != pldapi.IncompleteStateReceiptBehaviorCompleteOnly {
+		// Incomplete records are written only when we are configured to perform delivery of receipts once
+		// they are state-complete (sacrificing strong order assurance).
+		// This is needed for confidential tokens, as there's no way to know if you're involved in a transaction
+		// until you receive the first state. So if that state arrives after the blockchain transaction we have
+		// to deliver the receipt out of order like this (or we'd stall waiting for states we are never going to receive).
+		return nil
+	}
+
+	// Stale incompletes have the state that was previously blocking deliver, but not necessarily the whole
+	// set of states they need yet. So we have to pass each one back to the domain to check it again, before
+	// deciding whether to update it and leave it incomplete, or deliver it.
+	var pageEnd *uint64
+	for {
+		var incompletes []*persistedReceiptIncomplete
+		err := l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+			q := l.tm.p.DB().
+				WithContext(l.ctx).
+				InnerJoins("State").
+				InnerJoins("Receipt").
+				Where("Listener = ?", l.spec.Name).
+				Order(`"receipt_listener_incomplete"."sequence"`).
+				Limit(l.tm.receiptListenersLoadPageSize)
+			if pageEnd != nil {
+				q = q.Where(`"receipt_listener_incomplete"."sequence" > ?`, *pageEnd) // the state exists
+			}
+			return true, q.Find(&incompletes).Error
+		})
+		if err != nil {
+			return err
+		}
+		if len(incompletes) == 0 {
+			return nil
+		}
+		pageEnd = &incompletes[len(incompletes)-1].Sequence
+		receiptPage := make([]*transactionReceipt, len(incompletes))
+		for i, incomplete := range incompletes {
+			receiptPage[i] = incomplete.Receipt
+		}
+		// Process the page
+		incompletesToDelete := make([]uint64, 0, len(incompletes))
+		batch, err := l.processPage(receiptPage)
+		if err == nil {
+			// Now we need to work out what to do with the incompletes - delete or update
+			for _, incompleteBefore := range incompletes {
+				stillIncomplete := false
+				for _, incompleteAfter := range batch.IncompleteReceipts {
+					if incompleteAfter.Sequence == incompleteBefore.Sequence {
+						stillIncomplete = true
+					}
+				}
+				if !stillIncomplete {
+					incompletesToDelete = append(incompletesToDelete, incompleteBefore.Sequence)
+				}
+				log.L(l.ctx).Debugf("Previously incomplete receipt re-assessed: txID=%s sequence=%d stillIncomplete=%t", incompleteBefore.Receipt.TransactionID, incompleteBefore.Sequence, stillIncomplete)
+			}
+		}
+		if err == nil && len(batch.IncompleteReceipts) > 0 {
+			err = l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+				return true, l.tm.p.DB().
+					WithContext(l.ctx).
+					Clauses(clause.OnConflict{
+						Columns:   []clause.Column{{Name: "listener"}, {Name: "sequence"}},
+						DoUpdates: clause.AssignmentColumns([]string{"state"}), // update the state on clash
+					}).
+					Create(batch.IncompleteReceipts).
+					Error
+			})
+		}
+		if err == nil && len(incompletesToDelete) > 0 {
+			err = l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
+				return true, l.tm.p.DB().
+					WithContext(l.ctx).
+					Where("Listener = ?", l.spec.Name).
+					Where("Sequence IN ?", incompletesToDelete).
+					Delete(&persistedReceiptIncomplete{}).
+					Error
+			})
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+}
+
 func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 
 	for {
 		// Read a page of events from the gap
-		page, err := l.readGapPage(gap)
+		page, err := l.readReceiptPageFromGap(gap)
 		if err != nil {
 			return err
 		}
@@ -804,7 +1024,7 @@ func (l *receiptListener) processStaleGap(gap *persistedReceiptGap) error {
 			return err
 		}
 
-		// We find a gap still, then we update the gap to this new (non-stale) position
+		// We find a gap still, then we write that and stop
 		if len(batch.Gaps) > 0 {
 			log.L(l.ctx).Infof("Gap for contract %s remains old=%d/%s new=%d/%s", gap.Source, gap.Sequence, gap.Transaction, batch.Gaps[0].Sequence, batch.Gaps[0].Transaction)
 			return l.tm.receiptsRetry.Do(l.ctx, func(attempt int) (retryable bool, err error) {
@@ -880,19 +1100,23 @@ func (l *receiptListener) runListener() {
 
 		if newStates {
 			lastStateCheck = time.Now()
+			newStates = false
 
 			// Process up all stale gaps before we process the head
-			if err := l.processStaleGaps(); err != nil {
+			err := l.processStaleGaps()
+			if err == nil {
+				// Process all stale incompletes befre we process the head
+				err = l.processStaleIncompletes()
+			}
+			if err != nil {
 				log.L(l.ctx).Warnf("listener stopping (processing stale gaps): %s", err) // cancelled context
 				return
 			}
-
-			newStates = false
 		}
 
 		if newReceipts {
 			// Read the next page of receipts from non-gapped sources - the head
-			page, err := l.readHeadPage()
+			page, err := l.readReceiptPageAtHead()
 			if err != nil {
 				log.L(l.ctx).Warnf("listener stopping: %s", err) // cancelled context
 				return

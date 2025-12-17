@@ -34,6 +34,7 @@ import (
 )
 
 type mockComponents struct {
+	t                *testing.T
 	c                *componentsmocks.AllComponents
 	db               sqlmock.Sqlmock
 	ethClientFactory *ethclientmocks.EthClientFactory
@@ -41,7 +42,7 @@ type mockComponents struct {
 	blockIndexer     *blockindexermocks.BlockIndexer
 	keyManager       *componentsmocks.KeyManager
 	publicTxMgr      *componentsmocks.PublicTxManager
-	privateTxMgr     *componentsmocks.PrivateTxManager
+	sequencerMgr     *componentsmocks.SequencerManager
 	stateMgr         *componentsmocks.StateManager
 	identityResolver *componentsmocks.IdentityResolver
 	transportManager *componentsmocks.TransportManager
@@ -58,13 +59,14 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 		},
 	}
 	mc := &mockComponents{
+		t:                t,
 		c:                componentsmocks.NewAllComponents(t),
 		blockIndexer:     blockindexermocks.NewBlockIndexer(t),
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
 		keyManager:       componentsmocks.NewKeyManager(t),
 		domainManager:    componentsmocks.NewDomainManager(t),
 		publicTxMgr:      componentsmocks.NewPublicTxManager(t),
-		privateTxMgr:     componentsmocks.NewPrivateTxManager(t),
+		sequencerMgr:     componentsmocks.NewSequencerManager(t),
 		stateMgr:         componentsmocks.NewStateManager(t),
 		identityResolver: componentsmocks.NewIdentityResolver(t),
 		transportManager: componentsmocks.NewTransportManager(t),
@@ -79,7 +81,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	componentsmocks.On("DomainManager").Return(mc.domainManager).Maybe()
 	componentsmocks.On("KeyManager").Return(mc.keyManager).Maybe()
 	componentsmocks.On("PublicTxManager").Return(mc.publicTxMgr).Maybe()
-	componentsmocks.On("PrivateTxManager").Return(mc.privateTxMgr).Maybe()
+	componentsmocks.On("SequencerManager").Return(mc.sequencerMgr).Maybe()
 	componentsmocks.On("StateManager").Return(mc.stateMgr).Maybe()
 	componentsmocks.On("IdentityResolver").Return(mc.identityResolver).Maybe()
 	componentsmocks.On("EthClientFactory").Return(mc.ethClientFactory).Maybe()
@@ -118,8 +120,10 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

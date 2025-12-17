@@ -295,8 +295,11 @@ func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUI
 }
 
 func (tm *txManager) GetTransactionByID(ctx context.Context, id uuid.UUID) (*pldapi.Transaction, error) {
-	ctx = log.WithComponent(ctx, "txmanager")
-	ptxs, err := tm.QueryTransactions(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
+	return tm.GetTransactionByIDWithDBTX(ctx, tm.p.NOTX(), id)
+}
+
+func (tm *txManager) GetTransactionByIDWithDBTX(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.Transaction, error) {
+	ptxs, err := tm.QueryTransactions(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
 	if len(ptxs) == 0 || err != nil {
 		return nil, err
 	}

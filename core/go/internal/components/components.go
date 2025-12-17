@@ -48,12 +48,13 @@ type Managers interface {
 	TransportManager() TransportManager
 	RegistryManager() RegistryManager
 	PluginManager() PluginManager
-	PrivateTxManager() PrivateTxManager
+	SequencerManager() SequencerManager
 	PublicTxManager() PublicTxManager
 	TxManager() TXManager
 	StateManager() StateManager
 	IdentityResolver() IdentityResolver
 	GroupManager() GroupManager
+	RPCAuthManager() RPCAuthManager
 }
 
 // All managers conform to a standard lifecycle

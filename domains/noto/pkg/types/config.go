@@ -53,6 +53,9 @@ var NotoConfigABI_V1 = &abi.ParameterArray{
 	{Name: "data", Type: "bytes"},
 }
 
+var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
+
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {
 	NotaryLookup   string               `json:"notaryLookup"`
@@ -64,25 +67,13 @@ type NotoConfigData_V0 struct {
 	AllowLock      bool                 `json:"allowLock"`
 }
 
-var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
-var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
-
 type NotoTransactionData_V0 struct {
-	TransactionID pldtypes.Bytes32   `json:"transactionId"`
+	TransactionID pldtypes.Bytes32   `json:"transactionId"` // in V0 the data was the primary place for the transaction ID, but there was some duplication with parameters. Moved to parameter consistently in V1.
 	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`
-}
-
-var NotoTransactionDataABI_V0 = &abi.ParameterArray{
-	{Name: "transactionId", Type: "bytes32"},
-	{Name: "infoStates", Type: "bytes32[]"},
 }
 
 type NotoTransactionData_V1 struct {
 	InfoStates []pldtypes.Bytes32 `json:"infoStates"`
-}
-
-var NotoTransactionDataABI_V1 = &abi.ParameterArray{
-	{Name: "infoStates", Type: "bytes32[]"},
 }
 
 // This is the structure we parse the config into in InitConfig and gets passed back to us on every call
@@ -120,6 +111,15 @@ type PentePrivateGroup struct {
 	Members []string         `json:"members"`
 }
 
+var NotoTransactionDataABI_V0 = &abi.ParameterArray{
+	{Name: "transactionId", Type: "bytes32"},
+	{Name: "infoStates", Type: "bytes32[]"},
+}
+
+var NotoTransactionDataABI_V1 = &abi.ParameterArray{
+	{Name: "infoStates", Type: "bytes32[]"},
+}
+
 type DomainHandler = domain.DomainHandler[NotoParsedConfig]
 type DomainCallHandler = domain.DomainCallHandler[NotoParsedConfig]
 type ParsedTransaction = domain.ParsedTransaction[NotoParsedConfig]
@@ -129,8 +129,16 @@ const (
 	NotaryModeIntHooks pldtypes.HexUint64 = 0x0001
 )
 
-var NotoVariantLegacy pldtypes.HexUint64 = 0x0000
-var NotoVariantDefault pldtypes.HexUint64 = 0x0001
+var NotoVariantDefault pldtypes.HexUint64 = 0x0001 // V1 variant
+var NotoVariantLegacy pldtypes.HexUint64 = 0x0000  // V0 variant
+
+func (c *NotoParsedConfig) IsV1() bool {
+	return c.Variant == NotoVariantDefault
+}
+
+func (c *NotoParsedConfig) IsV0() bool {
+	return c.Variant == NotoVariantLegacy
+}
 
 type NotoLockOptions struct {
 	SpendTxId  pldtypes.Bytes32 `json:"spendTxId"`

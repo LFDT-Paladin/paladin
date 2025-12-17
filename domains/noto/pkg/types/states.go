@@ -39,10 +39,11 @@ type ReceiptStates struct {
 }
 
 type ReceiptLockInfo struct {
-	LockID       pldtypes.Bytes32       `json:"lockId"`
-	SpendTxId    *pldtypes.Bytes32      `json:"spendTxId,omitempty"`    // only set for prepareUnlock
-	UnlockParams *SpendLockPublicParams `json:"unlockParams,omitempty"` // only set for prepareUnlock
-	UnlockCall   pldtypes.HexBytes      `json:"unlockCall,omitempty"`   // only set for prepareUnlock
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Delegate     *pldtypes.EthAddress `json:"delegate,omitempty"`     // only set for delegateLock
+	SpendTxId    *pldtypes.Bytes32    `json:"spendTxId,omitempty"`    // only set for prepareUnlock
+	UnlockParams map[string]any       `json:"unlockParams,omitempty"` // only set for prepareUnlock
+	UnlockCall   pldtypes.HexBytes    `json:"unlockCall,omitempty"`   // only set for prepareUnlock
 }
 
 type ReceiptState struct {
@@ -107,17 +108,71 @@ var NotoLockedCoinABI = &abi.Parameter{
 	},
 }
 
-type NotoLockInfo struct {
+type NotoManifestState struct {
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoManifest        `json:"data"`
+}
+
+type NotoManifest struct {
+	Salt   pldtypes.Bytes32          `json:"salt"`
+	States []*NotoManifestStateEntry `json:"states"`
+}
+
+type NotoManifestStateEntry struct {
+	ID           pldtypes.Bytes32       `json:"state"`
+	Participants []*pldtypes.EthAddress `json:"participants"`
+}
+
+var NotoManifestABI = &abi.Parameter{
+	Name:         "NotoManifest",
+	Type:         "tuple",
+	InternalType: "struct NotoManifest",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{
+			Name:         "states",
+			Type:         "tuple[]",
+			InternalType: "struct NotoManifestStateEntry[]",
+			Components: abi.ParameterArray{
+				{Name: "state", Type: "bytes32"},
+				{Name: "participants", Type: "string[]"},
+			},
+		},
+	},
+}
+
+type NotoLockInfo_V0 struct {
+	Salt     pldtypes.Bytes32     `json:"salt"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	Owner    *pldtypes.EthAddress `json:"owner"`
+	Delegate *pldtypes.EthAddress `json:"delegate"`
+}
+
+var NotoLockInfoABI_V0 = &abi.Parameter{
+	Name:         "NotoLockInfo",
+	Type:         "tuple",
+	InternalType: "struct NotoLockInfo",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "lockId", Type: "bytes32"},
+		{Name: "owner", Type: "address"},
+		{Name: "delegate", Type: "address"},
+	},
+}
+
+type NotoLockInfo_V1 struct {
 	Salt      pldtypes.Bytes32     `json:"salt"`
 	LockID    pldtypes.Bytes32     `json:"lockId"`
 	Owner     *pldtypes.EthAddress `json:"owner"`
 	SpendTxId pldtypes.Bytes32     `json:"spendTxId"`
 }
 
-var NotoLockInfoABI = &abi.Parameter{
-	Name:         "NotoLockInfo",
+var NotoLockInfoABI_V1 = &abi.Parameter{
+	Name:         "NotoLockInfo_V1",
 	Type:         "tuple",
-	InternalType: "struct NotoLockInfo",
+	InternalType: "struct NotoLockInfo_V1",
 	Components: abi.ParameterArray{
 		{Name: "salt", Type: "bytes32"},
 		{Name: "lockId", Type: "bytes32", Indexed: true},
@@ -127,16 +182,30 @@ var NotoLockInfoABI = &abi.Parameter{
 }
 
 type TransactionData struct {
-	Salt string            `json:"salt"`
-	Data pldtypes.HexBytes `json:"data"`
+	Salt    pldtypes.Bytes32   `json:"salt"`
+	Data    pldtypes.HexBytes  `json:"data"`
+	Variant pldtypes.HexUint64 `json:"variant"` // Noto contract variant
 }
 
-var TransactionDataABI = &abi.Parameter{
+// TransactionDataABI_V0 is the original schema
+var TransactionDataABI_V0 = &abi.Parameter{
 	Name:         "TransactionData",
 	Type:         "tuple",
 	InternalType: "struct TransactionData",
 	Components: abi.ParameterArray{
 		{Name: "salt", Type: "bytes32"},
 		{Name: "data", Type: "bytes"},
+	},
+}
+
+// TransactionDataABI_V1 is the new schema with Noto variant field
+var TransactionDataABI_V1 = &abi.Parameter{
+	Name:         "TransactionData_V1",
+	Type:         "tuple",
+	InternalType: "struct TransactionData_V1",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "data", Type: "bytes"},
+		{Name: "variant", Type: "uint64"},
 	},
 }

@@ -41,6 +41,7 @@ type DomainAPI interface {
 	InitCall(context.Context, *prototk.InitCallRequest) (*prototk.InitCallResponse, error)
 	ExecCall(context.Context, *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error)
 	BuildReceipt(context.Context, *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error)
+	CheckStateCompletion(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
 	ConfigurePrivacyGroup(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
 	InitPrivacyGroup(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
@@ -54,6 +55,8 @@ type DomainCallbacks interface {
 	SendTransaction(ctx context.Context, tx *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
 	LocalNodeName(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
 	GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 type DomainFactory func(callbacks DomainCallbacks) DomainAPI
@@ -213,10 +216,19 @@ func (dp *domainHandler) RequestToPlugin(ctx context.Context, iReq PluginMessage
 		resMsg := &prototk.DomainMessage_WrapPrivacyGroupEvmtxRes{}
 		resMsg.WrapPrivacyGroupEvmtxRes, err = dp.api.WrapPrivacyGroupEVMTX(ctx, input.WrapPrivacyGroupEvmtx)
 		res.ResponseFromDomain = resMsg
+	case *prototk.DomainMessage_CheckStateCompletion:
+		resMsg := &prototk.DomainMessage_CheckStateCompletionRes{}
+		resMsg.CheckStateCompletionRes, err = dp.api.CheckStateCompletion(ctx, input.CheckStateCompletion)
+		res.ResponseFromDomain = resMsg
 	default:
 		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
 	}
 	return dp.Wrap(res), err
+}
+
+func (dp *domainHandler) ClosePlugin(ctx context.Context) (PluginMessage[prototk.DomainMessage], error) {
+	// Not implemented
+	return nil, nil
 }
 
 func (dp *domainHandler) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -296,6 +308,28 @@ func (dp *domainHandler) GetStatesByID(ctx context.Context, req *prototk.GetStat
 	})
 }
 
+func (dp *domainHandler) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+	res, err := dp.proxy.RequestFromPlugin(ctx, dp.Wrap(&prototk.DomainMessage{
+		RequestFromDomain: &prototk.DomainMessage_LookupKeyIdentifiers{
+			LookupKeyIdentifiers: req,
+		},
+	}))
+	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_LookupKeyIdentifiersRes) *prototk.LookupKeyIdentifiersResponse {
+		return msg.LookupKeyIdentifiersRes
+	})
+}
+
+func (dp *domainHandler) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	res, err := dp.proxy.RequestFromPlugin(ctx, dp.Wrap(&prototk.DomainMessage{
+		RequestFromDomain: &prototk.DomainMessage_ValidateStates{
+			ValidateStates: req,
+		},
+	}))
+	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_ValidateStatesRes) *prototk.ValidateStatesResponse {
+		return msg.ValidateStatesRes
+	})
+}
+
 type DomainAPIFunctions struct {
 	ConfigureDomain       func(context.Context, *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error)
 	InitDomain            func(context.Context, *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error)
@@ -316,6 +350,7 @@ type DomainAPIFunctions struct {
 	ConfigurePrivacyGroup func(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
 	InitPrivacyGroup      func(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX func(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
+	CheckStateCompletion  func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
 }
 
 type DomainAPIBase struct {
@@ -396,4 +431,8 @@ func (db *DomainAPIBase) InitPrivacyGroup(ctx context.Context, req *prototk.Init
 
 func (db *DomainAPIBase) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error) {
 	return callPluginImpl(ctx, req, db.Functions.WrapPrivacyGroupEVMTX)
+}
+
+func (db *DomainAPIBase) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	return callPluginImpl(ctx, req, db.Functions.CheckStateCompletion)
 }

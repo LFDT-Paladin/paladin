@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
 type prepareUnlockHandler struct {
@@ -60,12 +61,16 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		return res, err
 	}
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	cancelOutputs, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(states.lockedInputs.total), []string{notary, params.From})
+	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(states.lockedInputs.total), identityList{notaryID, fromID})
 	if err != nil {
 		return nil, err
 	}
@@ -74,9 +79,15 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	assembledTransaction.ReadStates = states.lockedInputs.states
 	assembledTransaction.InfoStates = states.info
 	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.outputs.states...)
-	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, cancelOutputs.states...)
+	var v0LockedCoins []*types.NotoLockedCoin
+	if tx.DomainConfig.IsV1() {
+		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, cancelOutputs.states...)
+	} else {
+		v0LockedCoins = states.v0LockedOutputs.coins
+		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.v0LockedOutputs.states...)
+	}
 
-	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, states.lockedInputs.coins, nil, states.outputs.coins)
+	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, states.lockedInputs.coins, v0LockedCoins, states.outputs.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +118,28 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	}, nil
 }
 
+func (h *prepareUnlockHandler) endorse_V0(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+	params := tx.Params.(*types.UnlockParams)
+	lockedInputs := req.Reads
+	allOutputs := h.noto.filterSchema(req.Info, []string{h.noto.coinSchema.Id, h.noto.lockedCoinSchema.Id})
+
+	inputs, err := h.noto.parseCoinList(ctx, "input", lockedInputs)
+	if err != nil {
+		return nil, err
+	}
+	outputs, err := h.noto.parseCoinList(ctx, "output", allOutputs)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.endorse(ctx, tx, params, req, inputs, nil, outputs)
+}
+
 func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+	if tx.DomainConfig.IsV0() {
+		return h.endorse_V0(ctx, tx, req)
+	}
+
 	params := tx.Params.(*types.UnlockParams)
 	lockedInputs := req.Reads
 	allOutputs := h.noto.filterSchema(req.Info, []string{h.noto.coinSchema.Id})
@@ -134,29 +166,23 @@ func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTran
 
 func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.UnlockParams)
-	lockedInputs := req.ReadStates
-	allOutputs := h.noto.filterSchema(req.InfoStates, []string{h.noto.coinSchema.Id})
-	spendOutputs, cancelOutputs, err := h.noto.splitUnlockOutputs(ctx, allOutputs)
+	lockedInputs := h.noto.filterSchema(req.ReadStates, []string{h.noto.lockedCoinSchema.Id})
+	outputs, lockedOutputs := h.noto.splitStates(req.InfoStates)
+	spendOutputs, cancelOutputs, err := h.noto.splitUnlockOutputs(ctx, outputs)
 	if err != nil {
 		return nil, err
 	}
 
+	// As of V1 the spentTxId is in the lock state
 	var spendTxId pldtypes.Bytes32
-	lockInfoStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchema.Id})
-	if len(lockInfoStates) > 0 {
-		lock, err := h.noto.unmarshalLock(lockInfoStates[0].StateDataJson)
-		if err == nil {
-			spendTxId = lock.SpendTxId
+	if !tx.DomainConfig.IsV0() {
+		lockInfoStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchemaV0.Id})
+		if len(lockInfoStates) > 0 {
+			lock, err := h.noto.unmarshalLockV1(lockInfoStates[0].StateDataJson)
+			if err == nil {
+				spendTxId = lock.SpendTxId
+			}
 		}
-	}
-
-	spendHash, err := h.noto.unlockHashFromStates(ctx, tx.ContractAddress, spendTxId.String(), lockedInputs, spendOutputs, inParams.Data)
-	if err != nil {
-		return nil, err
-	}
-	cancelHash, err := h.noto.unlockHashFromStates(ctx, tx.ContractAddress, spendTxId.String(), lockedInputs, cancelOutputs, inParams.Data)
-	if err != nil {
-		return nil, err
 	}
 
 	// Include the signature from the sender
@@ -166,20 +192,6 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	lockOptions := types.NotoLockOptions{
-		SpendTxId:  spendTxId,
-		SpendHash:  pldtypes.Bytes32(spendHash),
-		CancelHash: pldtypes.Bytes32(cancelHash),
-	}
-	lockOptionsJSON, err := json.Marshal(lockOptions)
-	if err != nil {
-		return nil, err
-	}
-	lockOptionsEncoded, err := types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
-	if err != nil {
-		return nil, err
-	}
-
 	var interfaceABI abi.ABI
 	var functionName string
 	var paramsJSON []byte
@@ -187,7 +199,34 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
-		txData, err = h.noto.encodeTransactionData(ctx, req.InfoStates)
+		var spendHash ethtypes.HexBytes0xPrefix
+		spendHash, err = h.noto.unlockHashFromID_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
+		if err != nil {
+			return nil, err
+		}
+		var cancelHash ethtypes.HexBytes0xPrefix
+		cancelHash, err = h.noto.unlockHashFromID_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
+		if err != nil {
+			return nil, err
+		}
+
+		lockOptions := types.NotoLockOptions{
+			SpendTxId:  spendTxId,
+			SpendHash:  pldtypes.Bytes32(spendHash),
+			CancelHash: pldtypes.Bytes32(cancelHash),
+		}
+		var lockOptionsJSON []byte
+		lockOptionsJSON, err = json.Marshal(lockOptions)
+		if err != nil {
+			return nil, err
+		}
+		var lockOptionsEncoded []byte
+		lockOptionsEncoded, err = types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+		if err != nil {
+			return nil, err
+		}
+
+		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 			functionName = "updateLock"
@@ -204,15 +243,20 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			paramsJSON, err = json.Marshal(params)
 		}
 	default:
+		var unlockHash ethtypes.HexBytes0xPrefix
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs), inParams.Data)
+		if err != nil {
+			return nil, err
+		}
 		// We must use the legacy encoding for the transaction data, because there is no other place
 		// to pass in the transaction ID on this method
-		txData, err = h.noto.encodeTransactionData_V0(ctx, req.Transaction.TransactionId, req.InfoStates)
+		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 			functionName = "prepareUnlock"
 			params := &NotoPrepareUnlock_V0_Params{
 				LockedInputs: endorsableStateIDs(lockedInputs),
-				UnlockHash:   spendHash.String(),
+				UnlockHash:   unlockHash.String(),
 				Signature:    sender.Payload,
 				Data:         txData,
 			}
@@ -222,6 +266,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	if err != nil {
 		return nil, err
 	}
+
 	return &TransactionWrapper{
 		functionABI: interfaceABI.Functions()[functionName],
 		paramsJSON:  paramsJSON,
@@ -231,17 +276,17 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 func (h *prepareUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.UnlockParams)
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 	recipients := make([]*ResolvedUnlockRecipient, len(inParams.Recipients))
 	for i, entry := range inParams.Recipients {
-		to, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
+		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
 		}
-		recipients[i] = &ResolvedUnlockRecipient{To: to, Amount: entry.Amount}
+		recipients[i] = &ResolvedUnlockRecipient{To: toID.address, Amount: entry.Amount}
 	}
 
 	encodedCall, err := baseTransaction.encode(ctx)
@@ -249,7 +294,7 @@ func (h *prepareUnlockHandler) hookInvoke(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 	params := &UnlockHookParams{
-		Sender:     fromAddress,
+		Sender:     fromID.address,
 		LockID:     inParams.LockID,
 		Recipients: recipients,
 		Data:       inParams.Data,

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -34,10 +35,13 @@ import (
 )
 
 func TestMint(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:      mockCallbacks,
+		coinSchema:     &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
+		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema: &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["mint"]
@@ -52,7 +56,7 @@ func TestMint(t *testing.T) {
 		From:          "notary@node1",
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress:    contractAddress,
-			ContractConfigJson: mustParseJSON(notoBasicConfig),
+			ContractConfigJson: mustParseJSON(notoBasicConfigV1),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
 		FunctionSignature: fn.SolString(),
@@ -95,7 +99,7 @@ func TestMint(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
 
 	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
 	require.NoError(t, err)
@@ -103,10 +107,10 @@ func TestMint(t *testing.T) {
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
 	assert.Equal(t, []string{"notary@node1", "receiver@node2"}, assembleRes.AssembledTransaction.OutputStates[0].DistributionList)
 
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	assert.Equal(t, []string{"notary@node1", "receiver@node2"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
+	assert.Equal(t, []string{"notary@node1", "receiver@node2"}, assembleRes.AssembledTransaction.InfoStates[1].DistributionList)
 
 	encodedMint, err := n.encodeTransferUnmasked(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoCoin{}, []*types.NotoCoin{outputCoin})
 	require.NoError(t, err)
@@ -125,7 +129,7 @@ func TestMint(t *testing.T) {
 		{
 			SchemaId:      "data",
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 	}
 
@@ -174,7 +178,7 @@ func TestMint(t *testing.T) {
 		"outputs": ["0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"],
 		"proof": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
+		"data": "0x00010001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
 	}`, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -188,6 +192,7 @@ func TestMint(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -226,4 +231,22 @@ func TestMint(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, notaryKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryKey.Address.String()).
+		completeForIdentity(receiverAddress)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(outCoin1State).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
 }
