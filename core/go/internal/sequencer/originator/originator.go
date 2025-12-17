@@ -238,6 +238,13 @@ func ptrTo[T any](v T) *T {
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
 
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-o.eventLoopStopped:
+		return
+	default:
+	}
+
 	// Stop the event and delegate loops
 	o.stopEventLoop <- struct{}{}
 	o.stopDelegateLoop <- struct{}{}

@@ -618,8 +618,12 @@ func ptrTo[T any](v T) *T {
 func (c *coordinator) Stop() {
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
-	// TODO - The state machine doesn't really have a "please take over from me" path. Not a current priority
-	// but it will be needed in the future.
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-c.eventLoopStopped:
+		return
+	default:
+	}
 
 	// Stop the event and dispatch loops
 	c.stopEventLoop <- struct{}{}
