@@ -19,7 +19,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@lfdecentralizedtrust/paladin-sdk": "file:../../sdk/typescript",
+    "@lfdecentralizedtrust/paladin-sdk": "^0.15.0-rc.0",
     "paladin-example-common": "file:../common"
   }
 }
