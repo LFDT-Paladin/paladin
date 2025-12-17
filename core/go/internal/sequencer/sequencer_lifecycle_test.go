@@ -417,10 +417,6 @@ func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T)
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	// No sequencers in the map
-	sm.sequencersLock.Lock()
-	defer sm.sequencersLock.Unlock()
-
 	// Call stopLowestPrioritySequencer
 	sm.stopLowestPrioritySequencer(ctx)
 
@@ -461,6 +457,7 @@ func TestSequencerManager_stopLowestPrioritySequencer_IdleSequencer(t *testing.T
 	seq := newSequencerForTesting(contractAddr, mocks)
 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
 	mocks.originator.EXPECT().Stop().Once()
+	mocks.coordinator.EXPECT().Stop().Once()
 
 	sm.sequencersLock.Lock()
 	sm.sequencers[contractAddr.String()] = seq
