@@ -83,6 +83,29 @@ entries:
     - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-1.0.0-rc.0/paladin-operator-1.0.0-rc.0.tgz
     version: 1.0.0-rc.0
   - apiVersion: v2
+    appVersion: v0.15.0-rc.0
+    created: "2025-12-17T20:13:41.259767673Z"
+    dependencies:
+    - condition: installCRDs
+      name: paladin-operator-crd
+      repository: file://../paladin-operator-crd/
+      version: 0.15.0-rc.0
+    - condition: prometheus.enabled
+      name: prometheus-namespace
+      repository: file://../prometheus-namespace/
+      version: 0.0.0
+    - condition: prometheus.enabled
+      name: prometheus
+      repository: https://prometheus-community.github.io/helm-charts
+      version: 15.8.0
+    description: A Helm chart for Kubernetes
+    digest: 0d0542de6e983bb88cd35524e55161724119463e3f1a828546d6d287bcb32013
+    name: paladin-operator
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-0.15.0-rc.0/paladin-operator-0.15.0-rc.0.tgz
+    version: 0.15.0-rc.0
+  - apiVersion: v2
     appVersion: v0.14.0
     created: "2025-11-20T20:12:18.917735157Z"
     dependencies:
@@ -1341,6 +1364,16 @@ entries:
     - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-crd-1.0.0-rc.0/paladin-operator-crd-1.0.0-rc.0.tgz
     version: 1.0.0-rc.0
   - apiVersion: v2
+    appVersion: v0.15.0-rc.0
+    created: "2025-12-17T20:13:41.446101548Z"
+    description: A Helm chart for Kubernetes
+    digest: b7c14a4b89bf27f185880e9702b6ffc152d0528127c9a0b57b6fd736ecc61e6e
+    name: paladin-operator-crd
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-crd-0.15.0-rc.0/paladin-operator-crd-0.15.0-rc.0.tgz
+    version: 0.15.0-rc.0
+  - apiVersion: v2
     appVersion: v0.14.0
     created: "2025-11-20T20:12:19.078065396Z"
     description: A Helm chart for Kubernetes
@@ -1622,19 +1655,9 @@ entries:
     version: 0.10.0-rc.7
   - apiVersion: v2
     appVersion: v0.10.0-rc.6
-    created: "2025-08-14T20:19:02.957937146Z"
+    created: "2025-08-15T17:12:56.661809008Z"
     description: A Helm chart for Kubernetes
-    digest: d9e6c8c130bbea84fca448676c02c7eb68bb943b6fa81ccd6744eea4ebabc48e
-    name: paladin-operator-crd
-    type: application
-    urls:
-    - https://github.com/LF-Decentralized-Trust-labs/paladin/releases/download/paladin-operator-crd-0.10.0-rc.6/paladin-operator-crd-0.10.0-rc.6.tgz
-    version: 0.10.0-rc.6
-  - apiVersion: v2
-    appVersion: v0.10.0-rc.6
-    created: "2025-08-13T23:11:23.606870755Z"
-    description: A Helm chart for Kubernetes
-    digest: 54462e60a675343cd141dfe40f39f2110a5f967bbc6447b4e44e7ebd8206572d
+    digest: 1629fab7c5bed8922751497873199ec4a625be686f979c6cde580e778a6f8adf
     name: paladin-operator-crd
     type: application
     urls:
@@ -1652,9 +1675,19 @@ entries:
     version: 0.10.0-rc.6
   - apiVersion: v2
     appVersion: v0.10.0-rc.6
-    created: "2025-08-15T17:12:56.661809008Z"
+    created: "2025-08-13T23:11:23.606870755Z"
     description: A Helm chart for Kubernetes
-    digest: 1629fab7c5bed8922751497873199ec4a625be686f979c6cde580e778a6f8adf
+    digest: 54462e60a675343cd141dfe40f39f2110a5f967bbc6447b4e44e7ebd8206572d
+    name: paladin-operator-crd
+    type: application
+    urls:
+    - https://github.com/LF-Decentralized-Trust-labs/paladin/releases/download/paladin-operator-crd-0.10.0-rc.6/paladin-operator-crd-0.10.0-rc.6.tgz
+    version: 0.10.0-rc.6
+  - apiVersion: v2
+    appVersion: v0.10.0-rc.6
+    created: "2025-08-14T20:19:02.957937146Z"
+    description: A Helm chart for Kubernetes
+    digest: d9e6c8c130bbea84fca448676c02c7eb68bb943b6fa81ccd6744eea4ebabc48e
     name: paladin-operator-crd
     type: application
     urls:
@@ -1752,4 +1785,4 @@ entries:
     urls:
     - https://github.com/LF-Decentralized-Trust-labs/paladin/releases/download/prometheus-namespace-0.0.0/prometheus-namespace-0.0.0.tgz
     version: 0.0.0
-generated: "2025-12-17T09:03:43.23937629Z"
+generated: "2025-12-17T20:13:41.446690004Z"
