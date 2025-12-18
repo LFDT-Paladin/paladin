@@ -281,8 +281,10 @@ func (tm *transportManager) Send(ctx context.Context, send *components.FireAndFo
 	}
 
 	var errorCallback func(ctx context.Context, err error)
-	if len(options) > 0 {
-		errorCallback = options[0].ErrorHandler
+	for _, option := range options {
+		if option.ErrorHandler != nil {
+			errorCallback = option.ErrorHandler
+		}
 	}
 	return tm.queueFireAndForget(ctx, send.Node, msg, errorCallback)
 }

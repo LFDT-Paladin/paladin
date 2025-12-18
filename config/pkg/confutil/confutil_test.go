@@ -93,11 +93,18 @@ func TestDuration(t *testing.T) {
 	assert.Equal(t, 25*time.Millisecond, DurationMin(P("10ms"), 25*time.Millisecond, "50s"))
 	assert.Equal(t, 50*time.Second, DurationMin(P("wrong"), 0, "50s"))
 	assert.Equal(t, 100*time.Millisecond, DurationMin(P("100ms"), 0, "50s"))
-	assert.Equal(t, -1*time.Second, DurationMin(P("-1s"), 0, "50s"))
-	assert.Equal(t, -100*time.Millisecond, DurationMin(P("-100ms"), 25*time.Millisecond, "50s"))
 
 	assert.Equal(t, int64(1000000000), DurationSeconds(P("1000000000000ms"), 0, "0s"))
 	assert.Equal(t, int64(1000000001), DurationSeconds(P("1000000001000ms"), 0, "0s"))
+}
+
+func TestDurationMinIfPositive(t *testing.T) {
+	assert.Equal(t, -1*time.Second, DurationMinIfPositive(P("-1s"), 0, "50s"))
+	assert.Equal(t, -100*time.Millisecond, DurationMinIfPositive(P("-100ms"), 25*time.Millisecond, "50s"))
+	assert.Equal(t, 50*time.Second, DurationMinIfPositive(nil, 0, "50s"))
+	assert.Equal(t, 25*time.Millisecond, DurationMinIfPositive(P("10ms"), 25*time.Millisecond, "50s"))
+	assert.Equal(t, 50*time.Second, DurationMinIfPositive(P("wrong"), 0, "50s"))
+	assert.Equal(t, 100*time.Millisecond, DurationMinIfPositive(P("100ms"), 0, "50s"))
 }
 
 func TestByteSize(t *testing.T) {
