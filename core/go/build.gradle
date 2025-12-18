@@ -27,7 +27,7 @@ ext {
         include "core.go"
         include "internal/**/*.go"
         include "pkg/**/*.go"
-        include "componenttest/**/*.go"
+        include "noderuntests/**/*.go"
         include "mocks/**/*.go"
     }
 
@@ -397,7 +397,7 @@ task unitTestPostgres(type: UnitTests, dependsOn: [
     mustRunAfter 'unitTestSQLite' // these tests cannot run concurrently
 }
 
-task componentTestSQLite(type: ComponentTest, dependsOn: [
+task componentTestPostgres(type: ComponentTest, dependsOn: [
         makeMocks,
         ':testinfra:startTestInfra',
         setupCoverage,
@@ -405,8 +405,7 @@ task componentTestSQLite(type: ComponentTest, dependsOn: [
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
     mustRunAfter 'unitTestPostgres' // these tests cannot run concurrently
-    environment 'BESU_PORT', '8545' // Use gas-free Besu port
-
+    args '-tags', "testdbpostgres" // uses free gas, and dynamic signing identities
 }
 
 task componentTestWithGasSQLite(type: GasComponentTest, dependsOn: [
@@ -416,9 +415,8 @@ task componentTestWithGasSQLite(type: GasComponentTest, dependsOn: [
         goGet,
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
-    mustRunAfter 'componentTestSQLite' // these tests cannot run concurrently
-    environment 'BESU_PORT', '8555' // Use gas-priced Besu port
-    environment 'FIXED_SIGNING_IDENTITY', 'fixed'
+    mustRunAfter 'componentTestPostgres' // these tests cannot run concurrently
+    args '-tags', "testdbsqlite,besu_paid_gas" // uses paid gas, and a fixed signing identity
 }
 
 task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
@@ -428,14 +426,13 @@ task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
         goGet,
         copyContracts, // Ensure this task depends on copying the test contracts
     ]) {
-    environment 'BESU_PORT', '8545' // Use gas-free Besu port
 }
 
 task buildCoverageTxt(type: Exec, dependsOn: [
         protoc,
         unitTestSQLite,
         unitTestPostgres,
-        componentTestSQLite,
+        componentTestPostgres,
         componentTestWithGasSQLite,
         coordinationTestPostgres
     ]) {

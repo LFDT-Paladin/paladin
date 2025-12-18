@@ -85,6 +85,7 @@ func TestBalanceOfValidateParams(t *testing.T) {
 }
 
 func TestBalanceOfInitCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
@@ -115,6 +116,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 	aliceKey, err := secp256k1.GenerateSecp256k1KeyPair()
 	require.NoError(t, err)
 
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:  mockCallbacks,
 		coinSchema: &prototk.StateSchema{Id: "coin"},

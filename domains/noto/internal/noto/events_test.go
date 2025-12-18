@@ -42,6 +42,7 @@ func sampleV1Data(t *testing.T, n *Noto) (data pldtypes.HexBytes) {
 }
 
 func TestHandleEventBatch_NotoTransfer(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -86,6 +87,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -115,6 +117,7 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -147,6 +150,7 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoLock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -198,6 +202,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -228,6 +233,7 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -268,6 +274,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -319,6 +326,7 @@ func TestHandleEventBatch_NotoUnlock(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlockBadData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -348,6 +356,7 @@ func TestHandleEventBatch_NotoUnlockBadData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -388,6 +397,7 @@ func TestHandleEventBatch_NotoUnlockBadTransactionData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlockPrepared(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -424,6 +434,7 @@ func TestHandleEventBatch_NotoUnlockPrepared(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlockPreparedBadData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -448,6 +459,7 @@ func TestHandleEventBatch_NotoUnlockPreparedBadData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoUnlockPreparedBadTransactionData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -478,6 +490,7 @@ func TestHandleEventBatch_NotoUnlockPreparedBadTransactionData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoLockDelegated(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -512,6 +525,7 @@ func TestHandleEventBatch_NotoLockDelegated(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotoLockDelegatedBadData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 
@@ -539,6 +553,7 @@ func TestHandleEventBatch_NotoLockDelegatedBadData(t *testing.T) {
 }
 
 func TestHandleEventBatch_NotLockDelegatedBadTransactionData(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
 	ctx := context.Background()
 

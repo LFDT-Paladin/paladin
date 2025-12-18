@@ -196,7 +196,11 @@ func (o *originator) ProcessEvent(ctx context.Context, event common.Event) error
 // sequencer state machine and transactions.
 func (o *originator) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("Pushing originator event onto event queue: %s", event.TypeString())
-	o.originatorEvents <- event
+	select {
+	case o.originatorEvents <- event:
+	case <-o.eventLoopStopped:
+		log.L(ctx).Warnf("Pushed originator event after event loop closed: %s", event.TypeString())
+	}
 	log.L(ctx).Tracef("Pushed originator event onto event queue: %s", event.TypeString())
 }
 

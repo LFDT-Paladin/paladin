@@ -302,35 +302,11 @@ func (dc *domainContract) WritePotentialStates(dCtx components.DomainContext, re
 }
 
 func (dc *domainContract) upsertPotentialStates(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, potentialStates []*prototk.NewState, isOutput bool) (writtenStates []*components.FullState, err error) {
-	newStatesToWrite := make([]*components.StateUpsert, len(potentialStates))
-	log.L(dCtx.Ctx()).Debugf("upsertPotentialStates: %d states to write", len(potentialStates))
-	domain := dc.d
-	for i, s := range potentialStates {
-		schema := domain.schemasByID[s.SchemaId]
-		if schema == nil {
-			schema = domain.schemasBySignature[s.SchemaId]
-		}
-		if schema == nil {
-			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
-		}
-		var id pldtypes.HexBytes
-		if s.Id != nil {
-			id, err = pldtypes.ParseHexBytes(dCtx.Ctx(), *s.Id)
-			if err != nil {
-				return nil, err
-			}
-		}
-		stateUpsert := &components.StateUpsert{
-			ID:     id,
-			Schema: schema.ID(),
-			Data:   pldtypes.RawJSON(s.StateDataJson),
-		}
-		if isOutput {
-			// These are marked as locked and creating in the transaction, and become available for other transaction to read
-			stateUpsert.CreatedBy = &tx.ID
-		}
-		newStatesToWrite[i] = stateUpsert
+	newStatesToWrite, err := dc.d.mapPotentialStates(dCtx, potentialStates, isOutput, tx)
+	if err != nil {
+		return nil, err
 	}
+	log.L(dCtx.Ctx()).Debugf("upsertPotentialStates: %d states to write", len(potentialStates))
 
 	contractAddr := tx.PreAssembly.TransactionSpecification.ContractInfo.ContractAddress
 	writtenStates = make([]*components.FullState, len(newStatesToWrite))

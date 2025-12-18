@@ -73,6 +73,7 @@ type originator struct {
 	/* Event loop and delegate loop*/
 	originatorEvents    chan common.Event
 	stopEventLoop       chan struct{}
+	eventLoopStopped    chan struct{}
 	stopDelegateLoop    chan struct{}
 	delegateLoopStopped chan struct{}
 }
@@ -103,6 +104,7 @@ func NewOriginator(
 		metrics:                     metrics,
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
+		eventLoopStopped:            make(chan struct{}),
 		stopDelegateLoop:            make(chan struct{}),
 		delegateLoopStopped:         make(chan struct{}),
 	}
@@ -116,6 +118,7 @@ func NewOriginator(
 }
 
 func (o *originator) eventLoop(ctx context.Context) {
+	defer close(o.eventLoopStopped)
 	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
 		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
@@ -242,6 +245,7 @@ func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
 	o.stopEventLoop <- struct{}{}
 	o.stopDelegateLoop <- struct{}{}
+	<-o.eventLoopStopped
 	<-o.delegateLoopStopped
 }
 

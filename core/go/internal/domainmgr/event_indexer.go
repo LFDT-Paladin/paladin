@@ -125,40 +125,14 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 
 func (dm *domainManager) notifyTransactions(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
-		// The sequencer manager needs to know about these to update its in-memory state. For a regular private transaction with a public TX confirmation, we
-		// pass the "from" and "nonce" to the distributed sequencer state machine.
-		pubBindingTx, err := dm.publicTxManager.QueryPublicTxForTransactions(dm.bgCtx, dm.persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
-		if err != nil {
-			log.L(dm.bgCtx).Errorf("Error getting public transaction by ID: %s", err)
-		}
 
-		confirmedWithPublicTX := false
-
-		for _, pubTx := range pubBindingTx {
-			for _, publicTx := range pubTx {
-				log.L(dm.bgCtx).Debugf("Checking public transactions for TX ID %s to find a match for the receipt we are processing %s", completion.TransactionID, publicTx.TransactionHash)
-				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
-					confirmedWithPublicTX = true
-					log.L(dm.bgCtx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
-					err = dm.sequencerManager.HandleTransactionConfirmed(dm.bgCtx, completion, &publicTx.From, publicTx.Nonce)
-					if err != nil {
-						// Log but continue confirming other transactions
-						log.L(dm.bgCtx).Errorf("Error handling transaction confirmed event: %s", err)
-					}
-				}
-			}
-		}
-
-		// For private transaction's that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
-		// about the underlying chained public TX.
-		if !confirmedWithPublicTX {
-			log.L(dm.bgCtx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)
-			err = dm.sequencerManager.HandleTransactionConfirmedByChainedTransaction(dm.bgCtx, completion)
-			if err != nil {
-				// Log but continue confirming other transactions
-				log.L(dm.bgCtx).Errorf("Error handling transaction confirmed event: %s", err)
-			}
-		}
+		// The domain manager is responsible ONLY for a notification to the sequencer that a completion has happened.
+		// Likely this results in a set of batch optimized queries by a worker in the sequencer, to generate
+		// transition events to the various state machines.
+		// However, that is processing that must happen outside of this goroutine, which is critical path for the
+		// event indexer of the Paladin node.
+		// So only if the channel to the sequencer ends up with back pressure will any slow-down happen to this routine
+		dm.sequencerManager.PrivateTransactionConfirmed(dm.bgCtx, completion)
 
 		// We also provide a direct waiter that's used by the testbed
 		inflight := dm.privateTxWaiter.GetInflight(completion.TransactionID)

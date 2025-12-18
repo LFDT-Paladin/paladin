@@ -59,6 +59,14 @@ func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendT
 	return nil, nil
 }
 
+func (dc *testDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *pb.LookupKeyIdentifiersRequest) (*pb.LookupKeyIdentifiersResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+	return nil, nil
+}
+
 func TestProcessTokens(t *testing.T) {
 	ctx := context.Background()
 

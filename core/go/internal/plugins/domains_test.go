@@ -39,15 +39,17 @@ import (
 )
 
 type testDomainManager struct {
-	domains             map[string]plugintk.Plugin
-	domainRegistered    func(name string, toDomain components.DomainManagerToDomain) (fromDomain plugintk.DomainCallbacks, err error)
-	findAvailableStates func(context.Context, *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error)
-	encodeData          func(context.Context, *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error)
-	decodeData          func(context.Context, *prototk.DecodeDataRequest) (*prototk.DecodeDataResponse, error)
-	recoverSigner       func(context.Context, *prototk.RecoverSignerRequest) (*prototk.RecoverSignerResponse, error)
-	sendTransaction     func(context.Context, *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
-	localNodeName       func(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
-	getStates           func(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	domains              map[string]plugintk.Plugin
+	domainRegistered     func(name string, toDomain components.DomainManagerToDomain) (fromDomain plugintk.DomainCallbacks, err error)
+	findAvailableStates  func(context.Context, *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error)
+	encodeData           func(context.Context, *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error)
+	decodeData           func(context.Context, *prototk.DecodeDataRequest) (*prototk.DecodeDataResponse, error)
+	recoverSigner        func(context.Context, *prototk.RecoverSignerRequest) (*prototk.RecoverSignerResponse, error)
+	sendTransaction      func(context.Context, *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
+	localNodeName        func(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
+	getStates            func(context.Context, *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
+	lookupKeyIdentifiers func(context.Context, *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	validateStates       func(context.Context, *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
 func (tp *testDomainManager) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -76,6 +78,14 @@ func (tp *testDomainManager) LocalNodeName(ctx context.Context, req *prototk.Loc
 
 func (tp *testDomainManager) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error) {
 	return tp.getStates(ctx, req)
+}
+
+func (tp *testDomainManager) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+	return tp.lookupKeyIdentifiers(ctx, req)
+}
+
+func (tp *testDomainManager) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	return tp.validateStates(ctx, req)
 }
 
 func domainConnectFactory(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[prototk.DomainMessage, prototk.DomainMessage], error) {
@@ -267,6 +277,12 @@ func TestDomainRequestsOK(t *testing.T) {
 				},
 			}, nil
 		},
+		CheckStateCompletion: func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+			assert.Equal(t, `tx1`, cscr.TransactionId)
+			return &prototk.CheckStateCompletionResponse{
+				PrimaryMissingStateId: confutil.P("state1"),
+			}, nil
+		},
 	}
 
 	tdm := &testDomainManager{
@@ -330,6 +346,23 @@ func TestDomainRequestsOK(t *testing.T) {
 		assert.Equal(t, "schema1", gsr.SchemaId)
 		return &prototk.GetStatesByIDResponse{
 			States: []*prototk.StoredState{{}},
+		}, nil
+	}
+
+	tdm.lookupKeyIdentifiers = func(ctx context.Context, lkir *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+		assert.Equal(t, "type1", lkir.VerifierType)
+		assert.Equal(t, "v1", lkir.Verifiers[0])
+		return &prototk.LookupKeyIdentifiersResponse{
+			Results: []*prototk.LookupKeyIdentifierResult{{Verifier: "v1", Found: false}},
+		}, nil
+	}
+
+	tdm.validateStates = func(ctx context.Context, vsr *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+		assert.Equal(t, "state1", *vsr.States[0].Id)
+		return &prototk.ValidateStatesResponse{
+			States: []*prototk.EndorsableState{
+				{Id: "state1r"},
+			},
 		}, nil
 	}
 
@@ -478,6 +511,12 @@ func TestDomainRequestsOK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"wrapped":"params"}`, wpgtr.Transaction.ParamsJson)
 
+	cscr, err := domainAPI.CheckStateCompletion(ctx, &prototk.CheckStateCompletionRequest{
+		TransactionId: "tx1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, `state1`, *cscr.PrimaryMissingStateId)
+
 	// Add timeout for callbacks
 	var callbacks plugintk.DomainCallbacks
 	select {
@@ -527,6 +566,21 @@ func TestDomainRequestsOK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, gsr.States, 1)
+
+	lkir, err := callbacks.LookupKeyIdentifiers(ctx, &prototk.LookupKeyIdentifiersRequest{
+		VerifierType: "type1",
+		Verifiers:    []string{"v1"},
+	})
+	require.NoError(t, err)
+	require.Len(t, lkir.Results, 1)
+	assert.Equal(t, "v1", lkir.Results[0].Verifier)
+
+	vsr, err := callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
+		States: []*prototk.NewState{{Id: confutil.P("state1")}},
+	})
+	require.NoError(t, err)
+	require.Len(t, vsr.States, 1)
+	assert.Equal(t, "state1r", vsr.States[0].Id)
 }
 
 func TestDomainRegisterFail(t *testing.T) {
