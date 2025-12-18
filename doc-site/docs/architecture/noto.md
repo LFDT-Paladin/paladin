@@ -250,9 +250,7 @@ Inputs:
 
 Appoint another address as the delegate that can execute a prepared unlock operation.
 
-Once the lock has been delegated, the notary and the lock creator can no longer interact with the locked states, until the delegate invokes the public ABI to either 1) trigger the unlock via `spendLock()` _or_ 2) cancel the lock via `cancelLock()` _or_ 3) re-delegate the lock to a different address. Delegation can be cancelled if the current delegate re-delegates to the zero address.
-
-The lock must have been prepared (via `prepareUnlock`) before it can be delegated.
+Once the lock has been delegated, the notary and the lock creator can no longer interact with the locked states, until the delegate invokes the public ABI to either 1) trigger the unlock _or_ 2) re-delegate the lock to a different address. Delegation can be cancelled if the current delegate re-delegates to the zero address.
 
 ```json
 {
@@ -260,6 +258,13 @@ The lock must have been prepared (via `prepareUnlock`) before it can be delegate
     "type": "function",
     "inputs": [
         {"name": "lockId", "type": "bytes32"},
+        {"name": "unlock", "type": "tuple", "components": [
+            {"name": "lockedInputs", "type": "bytes32[]"},
+            {"name": "lockedOutputs", "type": "bytes32[]"},
+            {"name": "outputs", "type": "bytes32[]"},
+            {"name": "signature", "type": "bytes"},
+            {"name": "data", "type": "bytes"}
+        ]},
         {"name": "delegate", "type": "address"},
         {"name": "data", "type": "bytes"}
     ]
@@ -269,37 +274,15 @@ The lock must have been prepared (via `prepareUnlock`) before it can be delegate
 Inputs:
 
 * **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
-* **delegate** - the address that will be allowed to trigger the prepared unlock (or zero address to cancel delegation)
-* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the
-state receipt)
+* **unlock** - the parameters for the public `unlock` transaction that was prepared and is now being delegated (available from the domain receipt for the `prepareUnlock` transaction)
+* **delegate** - the address that will be allowed to trigger the prepared unlock
+* **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ## Public ABI
 
 The public ABI of Noto is implemented in Solidity by [Noto.sol](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/noto/Noto.sol),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "public"`. However, it is not often required
 to invoke the public ABI directly.
-
-### LockOptions Struct
-
-The `LockOptions` struct is used to control how a lock may be utilized. It is ABI-encoded and passed as the `options` parameter to `createLock()` or `updateLock()`.
-
-```json
-{
-    "name": "LockOptions",
-    "type": "tuple",
-    "components": [
-        {"name": "spendTxId", "type": "bytes32"},
-        {"name": "spendHash", "type": "bytes32"},
-        {"name": "cancelHash", "type": "bytes32"}
-    ]
-}
-```
-
-Fields:
-
-* **spendTxId** - A unique transaction ID that must be used when calling `spendLock()` or `cancelLock()`. This is generated randomly during `prepareUnlock` and stored in the lock options.
-* **spendHash** - EIP-712 hash of the intended spend operation, using type `Unlock(bytes32 txId,bytes32[] lockedInputs,bytes32[] outputs,bytes data)`. If set to non-zero, this is the only valid outcome for `spendLock()`. A lock may not be delegated unless both `spendHash` and `cancelHash` have been prepared.
-* **cancelHash** - EIP-712 hash of the intended cancel operation, using the same type `Unlock(bytes32 txId,bytes32[] lockedInputs,bytes32[] outputs,bytes data)`. If set to non-zero, this is the only valid outcome for `cancelLock()`. A lock may not be delegated unless both `spendHash` and `cancelHash` have been prepared.
 
 ### mint
 
@@ -312,7 +295,6 @@ May only be invoked by the notary address.
     "name": "mint",
     "type": "function",
     "inputs": [
-        {"name": "txId", "type": "bytes32"},
         {"name": "outputs", "type": "bytes32[]"},
         {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
@@ -322,7 +304,6 @@ May only be invoked by the notary address.
 
 Inputs:
 
-* **txId** - unique identifier for this transaction which must not have been used before
 * **outputs** - output states that will be created
 * **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
 * **data** - encoded Paladin and/or user data
@@ -338,7 +319,6 @@ May only be invoked by the notary address.
     "name": "transfer",
     "type": "function",
     "inputs": [
-        {"name": "txId", "type": "bytes32"},
         {"name": "inputs", "type": "bytes32[]"},
         {"name": "outputs", "type": "bytes32[]"},
         {"name": "signature", "type": "bytes"},
@@ -349,71 +329,26 @@ May only be invoked by the notary address.
 
 Inputs:
 
-* **txId** - unique identifier for this transaction which must not have been used before
 * **inputs** - input states that will be spent
 * **outputs** - output states that will be created
 * **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
 * **data** - encoded Paladin and/or user data
 
-### createLock
+### lock
 
-Create a new lock by spending states and creating new locked states. Generally should not be called directly.
-
-May only be invoked by the notary address.
-
-```json
-{
-    "name": "createLock",
-    "type": "function",
-    "inputs": [
-        {"name": "params", "type": "tuple", "components": [
-            {"name": "txId", "type": "bytes32"},
-            {"name": "inputs", "type": "bytes32[]"},
-            {"name": "outputs", "type": "bytes32[]"},
-            {"name": "lockedOutputs", "type": "bytes32[]"},
-            {"name": "proof", "type": "bytes"},
-            {"name": "options", "type": "bytes"}
-        ]},
-        {"name": "data", "type": "bytes"}
-    ],
-    "outputs": [
-        {"name": "lockId", "type": "bytes32"}
-    ]
-}
-```
-
-Inputs:
-
-* **params.txId** - unique identifier for this transaction which must not have been used before
-* **params.inputs** - input states that will be spent (must be only unlocked states)
-* **params.outputs** - unlocked output states that will be created
-* **params.lockedOutputs** - locked output states that will be created and tied to the lockId
-* **params.proof** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **params.options** - ABI-encoded LockOptions struct (optional, may be empty)
-* **data** - encoded Paladin and/or user data
-
-Outputs:
-
-* **lockId** - the generated unique identifier for the lock
-
-### updateLock
-
-Update the current options for a lock. Only allowed if the lock has not been prepared already (i.e., both spendHash and cancelHash are zero).
+Lock some UTXO states. Generally should not be called directly.
 
 May only be invoked by the notary address.
 
 ```json
 {
-    "name": "updateLock",
+    "name": "lock",
     "type": "function",
     "inputs": [
-        {"name": "lockId", "type": "bytes32"},
-        {"name": "params", "type": "tuple", "components": [
-            {"name": "txId", "type": "bytes32"},
-            {"name": "lockedInputs", "type": "bytes32[]"},
-            {"name": "proof", "type": "bytes"},
-            {"name": "options", "type": "bytes"}
-        ]},
+        {"name": "inputs", "type": "bytes32[]"},
+        {"name": "outputs", "type": "bytes32[]"},
+        {"name": "lockedOutputs", "type": "bytes32[]"},
+        {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -421,23 +356,25 @@ May only be invoked by the notary address.
 
 Inputs:
 
-* **lockId** - unique identifier for the lock
-* **params.txId** - unique identifier for this transaction which must not have been used before
-* **params.lockedInputs** - locked input states (will not be modified, but will be confirmed to be valid states still locked by the given lockId)
-* **params.proof** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
-* **params.options** - ABI-encoded LockOptions struct containing spendTxId, spendHash, and cancelHash
+* **inputs** - input states that will be spent
+* **outputs** - unlocked output states that will be created
+* **lockedOutputs** - locked output states that will be created
+* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
 * **data** - encoded Paladin and/or user data
 
-### spendLock
+### unlock
 
-Consume ("spend") the capability represented by this lock. The caller will either be the notary, or a delegated spender. If the caller is a delegated spender, the lock must have been prepared with a spendHash, and the provided state data must match the spendHash.
+Unlock some UTXO states. May be invoked by the notary in response to a private `unlock` transaction, but may also be called directly on the public ABI when an unlock operation has been prepared and delegated via `prepareUnlock` and `delegateLock`.
 
 ```json
 {
-    "name": "spendLock",
+    "name": "unlock",
     "type": "function",
     "inputs": [
-        {"name": "lockId", "type": "bytes32"},
+        {"name": "lockedInputs", "type": "bytes32[]"},
+        {"name": "lockedOutputs", "type": "bytes32[]"},
+        {"name": "outputs", "type": "bytes32[]"},
+        {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -445,23 +382,26 @@ Consume ("spend") the capability represented by this lock. The caller will eithe
 
 Inputs:
 
-* **lockId** - the identifier of the lock
-* **data** - ABI-encoded UnlockData struct containing:
-    * **txId** - unique identifier for this transaction (must match the spendTxId from the lock options if set)
-    * **inputs** - locked input states that will be spent
-    * **outputs** - unlocked output states that will be created
-    * **data** - any additional transaction data
+* **lockedInputs** - locked input states that will be spent
+* **lockedOutputs** - locked output states that will be created
+* **outputs** - unlocked output states that will be created
+* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+* **data** - encoded Paladin and/or user data
 
-### cancelLock
+### prepareUnlock
 
-Cancel this lock without performing its effect. The caller will either be the notary, or a delegated spender. If the caller is a delegated spender, the lock must have been prepared with a cancelHash, and the provided state data must match the cancelHash.
+Record the hash of a prepared unlock operation. Generally should not be called directly.
+
+May only be invoked by the notary address.
 
 ```json
 {
-    "name": "cancelLock",
+    "name": "prepareUnlock",
     "type": "function",
     "inputs": [
-        {"name": "lockId", "type": "bytes32"},
+        {"name": "lockedInputs", "type": "bytes32[]"},
+        {"name": "unlockHash", "type": "bytes32"},
+        {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -469,16 +409,14 @@ Cancel this lock without performing its effect. The caller will either be the no
 
 Inputs:
 
-* **lockId** - the identifier of the lock
-* **data** - ABI-encoded UnlockData struct containing:
-    * **txId** - unique identifier for this transaction (must match the spendTxId from the lock options if set)
-    * **inputs** - locked input states that will be spent
-    * **outputs** - unlocked output states that will be created (typically refunding to the owner)
-    * **data** - any additional transaction data
+* **lockedInputs** - locked input states that will be spent
+* **unlockHash** - EIP-712 hash of the intended unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
+* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+* **data** - encoded Paladin and/or user data
 
 ### delegateLock
 
-Appoint another address as the delegate that can execute a prepared unlock operation. The lock must have been prepared (both spendHash and cancelHash set).
+Appoint another address as the delegate that can execute a prepared unlock operation.
 
 May be invoked by the notary in response to a private `delegateLock` transaction for a lock that is not yet delegated. May also be called directly on the public ABI by the current delegate, to re-delegate to a new address. Delegation can be cancelled if the current delegate re-delegates to the zero address.
 
@@ -487,8 +425,9 @@ May be invoked by the notary in response to a private `delegateLock` transaction
     "name": "delegateLock",
     "type": "function",
     "inputs": [
-        {"name": "lockId", "type": "bytes32"},
-        {"name": "newSpender", "type": "address"},
+        {"name": "unlockHash", "type": "bytes32"},
+        {"name": "delegate", "type": "address"},
+        {"name": "signature", "type": "bytes"},
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -496,11 +435,10 @@ May be invoked by the notary in response to a private `delegateLock` transaction
 
 Inputs:
 
-* **lockId** - the identifier of the lock
-* **newSpender** - address of the delegate party that will be able to execute the unlock
-* **data** - ABI-encoded DelegateLockData struct containing:
-    * **txId** - unique identifier for this transaction
-    * **data** - any additional transaction data
+* **unlockHash** - EIP-712 hash of the prepared unlock, using type `Unlock(bytes32[] lockedInputs,bytes32[] lockedOutputs,bytes32[] outputs,bytes data)`
+* **delegate** - address of the delegate party that will be able to execute the unlock
+* **signature** - sender's signature (not verified on-chain, but can be verified by anyone with the private state data)
+* **data** - encoded Paladin and/or user data
 
 ### balanceOf
 
@@ -642,3 +580,106 @@ No information is leaked to Party C, that allows them to infer that Party A and 
     - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
     - b) Receives the confirmation from the blockchain that `TX2` created `#7`
     - Now `Party C` has `S7` confirmed in its wallet and ready to spend
+
+## Locking and atomic settlement
+
+![Noto locking state machine](../images/noto_lock_state_machine_v1.svg)
+
+This model supports advanced DvP and PvP transactions, where locks are prepared, and then delegated for on-chain atomic settlement to a smart contract that coordinates multiple legs of a transaction.
+
+The delegated smart contract can either:
+
+1. Complete the predetermined transaction outcome (logically "commit")
+2. Revert ownership back to the owner (logically "rollback")
+
+The delegated smart contract can perform either of these actions directly on-chain without involvement of the notary. This is possible because the notary pre-verifies and records the transaction signature (hash of masked inputs and outputs) in the lock. Then when the lock is spent/cancelled the hash of the prepared transaction is compared on-chain to the actual activity being instructed.
+
+Transaction legs might include Noto token transactions from multiple smart contracts with different notaries, alongside transparent ERC-20 token legs, ZKP token legs (Zeto and other ZKP domains), and preparation of the transaction that occurs in EVM privacy groups (Pente).
+
+The atomic coordination smart contract can be set up to ensure that all of these legs commit with a pre-agreed outcome across all legs, or they all rollback.
+
+As such fully atomic settlement.
+
+<details>
+  <summary>Mermaid diagram source</summary>
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Original coins"]) -- owner:createLock(coins) --> B["LOCK[lockId,contents,owner]
+(unprepared)
+(undelegated)"]
+    B -- owner:updateLock(spendHash,cancelHash) --> C["LOCK[lockId,contents,owner,spendHash,cancelHash]
+SPEND+CANCEL PREPARED
+(undlegated)"]
+    C -- owner:updateLock(spendHash,cancelHash) --> C
+    C -- owner:spendLock(inputs,outputs) --> X(["New Coins
+(any)"])
+    C -- owner:delegateLock(address) --> D["LOCK[lockId,contents,owner,spendHash,cancelHash,delegate]
+SPEND+CANCEL PREPARED
+DELEGATED"]
+    B -- owner:delegateLock(address) --> E["LOCK(lockId,contents,owner,delegate)
+(unprepared)
+DELEGATED"]
+    D -- delegate:delegateLock(address) --> D
+    D -- delegate:delegateLock(nil) --> C
+    D -- delegate:spendLock(inputs,outputs) // must match spendHash --> Y(["New Coins
+SPEND OUTCOME"])
+    D -- delegate:cancelLock(inputs,outputs) // must match cancelHash --> Z(["New Coins
+CANCEL OUTCOME"])
+    E -- delegate:delegateLock(address) --> E
+    E -- delegate:spendLock(inputs,outputs) --> X
+    E -- delegate:delegateLock(nil) --> B
+    B -- owner:spendLock(inputs,outputs) --> X
+
+```
+</details>
+
+<details>
+  <summary>Noto V0 model</summary>
+
+Noto V0 had a very similar locking model, with some notable differences in implementation.
+
+The meaningful differences in the V0->V1 upgrade are:
+- No on-chain storage of the lock object itself, only the locked input coins
+    - This prevented the use of the model for locking a `mint` operation (which has no inputs)
+
+![Noto locking state machine (V0)](../images/noto_lock_state_machine_v0.svg)
+
+> Mermaid syntax rendered above using ELK layout.
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Original coins"]) -- owner:lock(coins) --> B["Locked[coins,lockId,owner]
+(unprepared)
+(undelegated)"]
+    B -- owner:prepareUnlock(inputs,outputs) --> C["Locked[coins,lockId,owner,unlockHash]
+PREPARED
+(undlegated)"]
+    C -- owner:prepareUnlock(inputs,outputs) --> C
+    C -- owner:unlock() --> X(["New Coins (any)"])
+    C -- owner:delegateLock(address) --> D["Locked(coins,lockId,unlockHash,delegate)
+PREPARED
+DELEGATED"]
+    B -- owner:delegateLock(address) --> E["Locked(coins,lockId,delegate)
+(unprepared)
+DELEGATED"]
+    D -- delegate:delegateLock(address) --> D
+    D -- delegate:delegateLock(nil) --> C
+    D -- delegate:unlock(matching hash) --> Y(["New Coins - PREPARED SET"])
+    E -- delegate:delegate(address) --> E
+    E -- delegate:unlock() --> X
+    E -- delegate:delegate(nil) --> B
+    B -- owner:unlock() --> X
+```
+
+</details>
