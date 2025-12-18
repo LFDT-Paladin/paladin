@@ -201,7 +201,12 @@ helm-template: ## Install operator using Helm.
 # install helm unittest
 .PHONY: helm-unittest-install
 helm-unittest-install: ## Install helm unittest.
-	$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3 || true
+	@HELM_MAJOR=$$($(HELM) version --short | sed 's/v\([0-9]*\).*/\1/'); \
+	if [ "$$HELM_MAJOR" -ge 4 ]; then \
+		$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3 --verify=false || true; \
+	else \
+		$(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version 1.0.3 || true; \
+	fi
 
 .PHONY: helm-unittest
 helm-unittest: helm-unittest-install ## Test operator using Helm.
