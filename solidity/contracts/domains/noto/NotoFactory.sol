@@ -25,7 +25,14 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations["default"], transactionId, name, symbol, notary, data);
+        _deploy(
+            implementations["default"],
+            transactionId,
+            name,
+            symbol,
+            notary,
+            data
+        );
     }
 
     /**
@@ -51,14 +58,19 @@ contract NotoFactory is Ownable, IPaladinContractRegistry_V0 {
      * Deploy an instance of Noto by cloning a specific implementation.
      */
     function deployImplementation(
-        string calldata implName,
         bytes32 transactionId,
+        string calldata implName,
         string calldata name,
         string calldata symbol,
         address notary,
         bytes calldata data
     ) external {
-        _deploy(implementations[implName], transactionId, name, symbol, notary, data);
+        address implementation = implementations[implName];
+        require(
+            implementation != address(0),
+            "NotoFactory: implementation not found"
+        );
+        _deploy(implementation, transactionId, name, symbol, notary, data);
     }
 
     function _deploy(

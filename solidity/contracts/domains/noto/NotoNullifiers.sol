@@ -5,7 +5,6 @@ import {SmtLib} from "@iden3/contracts/contracts/lib/SmtLib.sol";
 import {Keccak256Hasher} from "@iden3/contracts/contracts/lib/hash/KeccakHasher.sol";
 import {IHasher} from "@iden3/contracts/contracts/interfaces/IHasher.sol";
 import {Noto} from "./Noto.sol";
-import {console} from "hardhat/console.sol";
 
 uint256 constant MAX_SMT_DEPTH = 64;
 

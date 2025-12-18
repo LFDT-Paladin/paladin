@@ -136,8 +136,8 @@ export async function deployNotoInstance(
   implName: string = "default"
 ) {
   const deployTx = await notoFactory.deployImplementation(
-    implName,
     randomBytes32(),
+    implName,
     "NOTO",
     "NOTO",
     notary,
