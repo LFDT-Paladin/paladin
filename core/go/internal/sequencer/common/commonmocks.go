@@ -196,12 +196,12 @@ func (_c *MockClock_Now_Call) RunAndReturn(run func() Time) *MockClock_Now_Call 
 	return _c
 }
 
-// ScheduleInterval provides a mock function for the type MockClock
-func (_mock *MockClock) ScheduleInterval(context1 context.Context, duration Duration, fn func()) func() {
+// ScheduleTimer provides a mock function for the type MockClock
+func (_mock *MockClock) ScheduleTimer(context1 context.Context, duration Duration, fn func()) func() {
 	ret := _mock.Called(context1, duration, fn)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ScheduleInterval")
+		panic("no return value specified for ScheduleTimer")
 	}
 
 	var r0 func()
@@ -215,20 +215,20 @@ func (_mock *MockClock) ScheduleInterval(context1 context.Context, duration Dura
 	return r0
 }
 
-// MockClock_ScheduleInterval_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScheduleInterval'
-type MockClock_ScheduleInterval_Call struct {
+// MockClock_ScheduleTimer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ScheduleTimer'
+type MockClock_ScheduleTimer_Call struct {
 	*mock.Call
 }
 
-// ScheduleInterval is a helper method to define mock.On call
+// ScheduleTimer is a helper method to define mock.On call
 //   - context1 context.Context
 //   - duration Duration
 //   - fn func()
-func (_e *MockClock_Expecter) ScheduleInterval(context1 interface{}, duration interface{}, fn interface{}) *MockClock_ScheduleInterval_Call {
-	return &MockClock_ScheduleInterval_Call{Call: _e.mock.On("ScheduleInterval", context1, duration, fn)}
+func (_e *MockClock_Expecter) ScheduleTimer(context1 interface{}, duration interface{}, fn interface{}) *MockClock_ScheduleTimer_Call {
+	return &MockClock_ScheduleTimer_Call{Call: _e.mock.On("ScheduleTimer", context1, duration, fn)}
 }
 
-func (_c *MockClock_ScheduleInterval_Call) Run(run func(context1 context.Context, duration Duration, fn func())) *MockClock_ScheduleInterval_Call {
+func (_c *MockClock_ScheduleTimer_Call) Run(run func(context1 context.Context, duration Duration, fn func())) *MockClock_ScheduleTimer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -251,12 +251,12 @@ func (_c *MockClock_ScheduleInterval_Call) Run(run func(context1 context.Context
 	return _c
 }
 
-func (_c *MockClock_ScheduleInterval_Call) Return(cancel func()) *MockClock_ScheduleInterval_Call {
+func (_c *MockClock_ScheduleTimer_Call) Return(cancel func()) *MockClock_ScheduleTimer_Call {
 	_c.Call.Return(cancel)
 	return _c
 }
 
-func (_c *MockClock_ScheduleInterval_Call) RunAndReturn(run func(context1 context.Context, duration Duration, fn func()) func()) *MockClock_ScheduleInterval_Call {
+func (_c *MockClock_ScheduleTimer_Call) RunAndReturn(run func(context1 context.Context, duration Duration, fn func()) func()) *MockClock_ScheduleTimer_Call {
 	_c.Call.Return(run)
 	return _c
 }

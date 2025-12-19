@@ -17,8 +17,11 @@ package transaction
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -199,4 +202,41 @@ func Test_SortTransactions_CircularDependency(t *testing.T) {
 	assert.Error(t, err)
 	assert.Len(t, sortedTransactions, 0)
 
+}
+
+func TestGrapher_AddMinter_DuplicateMinter(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create two different transactions
+	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1)
+	txn1 := txnBuilder1.Build()
+
+	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1)
+	txn2 := txnBuilder2.Build()
+
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	err := grapher.AddMinter(ctx, stateID, txn1)
+	require.NoError(t, err)
+
+	minter, err := grapher.LookupMinter(ctx, stateID)
+	require.NoError(t, err)
+	assert.Equal(t, txn1.ID, minter.ID)
+
+	err = grapher.AddMinter(ctx, stateID, txn2)
+	require.Error(t, err)
+
+	expectedMsg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn1.ID.String(), txn2.ID.String())
+	assert.ErrorContains(t, err, expectedMsg)
+
+	assert.Contains(t, err.Error(), msgs.MsgSequencerInternalError)
+
+	minter, err = grapher.LookupMinter(ctx, stateID)
+	require.NoError(t, err)
+	assert.Equal(t, txn1.ID, minter.ID, "First transaction should still be the minter")
 }

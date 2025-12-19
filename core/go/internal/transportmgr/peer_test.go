@@ -711,3 +711,173 @@ func TestProcessReliableMsgPageReceipt(t *testing.T) {
 	require.Equal(t, components.RT_Success, receivedReceipt.ReceiptType)
 	require.Equal(t, receipt.TransactionID, receivedReceipt.TransactionID)
 }
+
+func TestSendMessageErrorHandlerCalled(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockEmptyReliableMsgs,
+		mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+
+	mockActivateDeactivateOk(tp)
+
+	// Configure SendMessage to return an error
+	sendError := fmt.Errorf("send failed")
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		return nil, sendError
+	}
+
+	// Set up error handler that captures the context and error
+	var capturedCtx context.Context
+	var capturedErr error
+	errorHandlerCalled := make(chan struct{})
+	errorHandler := func(ctx context.Context, err error) {
+		capturedCtx = ctx
+		capturedErr = err
+		close(errorHandlerCalled)
+	}
+
+	// Send message with error handler
+	message := testMessage()
+	err := tm.Send(ctx, message, &components.TransportSendOptions{
+		ErrorHandler: errorHandler,
+	})
+	require.NoError(t, err) // Send itself should succeed (queuing)
+
+	// Wait for error handler to be called
+	select {
+	case <-errorHandlerCalled:
+		// Error handler was called
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("error handler was not called within timeout")
+	}
+
+	// Verify error handler was called with correct context and error
+	require.NotNil(t, capturedCtx)
+	require.Equal(t, sendError, capturedErr)
+
+	// Clean up
+	p := tm.peers["node2"]
+	if p != nil {
+		p.close()
+	}
+}
+
+func TestProcessReliableMsgPagePublicTransaction(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	publicTx := &pldapi.PublicTxToDistribute{
+		PublicTxInput: pldapi.PublicTxInput{
+			From: pldtypes.RandAddress(),
+			To:   pldtypes.RandAddress(),
+			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
+		},
+		Nonce: confutil.P(pldtypes.HexUint64(1)),
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTPublicTransaction.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(publicTx),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypePublicTransaction, rMsg.MessageType)
+
+	var receivedPublicTx pldapi.PublicTxToDistribute
+	err = json.Unmarshal(rMsg.Payload, &receivedPublicTx)
+	require.NoError(t, err)
+	require.Equal(t, publicTx.From, receivedPublicTx.From)
+	require.Equal(t, publicTx.To, receivedPublicTx.To)
+	require.Equal(t, publicTx.Data, receivedPublicTx.Data)
+	require.Equal(t, publicTx.Nonce, receivedPublicTx.Nonce)
+}
+
+func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	publicTxSubmission := &pldapi.PublicTxToDistribute{
+		PublicTxInput: pldapi.PublicTxInput{
+			From: pldtypes.RandAddress(),
+			To:   pldtypes.RandAddress(),
+			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
+		},
+		Nonce: confutil.P(pldtypes.HexUint64(2)),
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(publicTxSubmission),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypePublicTransactionSubmission, rMsg.MessageType)
+
+	var receivedPublicTxSubmission pldapi.PublicTxToDistribute
+	err = json.Unmarshal(rMsg.Payload, &receivedPublicTxSubmission)
+	require.NoError(t, err)
+	require.Equal(t, publicTxSubmission.From, receivedPublicTxSubmission.From)
+	require.Equal(t, publicTxSubmission.To, receivedPublicTxSubmission.To)
+	require.Equal(t, publicTxSubmission.Data, receivedPublicTxSubmission.Data)
+	require.Equal(t, publicTxSubmission.Nonce, receivedPublicTxSubmission.Nonce)
+}

@@ -149,7 +149,7 @@ func (dm *domainManager) notifyTransactions(txCompletions txCompletionsOrdered) 
 			}
 		}
 
-		// For private transaction's that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
+		// For private transactions that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
 		// about the underlying chained public TX.
 		if !confirmedWithPublicTX {
 			log.L(dm.bgCtx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)

@@ -50,6 +50,10 @@ type TransportManagerToTransport interface {
 	Initialized()
 }
 
+type TransportSendOptions struct {
+	ErrorHandler func(ctx context.Context, err error)
+}
+
 // TransportClient is the interface for a component that can receive messages from the transport manager
 type TransportClient interface {
 	// This function is used by the transport manager to deliver messages to the engine.
@@ -98,13 +102,7 @@ type TransportManager interface {
 	// situation to recover from (although not critical path).
 	//
 	// at-most-once delivery semantics
-	Send(ctx context.Context, send *FireAndForgetMessageSend) error
-
-	// Send a message with the same semantics as Send, but with a channel for transport errors to be passed back to the
-	// caller rather than have to infer the outcome after some arbitrary period of time. This gives the caller the ability to
-	// choose the same error handling semantics for both a) the peer replied to the request with some sort of error (the way Send()
-	// already behaves), and b) the request couldn't even be sent to the peer due to an error.
-	SendWithNack(ctx context.Context, send *FireAndForgetMessageSend, errChan chan error) error
+	Send(ctx context.Context, send *FireAndForgetMessageSend, options ...*TransportSendOptions) error
 
 	// Sends a message with at-least-once delivery semantics
 	//

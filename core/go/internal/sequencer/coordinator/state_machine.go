@@ -438,6 +438,7 @@ func action_Idle(ctx context.Context, c *coordinator) error {
 func (c *coordinator) heartbeatLoop(ctx context.Context) {
 	if c.heartbeatCtx == nil {
 		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+		defer c.heartbeatCancel()
 
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
 
@@ -458,8 +459,12 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 					log.L(ctx).Errorf("error sending heartbeat: %v", err)
 				}
 			case <-c.heartbeatCtx.Done():
-			case <-ctx.Done():
 				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
+				c.heartbeatCtx = nil
+				c.heartbeatCancel = nil
+				return
+			case <-ctx.Done():
+				log.L(ctx).Infof("Cancelled heartbeat loop for %s", c.contractAddress.String())
 				c.heartbeatCtx = nil
 				c.heartbeatCancel = nil
 				return

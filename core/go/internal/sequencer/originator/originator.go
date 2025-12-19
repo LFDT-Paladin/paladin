@@ -73,6 +73,7 @@ type originator struct {
 	/* Event loop and delegate loop*/
 	originatorEvents    chan common.Event
 	stopEventLoop       chan struct{}
+	eventLoopStopped    chan struct{}
 	stopDelegateLoop    chan struct{}
 	delegateLoopStopped chan struct{}
 }
@@ -103,6 +104,7 @@ func NewOriginator(
 		metrics:                     metrics,
 		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
 		stopEventLoop:               make(chan struct{}),
+		eventLoopStopped:            make(chan struct{}),
 		stopDelegateLoop:            make(chan struct{}),
 		delegateLoopStopped:         make(chan struct{}),
 	}
@@ -116,6 +118,7 @@ func NewOriginator(
 }
 
 func (o *originator) eventLoop(ctx context.Context) {
+	defer close(o.eventLoopStopped)
 	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
 	for {
 		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
@@ -128,9 +131,6 @@ func (o *originator) eventLoop(ctx context.Context) {
 			}
 		case <-o.stopEventLoop:
 			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
 			return
 		}
 	}
@@ -156,9 +156,6 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			o.QueueEvent(ctx, delegateTimeoutEvent)
 		case <-o.stopDelegateLoop:
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop cancelled for contract %s", o.contractAddress.String())
 			return
 		}
 	}
@@ -240,8 +237,18 @@ func ptrTo[T any](v T) *T {
 // This hook point provides a place to perform any tidy up actions needed in the originator
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
+
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-o.eventLoopStopped:
+		return
+	default:
+	}
+
+	// Stop the event and delegate loops
 	o.stopEventLoop <- struct{}{}
 	o.stopDelegateLoop <- struct{}{}
+	<-o.eventLoopStopped
 	<-o.delegateLoopStopped
 }
 

@@ -663,9 +663,6 @@ func (tw *transportWriter) loopbackSender(ctx context.Context) {
 		case <-tw.stopLoopbackSender:
 			log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 			return
-		case <-ctx.Done():
-			log.L(ctx).Infof("cancelled loopback sender for contract %s", tw.contractAddress.String())
-			return
 		}
 	}
 }

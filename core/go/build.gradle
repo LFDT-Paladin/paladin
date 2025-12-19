@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 92
+    targetCoverage = 93
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -283,7 +283,7 @@ abstract class UnitTests extends Exec {
         args './pkg/...', './internal/...'
         args '-cover'
         args '-covermode=atomic'
-        args '-timeout=90s' // TODO: Implement fast DB reset to bring this back down
+        args '-timeout=180s' // TODO: Implement fast DB reset to bring this back down
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -355,7 +355,7 @@ abstract class CoordinationTest extends Exec {
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
         args '-covermode=atomic'
-        args '-timeout=180s'
+        args '-timeout=240s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }

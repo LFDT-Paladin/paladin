@@ -256,13 +256,7 @@ func (tm *transportManager) LocalNodeName() string {
 }
 
 // See docs in components package
-func (tm *transportManager) Send(ctx context.Context, send *components.FireAndForgetMessageSend) error {
-	ctx = log.WithComponent(ctx, "transportmanager")
-	return tm.SendWithNack(ctx, send, nil)
-}
-
-// See docs in components package
-func (tm *transportManager) SendWithNack(ctx context.Context, send *components.FireAndForgetMessageSend, errChan chan error) error {
+func (tm *transportManager) Send(ctx context.Context, send *components.FireAndForgetMessageSend, options ...*components.TransportSendOptions) error {
 	ctx = log.WithComponent(ctx, "transportmanager")
 
 	// Check the message is valid
@@ -286,10 +280,16 @@ func (tm *transportManager) SendWithNack(ctx context.Context, send *components.F
 		msg.CorrelationId = &cidStr
 	}
 
-	return tm.queueFireAndForget(ctx, send.Node, msg, errChan)
+	var errorCallback func(ctx context.Context, err error)
+	for _, option := range options {
+		if option.ErrorHandler != nil {
+			errorCallback = option.ErrorHandler
+		}
+	}
+	return tm.queueFireAndForget(ctx, send.Node, msg, errorCallback)
 }
 
-func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName string, msg *prototk.PaladinMsg, errChan chan error) error {
+func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName string, msg *prototk.PaladinMsg, errorCallback func(ctx context.Context, err error)) error {
 	log.L(ctx).Debugf("Queueing fire and forget message %s/%+v to node %s ", msg.MessageType, msg.MessageId, nodeName)
 
 	// Use or establish a p connection for the send
@@ -306,7 +306,7 @@ func (tm *transportManager) queueFireAndForget(ctx context.Context, nodeName str
 	// However, the send is at-most-once, and the higher level message protocols that
 	// use this "send" must be fault tolerant to message loss.
 	select {
-	case p.sendQueue <- &msgWithErrChan{PaladinMsg: msg, errChan: errChan}:
+	case p.sendQueue <- &msgWithErrChan{PaladinMsg: msg, errorHandler: errorCallback}:
 		log.L(ctx).Debugf("queued %s message %s (cid=%v) to %s", msg.MessageType, msg.MessageId, pldtypes.StrOrEmpty(msg.CorrelationId), p.Name)
 		return nil
 	case <-ctx.Done():
