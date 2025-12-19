@@ -34,11 +34,21 @@ pragma solidity ^0.8.20;
  *          implementation.
  */
 interface ILockableCapability {
+
+    // Stored lock info available to query by lockId
     struct LockInfo {
-        // The address that originally created the lock
+        // The address that originally created the lock - immutable
         address owner;
-        // The address that is currently authorized to spend/cancel/delegate the lock
+        // Implementation-specific data describing the locked value/states/coins/activity - immutable
+        bytes content;
+        // When delegation has been performed, this is a different address to the owner - mutable by current spender
         address spender;
+        // A hash of the prepared transaction that will be performed as the spending operation for this lock - mutable until delegation
+        bytes32 spendHash;
+        // A hash of the prepared transaction that will be performed as the cancel operation for this lock - mutable until delegation
+        bytes32 cancelHash;
+        // Implementation-specific options that control how the lock may be utilized - mutable
+        bytes options;
     }
 
     /**
@@ -50,6 +60,11 @@ interface ILockableCapability {
      * @dev Thrown when the caller is not the current spender for the given lock.
      */
     error LockUnauthorized(bytes32 lockId, address caller);
+
+    /**
+     * @dev Thrown when an attempt is made to update a lock that has been delegated, so the current spender is not the owner
+     */
+    error LockSpenderNotOwner(bytes32 lockId, address spender, address owner);
 
     /**
      * @dev Emitted when a lock is successfully spent.
@@ -71,6 +86,104 @@ interface ILockableCapability {
         bytes data
     );
 
+    // Fields of the lock that can be set on create or update
+    struct LockParams {
+        // A hash of the prepared transaction that will be performed as the spending operation for this lock - mutable until delegation
+        bytes32 spendHash;
+        // A hash of the prepared transaction that will be performed as the cancel operation for this lock - mutable until delegation
+        bytes32 cancelHash;
+        // Implementation-specific options that control how the lock may be utilized - mutable until delegation
+        bytes options;        
+    }
+
+    /**
+     * @dev Emitted when a lock is successfully created or updated.
+     * @param lockId the lock identifier
+     * @param lockInfo the new state of the lock after the update
+     * @param data the data parameter passed to the createLock, updateLock, or delegateLock call
+     */
+    event LockUpdated(
+        bytes32 indexed lockId,
+        LockInfo lockInfo,
+        bytes data
+    );
+
+    /**
+     * @dev Create a new lock, moving control of the value/states/coins/activity to be locked under the control of the new lock.
+     *      Locks are identified by a unique lockId, which is generated in an implementation-specific
+     *      way. Implementations are encouraged to generate the lockId deterministically from immutable lock properties.
+     *      Locks can be spent using spendLock(), or control of the lock can be
+     *      delegated using delegateLock().
+     *
+     * @param createInputs Implementation-specific information needed to perform the lock operation, and lock it in a way it can be later referred to by the "content" field of the params
+     * @param params The lock parameters that will be used during the creation to instruct the lock operation
+     * @param data Any additional transaction data (opaque to the blockchain).
+     * @return lockId The generated unique identifier for the lock.
+     *
+     * Emits a {LockCreated} event.
+     */
+    function createLock(
+        bytes calldata createInputs,
+        LockParams calldata params,
+        bytes calldata data
+    ) external returns (bytes32 lockId);
+
+    /**
+     * @dev Update the current options for a lock (non-normative method aligned with ILockableCapability recommendations).
+     *      Should only be allowed if the lock has not been delegated.
+     *
+     * Requirements:
+     *  - MUST revert with LockSpenderNotOwner(lockId, spender, owner) if the lock is currently
+     *    delegated, and thus cannot be updated.
+     *
+     * @param lockId Unique identifier for the lock.
+     * @param updateInputs Implementation-specific information needed to perform the update operation
+     * @param params The parameters that will all be replaced on the lock as a result of the update (see UpdateLockParams struct).
+     * @param data Any additional transaction data (opaque to the blockchain).
+     *
+     * Emits a {LockUpdated} event.
+     */
+    function updateLock(
+        bytes32 lockId,
+        bytes calldata updateInputs,
+        LockParams calldata params,
+        bytes calldata data
+    ) external;
+
+    /**
+     * @dev Delegate spending authority for this lock to a new address.
+     *
+     *      After delegation, the previous spender MUST no longer be allowed to
+     *      spend or cancel the lock (unless they later regain spender status).
+     *
+     *      After delegation (spender != owner), the mutable fields of the
+     *      LockInfo MUST become immutable.
+     *      Changes in behavior that occur for this lock after delegation
+     *      must be implemented in the smart contract logic on the delegation target
+     *      as the only action available on the lock via this interface
+     *      after delegation are:
+     *      - delegateLock - including delegation back to the owner
+     *      - spendLock - with outcome verified by the spendHash
+     *      - cancelLock - with outcome verified by the cancelHash
+     *
+     * Requirements:
+     *  - MUST revert with LockUnauthorized(lockId, msg.sender) if msg.sender
+     *    is not the current spender for lockId.
+     *  - MUST revert with LockNotActive(lockId) if the lock does not exist or
+     *    is no longer active.
+     *
+     * @param lockId     The identifier of the lock.
+     * @param delegateInputs  Implementation-specific information needed to perform the update operation
+     * @param newSpender The address of the new lock spender - can be the owner to un-delegate
+     * @param data Any additional transaction data (opaque to the blockchain).
+     */
+    function delegateLock(
+        bytes32 lockId,
+        bytes calldata delegateInputs,
+        address newSpender,
+        bytes calldata data
+    ) external;
+
     /**
      * @dev Consume ("spend") the capability represented by this lock
      *      (for example, releasing or claiming tokens).
@@ -87,11 +200,16 @@ interface ILockableCapability {
      * or authorization required to complete the operation.
      *
      * @param lockId The identifier of the lock.
-     * @param data   Arbitrary implementation-specific data. MUST NOT influence
-     *               the outcome of the operation, but may be used to carry additional
-     *               metadata or authorization required to complete the operation.
+     * @param spendInputs  Implementation-specific data that instructs the operation
+     *               that is to be performed. MUST NOT revert if this is the correct
+     *               set of inputs that can be validated according to the spendHash.
+     * @param data Any additional transaction data (opaque to the blockchain).
      */
-    function spendLock(bytes32 lockId, bytes calldata data) external;
+    function spendLock(
+        bytes32 lockId,
+        bytes calldata spendInputs,
+        bytes calldata data
+    ) external;
 
     /**
      * @dev Cancel a lock without performing its effect.
@@ -110,29 +228,16 @@ interface ILockableCapability {
      *    completes successfully.
      *
      * @param lockId The identifier of the lock.
-     * @param data   Arbitrary implementation-specific data. MUST NOT influence
-     *               the outcome of the operation, but may be used to carry additional
-     *               metadata or authorization required to complete the operation.
+     * @param cancelInputs  Implementation-specific data that instructs the operation
+     *               that is to be performed. MUST NOT revert if this is the correct
+     *               set of inputs that can be validated according to the cancelHash.
+     * @param data Any additional transaction data (opaque to the blockchain).
      */
-    function cancelLock(bytes32 lockId, bytes calldata data) external;
-
-    /**
-     * @dev Delegate spending authority for this lock to a new address.
-     *
-     *      After delegation, the previous spender MUST no longer be allowed to
-     *      spend or cancel the lock (unless they later regain spender status).
-     *
-     * Requirements:
-     *  - MUST revert with LockUnauthorized(lockId, msg.sender) if msg.sender
-     *    is not the current spender for lockId.
-     *  - MUST revert with LockNotActive(lockId) if the lock does not exist or
-     *    is no longer active.
-     *
-     * @param lockId     The identifier of the lock.
-     * @param newSpender The address of the new lock spender.
-     * @param data       Arbitrary implementation-specific data.
-     */
-    function delegateLock(bytes32 lockId, address newSpender, bytes calldata data) external;
+    function cancelLock(
+        bytes32 lockId,
+        bytes calldata cancelInputs,
+        bytes calldata data
+    ) external;
 
     /**
      * @dev Get current information about a lock.

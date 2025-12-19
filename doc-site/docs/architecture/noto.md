@@ -610,43 +610,32 @@ config:
   layout: elk
 ---
 flowchart TB
-    A(["Original coins"]) -- owner:createLock(coins) --> B["LOCK[lockId,contents,owner]
-(unprepared)
-(undelegated)"]
-    B -- owner:updateLock(spendHash,cancelHash) --> C["LOCK[lockId,contents,owner,spendHash,cancelHash]
-SPEND+CANCEL PREPARED
-(undlegated)"]
-    C -- owner:updateLock(spendHash,cancelHash) --> C
-    C -- owner:spendLock(inputs,outputs) --> X(["New Coins
-(any)"])
-    C -- owner:delegateLock(address) --> D["LOCK[lockId,contents,owner,spendHash,cancelHash,delegate]
-SPEND+CANCEL PREPARED
-DELEGATED"]
-    B -- owner:delegateLock(address) --> E["LOCK(lockId,contents,owner,delegate)
-(unprepared)
-DELEGATED"]
-    D -- delegate:delegateLock(address) --> D
-    D -- delegate:delegateLock(nil) --> C
-    D -- delegate:spendLock(inputs,outputs) // must match spendHash --> Y(["New Coins
+    A(["Avaiable coins"]) -- owner:createLock(coins) --> B["LOCK
+lockId,contents,owner,spendHash,cancelHash,options"]
+    B -- owner:delegateLock(spender) --> C["DELEGATED_LOCK
+lockId,contents,owner,spender,spendHash,cancelHash,options"]
+    B -. owner:spendLock(inputs,outputs) .-> Y(["New Coins
 SPEND OUTCOME"])
-    D -- delegate:cancelLock(inputs,outputs) // must match cancelHash --> Z(["New Coins
+    B -. owner:cancelLock(inputs,outputs) .-> Z(["New Coins
 CANCEL OUTCOME"])
-    E -- delegate:delegateLock(address) --> E
-    E -- delegate:spendLock(inputs,outputs) --> X
-    E -- delegate:delegateLock(nil) --> B
-    B -- owner:spendLock(inputs,outputs) --> X
-
+    B -- owner:updateLock(spendHash,cancelHash,options) --> B
+    C -- delegate:delegateLock(spender) --> C
+    C -- delegate:delegateLock(owner) --> B
+    C -- delegate:spendLock(inputs,outputs) --> Y
+    C -- delegate:cancelLock(inputs,outputs) --> Z
 ```
 </details>
 
 <details>
   <summary>Noto V0 model</summary>
 
-Noto V0 had a very similar locking model, with some notable differences in implementation.
+Noto V0 had a very similar locking model, but with a more complex terminology that was simplified in V1, and a couple of functional limitations that were addressed in V1.
 
-The meaningful differences in the V0->V1 upgrade are:
-- No on-chain storage of the lock object itself, only the locked input coins
-    - This prevented the use of the model for locking a `mint` operation (which has no inputs)
+The functional issues addressed V0 as part of the upgrade were:
+- No UTXO state transactions for the lock object itself, only the locked input coins
+    - This prevented the use of the model for locking a `mint` operation
+- Only the success path was prepared - the cancel path was a re-delegate to nil
+    - Meaning additional steps after a transaction cancel/rollback to reclaim tokens
 
 ![Noto locking state machine (V0)](../images/noto_lock_state_machine_v0.svg)
 

@@ -26,6 +26,8 @@ interface INotoErrors {
 
     error NotoDuplicateTransaction(bytes32 txId);
 
+    error NotoDuplicateSpendTransaction(bytes32 txId);
+
     error NotoInvalidOptions(bytes options);
 
     error NotoInvalidTransaction(bytes32 txId);
