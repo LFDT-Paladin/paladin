@@ -174,11 +174,11 @@ If you wish to use an existing seed phrase, store a file containing this seed ph
 ## Mode: `attach`
 
 Set `mode=attach` when you have an existing blockchain network and previously deployed smart contracts that you want Paladin to reuse.
-This mode will tipacly be in use after you already installed Paladin in `customnet` mode and now you want to run another paladin node in a different namespace/cluster and attach it to the already existing blockchain and paladin network.
+This mode will typically be in use after you already installed Paladin in `customnet` mode and now you want to run another Paladin node in a different namespace/cluster and attach it to the already existing blockchain and Paladin network.
 
 ### Retrieving Contract Addresses
 
-First, get the registries addresses and paladinDomain addresses:
+First, get the registry address and Paladin domain addresses:
 
 ```bash
 kubectl -n paladin get paladindomains,paladinregistries
@@ -186,25 +186,25 @@ kubectl -n paladin get paladindomains,paladinregistries
 
 Example output:
 
-```
-NAME                                  STATUS      DOMAIN_REGISTRY                              DEPLOYMENT      LIBRARY
-paladindomain.core.paladin.io/noto    Available   0xd93630936d854fb718b89537cce4acc97fd50463   noto-factory    /app/domains/libnoto.so
-paladindomain.core.paladin.io/pente   Available   0x48c11bbb7caa77329d53b89235fec64733a24ca1   pente-factory   /app/domains/pente.jar
-paladindomain.core.paladin.io/zeto    Available   0xc29ed8a902ff787445bdabee9ae5e2380089959d   zeto-factory    /app/domains/libzeto.so
+```bash
+NAME                                  STATUS      DOMAIN_REGISTRY                              DEPLOYMENT            LIBRARY
+paladindomain.core.paladin.io/noto    Available   0xa1de12834d636299d28d974a2742f203daa1c131   noto-factory-proxy    /app/domains/libnoto.so
+paladindomain.core.paladin.io/pente   Available   0xa146d815872f0b6f83e0b608d07b70102860764b   pente-factory-proxy   /app/domains/pente.jar
+paladindomain.core.paladin.io/zeto    Available   0x270b25f87da05af06fc99eebdc39dffc29cdf0e1   zeto-factory          /app/domains/libzeto.so
 
 NAME                                           TYPE   STATUS      CONTRACT
-paladinregistry.core.paladin.io/evm-registry   evm    Available   0x07f73d1d358fe9f178b0b8a749a99bf08e4e4140
+paladinregistry.core.paladin.io/evm-registry   evm    Available   0xcd61b9b1efb57e46210c6eb52942bfcd5ce502a2
 ```
 
 and past it to the values file:
 
 ```yaml
 smartContractsReferences:
-  notoFactory:
+  notoFactoryProxy:
     address: "0xd93630936d854fb718b89537cce4acc97fd50463"
   zetoFactory:
     address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
-  penteFactory:
+  penteFactoryProxy:
     address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
   registry:
     address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
@@ -225,11 +225,11 @@ Here is a full example of the `values-attach.yaml`:
 ```yaml
 mode: attach
 smartContractsReferences:
-  notoFactory:
+  notoFactorProxy:
     address: "0xd93630936d854fb718b89537cce4acc97fd50463"
   zetoFactory:
     address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
-  penteFactory:
+  penteFactoryProxy:
     address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
   registry:
     address: "0x4456307ef3f119dac17a5e974d2640f714e6edb0"
