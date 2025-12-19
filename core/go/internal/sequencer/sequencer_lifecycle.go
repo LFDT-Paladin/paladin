@@ -549,6 +549,7 @@ func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
 		// Stop the lowest priority coordinator by emitting an event asking it to handover to another coordinator
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
 		sequencers[0].coordinator.Stop()
+		sequencers[0].originator.Stop()
 		delete(sMgr.sequencers, sequencers[0].contractAddress)
 	} else {
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("%d coordinators within max coordinator limit %d", activeCoordinators, sMgr.targetActiveCoordinatorsLimit)

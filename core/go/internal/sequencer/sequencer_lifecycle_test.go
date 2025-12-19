@@ -578,6 +578,7 @@ func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
 	mocks2.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
 	mocks3.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
 	mocks1.coordinator.EXPECT().Stop().Once()
+	mocks1.originator.EXPECT().Stop().Once()
 	mocks1.metrics.EXPECT().SetActiveCoordinators(3).Once()
 
 	sm.sequencersLock.Lock()
