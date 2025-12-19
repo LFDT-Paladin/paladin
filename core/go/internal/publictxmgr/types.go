@@ -234,9 +234,12 @@ type InMemoryTxStateReadOnly interface {
 	// get the transaction receipt from the in-memory state (note: the returned value should not be modified)
 	GetTransactionHash() *pldtypes.Bytes32
 	GetPubTxnID() uint64
+	GetTransactionType() pldapi.TransactionType
+	GetPrivateTXOriginator() string
 	GetNonce() uint64
 	GetFrom() pldtypes.EthAddress
 	GetTo() *pldtypes.EthAddress
+	GetData() pldtypes.HexBytes
 	GetValue() *pldtypes.HexUint256
 	BuildEthTX() *ethsigner.Transaction
 	GetGasPriceObject() *pldapi.PublicTxGasPricing

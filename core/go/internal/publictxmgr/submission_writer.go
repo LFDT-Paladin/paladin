@@ -18,12 +18,11 @@ package publictxmgr
 import (
 	"context"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -62,25 +61,44 @@ func (sw *submissionWriter) runBatch(ctx context.Context, tx persistence.DBTX, v
 		return nil, err
 	}
 
-	// The sequencer needs to distribute the public submission to all relevant nodes. We submit a reliable message
-	// under the same DBTX as the local persist.
+	// Once we have persisted a TX binding with the originating node the sequencer needs to distribute the public submission back to that node. We submit a reliable message
+	// under the same DBTX as the local persist
 	for _, value := range values {
-		privTx, err := sw.rootTxMgr.GetTransactionByIDWithDBTX(ctx, tx, value.PrivateTXID)
-		if err != nil {
-			return nil, err
-		}
-		if privTx == nil {
-			return nil, i18n.NewError(ctx, msgs.MsgTxMgrTransactionNotFound, value.PrivateTXID)
-		}
-		err = sw.sequencerManager.HandlePublicTXSubmission(ctx,
-			tx,
-			(*pldtypes.Bytes32)(&value.TransactionHash),
-			privTx.From,
-			value.ContractAddress,
-			value.GasPricing.StringValue(),
-			value.PrivateTXID)
-		if err != nil {
-			return nil, err
+
+		if value.PrivateTXOriginator != "" {
+			publicTXSubmission := &pldapi.PublicTxWithBinding{}
+			nonce := pldtypes.HexUint64(*value.Nonce)
+			publicTX := &pldapi.PublicTx{
+				From:    value.From,
+				To:      value.To,
+				Data:    value.Data,
+				Nonce:   &nonce,
+				Created: value.Created,
+			}
+			publicTXSubmission.PublicTx = publicTX
+
+			// Do we need this?
+			// if value.Completed != nil {
+			// 	publicTX.CompletedAt = &value.Completed.Created
+			// 	publicTX.Success = &value.Completed.Success
+			// 	publicTX.RevertData = value.Completed.RevertData
+			// }
+			publicTX.Submissions = []*pldapi.PublicTxSubmissionData{
+				{
+					Time:               value.Submissions[0].Created,
+					TransactionHash:    value.Submissions[0].TransactionHash,
+					PublicTxGasPricing: pldapi.PublicTxGasPricing{},
+				},
+			}
+			err = sw.sequencerManager.HandlePublicTXSubmission(ctx,
+				tx,
+				value.PrivateTXOriginator,
+				value.PrivateTXID,
+				publicTXSubmission,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

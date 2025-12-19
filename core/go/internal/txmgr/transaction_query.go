@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -98,6 +99,17 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 				},
 			},
 		},
+	}
+}
+
+func (tm *txManager) mapPersistedTXSequencingActivity(pth *sequencer.DBSequencingActivity) *pldapi.SequencingProgressActivity {
+	return &pldapi.SequencingProgressActivity{
+		LocalID:        pth.LocalID,
+		RemoteID:       pth.RemoteID,
+		Timestamp:      pth.Timestamp,
+		ActivityType:   pth.ActivityType,
+		SubmittingNode: pth.SubmittingNode,
+		TransactionID:  pth.TransactionID,
 	}
 }
 
@@ -203,6 +215,11 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		return nil, err
 	}
 
+	ptxs, err = tm.AddSequencerActivity(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
 	return tm.mergePublicTransactions(ctx, dbTX, txIDs, ptxs)
 }
 
@@ -234,6 +251,33 @@ func (tm *txManager) AddTransactionHistory(ctx context.Context, dbTX persistence
 	return ptxs, nil
 }
 
+func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txsas := []*sequencer.DBSequencingActivity{}
+	err := dbTX.DB().Table("sequencer_activities").
+		WithContext(ctx).
+		Order(`"timestamp" DESC`).
+		Where(`"transaction_id" IN (?)`, txIDs).
+		Find(&txsas).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txsaMap := make(map[uuid.UUID][]*sequencer.DBSequencingActivity, len(txsas))
+	for _, txsa := range txsas {
+		txsaMap[txsa.TransactionID] = append(txsaMap[txsa.TransactionID], txsa)
+	}
+	for _, tx := range ptxs {
+		if txsas, ok := txsaMap[*tx.ID]; ok {
+			tx.SequencerActivity = make([]*pldapi.SequencingProgressActivity, len(txsas))
+			for i, txsa := range txsas {
+				tx.SequencerActivity[i] = tm.mapPersistedTXSequencingActivity(txsa)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
 func (tm *txManager) mergePublicTransactions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
 	pubTxByTX, err := tm.publicTxMgr.QueryPublicTxForTransactions(ctx, dbTX, txIDs, nil)
 	if err != nil {
@@ -243,7 +287,6 @@ func (tm *txManager) mergePublicTransactions(ctx context.Context, dbTX persisten
 		tx.Public = pubTxByTX[*tx.ID]
 	}
 	return txs, nil
-
 }
 
 func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX persistence.DBTX, txs []*components.ResolvedTransaction) (_ []*components.ResolvedTransaction, err error) {

@@ -22,17 +22,18 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 type DBSequencingActivity struct {
-	LocalID        *uint64   `gorm:"column:id"`
-	RemoteID       string    `gorm:"column:remote_id"`
-	Timestamp      int64     `gorm:"column:timestamp"`
-	TransactionID  uuid.UUID `gorm:"column:transaction_id"`
-	ActivityType   string    `gorm:"column:activity_type"`
-	SubmittingNode string    `gorm:"column:submitting_node"`
+	LocalID        *uint64            `gorm:"column:id"`
+	RemoteID       string             `gorm:"column:remote_id"`
+	Timestamp      pldtypes.Timestamp `gorm:"column:timestamp"`
+	TransactionID  uuid.UUID          `gorm:"column:transaction_id"`
+	ActivityType   string             `gorm:"column:activity_type"`
+	SubmittingNode string             `gorm:"column:submitting_node"`
 }
 
 func (DBSequencingActivity) TableName() string {
@@ -45,7 +46,7 @@ func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Cont
 	for _, sequencingActivity := range sequencingActivities {
 		dbSequencingActivity := &DBSequencingActivity{
 			RemoteID:       sequencingActivity.RemoteID,
-			Timestamp:      sequencingActivity.Timestamp.Time().Unix(),
+			Timestamp:      sequencingActivity.Timestamp,
 			TransactionID:  sequencingActivity.TransactionID,
 			ActivityType:   sequencingActivity.ActivityType,
 			SubmittingNode: sequencingActivity.SubmittingNode,

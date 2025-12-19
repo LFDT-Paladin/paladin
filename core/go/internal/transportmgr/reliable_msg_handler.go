@@ -90,7 +90,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	nullifierUpserts := make(map[string][]*components.NullifierUpsert)
 	var preparedTxnToAdd []*components.PreparedTransactionWithRefs
 	var txReceiptsToFinalize []*components.ReceiptInput
-	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxToDistribute // public transaction submissions
+	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxWithBinding // public transaction submissions
 	var sequencingActivitiesToPersist []*pldapi.SequencingProgressActivity
 	var msgsToReceive []*receivedPrivacyGroupMessage
 	var privacyGroupsToAdd []*receivedPrivacyGroup
@@ -177,8 +177,8 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			}
 		case RMHMessageTypePublicTransactionSubmission:
 			log.L(ctx).Debugf("received public TX submission, parsePublicTransactionSubmissionMsg: %+v", v.msg)
-			var publicTXSubmissionToDistribute pldapi.PublicTxToDistribute
-			err := json.Unmarshal(v.msg.Payload, &publicTXSubmissionToDistribute)
+			var publicTXSubmission pldapi.PublicTxWithBinding
+			err := json.Unmarshal(v.msg.Payload, &publicTXSubmission)
 			if err != nil {
 				acksToSend = append(acksToSend,
 					&ackInfo{node: v.p.Name, id: v.msg.MessageID, Error: err.Error()}, // reject the message permanently
@@ -186,7 +186,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			} else {
 				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
-				txPublicTXSubmissionsToPersist = append(txPublicTXSubmissionsToPersist, &publicTXSubmissionToDistribute)
+				txPublicTXSubmissionsToPersist = append(txPublicTXSubmissionsToPersist, &publicTXSubmission)
 			}
 		case RMHMessageTypeSequencingActivity:
 			log.L(ctx).Debugf("received sequencing activity, parseSequencingActivityMsg: %+v", v.msg)
@@ -641,7 +641,7 @@ func (tm *transportManager) buildPublicTransactionSubmissionMsg(ctx context.Cont
 	}, nil, nil
 }
 
-func parseMessagePublicTransactionDistribution(ctx context.Context, msgID uuid.UUID, data []byte) (submission *pldapi.PublicTxToDistribute, err error) {
+func parseMessagePublicTransactionDistribution(ctx context.Context, msgID uuid.UUID, data []byte) (submission *pldapi.PublicTxWithBinding, err error) {
 	err = json.Unmarshal(data, &submission)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)

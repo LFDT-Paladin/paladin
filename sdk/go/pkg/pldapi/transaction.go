@@ -152,9 +152,11 @@ type TransactionReceipt struct {
 
 type TransactionReceiptFull struct {
 	*TransactionReceipt
-	States             *TransactionStates `docstruct:"TransactionReceiptFull" json:"states,omitempty"`
-	DomainReceipt      pldtypes.RawJSON   `docstruct:"TransactionReceiptFull" json:"domainReceipt,omitempty"`
-	DomainReceiptError string             `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
+	States             *TransactionStates            `docstruct:"TransactionReceiptFull" json:"states,omitempty"`
+	DomainReceipt      pldtypes.RawJSON              `docstruct:"TransactionReceiptFull" json:"domainReceipt,omitempty"`
+	DomainReceiptError string                        `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
+	Public             []*PublicTx                   `docstruct:"TransactionReceiptFull" json:"public"`                      // list of public transactions associated with this receipt
+	SequencerActivity  []*SequencingProgressActivity `docstruct:"TransactionReceiptFull" json:"sequencerActivity,omitempty"` // list of sequencing activity for this transactions
 }
 
 type TransactionReceiptBatch struct {

@@ -58,6 +58,16 @@ func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, t
 	}
 }
 
+func transactionReceiptFullConditionExpectedPublicTXCount(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient, expectedPublicTXCount int) func() bool {
+	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
+	return func() bool {
+		txReceipt, err := client.PTX().GetTransactionReceiptFull(ctx, txID)
+		require.NoError(t, err)
+		require.False(t, (txReceipt.Success == false), "Have transaction receipt but not successful")
+		return txReceipt.Success == true && len(txReceipt.Public) == expectedPublicTXCount
+	}
+}
+
 func transactionReceiptConditionFailureReceiptOnly(t *testing.T, ctx context.Context, txID uuid.UUID, client pldclient.PaladinClient) func() bool {
 	//for the given transaction ID, return a function that can be used in an assert.Eventually to check if the transaction has a receipt
 	return func() bool {

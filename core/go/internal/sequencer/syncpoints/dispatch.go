@@ -119,22 +119,6 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
-	// Sequencer activity dispatch records for chained transactions
-	// for _, chainedDispatch := range dispatchBatch.PrivateDispatches {
-	// 	sequencingProgress := &pldapi.SequencingProgressActivity{
-	// 		RemoteID:       chainedDispatch.OriginalTransaction.String(), // This will be remote on the node that receives this message
-	// 		Timestamp:      pldtypes.TimestampNow(),
-	// 		ActivityType:   string(pldapi.SequencingProgressActivityType_Dispatched),
-	// 		SubmittingNode: s.transportMgr.LocalNodeName(),
-	// 	}
-	// 	node := "who?" // who?
-	// 	preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
-	// 		Node:        node,
-	// 		MessageType: pldapi.RMTSequencingProgress.Enum(),
-	// 		Metadata:    pldtypes.JSONString(sequencingProgress),
-	// 	})
-	// }
-
 	// Send the write operation with all of the batch sequence operations to the flush worker
 	op := s.writer.Queue(dCtx.Ctx(), &syncPointOperation{
 		domainContext:   dCtx,
@@ -198,6 +182,9 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				//fill in the foreign key before persisting in our dispatch table
 				dispatch.PublicTransactionAddress = publicTxns[dispatchIndex].From
 				dispatch.PublicTransactionID = *publicTxns[dispatchIndex].LocalID
+				if dispatch.ID == "" {
+					dispatch.ID = uuid.New().String()
+				}
 				// Dispatch ID populated early before queueing the dispatch operations so sequencer activity records can include them
 			}
 

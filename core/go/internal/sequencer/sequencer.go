@@ -556,12 +556,12 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 }
 
 // Handle public TX submission, both for our own coordination state machine(s), and by distributing this public TX submission to other parties who need to have it
-func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txID uuid.UUID) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXSubmission %s %s %s %s", txHash.String(), contractAddress, gasPricing, txID.String())
+func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, sender string, txID uuid.UUID, tx *pldapi.PublicTxWithBinding) error {
+	log.L(sMgr.ctx).Debugf("HandlePublicTXSubmission TXID %s", txID.String())
 
-	deploy := contractAddress == ""
+	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(contractAddress), nil, nil)
+		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *tx.To, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -573,7 +573,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
 					TransactionID: txID,
 				},
-				SubmissionHash: *txHash,
+				SubmissionHash: *tx.TransactionHash,
 			}
 			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
 			sequencerTX := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
@@ -583,7 +583,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 				// Forward the event to the originator
 				transportWriter := sequencer.GetTransportWriter()
-				err = transportWriter.SendTransactionSubmitted(ctx, txID, originatorNode, pldtypes.MustEthAddress(contractAddress), txHash)
+				err = transportWriter.SendTransactionSubmitted(ctx, txID, originatorNode, tx.To, tx.TransactionHash)
 				if err != nil {
 					return err
 				}
@@ -592,22 +592,15 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
 		// related to their coordinated private transaction submissions
-		publicTXSubmission := &pldapi.PublicTxToDistribute{
-			TransactionHash: txHash,
-			GasPricing:      []byte(gasPricing),
-			Bindings: []*pldapi.PublicTxBinding{
-				{
-					Transaction: txID,
-				},
-			},
-		}
+		log.L(ctx).Debugf("Distributing public TX submission to originator %s", sender)
 
 		senderNode := strings.Split(sender, "@")[1]
 		if senderNode != sMgr.nodeName {
+			log.L(ctx).Debugf("Sending reliable message to node %s because that's not us", senderNode)
 			// Send reliable message to the node under the current DBTX
 			err = sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
 				MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
-				Metadata:    pldtypes.JSONString(publicTXSubmission),
+				Metadata:    pldtypes.JSONString(tx),
 				Node:        senderNode,
 			})
 			if err != nil {

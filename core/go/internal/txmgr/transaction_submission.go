@@ -868,6 +868,7 @@ func (tm *txManager) UpdateTransaction(ctx context.Context, id uuid.UUID, tx *pl
 	}
 
 	if oldTX == nil {
+		log.L(ctx).Errorf("Transaction not found locally in UpdateTransaction: %s", id)
 		return id, i18n.NewError(ctx, msgs.MsgTxMgrTransactionNotFound, id)
 	}
 

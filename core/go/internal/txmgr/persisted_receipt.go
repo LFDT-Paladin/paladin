@@ -412,7 +412,18 @@ func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.Trans
 			}
 		}
 	}
-	return fullReceipt, nil
+	return tm.mergeReceiptPublicTransactions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+}
+
+func (tm *txManager) mergeReceiptPublicTransactions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	pubTxByTX, err := tm.publicTxMgr.QueryPublicTxForTransactions(ctx, dbTX, txIDs, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
+		tx.Public = pubTxByTX[tx.ID]
+	}
+	return txs[0], nil
 }
 
 func (tm *txManager) GetTransactionReceiptByIDFull(ctx context.Context, id uuid.UUID) (*pldapi.TransactionReceiptFull, error) {

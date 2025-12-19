@@ -296,9 +296,35 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 	}
 
 	if rsc.StageOutputsToBePersisted.TxUpdates != nil {
-
 		newSubmission := rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission
 		if newSubmission != nil {
+			log.L(ctx).Debugf("PersistTxState TXID %s: Queueing new submission", newSubmission.PrivateTXID)
+
+			if newSubmission.Binding == nil && rsc.InMemoryTx != nil {
+				log.L(ctx).Debugf("PersistTxState TXID %s: Building binding", newSubmission.PrivateTXID)
+				nonce := pldtypes.HexUint64(rsc.InMemoryTx.GetNonce())
+				gasLimit := pldtypes.HexUint64(rsc.InMemoryTx.GetGasLimit())
+				newSubmission.Binding = &pldapi.PublicTx{
+					TransactionHash: rsc.InMemoryTx.GetTransactionHash(),
+					From:            rsc.InMemoryTx.GetFrom(),
+					To:              rsc.InMemoryTx.GetTo(),
+					Data:            rsc.InMemoryTx.GetData(),
+					Nonce:           &nonce,
+					Created:         *rsc.InMemoryTx.GetCreatedTime(),
+					PublicTxOptions: pldapi.PublicTxOptions{
+						Gas:   &gasLimit,
+						Value: rsc.InMemoryTx.GetValue(),
+					},
+				}
+				if rsc.InMemoryTx.GetGasPriceObject() != nil {
+					log.L(ctx).Debugf("PersistTxState TXID %s: Setting gas pricing to %+v", newSubmission.PrivateTXID, rsc.InMemoryTx.GetGasPriceObject())
+					newSubmission.Binding.PublicTxOptions.PublicTxGasPricing = pldapi.PublicTxGasPricing{
+						MaxPriorityFeePerGas: rsc.InMemoryTx.GetGasPriceObject().MaxPriorityFeePerGas,
+						MaxFeePerGas:         rsc.InMemoryTx.GetGasPriceObject().MaxFeePerGas,
+					}
+				}
+			}
+
 			// This is the critical point where we must flush to persistence before we go any further - we have a new
 			// transaction record we've signed, and we want to move on to submit it to the blockchain.
 			// But if we do that without first recording the transaction hash, we cannot be sure we will be able

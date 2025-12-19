@@ -33,7 +33,8 @@ type DBPublicTxn struct {
 	FixedGasPricing pldtypes.RawJSON       `gorm:"column:fixed_gas_pricing"`
 	Value           *pldtypes.HexUint256   `gorm:"column:value"`
 	Data            pldtypes.HexBytes      `gorm:"column:data"`
-	Suspended       bool                   `gorm:"column:suspended"`                            // excluded from processing because it's suspended by user
+	Suspended       bool                   `gorm:"column:suspended"` // excluded from processing because it's suspended by user
+	Dispatcher      string                 `gorm:"column:dispatcher"`
 	Completed       *DBPublicTxnCompletion `gorm:"foreignKey:pub_txn_id;references:pub_txn_id"` // excluded from processing because it's done
 	Submissions     []*DBPubTxnSubmission  `gorm:"-"`                                           // we do the aggregation, not GORM
 	// Binding is used only on queries by transaction (GORM doesn't seem to allow us to define a separate struct for this)
@@ -57,13 +58,16 @@ func (DBPublicTxnBinding) TableName() string {
 }
 
 type DBPubTxnSubmission struct {
-	from            string             `gorm:"-"` // just used to ensure we dispatch to same writer as the associated pubic TX
-	PublicTxnID     uint64             `gorm:"column:pub_txn_id"`
-	Created         pldtypes.Timestamp `gorm:"column:created;autoCreateTime:false"` // we set this as we track the record in memory too
-	TransactionHash pldtypes.Bytes32   `gorm:"column:tx_hash;primaryKey"`
-	GasPricing      pldtypes.RawJSON   `gorm:"column:gas_pricing"` // no filtering allowed on this field as it's complex JSON gasPrice/maxFeePerGas/maxPriorityFeePerGas calculation
-	PrivateTXID     uuid.UUID          `gorm:"-"`                  // just used when a sequencer needs loading
-	ContractAddress string             `gorm:"-"`                  // just used when a sequencer needs loading
+	from                string                                `gorm:"-"` // just used to ensure we dispatch to same writer as the associated pubic TX
+	PublicTxnID         uint64                                `gorm:"column:pub_txn_id"`
+	Created             pldtypes.Timestamp                    `gorm:"column:created;autoCreateTime:false"` // we set this as we track the record in memory too
+	TransactionHash     pldtypes.Bytes32                      `gorm:"column:tx_hash;primaryKey"`
+	GasPricing          pldtypes.RawJSON                      `gorm:"column:gas_pricing"` // no filtering allowed on this field as it's complex JSON gasPrice/maxFeePerGas/maxPriorityFeePerGas calculation
+	TransactionType     pldtypes.Enum[pldapi.TransactionType] `gorm:"-"`                  // just used by the sequencer
+	PrivateTXID         uuid.UUID                             `gorm:"-"`                  // just used by the sequencer
+	PrivateTXOriginator string                                `gorm:"-"`                  // just used by the sequencer
+	ContractAddress     string                                `gorm:"-"`                  // just used by the sequencer
+	Binding             *pldapi.PublicTx                      `gorm:"-"`                  // just used by the sequencer
 }
 
 func (DBPubTxnSubmission) TableName() string {

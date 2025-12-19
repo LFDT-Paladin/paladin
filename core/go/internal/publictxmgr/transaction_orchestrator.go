@@ -405,6 +405,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 				Where(`"Completed"."tx_hash" IS NULL`).
 				Where("suspended IS FALSE").
 				Where(`"from" = ?`, oc.signingAddress).
+				Where(`"dispatcher" = ? OR "dispatcher" = ''`, oc.nodeName). // Make sure this isn't a transaction another node dispatched and gave us a read-only copy of
 				Order(`"public_txns"."pub_txn_id"`).
 				Limit(spaces)
 			if len(oc.inFlightTxs) > 0 {
@@ -458,6 +459,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		log.L(ctx).Debugf("Orchestrator poll and process: polled %d items, space: %d", len(additional), spaces)
 		for _, ptx := range additional {
 			queueUpdated = true
+			// Binding sender is empty here...
 			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
 			txStage := it.stateManager.GetStage(ctx)

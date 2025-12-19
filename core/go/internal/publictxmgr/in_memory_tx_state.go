@@ -143,6 +143,14 @@ func (imtxs *inMemoryTxState) GetPubTxnID() uint64 {
 	return imtxs.mtx.ptx.PublicTxnID
 }
 
+func (imtxs *inMemoryTxState) GetTransactionType() pldapi.TransactionType {
+	return pldapi.TransactionType(imtxs.mtx.ptx.Binding.TransactionType)
+}
+
+func (imtxs *inMemoryTxState) GetPrivateTXOriginator() string {
+	return imtxs.mtx.ptx.Binding.Sender
+}
+
 func (imtxs *inMemoryTxState) GetSignerNonce() string {
 	nonceStr := "unassigned"
 	if imtxs.mtx.ptx.Nonce != nil {
@@ -168,8 +176,11 @@ func (imtxs *inMemoryTxState) GetFrom() pldtypes.EthAddress {
 }
 
 func (imtxs *inMemoryTxState) GetTo() *pldtypes.EthAddress {
-
 	return imtxs.mtx.ptx.To
+}
+
+func (imtxs *inMemoryTxState) GetData() pldtypes.HexBytes {
+	return imtxs.mtx.ptx.Data
 }
 
 func (imtxs *inMemoryTxState) GetValue() *pldtypes.HexUint256 {
