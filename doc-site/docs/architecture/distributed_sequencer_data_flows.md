@@ -6,8 +6,10 @@ The basic rules for distribution of data between nodes are as follows:
 
 1. If a node does not participate in a private transaction in any way - for example, if it is not required to endorse or assemble a transaction - Paladin does not send any data relating to the transaction to the node
 2. If a node does participate in a private transaction - for example, to coordinate it or to assemble it - Paladin sends the private transaction data to those nodes
-3. If a node is participating in a private transaction but is not coordinating the transaction (i.e. it is not the node who will submit the public base-ledger transaction) the coordinator will send copies of the public transaction submissions to the originator's node.
-   - This is to allow the original sender of the transaction the ability to query information about public transactions relating to its private Paladin transaction
+    - This is to allow the coordinating node, for example the notary for a Noto token, to query the transaction. 
+    - It is also necessary to allow the coordinator node, should it restart after submitting a public transaction, to identify the transaction as successful and stop tracking it.
+4. If a node is participating in a private transaction but is not coordinating the transaction (i.e. it is not the node who will submit the public base-ledger transaction) the coordinator will send copies of the public transaction submissions to the originator's node.
+    - This is to allow the original sender of the transaction the ability to query information about public transactions relating to its private Paladin transaction
 
 The following diagram gives an example of the data flows between nodes for a private transaction submitted byte **member1** to **Node 1**.
 
