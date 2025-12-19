@@ -352,46 +352,22 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         virtual
         override
         onlyNotary
-        txIdNotUsed(params.txId)
         returns (bytes32)
     {
         NotoLockOperation memory lockOp = abi.decode(createInputs, (NotoLockOperation));
         bytes32 lockId = _computeLockId(lockOp.txId);
-        if (_locks[lockId].info.owner != address(0)) {
+        LockInfo storage lock = _locks[lockId];
+        if (lock.owner != address(0)) {
             revert NotoDuplicateLock(lockId);
         }
-        _createLock(lockOp, params, lockId, data);
+
+        // Set the initial ownership, and immutable contents of the lock
+        lock.owner = msg.sender;
+        lock.spender = msg.sender;
+        lock.content = abi.encodePacked(lockOp.lockedOutputs);
+
+        _updateLock(lockOp, params, lockId, data);
         return lockId;
-    }
-
-    function _createLock(
-        NotoLockOperation calldata lockOp,
-        LockParams calldata params,
-        bytes32 lockId,
-        bytes calldata data
-    ) internal virtual {
-        _processInputs(lockOp.inputs);
-        _processOutputs(lockOp.outputs);
-        _processLockedOutputs(lockId, lockOp.lockedOutputs);
-
-        // Initially, owner and spender are both the notary
-        LockInfo storage lock = LockInfo({
-            owner: msg.sender,
-            spender: msg.sender,
-            content: abi.encodePacked(lockOp.lockedOutputs),
-            spendHash: params.spendHash,
-            cancelHash: params.cancelHash
-        });
-
-        if (params.options.length > 0) {
-            _setLockOptions(lockId, params.options);
-        }
-
-        emit LockUpdated(
-            lockId,
-            lock,
-            data
-        );
     }
 
     /**
@@ -409,12 +385,29 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes calldata updateInputs,
         LockParams calldata params,
         bytes calldata data
-    ) external virtual override onlyNotary txIdNotUsed(params.txId) {
+    ) external virtual override onlyNotary {
+        NotoLockOperation memory lockOp = abi.decode(updateInputs, (NotoLockOperation));
+        _updateLock(lockOp, params, lockId, data);
+    }
+
+    function _updateLock(
+        NotoLockOperation memory lockOp,
+        LockParams calldata params,
+        bytes32 lockId,
+        bytes calldata data
+    ) internal virtual {
+        useTxId(lockOp.txId);
+
+        _processInputs(lockOp.inputs);
+        _processOutputs(lockOp.outputs);
+        _processLockedOutputs(lockId, lockOp.lockedOutputs);
+
+        // Initially, owner and spender are both the notary
         LockInfo storage lock = _locks[lockId];
         lock.spendHash = params.spendHash;
         lock.cancelHash = params.cancelHash;
 
-        if (params.options.length > 0) { 
+        if (params.options.length > 0) {
             _setLockOptions(lockId, params.options);
         }
 
@@ -436,7 +429,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         if (_txIds[lockOptions.spendTxId]) {
             revert NotoDuplicateTransaction(lockOptions.spendTxId);
         }
-        if (_lockTxIds[lockOptions.spendTxId] && _lockTxIds[lockOptions.spendTxId] != lockId) {
+        if (_lockTxIds[lockOptions.spendTxId] != 0 && _lockTxIds[lockOptions.spendTxId] != lockId) {
             revert NotoDuplicateSpendTransaction(lockOptions.spendTxId);
         }
         _locks[lockId].options = encodedOptions;
@@ -488,8 +481,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     function _spendLock(
         bytes32 lockId,
         bytes32 expectedHash,
-        bytes calldata encodedOperation,
-        bytes calldata data
+        bytes calldata encodedOperation
     ) internal {
         NotoUnlockOperation memory unlockOp = abi.decode(encodedOperation, (NotoUnlockOperation));
         LockInfo storage lock = _locks[lockId];
@@ -546,14 +538,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     ) external override lockActive(lockId) onlySpender(lockId) {
         NotoDelegateOperation memory delegateOp = abi.decode(delegateInputs, (NotoDelegateOperation));
         LockInfo storage lock = _locks[lockId];
-        if (lock.options.spendHash == 0 || lock.options.cancelHash == 0) {
+        if (lock.spendHash == 0 || lock.cancelHash == 0) {
             revert NotoNotPrepared(lockId);
         }
 
         useTxId(delegateOp.txId);
 
-        address previousSpender = lock.info.spender;
-        lock.info.spender = newSpender;
+        address previousSpender = lock.spender;
+        lock.spender = newSpender;
 
         emit LockDelegated(lockId, previousSpender, newSpender, data);
     }
