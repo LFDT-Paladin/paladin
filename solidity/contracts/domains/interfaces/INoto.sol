@@ -9,9 +9,34 @@ import {ILockableCapability} from "../interfaces/ILockableCapability.sol";
  * @dev All implementations of Noto must conform to this interface.
  */
 interface INoto is IConfidentialToken, ILockableCapability {
-    
+
+    // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
+    event NotoLockCreated(
+        bytes32 txId,
+        address indexed operator,
+        bytes32[] inputs,
+        bytes32[] outputs,
+        bytes32[] lockedOutputs,
+        bytes signature,
+        bytes data
+    );
+
+    // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
+    event NotoLockUpdated(
+        bytes32 txId,
+        address indexed operator,
+        bytes32[] inputs,
+        bytes32[] outputs,
+        bytes signature,
+        bytes data
+    );
+
     // The structure definition for a Noto lock operation, which defines
-    // the inputs that will be turned into lockedOutputs
+    // the inputs that will be turned into lockedOutputs.
+    // The same input is used for both createLock and updateLock, however the updateLock
+    // must not output lockedOutputs (as the contents of the lock are not mutable).
+    // A UTXO state is used to track the lock itself, thus the need to have inputs/outputs
+    // on the update operation.
     struct NotoLockOperation {
         bytes32 txId;
         bytes32[] inputs; // spent in the transaction

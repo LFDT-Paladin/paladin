@@ -2,15 +2,14 @@ import { expect } from "chai";
 import { randomBytes } from "crypto";
 import { Signer, TypedDataEncoder, ZeroHash } from "ethers";
 import hre, { ethers } from "hardhat";
-import { Noto, NotoFactory } from "../../../typechain-types";
+import { ILockableCapability, Noto, NotoFactory } from "../../../typechain-types";
 
-export interface LockParams {
+export interface NotoLockOperation {
   txId: string;
   inputs: string[];
   outputs: string[];
   lockedOutputs: string[];
-  proof: string;
-  options: string;
+  signature: string;
 }
 
 export async function newUnlockHash(
@@ -46,15 +45,13 @@ export function fakeTXO() {
   return randomBytes32();
 }
 
-export function createLockOptions(spendTxId: string, spendHash: string, cancelHash: string) {
+export function createLockOptions(spendTxId: string) {
   const options = {
     spendTxId: spendTxId,
-    spendHash: spendHash,
-    cancelHash: cancelHash,
   };
   return ethers.AbiCoder.defaultAbiCoder().encode(
-    ["tuple(bytes32,bytes32,bytes32)"],
-    [[options.spendTxId, options.spendHash, options.cancelHash]]
+    ["tuple(bytes32)"],
+    [[options.spendTxId]]
   );
 }
 
@@ -135,30 +132,61 @@ export async function doMint(
 export async function doLock(
   notary: Signer,
   noto: Noto,
-  params: LockParams,
+  lockOp: NotoLockOperation,
+  params: ILockableCapability.LockParamsStruct,
   data: string
 ) {
-  const tx = await noto.connect(notary).createLock(params, data);
+  // NotoLockOperation
+  const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"],
+    [
+      lockOp.txId,
+      lockOp.inputs,
+      lockOp.outputs,
+      lockOp.lockedOutputs,
+      lockOp.signature,
+    ],
+  );
+
+  const tx = await noto.connect(notary).createLock(encodedParams, params, data);
   const results = await tx.wait();
   expect(results).to.exist;
-  const lockId = await noto.computeLockId(params);
+  const lockId = await noto.computeLockId(encodedParams);
 
-  for (const log of results?.logs || []) {
-    const event = noto.interface.parseLog(log);
-    expect(event).to.exist;
-    expect(event?.name).to.equal("LockCreated");
-    expect(event?.args.inputs).to.deep.equal(params.inputs);
-    expect(event?.args.outputs).to.deep.equal(params.outputs);
-    expect(event?.args.lockedOutputs).to.deep.equal(params.lockedOutputs);
-    expect(event?.args.data).to.equal(data);
-  }
-  for (const input of params.inputs) {
+  expect(results?.logs.length).to.equal(2);
+ 
+  // First log is the ILockableCapability.LockUpdate standard event
+  const event0 = noto.interface.parseLog(results!.logs[0]);
+  expect(event0).to.exist;
+  expect(event0?.name).to.equal("LockUpdated");
+  expect(event0?.args.lockId).to.equal(lockId);
+  expect(event0?.args.lock).to.deep.equal({
+    owner: notary.getAddress(),
+    content: ethers.AbiCoder.defaultAbiCoder().encode(["bytes32[]"],[lockOp.lockedOutputs]),
+    spender: notary.getAddress(),
+    spendHash: params.spendHash,
+    cancelHash: params.cancelHash,
+    options: params.options,
+  });
+  expect(event0?.args.data).to.equal(data);
+
+  // Second log is the INoto.NotoLockCreated event that gives the inputs and outputs
+  const event1 = noto.interface.parseLog(results!.logs[1]);
+  expect(event1).to.exist;
+  expect(event1?.name).to.equal("NotoLockCreated");
+  expect(event1?.args.inputs).to.deep.equal(lockOp.inputs);
+  expect(event1?.args.outputs).to.deep.equal(lockOp.outputs);
+  expect(event1?.args.lockedOutputs).to.deep.equal(lockOp.lockedOutputs);
+  expect(event1?.args.signature).to.deep.equal(lockOp.signature);
+  expect(event1?.args.data).to.equal(data);
+
+  for (const input of lockOp.inputs) {
     expect(await noto.isUnspent(input)).to.equal(false);
   }
-  for (const output of params.outputs) {
+  for (const output of lockOp.outputs) {
     expect(await noto.isUnspent(output)).to.equal(true);
   }
-  for (const output of params.lockedOutputs) {
+  for (const output of lockOp.lockedOutputs) {
     expect(await noto.getLockId(output)).to.equal(lockId);
     expect(await noto.isUnspent(output)).to.equal(false);
   }
@@ -180,6 +208,7 @@ export async function doUnlock(
     outputs: outputs,
     data: data,
   };
+  // NotoUnlockOperation
   const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
     ["bytes32", "bytes32[]", "bytes32[]", "bytes"],
     [
@@ -189,7 +218,7 @@ export async function doUnlock(
       unlockParams.data,
     ]
   );
-  const tx = await noto.connect(sender).spendLock(lockId, encodedParams);
+  const tx = await noto.connect(sender).spendLock(lockId, encodedParams, data);
   const results = await tx.wait();
   expect(results).to.exist;
 
@@ -215,33 +244,63 @@ export async function doPrepareUnlock(
   notary: Signer,
   noto: Noto,
   lockId: string,
-  lockedInputs: string[],
   spendTxId: string,
   spendHash: string,
   cancelHash: string,
   data: string,
 ) {
-  const options = createLockOptions(spendTxId , spendHash, cancelHash);
-  const params = {
-    txId: txId,
-    lockedInputs: lockedInputs,
-    proof: "0x",
+  // NotoLockOperation
+  const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"],
+    [
+      txId,
+      [],
+      [],
+      [],
+      "0x"
+    ],
+  );
+
+  const options = createLockOptions(spendTxId);
+  const params: ILockableCapability.LockParamsStruct = {
+    spendHash: spendHash,
+    cancelHash: cancelHash,
     options: options,
   };
-  const tx = await noto.connect(notary).updateLock(lockId, params, data);
+  const tx = await noto.connect(notary).updateLock(lockId, encodedParams, params, data);
   const results = await tx.wait();
   expect(results).to.exist;
+
+    // First log is the ILockableCapability.LockUpdate standard event
+  const event0 = noto.interface.parseLog(results!.logs[0]);
+  expect(event0).to.exist;
+  expect(event0?.name).to.equal("LockUpdated");
+  expect(event0?.args.lockId).to.equal(lockId);
+  expect(event0?.args.lock).to.deep.equal({
+    owner: notary.getAddress(),
+    content: event0?.args.lock.contents, // existing
+    spender: notary.getAddress(),
+    spendHash: params.spendHash,
+    cancelHash: params.cancelHash,
+    options: params.options,
+  });
+  expect(event0?.args.data).to.equal(data);
+
+  // Second log is the INoto.NotoLockUpdated event that gives the inputs and outputs
+  const event1 = noto.interface.parseLog(results!.logs[1]);
+  expect(event1).to.exist;
+  expect(event1?.name).to.equal("NotoLockUpdated");
+  expect(event1?.args.inputs).to.deep.equal([]);
+  expect(event1?.args.outputs).to.deep.equal([]);
+  expect(event1?.args.signature).to.deep.equal("0x");
+  expect(event1?.args.data).to.equal(data);
 
   for (const log of results?.logs || []) {
     const event = noto.interface.parseLog(log);
     expect(event).to.exist;
     expect(event?.name).to.equal("LockUpdated");
-    expect(event?.args.lockedInputs).to.deep.equal(lockedInputs);
     expect(event?.args.proof).to.equal("0x");
     expect(event?.args.data).to.equal(data);
-  }
-  for (const input of lockedInputs) {
-    expect(await noto.getLockId(input)).to.equal(lockId);
   }
 }
 
@@ -257,11 +316,12 @@ export async function doDelegateLock(
     txId: txId,
     data: data,
   };
+  // NotoDelegateOperation
   const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["bytes32", "bytes"],
-    [delegateLockParams.txId, delegateLockParams.data]
+    ["bytes32"],
+    [delegateLockParams.txId]
   );
-  const tx = await noto.connect(notary).delegateLock(lockId, delegate, encodedParams);
+  const tx = await noto.connect(notary).delegateLock(lockId, delegate, encodedParams, data);
   const results = await tx.wait();
   expect(results).to.exist;
 

@@ -364,9 +364,20 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         // Set the initial ownership, and immutable contents of the lock
         lock.owner = msg.sender;
         lock.spender = msg.sender;
-        lock.content = abi.encodePacked(lockOp.lockedOutputs);
+        lock.content = abi.encode(lockOp.lockedOutputs);
 
         _updateLock(lockOp, params, lockId, data);
+
+        emit NotoLockCreated(
+            lockOp.txId,
+            msg.sender,
+            lockOp.inputs,
+            lockOp.outputs,
+            lockOp.lockedOutputs,
+            lockOp.signature,
+            data
+        );
+
         return lockId;
     }
 
@@ -387,7 +398,19 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes calldata data
     ) external virtual override onlyNotary {
         NotoLockOperation memory lockOp = abi.decode(updateInputs, (NotoLockOperation));
+        if (lockOp.lockedOutputs.length > 0) {
+            revert NotoLockedOutputsInUpdate(lockId);            
+        }
         _updateLock(lockOp, params, lockId, data);
+
+        emit NotoLockUpdated(
+            lockOp.txId,
+            msg.sender,
+            lockOp.inputs,
+            lockOp.outputs,
+            lockOp.signature,
+            data
+        );
     }
 
     function _updateLock(

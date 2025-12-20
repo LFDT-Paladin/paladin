@@ -22,6 +22,8 @@ interface INotoErrors {
 
     error NotoNotPrepared(bytes32 lockId);
 
+    error NotoLockedOutputsInUpdate(bytes32 lockId);
+
     error NotoAlreadyPrepared(bytes32 lockId);
 
     error NotoDuplicateTransaction(bytes32 txId);

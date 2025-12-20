@@ -3,7 +3,6 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Noto } from "../../../typechain-types";
 import {
-  createLockOptions,
   deployNotoInstance,
   doDelegateLock,
   doLock,
