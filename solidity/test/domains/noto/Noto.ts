@@ -1,7 +1,7 @@
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { Noto } from "../../../typechain-types";
+import { ILockableCapability, Noto } from "../../../typechain-types";
 import {
   deployNotoInstance,
   doDelegateLock,
@@ -12,6 +12,7 @@ import {
   doUnlock,
   fakeTXO,
   newUnlockHash,
+  NotoLockOperation,
   randomBytes32,
 } from "./util";
 import { ZeroHash } from "ethers";
@@ -115,22 +116,27 @@ describe("Noto", function () {
       randomBytes32()
     );
 
+    // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const unpreparedLockParams = {
+      spendHash: ZeroHash,
+      cancelHash: ZeroHash,
+      options: "0x",
+    } as ILockableCapability.LockInfoStruct;
+
     // Lock both of them
-    const txId1 = randomBytes32();
-    const params = {
-      txId: txId1,
+    const params1 = {
+      txId: randomBytes32(),
       inputs: [txo1, txo2],
       outputs: [txo3],
       lockedOutputs: [locked1],
       proof: "0x",
       options: "0x",
-    };
-    const lockId = await doLock(notary, noto, params, ZeroHash);
+    } as NotoLockOperation;
+    const lockId = await doLock(notary, noto, params1, unpreparedLockParams, "0x");
 
     // Check that the same state cannot be locked again with a different lock
-    const txId2 = randomBytes32();
     const params2 = {
-      txId: txId2,
+      txId: randomBytes32(),
       inputs: [],
       outputs: [],
       lockedOutputs: [locked1],
@@ -138,7 +144,7 @@ describe("Noto", function () {
       options: "0x",
     };
     await expect(
-      doLock(notary, noto, params2, randomBytes32())
+      doLock(notary, noto, params2, unpreparedLockParams, "0x")
     ).to.be.rejectedWith("NotoInvalidOutput");
 
     // Check that locked value cannot be spent
@@ -162,7 +168,6 @@ describe("Noto", function () {
       notary,
       noto,
       lockId,
-      [locked1],
       unlockTxId,
       spendHash,
       cancelHash,
@@ -270,12 +275,17 @@ describe("Noto", function () {
     const txo2 = fakeTXO();
     const txo3 = fakeTXO();
     const txo4 = fakeTXO();
-    const txo5 = fakeTXO();
 
     const locked1 = fakeTXO();
-    const locked2 = fakeTXO();
 
     const txId1 = randomBytes32();
+
+    // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const unpreparedLockParams = {
+      spendHash: ZeroHash,
+      cancelHash: ZeroHash,
+      options: "0x",
+    } as ILockableCapability.LockInfoStruct;
 
     // Make two UTXOs
     await doTransfer(txId1, notary, noto, [], [txo1, txo2], randomBytes32());
@@ -288,9 +298,9 @@ describe("Noto", function () {
       lockedOutputs: [locked1],
       proof: "0x",
       options: "0x",
-    };
+    } as NotoLockOperation;
     await expect(
-      doLock(notary, noto, params1, randomBytes32())
+      doLock(notary, noto, params1, unpreparedLockParams, "0x")
     ).to.be.rejectedWith("NotoDuplicateTransaction");
 
     // Lock both of them using a new TX ID - should succeed
@@ -303,7 +313,7 @@ describe("Noto", function () {
       proof: "0x",
       options: "0x",
     };
-    const lockId = await doLock(notary, noto, params2, randomBytes32());
+    const lockId = await doLock(notary, noto, params2, unpreparedLockParams, "0x");
 
     // Prepare unlock operations (both spend and cancel) using the same TX ID as the transfer - should fail
     const unlockTxId = txId1; // Use same txId as transfer to test duplicate
@@ -322,7 +332,6 @@ describe("Noto", function () {
         notary,
         noto,
         lockId,
-        [locked1],
         unlockTxId,
         spendHash,
         cancelHash,

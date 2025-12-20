@@ -17,7 +17,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes32[] inputs,
         bytes32[] outputs,
         bytes32[] lockedOutputs,
-        bytes signature,
+        bytes proof,
         bytes data
     );
 
@@ -27,7 +27,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
         address indexed operator,
         bytes32[] inputs,
         bytes32[] outputs,
-        bytes signature,
+        bytes proof,
         bytes data
     );
 
@@ -42,7 +42,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes32[] inputs; // spent in the transaction
         bytes32[] outputs; // created outside the lock by the transaction
         bytes32[] lockedOutputs; // created inside of the lock - this array ABI encoded is the lock contents (can be empty for mint-locks)
-        bytes signature; // recorded signature for the lock operation
+        bytes proof; // recorded signature for the lock operation
     }
 
     // The structure definition for a Noto unlock operation, which can be hashed

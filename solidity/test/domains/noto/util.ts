@@ -1,20 +1,20 @@
 import { expect } from "chai";
 import { randomBytes } from "crypto";
-import { Signer, TypedDataEncoder, ZeroHash } from "ethers";
+import { BytesLike, Signer, TypedDataEncoder, ZeroHash } from "ethers";
 import hre, { ethers } from "hardhat";
 import { ILockableCapability, Noto, NotoFactory } from "../../../typechain-types";
 
 export interface NotoLockOperation {
-  txId: string;
-  inputs: string[];
-  outputs: string[];
-  lockedOutputs: string[];
-  signature: string;
+  txId: BytesLike;
+  inputs: BytesLike[];
+  outputs: BytesLike[];
+  lockedOutputs: BytesLike[];
+  proof: BytesLike;
 }
 
 export async function newUnlockHash(
   noto: Noto,
-  txId: string,
+  txId: BytesLike,
   lockedInputs: string[],
   outputs: string[],
   data: string
@@ -138,15 +138,15 @@ export async function doLock(
 ) {
   // NotoLockOperation
   const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"],
+    ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"], [
     [
       lockOp.txId,
       lockOp.inputs,
       lockOp.outputs,
       lockOp.lockedOutputs,
-      lockOp.signature,
+      lockOp.proof,
     ],
-  );
+  ]);
 
   const tx = await noto.connect(notary).createLock(encodedParams, params, data);
   const results = await tx.wait();
@@ -177,7 +177,7 @@ export async function doLock(
   expect(event1?.args.inputs).to.deep.equal(lockOp.inputs);
   expect(event1?.args.outputs).to.deep.equal(lockOp.outputs);
   expect(event1?.args.lockedOutputs).to.deep.equal(lockOp.lockedOutputs);
-  expect(event1?.args.signature).to.deep.equal(lockOp.signature);
+  expect(event1?.args.proof).to.deep.equal(lockOp.proof);
   expect(event1?.args.data).to.equal(data);
 
   for (const input of lockOp.inputs) {
@@ -292,7 +292,7 @@ export async function doPrepareUnlock(
   expect(event1?.name).to.equal("NotoLockUpdated");
   expect(event1?.args.inputs).to.deep.equal([]);
   expect(event1?.args.outputs).to.deep.equal([]);
-  expect(event1?.args.signature).to.deep.equal("0x");
+  expect(event1?.args.proof).to.deep.equal("0x");
   expect(event1?.args.data).to.equal(data);
 
   for (const log of results?.logs || []) {

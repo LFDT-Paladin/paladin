@@ -374,7 +374,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             lockOp.inputs,
             lockOp.outputs,
             lockOp.lockedOutputs,
-            lockOp.signature,
+            lockOp.proof,
             data
         );
 
@@ -408,7 +408,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             msg.sender,
             lockOp.inputs,
             lockOp.outputs,
-            lockOp.signature,
+            lockOp.proof,
             data
         );
     }
