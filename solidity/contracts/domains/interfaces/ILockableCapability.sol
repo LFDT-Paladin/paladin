@@ -99,12 +99,12 @@ interface ILockableCapability {
     /**
      * @dev Emitted when a lock is successfully created or updated.
      * @param lockId the lock identifier
-     * @param lockInfo the new state of the lock after the update
+     * @param lock the new state of the lock after the update
      * @param data the data parameter passed to the createLock, updateLock, or delegateLock call
      */
     event LockUpdated(
         bytes32 indexed lockId,
-        LockInfo lockInfo,
+        LockInfo lock,
         bytes data
     );
 

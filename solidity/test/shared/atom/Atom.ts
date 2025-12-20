@@ -1,13 +1,16 @@
 import { expect } from "chai";
-import { ZeroAddress } from "ethers";
+import { ZeroAddress, ZeroHash } from "ethers";
 import { ethers } from "hardhat";
-import { Atom, Noto } from "../../../typechain-types";
+import { Atom, ILockableCapability, Noto } from "../../../typechain-types";
 import {
   createLockOptions,
   deployNotoInstance,
   doLock,
+  encodeLockParams,
+  encodeUnlockParams,
   fakeTXO,
   newUnlockHash,
+  NotoLockOperation,
   randomBytes32,
 } from "../../domains/noto/util";
 
@@ -22,6 +25,13 @@ describe("Atom", function () {
     const AtomFactory = await ethers.getContractFactory("AtomFactory");
     const Atom = await ethers.getContractFactory("Atom");
     const ERC20Simple = await ethers.getContractFactory("ERC20Simple");
+
+    // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const unpreparedLockParams = {
+      spendHash: ZeroHash,
+      cancelHash: ZeroHash,
+      options: "0x",
+    } as ILockableCapability.LockInfoStruct;
 
     // Deploy two contracts
     const noto = Noto.attach(
@@ -40,9 +50,9 @@ describe("Atom", function () {
       lockedOutputs: [f1txo1, f1txo2],
       proof: "0x",
       options: "0x",
-    };
+    } as NotoLockOperation;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
-    const lockId = await doLock(notary1, noto, params, "0x");
+    const lockId = await doLock(notary1, noto, params, unpreparedLockParams, "0x");
     await erc20.mint(notary2, 1000);
 
     // Encode two function calls
@@ -56,15 +66,7 @@ describe("Atom", function () {
       outputs: [f1txo3, f1txo4],
       data: f1TxData,
     };
-    const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["bytes32", "bytes32[]", "bytes32[]", "bytes"],
-      [
-        unlockParams.txId,
-        unlockParams.inputs,
-        unlockParams.outputs,
-        unlockParams.data,
-      ]
-    );
+    const encodedParams = encodeUnlockParams(unlockParams);
     const spendHash = await newUnlockHash(
       noto,
       unlockTxId,
@@ -82,6 +84,7 @@ describe("Atom", function () {
     const encoded1 = noto.interface.encodeFunctionData("spendLock", [
       lockId,
       encodedParams,
+      '0x',
     ]);
     const encoded2 = erc20.interface.encodeFunctionData("transferFrom", [
       notary2.address,
@@ -108,15 +111,22 @@ describe("Atom", function () {
     const atomAddr = createAtomEvent?.args.addr;
 
     // Do the delegation/approval transactions
-    const options = createLockOptions(unlockTxId, spendHash, cancelHash);
+    const options = createLockOptions(unlockTxId);
     const txId2 = randomBytes32();
+    const lockUpdate = {
+      spendHash,
+      cancelHash,
+      options: options,
+    } as ILockableCapability.LockParamsStruct;
     const updateParams = {
       txId: txId2,
-      lockedInputs: [f1txo1, f1txo2],
+      inputs: [],
+      outputs: [],
+      lockedOutputs: [],
       proof: "0x",
-      options: options,
-    };
-    await noto.connect(notary1).updateLock(lockId, updateParams, "0x");
+      options: "0x",
+    } as NotoLockOperation;
+    await noto.connect(notary1).updateLock(lockId, encodeLockParams(updateParams), lockUpdate, "0x");
     // Encode DelegateLockParams with txId and data
     const delegateTxId = randomBytes32();
     const delegateLockParams = {
@@ -124,10 +134,10 @@ describe("Atom", function () {
       data: "0x",
     };
     const encodedDelegateParams = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["bytes32", "bytes"],
-      [delegateLockParams.txId, delegateLockParams.data]
+      ["bytes32"],
+      [delegateLockParams.txId]
     );
-    await noto.connect(notary1).delegateLock(lockId, atomAddr, encodedDelegateParams);
+    await noto.connect(notary1).delegateLock(lockId, encodedDelegateParams, atomAddr, '0x');
     await erc20.approve(atomAddr, 1000);
 
     // Run the atomic op (anyone can initiate)
@@ -188,6 +198,7 @@ describe("Atom", function () {
     const encoded1 = noto.interface.encodeFunctionData("spendLock", [
       lockId,
       encodedParams,
+      '0x',
     ]);
 
     // Deploy the delegation contract

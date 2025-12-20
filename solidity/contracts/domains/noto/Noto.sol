@@ -506,10 +506,12 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32 expectedHash,
         bytes calldata encodedOperation
     ) internal {
-        NotoUnlockOperation memory unlockOp = abi.decode(encodedOperation, (NotoUnlockOperation));
         LockInfo storage lock = _locks[lockId];
-        NotoLockOptions memory options = abi.decode(lock.options, (NotoLockOptions));
-
+        NotoUnlockOperation memory unlockOp = abi.decode(encodedOperation, (NotoUnlockOperation));
+        NotoLockOptions memory options;
+        if (lock.options.length > 0) {
+            options = abi.decode(lock.options, (NotoLockOptions));
+        }
         if (options.spendTxId != 0 && options.spendTxId != unlockOp.txId) {
             revert NotoInvalidTransaction(unlockOp.txId);
         }
