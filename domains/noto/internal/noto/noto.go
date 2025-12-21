@@ -1267,14 +1267,22 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	return pldtypes.Bytes32Keccak(encoded), nil
 }
 
-func (n *Noto) extractLockInfo(ctx context.Context, req *prototk.PrepareTransactionRequest) (*types.NotoLockInfo_V1, error) {
-	lockStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
-	if len(lockStates) == 1 {
-		lock, err := n.unmarshalLock(lockStates[0].StateDataJson)
-		if err != nil {
-			return nil, err
-		}
-		return lock, nil
+func (n *Noto) extractLockInfo(ctx context.Context, infoStates []*prototk.EndorsableState) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
+	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
+	if len(lockStates) != 1 {
+		return nil, nil, nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 	}
-	return nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
+	state := lockStates[0]
+	if state.SchemaId == n.lockInfoSchemaV0.Id {
+		lock, err := n.unmarshalLockV0(lockStates[0].StateDataJson)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return &lock.LockID, nil /* no spendTxId in V0 lock info */, lock.Delegate, nil
+	}
+	lock, err := n.unmarshalLockV1(lockStates[0].StateDataJson)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &lock.LockID, &lock.SpendTxId, nil /* no delegate in V1 lock info */, nil
 }

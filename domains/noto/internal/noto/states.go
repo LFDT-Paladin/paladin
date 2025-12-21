@@ -142,6 +142,12 @@ func (n *Noto) unmarshalInfo(stateData string) (*types.TransactionData, error) {
 	return &info, err
 }
 
+func (n *Noto) unmarshalLockV0(stateData string) (*types.NotoLockInfo_V0, error) {
+	var lock types.NotoLockInfo_V0
+	err := json.Unmarshal([]byte(stateData), &lock)
+	return &lock, err
+}
+
 func (n *Noto) unmarshalLockV1(stateData string) (*types.NotoLockInfo_V1, error) {
 	var lock types.NotoLockInfo_V1
 	err := json.Unmarshal([]byte(stateData), &lock)

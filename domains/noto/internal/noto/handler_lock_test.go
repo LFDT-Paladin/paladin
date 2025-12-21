@@ -134,7 +134,7 @@ func TestLock(t *testing.T) {
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
 
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
+	lockInfo, err := n.unmarshalLockV1(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockInfo.LockID, outputCoin.LockID)

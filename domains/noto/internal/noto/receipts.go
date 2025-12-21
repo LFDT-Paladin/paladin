@@ -41,19 +41,14 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		variant = info.Variant
 	}
 
-	lockInfoStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
-	if len(lockInfoStates) == 1 {
-		lock, err := n.unmarshalLock(lockInfoStates[0].StateDataJson)
-		if err != nil {
-			return nil, err
-		}
-		receipt.LockInfo = &types.ReceiptLockInfo{LockID: lock.LockID}
-		if !lock.Delegate.IsZero() {
-			receipt.LockInfo.Delegate = lock.Delegate
-		}
-		if !lock.UnlockTxId.IsZero() {
-			receipt.LockInfo.UnlockTxId = &lock.UnlockTxId
-		}
+	lockID, spendTxID, delegate, err := n.extractLockInfo(ctx, req.InfoStates)
+	if err != nil {
+		return nil, err
+	}
+	receipt.LockInfo = &types.ReceiptLockInfo{
+		LockID:    *lockID,
+		SpendTxId: spendTxID, // only for V1
+		Delegate:  delegate,  // only for V0
 	}
 
 	receipt.States.Inputs, err = n.receiptStates(ctx, n.filterSchema(req.InputStates, []string{n.coinSchema.Id}))
@@ -90,22 +85,23 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		if variant == types.NotoVariantDefault {
 			interfaceABI = n.getInterfaceABI(types.NotoVariantDefault)
 			receipt.LockInfo.UnlockParams = map[string]any{
-				"txId":   receipt.LockInfo.UnlockTxId,
+				"txId":   receipt.LockInfo.SpendTxId,
 				"lockId": receipt.LockInfo.LockID,
-				"params": &NotoUnlockStruct{
-					LockedInputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-					LockedOutputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-					Outputs:       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
-					Signature:     pldtypes.HexBytes{},
-					Data:          receipt.Data,
-				},
+				// TODO: PARAMS IN V1 ne world
+				// "params": &NotoUnlockStruct{
+				// 	LockedInputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+				// 	LockedOutputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
+				// 	Outputs:       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+				// 	Signature:     pldtypes.HexBytes{},
+				// 	Data:          receipt.Data,
+				// },
 			}
 			paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
 		} else {
 			interfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
 			unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New()).String()
-			if receipt.LockInfo != nil && receipt.LockInfo.UnlockTxId != nil && !receipt.LockInfo.UnlockTxId.IsZero() {
-				unlockTxId = receipt.LockInfo.UnlockTxId.HexString0xPrefix()
+			if receipt.LockInfo != nil && receipt.LockInfo.SpendTxId != nil && !receipt.LockInfo.SpendTxId.IsZero() {
+				unlockTxId = receipt.LockInfo.SpendTxId.HexString0xPrefix()
 			}
 			receipt.LockInfo.UnlockParams = map[string]any{
 				"txId":          unlockTxId,

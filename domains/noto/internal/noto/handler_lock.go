@@ -333,24 +333,23 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 }
 
 func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	lockInfo, err := h.noto.extractLockInfo(ctx, req)
+	lockID, _, _, err := h.noto.extractLockInfo(ctx, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}
-	lockID := lockInfo.LockID
 
 	endorsement := domain.FindAttestation("notary", req.AttestationResult)
 	if endorsement == nil || endorsement.Verifier.Lookup != tx.DomainConfig.NotaryLookup {
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, lockID, req)
+	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, *lockID, req)
 	if err != nil {
 		return nil, err
 	}
 
 	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() {
-		hookTransaction, err := h.hookInvoke(ctx, lockID, tx, req, baseTransaction)
+		hookTransaction, err := h.hookInvoke(ctx, *lockID, tx, req, baseTransaction)
 		if err != nil {
 			return nil, err
 		}
