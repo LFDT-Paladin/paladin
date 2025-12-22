@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { randomBytes } from "crypto";
-import { Signer, TypedDataEncoder } from "ethers";
+import { Signer, TypedDataEncoder, AbiCoder } from "ethers";
 import hre, { ethers } from "hardhat";
 
 import { Noto, NotoFactory } from "../../../typechain-types";
@@ -193,9 +193,9 @@ export async function doTransferWithNullifiers(
   data: string
 ) {
   // build the nullifiers for the inputs
-
+  const proof = encodeToBytes(root, "0x");
   const tx = await noto
-    .connect(notary)["transfer(bytes32,bytes32[],bytes32[],uint256,bytes,bytes)"](txId, nullifiers, outputs, root, "0x", data);
+    .connect(notary)["transfer(bytes32,bytes32[],bytes32[],bytes,bytes)"](txId, nullifiers, outputs, proof, data);
   const results = await tx.wait();
   expect(results).to.exist;
 
@@ -293,8 +293,9 @@ export async function doLockWithNullifiers(
   root: string,
   data: string
 ): Promise<string> {
+  const proof = encodeToBytes(root, "0x");
   const tx = await noto
-    .connect(notary)["lock(bytes32,bytes32[],bytes32[],bytes32[],uint256,bytes,bytes)"](txId, nullifiers, outputs, lockedOutputs, root, "0x", data);
+    .connect(notary)["lock(bytes32,bytes32[],bytes32[],bytes32[],bytes,bytes)"](txId, nullifiers, outputs, lockedOutputs, proof, data);
   const results = await tx.wait();
   expect(results).to.exist;
 
@@ -430,4 +431,11 @@ export async function doDelegateLock(
     expect(event?.args.delegate).to.deep.equal(delegate);
     expect(event?.args.data).to.deep.equal(data);
   }
+}
+
+function encodeToBytes(root: any, signature: any) {
+  return new AbiCoder().encode(
+    ["uint256 root", "bytes signature"],
+    [root, signature],
+  );
 }

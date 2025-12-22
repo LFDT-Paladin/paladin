@@ -204,6 +204,8 @@ describe("NotoNullifiers", function () {
       });
 
       it("Check that the same state cannot be locked again", async function () {
+        // this root should fail the merkle proof check at the notary, because
+        // the "locked1" UTXO is not in the merkle tree (never added to the tree)
         const root = await smtAlice.root();
         await expect(
           doLockWithNullifiers(randomBytes32(), notary, noto, [], [], [locked1.hash!], root.bigInt().toString(10), randomBytes32())
@@ -211,8 +213,9 @@ describe("NotoNullifiers", function () {
       });
 
       it("Check that locked value cannot be spent", async function () {
+        const root = await smtAlice.root();
         await expect(
-          doTransfer(randomBytes32(), notary, noto as unknown as Noto, [locked1.hash!], [], randomBytes32())
+          doTransferWithNullifiers(randomBytes32(), notary, noto, [locked1.hash!], [], root.bigInt().toString(10), randomBytes32())
         ).to.be.rejectedWith("NotoInvalidInput");
       });
 
@@ -324,8 +327,9 @@ describe("NotoNullifiers", function () {
         await doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
 
         // Make two more UTXOs with the same TX ID - should fail
+        const root = await smtAlice.root();
         await expect(
-          doTransfer(txId1, notary, noto as unknown as Noto, [], [txo3.hash!, txo4.hash!], randomBytes32())
+          doTransferWithNullifiers(txId1, notary, noto, [], [txo3.hash!, txo4.hash!], root.bigInt().toString(10), randomBytes32())
         ).rejectedWith("NotoDuplicateTransaction");
       });
     });
