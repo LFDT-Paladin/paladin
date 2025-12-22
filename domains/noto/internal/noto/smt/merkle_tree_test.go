@@ -13,24 +13,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package common
+package smt
 
 import (
-	"math/big"
+	"testing"
 
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
-	"github.com/iden3/go-iden3-crypto/poseidon"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/stretchr/testify/assert"
 )
 
-func CalculateNullifier(value, salt *big.Int, privateKeyForZkp *big.Int) (*big.Int, error) {
-	nullifier, err := poseidon.Hash([]*big.Int{value, salt, privateKeyForZkp})
-	if err != nil {
-		return nil, err
-	}
-	return nullifier, nil
+func TestPackageInit(t *testing.T) {
+	assert.Equal(t, SMT_HEIGHT_UTXO, len(Empty_Proof_Utxos.Nodes))
+	assert.Equal(t, "0", Empty_Proof_Utxos.Nodes[0])
+	assert.Equal(t, "0", Empty_Proof_Utxos.Nodes[SMT_HEIGHT_UTXO-1])
 }
 
-func GetHasher() core.Hasher {
-	return &smt.PoseidonHasher{}
+func TestMerkleTreeName(t *testing.T) {
+	address, _ := pldtypes.ParseEthAddress("0xe12c416382988005ace9b2e2f9a8a904d8be961c")
+	assert.Equal(t, "smt_noto_test1_0xe12c416382988005ace9b2e2f9a8a904d8be961c", MerkleTreeName("test1", address))
 }

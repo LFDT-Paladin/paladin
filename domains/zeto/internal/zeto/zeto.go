@@ -29,7 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/nonfungible"
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -38,7 +38,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
@@ -58,6 +60,7 @@ type Zeto struct {
 	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchema           *prototk.StateSchema
 	snarkProver          signerapi.InMemorySigner
+	hasher               core.Hasher
 	events               struct {
 		mint               string
 		burn               string
@@ -126,6 +129,7 @@ var factoryDeployABI = &abi.Entry{
 func New(callbacks plugintk.DomainCallbacks) *Zeto {
 	return &Zeto{
 		Callbacks: callbacks,
+		hasher:    &smt.PoseidonHasher{},
 	}
 }
 
@@ -516,19 +520,19 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	var smtForLockedStates *common.MerkleTreeSpec
 	var smtForKyc *common.MerkleTreeSpec
 	if common.IsNullifiersToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeName(domainConfig.TokenName, contractAddress)
+		smtName := zetosmt.MerkleTreeName(domainConfig.TokenName, contractAddress)
 		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
-		smtName = smt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
+		smtName = zetosmt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
 		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if common.IsKycToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
+		smtName := zetosmt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
 		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err

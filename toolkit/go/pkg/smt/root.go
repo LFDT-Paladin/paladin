@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -13,24 +13,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package common
+package smt
 
 import (
-	"math/big"
+	"crypto/sha256"
 
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
-	"github.com/iden3/go-iden3-crypto/poseidon"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func CalculateNullifier(value, salt *big.Int, privateKeyForZkp *big.Int) (*big.Int, error) {
-	nullifier, err := poseidon.Hash([]*big.Int{value, salt, privateKeyForZkp})
-	if err != nil {
-		return nil, err
-	}
-	return nullifier, nil
+type MerkleTreeRoot struct {
+	SmtName   string           `json:"smtName"`
+	RootIndex pldtypes.Bytes32 `json:"rootIndex"`
 }
 
-func GetHasher() core.Hasher {
-	return &smt.PoseidonHasher{}
+func (m *MerkleTreeRoot) Hash() (string, error) {
+	h := sha256.New()
+	h.Write([]byte(m.SmtName))
+	h.Write(m.RootIndex.Bytes())
+	return pldtypes.Bytes32(h.Sum(nil)).HexString(), nil
 }

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math/big"
 
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
@@ -30,11 +31,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 )
 
@@ -68,22 +70,23 @@ func NewMerkleTreeSpec(ctx context.Context, name string, treeType MerkleTreeType
 	var levels int
 	switch treeType {
 	case StatesTree:
-		levels = smt.SMT_HEIGHT_UTXO
+		levels = zetosmt.SMT_HEIGHT_UTXO
 	case LockedStatesTree:
-		levels = smt.SMT_HEIGHT_UTXO
+		levels = zetosmt.SMT_HEIGHT_UTXO
 	case KycStatesTree:
-		levels = smt.SMT_HEIGHT_KYC
+		levels = zetosmt.SMT_HEIGHT_KYC
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownSmtType, treeType)
 	}
-	storage := smt.NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId)
-	tree, err := smt.NewSmt(storage, levels)
+	hasher := common.GetHasher()
+	storage := smt.NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, hasher)
+	tree, err := zetosmt.NewSmt(storage, levels)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmt, name, err)
 	}
-	emptyProof := &smt.Empty_Proof_Utxos
+	emptyProof := &zetosmt.Empty_Proof_Utxos
 	if treeType == KycStatesTree {
-		emptyProof = &smt.Empty_Proof_kyc
+		emptyProof = &zetosmt.Empty_Proof_kyc
 	}
 	return &MerkleTreeSpec{
 		Name:       name,

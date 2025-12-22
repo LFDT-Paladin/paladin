@@ -42,7 +42,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 
 	for _, ev := range req.Events {
 		if variant == types.NotoVariantDefault || variant == types.NotoVariantNullifier {
-			if err := n.handleV1Event(ctx, ev, &res, req); err != nil {
+			if err := n.handleV1Event(ctx, ev, &res, req, variant == types.NotoVariantNullifier); err != nil {
 				log.L(ctx).Warnf("Error handling V1 event: %s", err)
 				return nil, err
 			}
@@ -56,7 +56,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	return &res, nil
 }
 
-func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res *prototk.HandleEventBatchResponse, req *prototk.HandleEventBatchRequest) error {
+func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res *prototk.HandleEventBatchResponse, req *prototk.HandleEventBatchRequest, useNullifier bool) error {
 	switch ev.SoliditySignature {
 	case eventSignatures[NotoTransfer]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)

@@ -20,14 +20,14 @@ import (
 	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	zetocore "github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
 )
 
 type StatesStorage interface {
@@ -49,6 +49,7 @@ type statesStorage struct {
 	pendingNodesTx    *nodesTx
 	rootNode          *smtRootNode
 	committedNewNodes map[core.NodeRef]*smtNode
+	hasher            zetocore.Hasher
 }
 
 // this corresponds to the new nodes resulted from the execution of
@@ -76,7 +77,7 @@ func (n *nodesTx) getNode(ref core.NodeRef) (core.Node, error) {
 	return nil, core.ErrNotFound
 }
 
-func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string) StatesStorage {
+func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher zetocore.Hasher) StatesStorage {
 	return &statesStorage{
 		CoreInterface:     c,
 		smtName:           smtName,
@@ -84,6 +85,7 @@ func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, ro
 		rootSchemaId:      rootSchemaId,
 		nodeSchemaId:      nodeSchemaId,
 		committedNewNodes: make(map[core.NodeRef]*smtNode),
+		hasher:            hasher,
 	}
 }
 
@@ -102,14 +104,14 @@ func (s *statesStorage) GetNewStates() ([]*prototk.NewConfirmedState, error) {
 	if s.rootNode != nil {
 		newRootNodeState, err := s.makeNewStateFromRootNode(ctx, s.rootNode)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewStateFromCommittedRoot, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewStateFromCommittedRoot, err)
 		}
 		newStates = append(newStates, newRootNodeState)
 	}
 	for _, node := range s.committedNewNodes {
 		newNodeState, err := s.makeNewStateFromTreeNode(ctx, node)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewStateFromCommittedNode, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewStateFromCommittedNode, err)
 		}
 		newStates = append(newStates, newNodeState)
 	}
@@ -137,20 +139,20 @@ func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
 		QueryJson:         queryBuilder.Query().String(),
 	})
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorQueryAvailStates, err)
+		return nil, err
 	}
 
 	if len(res.States) == 0 {
 		return nil, core.ErrNotFound
 	}
 
-	var root types.MerkleTreeRoot
+	var root MerkleTreeRoot
 	err = json.Unmarshal([]byte(res.States[0].DataJson), &root)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalRootIdx, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUnmarshalRootIdx, err)
 	}
 
-	idx, err := node.NewNodeIndexFromHex(root.RootIndex.HexString())
+	idx, err := node.NewNodeIndexFromHex(root.RootIndex.HexString(), s.hasher)
 	return idx, err
 }
 
@@ -192,37 +194,37 @@ func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
 		QueryJson:         queryBuilder.Query().String(),
 	})
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorQueryAvailStates, err)
+		return nil, err
 	}
 	if len(res.States) == 0 {
 		return nil, core.ErrNotFound
 	}
-	var n types.MerkleTreeNode
+	var n MerkleTreeNode
 	err = json.Unmarshal([]byte(res.States[0].DataJson), &n)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalSMTNode, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUnmarshalSMTNode, err)
 	}
 
 	var newNode core.Node
 	nodeType := core.NodeTypeFromByte(n.Type[:][0])
 	switch nodeType {
 	case core.NodeTypeLeaf:
-		idx, err1 := node.NewNodeIndexFromHex(n.Index.HexString())
+		idx, err1 := node.NewNodeIndexFromHex(n.Index.HexString(), s.hasher)
 		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err1)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err1)
 		}
 		v := node.NewIndexOnly(idx)
-		newNode, err = node.NewLeafNode(v)
+		newNode, err = node.NewLeafNode(v, nil)
 	case core.NodeTypeBranch:
-		leftChild, err1 := node.NewNodeIndexFromHex(n.LeftChild.HexString())
+		leftChild, err1 := node.NewNodeIndexFromHex(n.LeftChild.HexString(), s.hasher)
 		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err1)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err1)
 		}
-		rightChild, err2 := node.NewNodeIndexFromHex(n.RightChild.HexString())
+		rightChild, err2 := node.NewNodeIndexFromHex(n.RightChild.HexString(), s.hasher)
 		if err2 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err2)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err2)
 		}
-		newNode, err = node.NewBranchNode(leftChild, rightChild)
+		newNode, err = node.NewBranchNode(leftChild, rightChild, s.hasher)
 	}
 	return newNode, err
 }
@@ -271,6 +273,10 @@ func (s *statesStorage) Rollback() error {
 	return nil
 }
 
+func (s *statesStorage) GetHasher() zetocore.Hasher {
+	return s.hasher
+}
+
 func (s *statesStorage) Close() {
 	// not needed for this implementation because
 	// there are no resources to close
@@ -281,27 +287,27 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	// we clone the node so that the value properties are not saved
 	refBytes, err := pldtypes.ParseBytes32(node.Ref().Hex())
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err)
 	}
-	newNode := &types.MerkleTreeNode{
+	newNode := &MerkleTreeNode{
 		RefKey: refBytes,
 		Type:   pldtypes.HexBytes([]byte{node.Type().ToByte()}),
 	}
 	if node.Type() == core.NodeTypeBranch {
 		leftBytes, err1 := pldtypes.ParseBytes32(node.LeftChild().Hex())
 		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err1)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err1)
 		}
 		rightBytes, err2 := pldtypes.ParseBytes32(node.RightChild().Hex())
 		if err2 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err2)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err2)
 		}
 		newNode.LeftChild = leftBytes
 		newNode.RightChild = rightBytes
 	} else if node.Type() == core.NodeTypeLeaf {
 		idxBytes, err := pldtypes.ParseBytes32(node.Index().Hex())
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err)
 		}
 		newNode.Index = idxBytes
 	}
@@ -309,7 +315,7 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	data, _ := json.Marshal(newNode)
 	hash, err := newNode.Hash(s.smtName)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorHashSMTNode, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
 	}
 	newNodeState := &prototk.NewConfirmedState{
 		Id:            &hash,
@@ -324,19 +330,19 @@ func (s *statesStorage) makeNewStateFromRootNode(ctx context.Context, rootNode *
 	root := rootNode.root
 	bytes, err := pldtypes.ParseBytes32(root.Hex())
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorParseRootNodeIdx, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseRootNodeIdx, err)
 	}
-	newRoot := &types.MerkleTreeRoot{
+	newRoot := &MerkleTreeRoot{
 		SmtName:   s.smtName,
 		RootIndex: bytes,
 	}
 	data, err := json.Marshal(newRoot)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUpsertRootNode, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUpsertRootNode, err)
 	}
 	hash, err := newRoot.Hash()
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorHashSMTNode, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
 	}
 	newRootState := &prototk.NewConfirmedState{
 		Id:            &hash,

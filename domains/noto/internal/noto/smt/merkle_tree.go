@@ -24,10 +24,8 @@ import (
 )
 
 const SMT_HEIGHT_UTXO = 64
-const SMT_HEIGHT_KYC = 10
 
 var Empty_Proof_Utxos proto.MerkleProof
-var Empty_Proof_kyc proto.MerkleProof
 
 func init() {
 	var nodes []string
@@ -37,13 +35,6 @@ func init() {
 	Empty_Proof_Utxos = proto.MerkleProof{
 		Nodes: nodes,
 	}
-	var kycNodes []string
-	for i := 0; i < SMT_HEIGHT_KYC; i++ {
-		kycNodes = append(kycNodes, "0")
-	}
-	Empty_Proof_kyc = proto.MerkleProof{
-		Nodes: kycNodes,
-	}
 }
 
 func NewSmt(storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
@@ -52,13 +43,5 @@ func NewSmt(storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, er
 }
 
 func MerkleTreeName(tokenName string, domainInstanceContract *pldtypes.EthAddress) string {
-	return "smt_" + tokenName + "_" + domainInstanceContract.String()
-}
-
-func MerkleTreeNameForLockedStates(tokenName string, domainInstanceContract *pldtypes.EthAddress) string {
-	return "smtLocked_" + tokenName + "_" + domainInstanceContract.String()
-}
-
-func MerkleTreeNameForKycStates(tokenName string, domainInstanceContract *pldtypes.EthAddress) string {
-	return "smtKyc_" + tokenName + "_" + domainInstanceContract.String()
+	return "smt_noto_" + tokenName + "_" + domainInstanceContract.String()
 }

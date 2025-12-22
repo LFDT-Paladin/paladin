@@ -51,7 +51,7 @@ func (f *FungibleWitnessInputs) Build(ctx context.Context, commonInputs *pb.Prov
 			outputOwnerPublicKeys[i] = []*big.Int{ownerPubKey.X, ownerPubKey.Y}
 			value := tokenData.OutputValues[i]
 			outputValues[i] = new(big.Int).SetUint64(value)
-			u := utxo.NewFungible(new(big.Int).SetUint64(value), ownerPubKey, salt)
+			u := utxo.NewFungible(new(big.Int).SetUint64(value), ownerPubKey, salt, common.GetHasher())
 			hash, err := u.GetHash()
 			if err != nil {
 				return err

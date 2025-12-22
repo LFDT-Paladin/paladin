@@ -162,4 +162,15 @@ var (
 	MsgWSClientClosing             = pde("PD021102", "Websocket closing")
 	MsgWSClientConnectFailed       = pde("PD021103", "Websocket connect failed")
 	MsgWSClientHeartbeatTimeout    = pde("PD021104", "Websocket heartbeat timed out after %.2fms", 500)
+
+	// SMT module PD0212XX
+	MsgErrorNewStateFromCommittedRoot = pde("PD021201", "Failed to create new state from committed merkle tree root node. %s")
+	MsgErrorNewStateFromCommittedNode = pde("PD021202", "Failed to create new state from committed merkle tree node. %s")
+	MsgErrorUnmarshalRootIdx          = pde("PD0212103", "Failed to unmarshal root node index. %s")
+	MsgErrorUnmarshalSMTNode          = pde("PD021204", "Failed to unmarshal Merkle Tree Node from state json. %s")
+	MsgErrorNewNodeIndex              = pde("PD021205", "Failed to create new node index from hash. %s")
+	MsgErrorParseNodeRef              = pde("PD021206", "Failed to parse node reference. %s")
+	MsgErrorHashSMTNode               = pde("PD021207", "Failed to hash merkle tree node. %s")
+	MsgErrorParseRootNodeIdx          = pde("PD021208", "Failed to parse root node index. %s")
+	MsgErrorUpsertRootNode            = pde("PD021209", "Failed to upsert root node. %s")
 )

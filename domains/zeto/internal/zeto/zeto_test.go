@@ -561,7 +561,7 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
 	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
@@ -593,7 +593,7 @@ func TestHandleEventBatch(t *testing.T) {
 	req.Events[0].DataJson = string(data)
 	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD210056: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
 	data, _ = json.Marshal(map[string]any{
 		"data":      encodedData,

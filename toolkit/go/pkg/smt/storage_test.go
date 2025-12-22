@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/smt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -110,18 +111,19 @@ func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
 
 func TestStorage(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
+	hasher := &PoseidonHasher{}
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema")
-	smt, err := NewSmt(storage, SMT_HEIGHT_UTXO)
-	assert.EqualError(t, err, "PD210065: Failed to find available states for the merkle tree. test error")
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	mt, err := smt.NewMerkleTree(storage, 64)
+	assert.EqualError(t, err, "test error")
 	assert.NotNil(t, storage)
-	assert.Nil(t, smt)
+	assert.Nil(t, mt)
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
-	smt, err = NewSmt(storage, SMT_HEIGHT_UTXO)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	mt, err = smt.NewMerkleTree(storage, 64)
 	assert.NoError(t, err)
 	assert.NotNil(t, storage)
-	assert.NotNil(t, smt)
+	assert.NotNil(t, mt)
 	assert.Nil(t, storage.(*statesStorage).rootNode)
 	assert.Equal(t, 0, len(storage.(*statesStorage).committedNewNodes))
 	newStates, err := storage.(*statesStorage).GetNewStates()
@@ -131,17 +133,17 @@ func TestStorage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000000", idx.Hex())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnBadData}, "test", stateQueryConext, "root-schema", "node-schema")
-	smt, err = NewSmt(storage, SMT_HEIGHT_UTXO)
-	assert.EqualError(t, err, "PD210066: Failed to unmarshal root node index. invalid character 'b' looking for beginning of value")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnBadData}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	mt, err = smt.NewMerkleTree(storage, 64)
+	assert.EqualError(t, err, "PD0212103: Failed to unmarshal root node index. invalid character 'b' looking for beginning of value")
 	assert.NotNil(t, storage)
-	assert.Nil(t, smt)
+	assert.Nil(t, mt)
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(0)}, "test", stateQueryConext, "root-schema", "node-schema")
-	smt, err = NewSmt(storage, SMT_HEIGHT_UTXO)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(0)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	mt, err = smt.NewMerkleTree(storage, 64)
 	assert.NoError(t, err)
 	assert.NotNil(t, storage)
-	assert.NotNil(t, smt)
+	assert.NotNil(t, mt)
 	assert.Nil(t, storage.(*statesStorage).pendingNodesTx)
 
 	newStates, err = storage.(*statesStorage).GetNewStates()
@@ -154,7 +156,7 @@ func TestStorage(t *testing.T) {
 	// test rollback
 	tx, err := storage.BeginTx()
 	assert.NoError(t, err)
-	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
+	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	err = tx.UpsertRootNodeRef(idx1)
 	assert.NoError(t, err)
 	assert.Equal(t, "d204000000000000000000000000000000000000000000000000000000000000", storage.(*statesStorage).pendingNodesTx.inflightRoot.Hex())
@@ -166,12 +168,14 @@ func TestStorage(t *testing.T) {
 
 func TestUpsertRootNodeIndex(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
-	_, _ = NewSmt(storage, SMT_HEIGHT_UTXO)
+	hasher := &PoseidonHasher{}
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	_, _ = smt.NewMerkleTree(storage, 64)
 	assert.NotNil(t, storage)
 	tx, err := storage.BeginTx()
 	assert.NoError(t, err)
-	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
+	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	err = tx.UpsertRootNodeRef(idx1)
 	assert.NoError(t, err)
 	assert.Equal(t, "d204000000000000000000000000000000000000000000000000000000000000", storage.(*statesStorage).pendingNodesTx.inflightRoot.Hex())
@@ -187,51 +191,53 @@ func TestUpsertRootNodeIndex(t *testing.T) {
 
 func TestGetNode(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
-	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
+	hasher := &PoseidonHasher{}
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema")
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err := storage.GetNode(idx)
-	assert.EqualError(t, err, "PD210065: Failed to find available states for the merkle tree. test error")
+	assert.EqualError(t, err, "test error")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err = storage.GetNode(idx)
 	assert.EqualError(t, err, core.ErrNotFound.Error())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(1)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(1)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	n, err := storage.GetNode(idx)
 	assert.NoError(t, err)
 	assert.NotNil(t, n)
 	assert.Equal(t, "197b0dc3f167041e03d3eafacec1aa3ab12a0d7a606581af01447c269935e521", n.Index().Hex())
 	assert.Equal(t, core.NodeTypeLeaf, n.Type())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(2)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(2)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	n, err = storage.GetNode(idx)
 	assert.NoError(t, err)
 	assert.NotNil(t, n)
 	assert.Empty(t, n.Index())
 	assert.Equal(t, "197b0dc3f167041e03d3eafacec1aa3ab12a0d7a606581af01447c269935e521", n.LeftChild().Hex())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(3)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(3)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err = storage.GetNode(idx)
 	assert.EqualError(t, err, "inputs values not inside Finite Field")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(4)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(4)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err = storage.GetNode(idx)
 	assert.EqualError(t, err, "inputs values not inside Finite Field")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(5)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(5)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err = storage.GetNode(idx)
-	assert.ErrorContains(t, err, "PD210067: Failed to unmarshal Merkle Tree Node from state json. PD020007: Invalid hex")
+	assert.ErrorContains(t, err, "PD021204: Failed to unmarshal Merkle Tree Node from state json. PD020007: Invalid hex")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(6)}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(6)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	_, err = storage.GetNode(idx)
-	assert.ErrorContains(t, err, "PD210067: Failed to unmarshal Merkle Tree Node from state json. PD020008: Failed to parse value as 32 byte hex string")
+	assert.ErrorContains(t, err, "PD021204: Failed to unmarshal Merkle Tree Node from state json. PD020008: Failed to parse value as 32 byte hex string")
 
 	// test with committed nodes
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	tx1, err := storage.BeginTx()
 	assert.NoError(t, err)
-	n1, _ := node.NewLeafNode(node.NewIndexOnly(idx))
+	n1, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
 	err = tx1.InsertNode(n1)
 	assert.NoError(t, err)
 	assert.Nil(t, tx1.Commit())
@@ -240,10 +246,10 @@ func TestGetNode(t *testing.T) {
 	assert.Equal(t, n1, n2)
 
 	// test with pending nodes (called when we are still updating a leaf node path up to the root)
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	tx2, err := storage.BeginTx()
 	assert.NoError(t, err)
-	n3, _ := node.NewLeafNode(node.NewIndexOnly(idx))
+	n3, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
 	err = tx2.InsertNode(n3)
 	assert.NoError(t, err)
 	n4, err := storage.GetNode(n3.Ref())
@@ -253,10 +259,12 @@ func TestGetNode(t *testing.T) {
 
 func TestInsertNode(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
+	hasher := &PoseidonHasher{}
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	assert.NotNil(t, storage)
-	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
-	n, _ := node.NewLeafNode(node.NewIndexOnly(idx))
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
+	n, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
 
 	tx1, err := storage.BeginTx()
 	assert.NoError(t, err)
@@ -276,7 +284,7 @@ func TestInsertNode(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, n.Ref().Hex(), rootNode.Hex())
 
-	n, _ = node.NewBranchNode(idx, idx)
+	n, _ = node.NewBranchNode(idx, idx, hasher)
 	tx2, err := storage.BeginTx()
 	assert.NoError(t, err)
 	err = tx2.InsertNode(n)
@@ -294,20 +302,24 @@ func TestInsertNode(t *testing.T) {
 
 func TestUnimplementedMethods(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema")
+	hasher := &PoseidonHasher{}
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	assert.NotNil(t, storage)
 	storage.(*statesStorage).Close()
 }
 
 func TestNodesTxGetNode(t *testing.T) {
+	hasher := &PoseidonHasher{}
+
 	tx := &nodesTx{
 		inflightNodes: make(map[core.NodeRef]core.Node),
 	}
-	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	_, err := tx.getNode(idx)
 	assert.EqualError(t, err, core.ErrNotFound.Error())
 
-	n, _ := node.NewLeafNode(node.NewIndexOnly(idx))
+	n, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
 	tx.inflightNodes[idx] = n
 	n2, err := tx.getNode(idx)
 	assert.NoError(t, err)
@@ -315,19 +327,23 @@ func TestNodesTxGetNode(t *testing.T) {
 }
 
 func TestSetTransactionId(t *testing.T) {
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema")
+	hasher := &PoseidonHasher{}
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher)
 	storage.SetTransactionId("txid")
 	assert.Equal(t, "txid", storage.(*statesStorage).pendingNodesTx.transactionId)
 }
 
 func TestGetNewStates(t *testing.T) {
-	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema")
+	hasher := &PoseidonHasher{}
+
+	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher)
 	storage := s.(*statesStorage)
 	states, err := storage.GetNewStates()
 	assert.NoError(t, err)
 	assert.Len(t, states, 0)
 
-	rootNode, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234))
+	rootNode, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	storage.rootNode = &smtRootNode{
 		root: rootNode,
 		txId: "txid",
@@ -336,8 +352,8 @@ func TestGetNewStates(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, states, 1)
 
-	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234567890))
-	node, _ := node.NewLeafNode(node.NewIndexOnly(idx))
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234567890), hasher)
+	node, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
 	storage.committedNewNodes = map[core.NodeRef]*smtNode{
 		idx: {
 			node: node,
