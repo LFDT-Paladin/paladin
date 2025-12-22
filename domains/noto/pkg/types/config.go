@@ -139,15 +139,3 @@ func (c *NotoParsedConfig) IsV1() bool {
 func (c *NotoParsedConfig) IsV0() bool {
 	return c.Variant == NotoVariantLegacy
 }
-
-type NotoLockOptions struct {
-	SpendTxId  pldtypes.Bytes32 `json:"spendTxId"`
-	SpendHash  pldtypes.Bytes32 `json:"spendHash"`
-	CancelHash pldtypes.Bytes32 `json:"cancelHash"`
-}
-
-var NotoLockOptionsABI = &abi.ParameterArray{
-	{Name: "spendTxId", Type: "bytes32"},
-	{Name: "spendHash", Type: "bytes32"},
-	{Name: "cancelHash", Type: "bytes32"},
-}

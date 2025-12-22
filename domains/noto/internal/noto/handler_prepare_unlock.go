@@ -56,7 +56,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	notary := tx.DomainConfig.NotaryLookup
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
-	res, states, err := h.assembleStates(ctx, tx, &spendTxId, params, req)
+	res, mb, states, err := h.assembleStates(ctx, tx, &spendTxId, params, req)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
@@ -73,6 +73,16 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(states.lockedInputs.total), identityList{notaryID, fromID})
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := mb.
+			addOutputs(cancelOutputs). // note no v0UnlockedOutputs as we're V1 only for the manifest
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		states.info = append([]*prototk.NewState{manifestState} /* manifest first */, states.info...)
 	}
 
 	assembledTransaction := &prototk.AssembledTransaction{}
@@ -199,29 +209,28 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
-		var spendHash ethtypes.HexBytes0xPrefix
-		spendHash, err = h.noto.unlockHashFromID_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
-		if err != nil {
-			return nil, err
+		var lockParams LockParams
+		var notoLockOpEncoded []byte
+		lockParams.Options, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+			SpendTxId: spendTxId,
+		})
+		if err == nil {
+			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
 		}
-		var cancelHash ethtypes.HexBytes0xPrefix
-		cancelHash, err = h.noto.unlockHashFromID_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
 		}
-
-		lockOptions := types.NotoLockOptions{
-			SpendTxId:  spendTxId,
-			SpendHash:  pldtypes.Bytes32(spendHash),
-			CancelHash: pldtypes.Bytes32(cancelHash),
+		if err == nil {
+			// The noto lock operation here is empty, as we are just modifying the
+			// TODO: Consider if we use a UTXO on-chain to track the
+			notoLockOpEncoded, err = h.noto.encodeNotoLockOperation(ctx, &types.NotoLockOperation{
+				TxId:          req.Transaction.TransactionId,
+				Inputs:        []string{},
+				Outputs:       []string{},
+				LockedOutputs: []string{}, // must be empty for updateLock
+				Proof:         pldtypes.HexBytes{},
+			})
 		}
-		var lockOptionsJSON []byte
-		lockOptionsJSON, err = json.Marshal(lockOptions)
-		if err != nil {
-			return nil, err
-		}
-		var lockOptionsEncoded []byte
-		lockOptionsEncoded, err = types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -231,14 +240,10 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 			functionName = "updateLock"
 			params := &UpdateLockParams{
-				LockID: inParams.LockID,
-				Params: NotoUpdateLockParams{
-					TxId:         req.Transaction.TransactionId,
-					LockedInputs: endorsableStateIDs(lockedInputs),
-					Proof:        sender.Payload,
-					Options:      lockOptionsEncoded,
-				},
-				Data: txData,
+				LockID:       inParams.LockID,
+				UpdateInputs: notoLockOpEncoded,
+				Params:       lockParams,
+				Data:         txData,
 			}
 			paramsJSON, err = json.Marshal(params)
 		}

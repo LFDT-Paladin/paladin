@@ -223,7 +223,6 @@ func TestLock(t *testing.T) {
 	// Validate the parameters
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
 	require.Equal(t, LockParams{Options: []byte{}}, params.Params)
-	require.Equal(t, "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000024cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f", params.Data.String())
 	notoParams := decodeSingleABITuple[types.NotoLockOperation](t, types.NotoLockOperationABI, params.CreateInputs)
 	require.Equal(t, &types.NotoLockOperation{
 		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
@@ -232,6 +231,14 @@ func TestLock(t *testing.T) {
 		LockedOutputs: []string{"0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"},
 		Proof:         signatureBytes,
 	}, notoParams)
+	data, err := n.decodeTransactionDataV1(ctx, params.Data)
+	require.NoError(t, err)
+	require.Equal(t, &types.NotoTransactionData_V1{
+		InfoStates: []pldtypes.Bytes32{
+			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
+			pldtypes.MustParseBytes32("0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F"),
+		},
+	}, data)
 
 	var invokeFn abi.Entry
 	err = json.Unmarshal([]byte(prepareRes.Transaction.FunctionAbiJson), &invokeFn)

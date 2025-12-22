@@ -97,20 +97,20 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 	}, nil
 }
 
-func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, spendTxId *pldtypes.Bytes32, params *types.UnlockParams, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, *unlockStates, error) {
+func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, spendTxId *pldtypes.Bytes32, params *types.UnlockParams, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, *manifestBuilder, *unlockStates, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	requiredTotal := big.NewInt(0)
@@ -125,9 +125,9 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 			return &prototk.AssembleTransactionResponse{
 				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 				RevertReason:   &message,
-			}, nil, nil
+			}, nil, nil, nil
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	remainder := big.NewInt(0).Sub(lockedInputStates.total, requiredTotal)
@@ -140,13 +140,13 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		unlockedOutputs, err = h.assembleUnlockOutputs_V1(ctx, tx, params, req, fromID.address, remainder)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	infoDistribution := identityList{notaryID, senderID, fromID}
 	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var lockState *prototk.NewState
 	if tx.DomainConfig.IsV0() {
@@ -155,29 +155,25 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		lockState, err = h.noto.prepareLockInfo_V1(params.LockID, fromID.address, spendTxId, infoDistribution)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	infoStates = append(infoStates, lockState)
 
-	if !tx.DomainConfig.IsV0() {
-		manifestState, err := h.noto.newManifestBuilder().
-			addOutputs(unlockedOutputs). // note no v0UnlockedOutputs as we're V1 only for the manifest
-			addInfoStates(infoDistribution, infoStates...).
-			buildManifest(ctx, req.StateQueryContext)
-		if err != nil {
-			return nil, nil, err
-		}
-		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
-	}
+	mb := h.noto.newManifestBuilder().
+		addOutputs(unlockedOutputs). // note no v0UnlockedOutputs as we're V1 only for the manifest
+		addInfoStates(infoDistribution, infoStates...)
 
 	return &prototk.AssembleTransactionResponse{
 			AssemblyResult: prototk.AssembleTransactionResponse_OK,
-		}, &unlockStates{
+		},
+		mb,
+		&unlockStates{
 			lockedInputs:    lockedInputStates,
 			v0LockedOutputs: v0LockedOutputs,
 			outputs:         unlockedOutputs,
 			info:            infoStates,
-		}, nil
+		},
+		nil
 }
 
 // In V0 the remainder was returned locked
@@ -328,7 +324,7 @@ func (h *unlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransactio
 	params := tx.Params.(*types.UnlockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	res, states, err := h.assembleStates(ctx, tx, nil, params, req)
+	res, mb, states, err := h.assembleStates(ctx, tx, nil, params, req)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
@@ -340,6 +336,12 @@ func (h *unlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransactio
 	if tx.DomainConfig.IsV0() {
 		v0LockedCoins = states.v0LockedOutputs.coins
 		assembledTransaction.OutputStates = append(assembledTransaction.OutputStates, states.v0LockedOutputs.states...)
+	} else {
+		manifestState, err := mb.buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		states.info = append([]*prototk.NewState{manifestState} /* manifest first */, states.info...)
 	}
 	assembledTransaction.InfoStates = states.info
 

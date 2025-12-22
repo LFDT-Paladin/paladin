@@ -179,3 +179,17 @@ var NotoLockOperationABI = abi.ParameterArray{
 		},
 	},
 }
+
+type NotoLockOptions struct {
+	SpendTxId pldtypes.Bytes32 `json:"spendTxId"`
+}
+
+var NotoLockOptionsABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOptions",
+		Components: abi.ParameterArray{
+			{Name: "spendTxId", Type: "bytes32"},
+		},
+	},
+}

@@ -187,10 +187,12 @@ type CreateLockParams struct {
 	Data         pldtypes.HexBytes `json:"data"`
 }
 
+// ILockableCapability.updateLock()
 type UpdateLockParams struct {
-	LockID pldtypes.Bytes32     `json:"lockId"`
-	Params NotoUpdateLockParams `json:"params"`
-	Data   pldtypes.HexBytes    `json:"data"`
+	LockID       pldtypes.Bytes32  `json:"lockId"`
+	UpdateInputs pldtypes.HexBytes `json:"updateInputs"`
+	Params       LockParams        `json:"params"`
+	Data         pldtypes.HexBytes `json:"data"`
 }
 
 type NotoUpdateLockParams struct {
@@ -1291,4 +1293,12 @@ func (n *Noto) extractLockInfo(ctx context.Context, infoStates []*prototk.Endors
 		return nil, nil, nil, err
 	}
 	return &lock.LockID, &lock.SpendTxId, nil /* no delegate in V1 lock info */, nil
+}
+
+func (n *Noto) encodeNotoLockOptions(ctx context.Context, notoLockOptions *types.NotoLockOptions) (encoded pldtypes.HexBytes, err error) {
+	lockOptionsJSON, err := json.Marshal([]any{notoLockOptions})
+	if err == nil {
+		encoded, err = types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+	}
+	return encoded, err
 }

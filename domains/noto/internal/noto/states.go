@@ -625,8 +625,8 @@ func (n *Noto) unlockHashFromIDs_V0(ctx context.Context, contract *ethtypes.Addr
 	})
 }
 
-func (n *Noto) unlockHashFromID_V1(ctx context.Context, contract *ethtypes.Address0xHex, txId string, lockedInputs, outputs []string, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
-	return eip712.EncodeTypedDataV4(ctx, &eip712.TypedData{
+func (n *Noto) unlockHashFromIDs_V1(ctx context.Context, contract *ethtypes.Address0xHex, txId string, lockedInputs, outputs []string, data pldtypes.HexBytes) (encoded pldtypes.Bytes32, err error) {
+	b, err := eip712.EncodeTypedDataV4(ctx, &eip712.TypedData{
 		Types:       NotoUnlockMaskedTypeSet_V1,
 		PrimaryType: "Unlock",
 		Domain:      n.eip712Domain(contract),
@@ -637,6 +637,10 @@ func (n *Noto) unlockHashFromID_V1(ctx context.Context, contract *ethtypes.Addre
 			"data":         data,
 		},
 	})
+	if err == nil {
+		copy(encoded[:], b[0:32])
+	}
+	return encoded, err
 }
 
 func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Address0xHex, lockID pldtypes.Bytes32, delegate *pldtypes.EthAddress, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {

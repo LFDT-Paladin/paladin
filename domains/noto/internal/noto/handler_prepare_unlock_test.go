@@ -138,13 +138,14 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + output-info + lock + output-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 5) // manifest + output-info + lock + output-coin + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
-	dataState := assembleRes.AssembledTransaction.InfoStates[0]
-	lockInfoState := assembleRes.AssembledTransaction.InfoStates[1]
-	spendCoinState := assembleRes.AssembledTransaction.InfoStates[2]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	lockInfoState := assembleRes.AssembledTransaction.InfoStates[2]
+	spendCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[4]
 
 	assert.Equal(t, inputCoin.ID.String(), inputCoinState.Id)
 	spendCoin, err := n.unmarshalCoin(spendCoinState.StateDataJson)
@@ -178,19 +179,24 @@ func TestPrepareUnlock(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      n.dataSchemaV1.Id,
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			StateDataJson: dataState.StateDataJson,
 		},
 		{
-			SchemaId:      "lockInfo",
+			SchemaId:      n.lockInfoSchemaV1.Id,
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
+			StateDataJson: lockInfoState.StateDataJson,
 		},
 		{
-			SchemaId:      "coin",
+			SchemaId:      n.coinSchema.Id,
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[3].StateDataJson,
+			StateDataJson: spendCoinState.StateDataJson,
+		},
+		{
+			SchemaId:      n.coinSchema.Id,
+			Id:            "0xfdae13d798c19f84df28d52b9d66be6d29289045b0f41fd83e1f09df33f5f41f",
+			StateDataJson: cancelCoinState.StateDataJson,
 		},
 	}
 
@@ -232,52 +238,46 @@ func TestPrepareUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["prepareUnlock"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Extract the options from the response to get the generated SpendTxId
-	var actualParams UpdateLockParams
-	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &actualParams)
-	require.NoError(t, err)
-	cv, err := types.NotoLockOptionsABI.DecodeABIDataCtx(ctx, actualParams.Params.Options, 0)
-	require.NoError(t, err)
-	optionsJSON, err := cv.JSON()
-	require.NoError(t, err)
-	var actualOptions types.NotoLockOptions
-	err = json.Unmarshal(optionsJSON, &actualOptions)
-	require.NoError(t, err)
+	updateLockABI := interfaceBuild.ABI.Functions()["updateLock"]
+	expectedFunction := mustParseJSON(updateLockABI)
+	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
-	spendHash, err := n.unlockHashFromID_V1(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[2:3]), pldtypes.MustParseHexBytes("0x1234"))
+	// Decode the function parameters
+	fnParams := decodeFnParams[UpdateLockParams](t, updateLockABI, prepareRes.Transaction.ParamsJson)
+	require.Equal(t, lockID, fnParams.LockID)
+	data, err := n.decodeTransactionDataV1(ctx, fnParams.Data)
 	require.NoError(t, err)
-	cancelHash, err := n.unlockHashFromID_V1(ctx, ethtypes.MustNewAddress(contractAddress), actualOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[3:4]), pldtypes.MustParseHexBytes("0x1234"))
-	require.NoError(t, err)
-
-	// Verify the options have the correct structure
-	expectedOptions := types.NotoLockOptions{
-		SpendTxId:  actualOptions.SpendTxId,
-		SpendHash:  pldtypes.Bytes32(spendHash),
-		CancelHash: pldtypes.Bytes32(cancelHash),
-	}
-	require.Equal(t, pldtypes.Bytes32(spendHash), actualOptions.SpendHash)
-	require.Equal(t, pldtypes.Bytes32(cancelHash), actualOptions.CancelHash)
-
-	expectedOptionsJSON, err := json.Marshal(expectedOptions)
-	require.NoError(t, err)
-	expectedOptionsEncoded, err := types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, expectedOptionsJSON)
-	require.NoError(t, err)
-	expectedOptionsHex := fmt.Sprintf("0x%x", expectedOptionsEncoded)
-
-	assert.JSONEq(t, fmt.Sprintf(`{
-		"lockId": "%s",
-		"params": {
-			"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-			"lockedInputs": ["%s"],
-			"proof": "%s",
-			"options": "%s"
+	require.Equal(t, &types.NotoTransactionData_V1{
+		InfoStates: []pldtypes.Bytes32{
+			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
+			pldtypes.MustParseBytes32("0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F"),
+			pldtypes.MustParseBytes32("0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"),
+			pldtypes.MustParseBytes32("0xfdae13d798c19f84df28d52b9d66be6d29289045b0f41fd83e1f09df33f5f41f"),
 		},
-		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000044cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945fdae13d798c19f84df28d52b9d66be6d29289045b0f41fd83e1f09df33f5f41f"
-	}`, lockID.HexString0xPrefix(), inputCoin.ID, signatureBytes, expectedOptionsHex), prepareRes.Transaction.ParamsJson)
+	}, data)
+
+	// Decode the options we store into the lockInfo
+	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[2:3]), pldtypes.MustParseHexBytes("0x1234"))
+	require.NoError(t, err)
+	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[3:4]), pldtypes.MustParseHexBytes("0x1234"))
+	require.NoError(t, err)
+	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
+
+	// Validate the encoded noto parameters passed in
+	notoParams := decodeSingleABITuple[types.NotoLockOperation](t, types.NotoLockOperationABI, fnParams.UpdateInputs)
+	require.Equal(t, &types.NotoLockOperation{
+		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:        []string{},
+		Outputs:       []string{},
+		LockedOutputs: []string{},
+		Proof:         []byte{},
+	}, notoParams)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"
@@ -334,7 +334,6 @@ func TestPrepareUnlock(t *testing.T) {
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
 	assert.NotEmpty(t, hookParams.Prepared.EncodedCall)
 
-	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
 	lockState := assembleRes.AssembledTransaction.InfoStates[2]
 	outputCoinState := assembleRes.AssembledTransaction.InfoStates[3]
