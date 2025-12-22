@@ -69,6 +69,11 @@ type NotoConfigData_V0 struct {
 	AllowLock      bool                 `json:"allowLock"`
 }
 
+// Note that while the V0 NotoTransactionData is used by Noto V0 and the V1 NotoTransactionData
+// is used by Noto V1, NotoTransactionData is versioned independently of Noto itself.
+// It is not a requirement that a future version of Noto comes with a new version of NotoTransactionData.
+// E.g. Noto V2 may continue to use the V1 NotoTransactionData.
+
 type NotoTransactionData_V0 struct {
 	TransactionID pldtypes.Bytes32   `json:"transactionId"` // in V0 the data was the primary place for the transaction ID, but there was some duplication with parameters. Moved to parameter consistently in V1.
 	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`

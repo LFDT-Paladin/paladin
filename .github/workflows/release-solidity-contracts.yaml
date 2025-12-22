@@ -54,6 +54,9 @@ jobs:
         submodules: recursive
         ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
+    - name: Print disk usage
+      uses: ./.github/actions/print-disk-usage
+
     - name: Install pre-requisites
       uses: ./.github/actions/setup
 
@@ -104,3 +107,6 @@ jobs:
       shell: bash
       run: |
         echo "upload-artifacts URL: ${{ steps.upload-artifacts.outputs.artifact-url }}"
+
+    - name: Print disk usage
+      uses: ./.github/actions/print-disk-usage

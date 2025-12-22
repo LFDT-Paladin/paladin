@@ -48,10 +48,13 @@ contract NotoNullifiers is Noto {
         bytes32 txId,
         bytes32[] calldata nullifiers,
         bytes32[] calldata outputs,
-        uint256 root,
-        bytes calldata signature,
+        bytes calldata proof,
         bytes calldata data
-    ) external virtual onlyNotary {
+    ) external virtual override onlyNotary txIdNotUsed(txId) {
+        (uint256 root, bytes memory signature) = abi.decode(
+            proof,
+            (uint256, bytes)
+        );
         if (!_commitmentsTree.rootExists(root)) {
             revert NotoInvalidRoot(root);
         }
@@ -69,8 +72,7 @@ contract NotoNullifiers is Noto {
      *      contract that have not yet been spent, and the signer is authorized to spend
      * @param outputs array of zero or more new outputs to generate, for future transactions to spend
      * @param lockedOutputs array of zero or more locked outputs to generate, which will be tied to the lock ID
-     * @param root a historical or current root of the commitments tree containing the inputs represented by the nullifiers
-     * @param signature a signature over the original request to the notary (opaque to the blockchain)
+     * @param proof a proof over the original request to the notary (opaque to the blockchain)
      * @param data any additional transaction data (opaque to the blockchain)
      *
      * Emits a {NotoLock} event.
@@ -80,10 +82,13 @@ contract NotoNullifiers is Noto {
         bytes32[] calldata nullifiers,
         bytes32[] calldata outputs,
         bytes32[] calldata lockedOutputs,
-        uint256 root,
-        bytes calldata signature,
+        bytes calldata proof,
         bytes calldata data
-    ) public virtual onlyNotary txIdNotUsed(txId) lockIdNotUsed(txId) {
+    ) public virtual override onlyNotary txIdNotUsed(txId) lockIdNotUsed(txId) {
+        (uint256 root, bytes memory signature) = abi.decode(
+            proof,
+            (uint256, bytes)
+        );
         if (!_commitmentsTree.rootExists(root)) {
             revert NotoInvalidRoot(root);
         }

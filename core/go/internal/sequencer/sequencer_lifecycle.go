@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -230,10 +229,12 @@ func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *com
 
 	if tx != nil && tx.PreAssembly != nil && tx.PreAssembly.RequiredVerifiers != nil {
 		log.L(ctx).Debugf("setting initial coordinator for %s, updating origininator node pool to include required verifiers of transaction %s", sequencer.contractAddress, tx.ID.String())
-		for _, verifiers := range tx.PreAssembly.RequiredVerifiers {
-			if strings.Contains(verifiers.Lookup, "@") {
-				sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, strings.Split(verifiers.Lookup, "@")[1])
+		for _, verifier := range tx.PreAssembly.RequiredVerifiers {
+			_, node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Validate(ctx, sMgr.nodeName, false)
+			if err != nil {
+				return err
 			}
+			sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, node)
 		}
 
 		// Get the best candidate for an initial coordinator, and use as the delegate for any originated transactions

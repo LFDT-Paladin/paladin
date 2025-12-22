@@ -27,6 +27,10 @@ jobs:
           # Fetch all history and tags to build the full upgrade path.
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - name: Get all previous release tags
         id: get_tags
         shell: bash
@@ -190,6 +194,9 @@ jobs:
           
           echo "Completed testing for RC $NEW_TAG"
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
       - name: Cleanup cluster
         if: always()
-        run: kind delete cluster --name paladin
+        run: kind delete cluster --name paladin  
