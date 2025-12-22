@@ -11,7 +11,6 @@ import {
   doLockWithNullifiers,
   doMint,
   doPrepareUnlock,
-  doTransfer,
   doTransferWithNullifiers,
   doUnlock,
   newUnlockHash,
@@ -42,7 +41,7 @@ describe("NotoNullifiers", function () {
   describe("UTXO lifecycle and double-spend protections", function () {
     let noto: NotoNullifiers;
     let notary: any;
-    let smtAlice: Merkletree;
+    let smtNotary: Merkletree;
     let txo1: UTXO;
     let txo2: UTXO;
     let txo3: UTXO;
@@ -51,7 +50,7 @@ describe("NotoNullifiers", function () {
     before(async function () {
       ({ noto, notary } = await loadFixture(deployNotoFixture));
       const storage1 = new InMemoryDB(str2Bytes(""), HashAlgorithm.Keccak256);
-      smtAlice = new Merkletree(storage1, true, 64);
+      smtNotary = new Merkletree(storage1, true, 64);
     });
 
     it("mint UTXOs", async function () {
@@ -71,8 +70,8 @@ describe("NotoNullifiers", function () {
       );
       const hash1 = BigInt(txo1.hash!);
       const hash2 = BigInt(txo2.hash!);
-      await smtAlice.add(hash1, hash1);
-      await smtAlice.add(hash2, hash2);
+      await smtNotary.add(hash1, hash1);
+      await smtNotary.add(hash2, hash2);
     });
 
     it("Check for double-mint protection", async function () {
@@ -82,7 +81,7 @@ describe("NotoNullifiers", function () {
     });
 
     it("Check for spend unknown root protection", async function () {
-      const root = await smtAlice.root();
+      const root = await smtNotary.root();
       await expect(
         doTransferWithNullifiers(randomBytes32(), notary, noto, [txo1.nullifier!], [txo3.hash!], (root.bigInt() + 1n).toString(10), randomBytes32())
       ).rejectedWith("NotoInvalidRoot");
@@ -90,7 +89,7 @@ describe("NotoNullifiers", function () {
 
     it("Check for double-spend protection", async function () {
       // Spend txo1, output txo3
-      const root = await smtAlice.root();
+      const root = await smtNotary.root();
       await doTransferWithNullifiers(
         randomBytes32(),
         notary,
@@ -100,7 +99,7 @@ describe("NotoNullifiers", function () {
         root.bigInt().toString(10),
         randomBytes32()
       );
-      await smtAlice.add(BigInt(txo3.hash!), BigInt(txo3.hash!));
+      await smtNotary.add(BigInt(txo3.hash!), BigInt(txo3.hash!));
 
       // attempting to spend again
       await expect(
@@ -110,7 +109,7 @@ describe("NotoNullifiers", function () {
 
     it("Spend another", async function () {
       // Spend another
-      const root1 = await smtAlice.root();
+      const root1 = await smtNotary.root();
       await doTransferWithNullifiers(
         randomBytes32(),
         notary,
@@ -120,10 +119,10 @@ describe("NotoNullifiers", function () {
         root1.bigInt().toString(10),
         randomBytes32()
       );
-      await smtAlice.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
+      await smtNotary.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
 
       // Spend the last one
-      const root2 = await smtAlice.root();
+      const root2 = await smtNotary.root();
       const _txo1 = newUTXO(10);
       await doTransferWithNullifiers(
         randomBytes32(),
@@ -140,7 +139,7 @@ describe("NotoNullifiers", function () {
   describe("lock and unlock lifecycle and protections", function () {
     let noto: NotoNullifiers;
     let notary: any;
-    let smtAlice: Merkletree;
+    let smtNotary: Merkletree;
     let delegate: any;
     let other: any;
 
@@ -162,7 +161,7 @@ describe("NotoNullifiers", function () {
       before(async function () {
         ({ noto, notary } = await loadFixture(deployNotoFixture));
         const storage1 = new InMemoryDB(str2Bytes(""), HashAlgorithm.Keccak256);
-        smtAlice = new Merkletree(storage1, true, 64);
+        smtNotary = new Merkletree(storage1, true, 64);
       });
 
       it("mint UTXOs", async function () {
@@ -178,13 +177,13 @@ describe("NotoNullifiers", function () {
           randomBytes32(),
           true
         );
-        await smtAlice.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
-        await smtAlice.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
+        await smtNotary.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
+        await smtNotary.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
       });
 
       it("lock UTXOs", async function () {
         // Lock both of them
-        const root = await smtAlice.root();
+        const root = await smtNotary.root();
         txo3 = newUTXO(15);
         locked1 = newUTXO(35);
         lockId = await doLockWithNullifiers(
@@ -200,23 +199,24 @@ describe("NotoNullifiers", function () {
         // only the outputs are tracked in the merkle tree.
         // the locked outputs are tracked in the locked states map and
         // to be consumed using the UTXO ids instead of nullifiers
-        await smtAlice.add(BigInt(txo3.hash!), BigInt(txo3.hash!));
+        await smtNotary.add(BigInt(txo3.hash!), BigInt(txo3.hash!));
       });
 
       it("Check that the same state cannot be locked again", async function () {
         // this root should fail the merkle proof check at the notary, because
         // the "locked1" UTXO is not in the merkle tree (never added to the tree)
-        const root = await smtAlice.root();
+        const root = await smtNotary.root();
         await expect(
           doLockWithNullifiers(randomBytes32(), notary, noto, [], [], [locked1.hash!], root.bigInt().toString(10), randomBytes32())
         ).to.be.rejectedWith("NotoInvalidOutput");
       });
 
       it("Check that locked value cannot be spent", async function () {
-        const root = await smtAlice.root();
-        await expect(
-          doTransferWithNullifiers(randomBytes32(), notary, noto, [locked1.hash!], [], root.bigInt().toString(10), randomBytes32())
-        ).to.be.rejectedWith("NotoInvalidInput");
+        // when a sender attempts to spend a locked UTXO, the notary
+        // is expected to reject it because the merkle proof check will fail
+        const { proof } = await smtNotary.generateProof(BigInt(locked1.hash!));
+        // the "false" existence flag would cause the notary to reject the transaction
+        expect(proof.existence).to.be.false;
       });
 
       it("unlock UTXOs", async function () {
@@ -234,7 +234,7 @@ describe("NotoNullifiers", function () {
           lockId,
           true
         );
-        await smtAlice.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
+        await smtNotary.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
       });
 
       it("Check that the same state cannot be unlocked again", async function () {
@@ -327,7 +327,7 @@ describe("NotoNullifiers", function () {
         await doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
 
         // Make two more UTXOs with the same TX ID - should fail
-        const root = await smtAlice.root();
+        const root = await smtNotary.root();
         await expect(
           doTransferWithNullifiers(txId1, notary, noto, [], [txo3.hash!, txo4.hash!], root.bigInt().toString(10), randomBytes32())
         ).rejectedWith("NotoDuplicateTransaction");
@@ -347,7 +347,7 @@ describe("NotoNullifiers", function () {
       before(async function () {
         ({ noto, notary } = await loadFixture(deployNotoFixture));
         const storage1 = new InMemoryDB(str2Bytes(""), HashAlgorithm.Keccak256);
-        smtAlice = new Merkletree(storage1, true, 64);
+        smtNotary = new Merkletree(storage1, true, 64);
       });
 
       it("mint UTXOs", async function () {
@@ -357,15 +357,15 @@ describe("NotoNullifiers", function () {
 
         // Make two UTXOs
         await doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
-        await smtAlice.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
-        await smtAlice.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
+        await smtNotary.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
+        await smtNotary.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
       });
 
       it("should fail on duplicate txId", async function () {
         txo3 = newUTXO(1);
         locked1 = newUTXO(2);
         // Try to lock both of them using the same TX ID - should fail
-        const root = await smtAlice.root();
+        const root = await smtNotary.root();
         await expect(
           doLockWithNullifiers(
             txId1,
@@ -382,7 +382,7 @@ describe("NotoNullifiers", function () {
 
       it("should fail on duplicate txId during unlock", async function () {
         // Lock both of them using a new TX ID - should succeed
-        const root = await smtAlice.root();
+        const root = await smtNotary.root();
         lockId = await doLockWithNullifiers(
           randomBytes32(),
           notary,
