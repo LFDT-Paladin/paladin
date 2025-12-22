@@ -18,6 +18,7 @@ package noto
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"slices"
 
@@ -29,8 +30,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+	"golang.org/x/crypto/sha3"
 )
 
 var EIP712DomainName = "noto"
@@ -208,7 +211,7 @@ type preparedLockedOutputs struct {
 	states []*prototk.NewState
 }
 
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
+func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256, useNullifiers bool) (inputs *preparedInputs, revert bool, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
@@ -225,7 +228,7 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 		if err != nil {
 			return nil, false, err
 		}
@@ -274,7 +277,7 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 		}
 
 		log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String())
+		states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockedCoinSchema.Id, queryBuilder.Query().String(), false)
 
 		if err != nil {
 			return nil, false, err
@@ -389,16 +392,18 @@ func (n *Noto) getStates(ctx context.Context, stateQueryContext, schemaId string
 	return res.States, nil
 }
 
-func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string) ([]*prototk.StoredState, error) {
+func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schemaId, query string, useNullifiers bool) ([]*prototk.StoredState, error) {
 	req := &prototk.FindAvailableStatesRequest{
 		StateQueryContext: stateQueryContext,
 		SchemaId:          schemaId,
 		QueryJson:         query,
+		UseNullifiers:     &useNullifiers,
 	}
 	res, err := n.Callbacks.FindAvailableStates(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("findAvailableStates: %v\n", res.States)
 	return res.States, nil
 }
 
@@ -542,14 +547,14 @@ func (n *Noto) encodeDelegateLock(ctx context.Context, contract *ethtypes.Addres
 	})
 }
 
-func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
+func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, useNullifiers bool) (totalStates int, totalBalance *big.Int, overflow, revert bool, err error) {
 	totalBalance = big.NewInt(0)
 	queryBuilder := query.NewQueryBuilder().
 		Limit(1000).
 		Equal("owner", owner.String())
 
 	log.L(ctx).Debugf("State query: %s", queryBuilder.Query())
-	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String())
+	states, err := n.findAvailableStates(ctx, stateQueryContext, n.coinSchema.Id, queryBuilder.Query().String(), useNullifiers)
 	if err != nil {
 		return 0, nil, false, false, err
 	}
@@ -566,4 +571,40 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	}
 
 	return len(states), totalBalance, false, false, nil
+}
+
+func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
+	// the nullifier is keccak256(salt, amount)
+	// first abi encode the salt and amount
+	paramTypes := abi.ParameterArray{
+		&abi.Parameter{
+			Type: "uint256",
+			Name: "amount",
+		},
+		&abi.Parameter{
+			Type: "bytes32",
+			Name: "salt",
+		},
+	}
+	paramValues := map[string]any{
+		"amount": coin.Amount.Int(),
+		"salt":   coin.Salt,
+	}
+
+	jsonData, err := json.Marshal(paramValues)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded, err := paramTypes.EncodeABIDataJSON(jsonData)
+	if err != nil {
+		return nil, err
+	}
+	// then keccak256 the result
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(encoded)
+	h32 := make([]byte, 32)
+	h := hash.Sum(h32)
+	ret := pldtypes.Bytes32(h)
+	return &ret, nil
 }

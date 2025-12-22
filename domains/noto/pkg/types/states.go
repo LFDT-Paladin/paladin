@@ -20,6 +20,9 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
+const PAYLOAD_DOMAIN_NOTO_NULLIFIER = "domain:noto:nullifier"
+const VERIFIER_DOMAIN_NOTO_NULLIFIER = "domain:noto:nullifier:verifier"
+
 type NotoDomainReceipt struct {
 	States    ReceiptStates      `json:"states"`
 	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`

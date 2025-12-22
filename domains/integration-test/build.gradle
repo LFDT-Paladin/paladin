@@ -70,11 +70,15 @@ task copySolidity(type: Copy) {
         include 'contracts/domains/interfaces/INoto_V0.sol/INoto_V0.json'
         include 'contracts/domains/noto/NotoFactory.sol/NotoFactory.json'
         include 'contracts/domains/noto/Noto_V0.sol/Noto_V0.json'
+        include 'contracts/domains/noto/NotoNullifiers.sol/NotoNullifiers.json'
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
         include 'contracts/shared/Atom.sol/Atom.json'
         include 'contracts/shared/AtomFactory.sol/AtomFactory.json'
         include 'contracts/private/Swap.sol/Swap.json'
         include 'contracts/testcontracts/NotoTrackerPublicERC20.sol/NotoTrackerPublicERC20.json'
+        // use the enhanced verison of SmtLib with configurable hash function
+        // TODO: remove this when all domains have migrated to the new SmtLib
+        include '@iden3/contracts/contracts/lib/SmtLib.sol/SmtLib.json'
     }
 
     inputs.files(configurations.zetoArtifacts)
@@ -82,6 +86,9 @@ task copySolidity(type: Copy) {
         include 'artifacts/contracts/**/*.json'
         include 'artifacts/@iden3/contracts/**/*.json'
         exclude '**/*.dbg.json'
+        // the enhanced verison of SmtLib with configurable hash function is from the noto domain
+        // TODO: remove this when all domains have migrated to the new SmtLib
+        exclude '**/SmtLib.json'
     }
 
     inputs.files(configurations.poseidonArtifacts)

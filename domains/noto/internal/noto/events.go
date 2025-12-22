@@ -18,6 +18,7 @@ package noto
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -40,7 +41,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	}
 
 	for _, ev := range req.Events {
-		if variant == types.NotoVariantDefault {
+		if variant == types.NotoVariantDefault || variant == types.NotoVariantNullifier {
 			if err := n.handleV1Event(ctx, ev, &res, req); err != nil {
 				log.L(ctx).Warnf("Error handling V1 event: %s", err)
 				return nil, err
@@ -68,6 +69,8 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			n.recordTransactionInfo(ev, transfer.TxId, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(transfer.TxId, transfer.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(transfer.TxId, transfer.Outputs)...)
+			fmt.Printf("spent states: %+v\n", res.SpentStates)
+			fmt.Printf("confirmed states: %+v\n", res.ConfirmedStates)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed NotoTransfer event in batch %s: %s", req.BatchId, err)
 		}

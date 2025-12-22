@@ -61,6 +61,10 @@ func makeNewState(ctx context.Context, coinSchema *prototk.StateSchema, useNulli
 		StateDataJson:    string(coinJSON),
 		DistributionList: []string{owner},
 	}
+	// for our own states, while we create them, we add the corresponding nullifier to the new state,
+	// which will be persisted in the state DB. This allows us to track which states have been spent,
+	// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+	// the receipt
 	if useNullifiers {
 		newState.NullifierSpecs = []*pb.NullifierSpec{
 			{

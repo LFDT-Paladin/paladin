@@ -130,6 +130,7 @@ type Noto struct {
 
 type NotoDeployParams struct {
 	TransactionID string              `json:"transactionId"`
+	ImplName      string              `json:"implName"`
 	Name          string              `json:"name"`
 	Symbol        string              `json:"symbol"`
 	Notary        pldtypes.EthAddress `json:"notary"`
@@ -385,10 +386,16 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 	n.chainID = req.ChainId
 	n.fixedSigningIdentity = req.FixedSigningIdentity
 
+	algoName := types.AlgoDomainNullifier(n.name)
+	signingAlgos := map[string]int32{
+		algoName: 32,
+	}
+
 	return &prototk.ConfigureDomainResponse{
 		DomainConfig: &prototk.DomainConfig{
 			AbiStateSchemasJson: schemasJSON,
 			AbiEventsJson:       eventsJSON,
+			SigningAlgorithms:   signingAlgos,
 		},
 	}, nil
 }
@@ -530,14 +537,16 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 				Data:          deployDataJSON,
 			})
 		} else {
-			// For V1 factories, include name and symbol
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
+			deployParams := &NotoDeployParams{
 				TransactionID: req.Transaction.TransactionId,
+				ImplName:      params.Implementation,
 				Name:          params.Name,
 				Symbol:        params.Symbol,
 				Notary:        *notaryAddress,
 				Data:          deployDataJSON,
-			})
+			}
+			// For V1 factories, include name and symbol
+			paramsJSON, err = json.Marshal(deployParams)
 		}
 	}
 
@@ -995,11 +1004,31 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 }
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	switch req.PayloadType {
+	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
+		var coin *types.NotoCoin
+		var hashBytes *pldtypes.Bytes32
+		err := json.Unmarshal(req.Payload, &coin)
+		if err == nil {
+			hashBytes, err = calculateNullifier(coin)
+		}
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
+		}
+		return &prototk.SignResponse{
+			Payload: hashBytes.Bytes(),
+		}, nil
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
+	}
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	// as per the current nullifier design, no specific verifier is required
+	// to produce the nullifier. return a placeholder verifier
+	return &prototk.GetVerifierResponse{
+		Verifier: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+	}, nil
 }
 
 func (n *Noto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {

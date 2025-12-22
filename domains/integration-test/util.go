@@ -148,8 +148,9 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	deployed := make(map[string]string, len(contracts))
+	libs := make(map[string]*pldtypes.EthAddress, len(contracts))
 	for name, contract := range contracts {
-		build := solutils.MustLoadBuild(contract)
+		build := solutils.MustLoadBuildResolveLinks(contract, libs)
 		var addr string
 		rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deployBytecode",
 			deployer, build.ABI, build.Bytecode.String(), pldtypes.RawJSON(`{}`))
@@ -157,6 +158,7 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 			assert.NoError(t, rpcerr)
 		}
 		deployed[name] = addr
+		libs[name] = pldtypes.MustEthAddress(addr)
 	}
 	for _, fn := range postDeploy {
 		fn(deployed, rpc)
@@ -176,6 +178,7 @@ func newNotoDomain(t *testing.T, registryAddress *pldtypes.EthAddress) (chan not
 			return domain
 		}),
 		RegistryAddress: registryAddress,
+		AllowSigning:    true,
 	}
 	return waitForDomain, tbd
 }

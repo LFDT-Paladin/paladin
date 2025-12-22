@@ -76,6 +76,7 @@ func (h *mintHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req
 func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.MintParams)
 	notary := tx.DomainConfig.NotaryLookup
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", params.To, req.ResolvedVerifiers)
 	if err != nil {
@@ -85,6 +86,28 @@ func (h *mintHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	outputStates, err := h.noto.prepareOutputs(toAddress, params.Amount, []string{notary, params.To})
 	if err != nil {
 		return nil, err
+	}
+	if useNullifiers {
+		// for our own states, while we create them, we add the corresponding nullifier to the new state,
+		// which will be persisted in the state DB. This allows us to track which states have been spent,
+		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+		// the receipt
+		for _, newState := range outputStates.states {
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				{
+					Party:        notary,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+				{
+					Party:        params.To,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+			}
+		}
 	}
 	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, params.To})
 	if err != nil {

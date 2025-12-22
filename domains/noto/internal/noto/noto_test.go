@@ -664,14 +664,31 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid character")
 }
 
+func TestSign(t *testing.T) {
+	n := &Noto{Callbacks: mockCallbacks}
+	ctx := context.Background()
+
+	coin := &types.NotoCoin{
+		Amount: pldtypes.MustParseHexUint256("100"),
+		Salt:   pldtypes.RandBytes32(),
+	}
+	coinJSON, err := json.Marshal(coin)
+	require.NoError(t, err)
+
+	resp, err := n.Sign(ctx, &prototk.SignRequest{
+		Algorithm:   algorithms.ECDSA_SECP256K1,
+		PayloadType: types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+		Payload:     coinJSON,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, len(resp.Payload), 32)
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
 	ctx := context.Background()
 
-	_, err := n.Sign(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.GetVerifier(ctx, nil)
+	_, err := n.GetVerifier(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
 
 	_, err = n.ValidateStateHashes(ctx, nil)

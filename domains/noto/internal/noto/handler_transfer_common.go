@@ -47,14 +47,32 @@ func (h *transferCommon) validateTransferParams(ctx context.Context, to string, 
 
 func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTransaction, from, to string) (*prototk.InitTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
+
+	requests := h.noto.ethAddressVerifiers(notary, tx.Transaction.From, from, to)
+	if useNullifiers {
+		requests = append(requests,
+			&prototk.ResolveVerifierRequest{
+				Lookup:       from,
+				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+			},
+			&prototk.ResolveVerifierRequest{
+				Lookup:       notary,
+				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+			},
+		)
+	}
 
 	return &prototk.InitTransactionResponse{
-		RequiredVerifiers: h.noto.ethAddressVerifiers(notary, tx.Transaction.From, from, to),
+		RequiredVerifiers: requests,
 	}, nil
 }
 
 func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.AssembleTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
@@ -65,7 +83,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount, useNullifiers)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -86,6 +104,22 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	if err != nil {
 		return nil, err
 	}
+	if useNullifiers {
+		// for our own states, while we create them, we add the corresponding nullifier to the new state,
+		// which will be persisted in the state DB. This allows us to track which states have been spent,
+		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+		// the receipt
+		for _, newState := range outputStates.states {
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				{
+					Party:        to,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+			}
+		}
+	}
 
 	infoDistributionList := []string{notary, tx.Transaction.From, to}
 	if from != tx.Transaction.From {
@@ -105,6 +139,22 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), remainderDistributionList)
 		if err != nil {
 			return nil, err
+		}
+		if useNullifiers {
+			// for our own states, while we create them, we add the corresponding nullifier to the new state,
+			// which will be persisted in the state DB. This allows us to track which states have been spent,
+			// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
+			// the receipt
+			for _, newState := range returnedStates.states {
+				newState.NullifierSpecs = []*prototk.NullifierSpec{
+					{
+						Party:        tx.Transaction.From,
+						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+					},
+				}
+			}
 		}
 		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
 		outputStates.states = append(outputStates.states, returnedStates.states...)

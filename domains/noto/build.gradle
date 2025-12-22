@@ -66,6 +66,7 @@ task copyInternalSolidity(type: Copy) {
         include 'contracts/domains/noto/NotoFactory.sol/NotoFactory.json'
         include 'contracts/domains/noto/NotoFactory_V0.sol/NotoFactory_V0.json'
         include 'contracts/domains/noto/Noto.sol/Noto.json'
+        include 'contracts/domains/noto/NotoNullifiers.sol/NotoNullifiers.json'
     }
 
     // Flatten all paths into the destination folder
