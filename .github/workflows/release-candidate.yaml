@@ -11,10 +11,7 @@ permissions:
   id-token: write
 
 on:
-  push:
-    tags:
-      - 'v*.*.*-rc.*'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       tag:
         required: true
@@ -34,18 +31,8 @@ jobs:
       - id: set-vars
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          TAG: ${{ inputs.tag }}
         run: |
-          if [[ "$EVENT_NAME" == "push" && "$REF" == refs/tags/v* ]]; then
-            echo "Tag push event"
-            TAG="${REF##*/}"
-          else
-            echo "Workflow dispatch or other event"
-            TAG="$INPUT_TAG"
-          fi
-          
           # Validate tag begins with 'v'
           if [[ ! "$TAG" =~ ^v ]]; then
             echo "Error: Tag must begin with 'v' (e.g., v1.2.3-rc.1)"
@@ -149,8 +136,6 @@ jobs:
       # For a tag like 'v0.1.0-rc.1', this will become "rc;rc.1"
       # We can't use the rc_number (e.g. 1)because it's not a valid npm tag
       sdk_tag: "rc;${{ needs.setup.outputs.npm_prerelease_tag }}"
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ================================ PRE-RELEASE TESTING ================================
   # Test that the built artifacts are compatible and functional before creating the RC release
@@ -198,6 +183,14 @@ jobs:
     needs: [setup, prepare-release]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
 
       - name: Download Helm artifacts
         uses: actions/download-artifact@v4
@@ -229,3 +222,6 @@ jobs:
             contracts/zeto-abis.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
