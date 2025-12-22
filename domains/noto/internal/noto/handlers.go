@@ -125,6 +125,7 @@ func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedC
 }
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
+// Note that mint & burn uses a different function (this is only used for transfers)
 func (n *Noto) validateUnlockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
 	if len(inputs.lockedCoins) == 0 {
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)

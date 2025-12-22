@@ -72,7 +72,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed Transfer event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignatures[EventLockCreated]:
+	case eventSignatures[EventNotoLockCreated]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockCreated NotoLockCreated_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockCreated); err == nil {
@@ -88,7 +88,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed LockCreated event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignatures[EventLockUpdated]:
+	case eventSignatures[EventNotoLockUpdated]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockUpdated NotoLockUpdated_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockUpdated); err == nil {
@@ -97,7 +97,8 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, lockUpdated.TxId, txData.InfoStates, res)
-			res.ReadStates = append(res.ReadStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.LockedInputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.Outputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockUpdated event in batch %s: %s", req.BatchId, err)
 		}

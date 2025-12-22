@@ -255,20 +255,24 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "createLock"
-		params := &CreateLockParams{
-			Params: NotoCreateLockParams{
-				TxId:          req.Transaction.TransactionId,
-				Inputs:        endorsableStateIDs(inputs),
-				Outputs:       endorsableStateIDs(outputs),
-				LockedOutputs: endorsableStateIDs(lockedOutputs),
-				Proof:         lockSignature.Payload,
-				Options:       nil,
-			},
-			Data: data,
+		var notoLockOpEncoded []byte
+		notoLockOpEncoded, err = h.noto.encodeNotoLockOperation(ctx, &types.NotoLockOperation{
+			TxId:          req.Transaction.TransactionId,
+			Inputs:        endorsableStateIDs(inputs),
+			Outputs:       endorsableStateIDs(outputs),
+			LockedOutputs: endorsableStateIDs(lockedOutputs),
+			Proof:         lockSignature.Payload,
+		})
+		if err == nil {
+			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
+			functionName = "createLock"
+			params := &CreateLockParams{
+				CreateInputs: notoLockOpEncoded,
+				Params:       LockParams{},
+				Data:         data,
+			}
+			paramsJSON, err = json.Marshal(params)
 		}
-		paramsJSON, err = json.Marshal(params)
 	default:
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		functionName = "lock"

@@ -213,20 +213,25 @@ func TestLock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["createLock"])
+
+	// Decode the parameters
+	createLockABI := interfaceBuild.ABI.Functions()["createLock"]
+	expectedFunction := mustParseJSON(createLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
-	assert.JSONEq(t, fmt.Sprintf(`{
-		"params": {
-			"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-			"inputs": ["%s"],
-			"outputs": [],
-			"lockedOutputs": ["0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"],
-			"proof": "%s",
-			"options": "0x"
-		},
-		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000024cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f"
-	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
+
+	// Validate the parameters
+	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
+	require.Equal(t, LockParams{Options: []byte{}}, params.Params)
+	require.Equal(t, "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000024cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f", params.Data.String())
+	notoParams := decodeSingleABITuple[types.NotoLockOperation](t, types.NotoLockOperationABI, params.CreateInputs)
+	require.Equal(t, &types.NotoLockOperation{
+		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:        []string{inputCoin.ID.String()},
+		Outputs:       []string{},
+		LockedOutputs: []string{"0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"},
+		Proof:         signatureBytes,
+	}, notoParams)
 
 	var invokeFn abi.Entry
 	err = json.Unmarshal([]byte(prepareRes.Transaction.FunctionAbiJson), &invokeFn)

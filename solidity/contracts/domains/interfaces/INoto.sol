@@ -13,7 +13,8 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
     event NotoLockCreated(
         bytes32 txId,
-        address indexed operator,
+        bytes32 lockId,
+        address indexed owner,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes32[] lockedOutputs,
@@ -24,6 +25,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
     event NotoLockUpdated(
         bytes32 txId,
+        bytes32 lockId,
         address indexed operator,
         bytes32[] inputs,
         bytes32[] outputs,

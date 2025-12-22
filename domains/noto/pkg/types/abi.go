@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 //go:embed abis/INotoPrivate.json
@@ -154,4 +155,27 @@ type BalanceOfResult struct {
 	TotalBalance *pldtypes.HexUint256 `json:"totalBalance"`
 	TotalStates  *pldtypes.HexUint256 `json:"totalStates"`
 	Overflow     bool                 `json:"overflow"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.createLock() / ILockableCapability.updateLock()
+type NotoLockOperation struct {
+	TxId          string            `json:"txId"`
+	Inputs        []string          `json:"inputs"`
+	Outputs       []string          `json:"outputs"`
+	LockedOutputs []string          `json:"lockedOutputs"`
+	Proof         pldtypes.HexBytes `json:"proof"`
+}
+
+var NotoLockOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "lockedOutputs", Type: "bytes32[]"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
 }

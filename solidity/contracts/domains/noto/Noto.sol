@@ -370,6 +370,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
         emit NotoLockCreated(
             lockOp.txId,
+            lockId,
             msg.sender,
             lockOp.inputs,
             lockOp.outputs,
@@ -405,6 +406,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
         emit NotoLockUpdated(
             lockOp.txId,
+            lockId,
             msg.sender,
             lockOp.inputs,
             lockOp.outputs,

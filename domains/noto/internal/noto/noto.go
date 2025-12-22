@@ -74,12 +74,16 @@ var (
 )
 
 var (
+	// ILockableCapability standardized events
 	EventTransfer      = "Transfer"
-	EventLockCreated   = "LockCreated"
 	EventLockSpent     = "LockSpent"
 	EventLockCancelled = "LockCancelled"
 	EventLockUpdated   = "LockUpdated"
 	EventLockDelegated = "LockDelegated"
+
+	// Noto additional lock related events that include the transaction/UTXO details
+	EventNotoLockCreated = "NotoLockCreated"
+	EventNotoLockUpdated = "NotoLockUpdated"
 
 	// Old variant 0 events
 	EventNotoTransfer       = "NotoTransfer"
@@ -91,7 +95,7 @@ var (
 
 var allEvents = []string{
 	EventTransfer,
-	EventLockCreated,
+	EventNotoLockCreated,
 	EventLockSpent,
 	EventLockCancelled,
 	EventLockUpdated,
@@ -169,26 +173,17 @@ type NotoBurnParams struct {
 	Data    pldtypes.HexBytes `json:"data"`
 }
 
+// ILockableCapability.LockParams
+type LockParams struct {
+	SpendHash  pldtypes.Bytes32  `json:"spendHash"`
+	CancelHash pldtypes.Bytes32  `json:"cancelHash"`
+	Options    pldtypes.HexBytes `json:"options"`
+}
+
+// ILockableCapability.createLock()
 type CreateLockParams struct {
-	Params NotoCreateLockParams `json:"params"`
-	Data   pldtypes.HexBytes    `json:"data"`
-}
-
-type NotoCreateLockParams struct {
-	TxId          string            `json:"txId"`
-	Inputs        []string          `json:"inputs"`
-	Outputs       []string          `json:"outputs"`
-	LockedOutputs []string          `json:"lockedOutputs"`
-	Proof         pldtypes.HexBytes `json:"proof"`
-	Options       pldtypes.HexBytes `json:"options"`
-}
-
-type NotoSetLockOptionsParams struct {
-	TxId         string            `json:"txId"`
-	LockID       pldtypes.Bytes32  `json:"lockId"`
-	LockedInputs []string          `json:"lockedInputs"`
-	Options      pldtypes.HexBytes `json:"options"`
-	Proof        pldtypes.HexBytes `json:"proof"`
+	CreateInputs pldtypes.HexBytes `json:"createInputs"`
+	Params       LockParams        `json:"params"`
 	Data         pldtypes.HexBytes `json:"data"`
 }
 
@@ -269,11 +264,11 @@ type LockStates struct {
 	LockedOutputs []pldtypes.Bytes32 `json:"lockedOutputs"`
 }
 
+// INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock create
 type NotoLockCreated_Event struct {
 	TxId          pldtypes.Bytes32     `json:"txId"`
 	LockID        pldtypes.Bytes32     `json:"lockId"`
 	Owner         *pldtypes.EthAddress `json:"owner"`
-	Spender       *pldtypes.EthAddress `json:"spender"`
 	Inputs        []pldtypes.Bytes32   `json:"inputs"`
 	Outputs       []pldtypes.Bytes32   `json:"outputs"`
 	LockedOutputs []pldtypes.Bytes32   `json:"lockedOutputs"`
@@ -293,15 +288,18 @@ type NotoLockCancelled_Event struct {
 	Data    pldtypes.HexBytes    `json:"data"`
 }
 
+// INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock update
 type NotoLockUpdated_Event struct {
-	TxId         pldtypes.Bytes32     `json:"txId"`
-	LockID       pldtypes.Bytes32     `json:"lockId"`
-	Operator     *pldtypes.EthAddress `json:"operator"`
-	LockedInputs []pldtypes.Bytes32   `json:"lockedInputs"`
-	Proof        pldtypes.HexBytes    `json:"proof"`
-	Data         pldtypes.HexBytes    `json:"data"`
+	TxId     pldtypes.Bytes32     `json:"txId"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	Operator *pldtypes.EthAddress `json:"operator"`
+	Inputs   []pldtypes.Bytes32   `json:"inputs"`
+	Outputs  []pldtypes.Bytes32   `json:"outputs"`
+	Proof    pldtypes.HexBytes    `json:"proof"`
+	Data     pldtypes.HexBytes    `json:"data"`
 }
 
+// ILockableCapability.LockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
 	LockID pldtypes.Bytes32     `json:"lockId"`
 	From   *pldtypes.EthAddress `json:"from"`
@@ -951,6 +949,14 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 		}
 	}
 	return result, nil
+}
+
+func (n *Noto) encodeNotoLockOperation(ctx context.Context, lockOp *types.NotoLockOperation) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{lockOp})
+	if err == nil {
+		abiData, err = types.NotoLockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	return abiData, err
 }
 
 func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
