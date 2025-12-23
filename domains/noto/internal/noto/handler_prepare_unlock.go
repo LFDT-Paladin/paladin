@@ -142,7 +142,7 @@ func (h *prepareUnlockHandler) endorse_V0(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 
-	return h.endorse(ctx, tx, params, req, inputs, nil, outputs)
+	return h.endorse(ctx, tx, params, req, inputs, outputs, nil)
 }
 
 func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
@@ -174,11 +174,14 @@ func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTran
 	return h.endorse(ctx, tx, params, req, parsedInputs, parsedSpendOutputs, parsedCancelOutputs)
 }
 
-func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (_ *TransactionWrapper, err error) {
 	inParams := tx.Params.(*types.UnlockParams)
 	lockedInputs := h.noto.filterSchema(req.ReadStates, []string{h.noto.lockedCoinSchema.Id})
-	outputs, lockedOutputs := h.noto.splitStates(req.InfoStates)
-	spendOutputs, cancelOutputs, err := h.noto.splitUnlockOutputs(ctx, outputs)
+	spendOutputs, lockedOutputs := h.noto.splitStates(req.InfoStates)
+	var cancelOutputs []*prototk.EndorsableState
+	if !tx.DomainConfig.IsV0() {
+		spendOutputs, cancelOutputs, err = h.noto.splitUnlockOutputs(ctx, spendOutputs)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +189,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	// As of V1 the spentTxId is in the lock state
 	var spendTxId pldtypes.Bytes32
 	if !tx.DomainConfig.IsV0() {
-		lockInfoStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchemaV0.Id})
+		lockInfoStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchemaV1.Id})
 		if len(lockInfoStates) > 0 {
 			lock, err := h.noto.unmarshalLockV1(lockInfoStates[0].StateDataJson)
 			if err == nil {

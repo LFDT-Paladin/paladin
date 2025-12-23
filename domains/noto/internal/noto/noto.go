@@ -96,6 +96,7 @@ var (
 var allEvents = []string{
 	EventTransfer,
 	EventNotoLockCreated,
+	EventNotoLockUpdated,
 	EventNotoLockSpent,
 	EventNotoLockCancelled,
 	EventLockUpdated,
@@ -1276,9 +1277,12 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	return pldtypes.Bytes32Keccak(encoded), nil
 }
 
-func (n *Noto) extractLockInfo(ctx context.Context, infoStates []*prototk.EndorsableState) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
+func (n *Noto) extractLockInfo(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
 	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
 	if len(lockStates) != 1 {
+		if !required {
+			return nil, nil, nil, nil
+		}
 		return nil, nil, nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 	}
 	state := lockStates[0]

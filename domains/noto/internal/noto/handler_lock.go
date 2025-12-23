@@ -337,7 +337,7 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 }
 
 func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	lockID, _, _, err := h.noto.extractLockInfo(ctx, req.InfoStates)
+	lockID, _, _, err := h.noto.extractLockInfo(ctx, req.InfoStates, true)
 	if err != nil {
 		return nil, err
 	}
