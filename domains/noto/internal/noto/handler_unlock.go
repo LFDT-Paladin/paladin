@@ -420,7 +420,7 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(lockedInputs),
 			Outputs: endorsableStateIDs(outputs),
-			Data:    inParams.Data,
+			Data:    txData,
 			Proof:   unlockSignature.Payload,
 		})
 		if err == nil {
