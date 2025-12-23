@@ -6,6 +6,7 @@ import {
   createLockOptions,
   deployNotoInstance,
   doLock,
+  encodeDelegateLockParams,
   encodeLockParams,
   encodeUnlockParams,
   fakeTXO,
@@ -132,12 +133,9 @@ describe("Atom", function () {
     const delegateTxId = randomBytes32();
     const delegateLockParams = {
       txId: delegateTxId,
-      data: "0x",
+      proof: "0x",
     };
-    const encodedDelegateParams = ethers.AbiCoder.defaultAbiCoder().encode(
-      ["bytes32"],
-      [delegateLockParams.txId]
-    );
+    const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);
     await noto.connect(notary1).delegateLock(lockId, encodedDelegateParams, atomAddr, '0x');
     await erc20.approve(atomAddr, 1000);
 

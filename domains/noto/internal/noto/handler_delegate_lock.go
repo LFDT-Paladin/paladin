@@ -105,7 +105,7 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	infoStates = append(infoStates, lockState)
 
 	// This approval may leak the requesting signature on-chain, as all the inputs are visible on-chain
-	// TODO: possibly we should be signing a different payload here
+	// TODO: need to include the spend of the UTXO state for the lock in this as that masks the delegate
 	encodedApproval, err := h.noto.encodeDelegateLock(ctx, tx.ContractAddress, params.LockID, params.Delegate, params.Data)
 	if err != nil {
 		return nil, err
@@ -193,25 +193,12 @@ func (h *delegateLockHandler) Endorse(ctx context.Context, tx *types.ParsedTrans
 func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
 	inParams := tx.Params.(*types.DelegateLockParams)
 
-	sender := domain.FindAttestation("sender", req.AttestationResult)
-	if sender == nil {
+	signature := domain.FindAttestation("sender", req.AttestationResult)
+	if signature == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
 	txData, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates)
-	if err != nil {
-		return nil, err
-	}
-
-	delegateLockData := DelegateLockDataStrings{
-		TxId: pldtypes.MustParseBytes32(req.Transaction.TransactionId).String(),
-		Data: txData,
-	}
-	delegateLockDataJSON, err := json.Marshal(delegateLockData)
-	if err != nil {
-		return nil, err
-	}
-	delegateLockDataEncoded, err := DelegateLockDataABI.EncodeABIDataJSONCtx(ctx, delegateLockDataJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -223,12 +210,21 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 	if tx.DomainConfig.IsV1() {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 		functionName = "delegateLock"
-		params := &NotoDelegateLockParams{
-			LockID:     inParams.LockID,
-			NewSpender: inParams.Delegate,
-			Data:       delegateLockDataEncoded,
+
+		var delegateInputsEncoded pldtypes.HexBytes
+		delegateInputsEncoded, err = h.noto.encodeNotoDelegateOperation(ctx, &types.NotoDelegateOperation{
+			TxId:  req.Transaction.TransactionId,
+			Proof: signature.Payload,
+		})
+		if err == nil {
+			params := &DelegateLockParams{
+				LockID:         inParams.LockID,
+				DelegateInputs: delegateInputsEncoded,
+				NewSpender:     inParams.Delegate,
+				Data:           txData,
+			}
+			paramsJSON, err = json.Marshal(params)
 		}
-		paramsJSON, err = json.Marshal(params)
 	} else {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		functionName = "delegateLock"
@@ -243,7 +239,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 			TxId:       req.Transaction.TransactionId,
 			UnlockHash: &unlockHashBytes32,
 			Delegate:   inParams.Delegate,
-			Signature:  sender.Payload,
+			Signature:  signature.Payload,
 			Data:       txData,
 		}
 		paramsJSON, err = json.Marshal(params)

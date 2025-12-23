@@ -596,6 +596,15 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         lock.spender = newSpender;
 
         emit LockDelegated(lockId, previousSpender, newSpender, data);
+
+        emit NotoLockDelegated(
+            delegateOp.txId,
+            lockId,
+            previousSpender,
+            newSpender,
+            delegateOp.proof,
+            data
+        );
     }
 
     /**

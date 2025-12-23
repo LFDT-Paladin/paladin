@@ -224,10 +224,11 @@ var UpdateLockParamsABI = &abi.ParameterArray{
 	{Name: "options", Type: "bytes"},
 }
 
-type NotoDelegateLockParams struct {
-	LockID     pldtypes.Bytes32     `json:"lockId"`
-	NewSpender *pldtypes.EthAddress `json:"newSpender"`
-	Data       pldtypes.HexBytes    `json:"data"`
+type DelegateLockParams struct {
+	LockID         pldtypes.Bytes32     `json:"lockId"`
+	DelegateInputs pldtypes.HexBytes    `json:"delegateInputs"`
+	NewSpender     *pldtypes.EthAddress `json:"newSpender"`
+	Data           pldtypes.HexBytes    `json:"data"`
 }
 
 type DelegateLockData struct {
@@ -295,11 +296,13 @@ type NotoLockUpdated_Event struct {
 	Data     pldtypes.HexBytes    `json:"data"`
 }
 
-// ILockableCapability.LockDelegated event JSON schema
+// INoto.LockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
+	TxId   pldtypes.Bytes32     `json:"txId"`
 	LockID pldtypes.Bytes32     `json:"lockId"`
 	From   *pldtypes.EthAddress `json:"from"`
 	To     *pldtypes.EthAddress `json:"to"`
+	Proof  pldtypes.HexBytes    `json:"proof"`
 	Data   pldtypes.HexBytes    `json:"data"`
 }
 
@@ -1304,6 +1307,14 @@ func (n *Noto) encodeNotoLockOptions(ctx context.Context, notoLockOptions *types
 	lockOptionsJSON, err := json.Marshal([]any{notoLockOptions})
 	if err == nil {
 		encoded, err = types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+	}
+	return encoded, err
+}
+
+func (n *Noto) encodeNotoDelegateOperation(ctx context.Context, notoDelegateOp *types.NotoDelegateOperation) (encoded pldtypes.HexBytes, err error) {
+	lockOptionsJSON, err := json.Marshal([]any{notoDelegateOp})
+	if err == nil {
+		encoded, err = types.NotoDelegateOperationABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
 	}
 	return encoded, err
 }

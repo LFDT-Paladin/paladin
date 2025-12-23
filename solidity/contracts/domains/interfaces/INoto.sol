@@ -12,9 +12,9 @@ interface INoto is IConfidentialToken, ILockableCapability {
 
     // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
     event NotoLockCreated(
-        bytes32 txId,
-        bytes32 lockId,
-        address indexed owner,
+        bytes32 indexed txId,
+        bytes32 indexed lockId,
+        address owner,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes32[] lockedOutputs,
@@ -24,8 +24,8 @@ interface INoto is IConfidentialToken, ILockableCapability {
 
     // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
     event NotoLockUpdated(
-        bytes32 txId,
-        bytes32 lockId,
+        bytes32 indexed txId,
+        bytes32 indexed lockId,
         address indexed operator,
         bytes32[] inputs,
         bytes32[] outputs,
@@ -36,9 +36,9 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The Noto event for spending of a lock, contains the inputs, outputs and data.
     // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
     event NotoLockSpent(
-        bytes32 txId,
-        bytes32 lockId,
-        address spender,
+        bytes32 indexed txId,
+        bytes32 indexed lockId,
+        address indexed spender,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes txData,
@@ -49,9 +49,9 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The Noto event for cancelling a lock, contains the inputs, outputs and data.
     // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
     event NotoLockCancelled(
-        bytes32 txId,
-        bytes32 lockId,
-        address spender,
+        bytes32 indexed txId,
+        bytes32 indexed lockId,
+        address indexed spender,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes txData,
@@ -59,6 +59,15 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
+    // The Noto event for delegating the lock, including the txId and proof
+    event NotoLockDelegated(
+        bytes32 indexed txId,
+        bytes32 indexed lockId,
+        address indexed from,
+        address to,
+        bytes proof,
+        bytes data
+    );
 
     // The structure definition for a Noto lock operation, which defines
     // the inputs that will be turned into lockedOutputs.
@@ -87,6 +96,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The structure definition for a Noto delegate operation
     struct NotoDelegateOperation {
         bytes32 txId;
+        bytes proof;
     }
 
     // The structure definition for Noto options within a LockInfo

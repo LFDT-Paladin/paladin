@@ -139,26 +139,11 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockDelegated NotoLockDelegated_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockDelegated); err == nil {
-			delegateLockDataValue, err := DelegateLockDataABI.DecodeABIDataCtx(ctx, lockDelegated.Data, 0)
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockDelegated event with malformed DelegateLockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			delegateLockDataJSON, err := delegateLockDataValue.JSON()
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockDelegated event with malformed DelegateLockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			var delegateLockData DelegateLockData
-			if err := json.Unmarshal(delegateLockDataJSON, &delegateLockData); err != nil {
-				log.L(ctx).Warnf("Ignoring LockDelegated event with malformed DelegateLockData in batch %s: %s", req.BatchId, err)
-				break
-			}
 			txData, err := n.decodeTransactionDataV1(ctx, lockDelegated.Data)
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, delegateLockData.TxId, txData.InfoStates, res)
+			n.recordTransactionInfo(ev, lockDelegated.TxId, txData.InfoStates, res)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockDelegated event in batch %s: %s", req.BatchId, err)
 		}
