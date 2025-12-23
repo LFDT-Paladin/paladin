@@ -452,9 +452,9 @@ func (s *notoTestSuite) testNotoLock(version string) {
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo)
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams)
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"])
-	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockTxId)
-	assert.Equal(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"], prepareUnlockReceipt.LockInfo.UnlockTxId.HexString0xPrefix())
-	unlockTXID := pldtypes.MustParseBytes32(prepareUnlockReceipt.LockInfo.UnlockTxId.HexString0xPrefix()).UUIDFirst16()
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.SpendTxId)
+	assert.Equal(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"], prepareUnlockReceipt.LockInfo.SpendTxId.HexString0xPrefix())
+	unlockTXID := pldtypes.MustParseBytes32(prepareUnlockReceipt.LockInfo.SpendTxId.HexString0xPrefix()).UUIDFirst16()
 
 	log.L(ctx).Infof("Delegate lock to recipient2")
 	delegateLockParams := &types.DelegateLockParams{

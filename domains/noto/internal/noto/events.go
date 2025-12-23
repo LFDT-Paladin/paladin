@@ -103,32 +103,17 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed LockUpdated event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignatures[EventLockSpent]:
+	case eventSignatures[EventNotoLockSpent], eventSignatures[EventNotoLockCancelled]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
-		var lockSpent NotoLockSpent_Event
+		var lockSpent NotoLockSpentOrCancelled_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockSpent); err == nil {
-			unlockDataValue, err := UnlockDataABI.DecodeABIDataCtx(ctx, lockSpent.Data, 0)
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockSpent event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			unlockDataJSON, err := unlockDataValue.JSON()
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockSpent event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			var unlockData UnlockData
-			if err := json.Unmarshal(unlockDataJSON, &unlockData); err != nil {
-				log.L(ctx).Warnf("Ignoring LockSpent event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			txData, err := n.decodeTransactionDataV1(ctx, unlockData.Data)
+			txData, err := n.decodeTransactionDataV1(ctx, lockSpent.TxData)
 			if err != nil {
 				return err
 			}
-			n.recordTransactionInfo(ev, unlockData.TxId, txData.InfoStates, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlockData.TxId, unlockData.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlockData.TxId, unlockData.Outputs)...)
+			n.recordTransactionInfo(ev, lockSpent.TxId, txData.InfoStates, res)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Outputs)...)
 
 			if req.ContractInfo != nil {
 				var domainConfig *types.NotoParsedConfig
@@ -139,63 +124,15 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				if domainConfig.IsNotary &&
 					domainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
 					!domainConfig.Options.Hooks.PublicAddress.Equals(lockSpent.Spender) {
-					err = n.handleNotaryPrivateUnlockV1(ctx, req.StateQueryContext, domainConfig, lockSpent.LockID, lockSpent.Spender, &unlockData)
+					err = n.handleNotaryPrivateUnlockV1(ctx, req.StateQueryContext, domainConfig, &lockSpent)
 					if err != nil {
-						log.L(ctx).Errorf("Failed to handle LockSpent event in batch %s: %s", req.BatchId, err)
+						log.L(ctx).Errorf("Failed to handle %s event in batch %s: %s", ev.SoliditySignature, req.BatchId, err)
 						return err
 					}
 				}
 			}
 		} else {
-			log.L(ctx).Warnf("Ignoring malformed LockSpent event in batch %s: %s", req.BatchId, err)
-		}
-
-	case eventSignatures[EventLockCancelled]:
-		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
-		var lockCancelled NotoLockCancelled_Event
-		if err := json.Unmarshal([]byte(ev.DataJson), &lockCancelled); err == nil {
-			unlockDataValue, err := UnlockDataABI.DecodeABIDataCtx(ctx, lockCancelled.Data, 0)
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockCancelled event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			unlockDataJSON, err := unlockDataValue.JSON()
-			if err != nil {
-				log.L(ctx).Warnf("Ignoring LockCancelled event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			var unlockData UnlockData
-			if err := json.Unmarshal(unlockDataJSON, &unlockData); err != nil {
-				log.L(ctx).Warnf("Ignoring LockCancelled event with malformed UnlockData in batch %s: %s", req.BatchId, err)
-				break
-			}
-			txData, err := n.decodeTransactionDataV1(ctx, unlockData.Data)
-			if err != nil {
-				return err
-			}
-			n.recordTransactionInfo(ev, unlockData.TxId, txData.InfoStates, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(unlockData.TxId, unlockData.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(unlockData.TxId, unlockData.Outputs)...)
-
-			if req.ContractInfo != nil {
-				var domainConfig *types.NotoParsedConfig
-				err = json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)
-				if err != nil {
-					return err
-				}
-				if domainConfig.IsNotary &&
-					domainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
-					!domainConfig.Options.Hooks.PublicAddress.Equals(lockCancelled.Spender) {
-					err = n.handleNotaryPrivateUnlockV1(ctx, req.StateQueryContext, domainConfig, lockCancelled.LockID, lockCancelled.Spender, &unlockData)
-					if err != nil {
-						// Should all errors cause retry?
-						log.L(ctx).Errorf("Failed to handle LockCancelled event in batch %s: %s", req.BatchId, err)
-						return err
-					}
-				}
-			}
-		} else {
-			log.L(ctx).Warnf("Ignoring malformed LockCancelled event in batch %s: %s", req.BatchId, err)
+			log.L(ctx).Warnf("Ignoring malformed %s event in batch %s: %s", ev.SoliditySignature, req.BatchId, err)
 		}
 
 	case eventSignatures[EventLockDelegated]:
@@ -301,9 +238,9 @@ func (n *Noto) handleNotaryPrivateUnlock(ctx context.Context, stateQueryContext 
 	return err
 }
 
-func (n *Noto) handleNotaryPrivateUnlockV1(ctx context.Context, stateQueryContext string, domainConfig *types.NotoParsedConfig, lockID pldtypes.Bytes32, spender *pldtypes.EthAddress, unlockData *UnlockData) error {
+func (n *Noto) handleNotaryPrivateUnlockV1(ctx context.Context, stateQueryContext string, domainConfig *types.NotoParsedConfig, unlockEvent *NotoLockSpentOrCancelled_Event) error {
 	// V1: lockId is in the event
-	return n.handleNotaryPrivateUnlock(ctx, stateQueryContext, domainConfig, unlockData.Inputs, unlockData.Outputs, spender, unlockData.Data, lockID)
+	return n.handleNotaryPrivateUnlock(ctx, stateQueryContext, domainConfig, unlockEvent.Inputs, unlockEvent.Outputs, unlockEvent.Spender, unlockEvent.TxData, unlockEvent.LockID)
 }
 
 func (n *Noto) parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.Bytes32) []*prototk.StateUpdate {

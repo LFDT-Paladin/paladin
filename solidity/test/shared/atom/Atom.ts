@@ -65,6 +65,7 @@ describe("Atom", function () {
       inputs: [f1txo1, f1txo2],
       outputs: [f1txo3, f1txo4],
       data: f1TxData,
+      proof: '0x',
     };
     const encodedParams = encodeUnlockParams(unlockParams);
     const spendHash = await newUnlockHash(

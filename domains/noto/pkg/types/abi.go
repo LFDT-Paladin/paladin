@@ -166,6 +166,15 @@ type NotoLockOperation struct {
 	Proof         pldtypes.HexBytes `json:"proof"`
 }
 
+// Encoded params for Noto implementation of ILockableCapability.spendLock() / ILockableCapability.cancelLock()
+type NotoUnlockOperation struct {
+	TxId    string            `json:"txId"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Data    pldtypes.HexBytes `json:"data"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+}
+
 var NotoLockOperationABI = abi.ParameterArray{
 	{
 		Type:         "tuple",
@@ -175,6 +184,20 @@ var NotoLockOperationABI = abi.ParameterArray{
 			{Name: "inputs", Type: "bytes32[]"},
 			{Name: "outputs", Type: "bytes32[]"},
 			{Name: "lockedOutputs", Type: "bytes32[]"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
+var NotoUnlockOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "data", Type: "bytes"},
 			{Name: "proof", Type: "bytes"},
 		},
 	},

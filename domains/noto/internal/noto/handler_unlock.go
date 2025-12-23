@@ -415,27 +415,22 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 	case types.NotoVariantDefault:
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 		functionName = "spendLock"
-		unlockParams := &UnlockDataStrings{
+		var notoUnlockOpEncoded []byte
+		notoUnlockOpEncoded, err = h.noto.encodeNotoUnlockOperation(ctx, &types.NotoUnlockOperation{
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(lockedInputs),
 			Outputs: endorsableStateIDs(outputs),
-			Data:    txData,
+			Data:    inParams.Data,
+			Proof:   unlockSignature.Payload,
+		})
+		if err == nil {
+			params := &SpendLockParams{
+				LockID:      inParams.LockID,
+				SpendInputs: notoUnlockOpEncoded,
+				Data:        []byte{}, // we don't need this outer data
+			}
+			paramsJSON, err = json.Marshal(params)
 		}
-		var unlockParamsJSON []byte
-		unlockParamsJSON, err = json.Marshal(unlockParams)
-		if err != nil {
-			return nil, err
-		}
-		var unlockParamsEncoded []byte
-		unlockParamsEncoded, err = UnlockDataABI.EncodeABIDataJSONCtx(ctx, unlockParamsJSON)
-		if err != nil {
-			return nil, err
-		}
-		params := &types.SpendLockPublicParams{
-			LockID: inParams.LockID,
-			Data:   unlockParamsEncoded,
-		}
-		paramsJSON, err = json.Marshal(params)
 	default:
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		functionName = "unlock"

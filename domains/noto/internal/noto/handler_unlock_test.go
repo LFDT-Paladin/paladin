@@ -227,17 +227,32 @@ func TestUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["spendLock"])
+
+	// Decode the parameters
+	spendLockABI := interfaceBuild.ABI.Functions()["spendLock"]
+	expectedFunction := mustParseJSON(spendLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Verify base invoke params
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
-	assert.Nil(t, prepareRes.Transaction.ContractAddress)
-	assert.JSONEq(t, fmt.Sprintf(`{	
-		"lockId": "%s",
-		"data": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000001e532ee16774660fceb6c941725d6045939d34263ce81cd17266e910ac0ec5277000000000000000000000000000000000000000000000000000000000000000126b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945000000000000000000000000000000000000000000000000000000000000008400020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000024cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d69101a0740ec8096b83653600fa7553d676fc92bcc6e203c3572d2cac4f1db2f00000000000000000000000000000000000000000000000000000000"
-	}`, lockID), prepareRes.Transaction.ParamsJson)
+	params := decodeFnParams[SpendLockParams](t, spendLockABI, prepareRes.Transaction.ParamsJson)
+	require.Equal(t, lockID, params.LockID)
+	require.Empty(t, params.Data /* outer data not used */)
+
+	// Validate the parameters
+	notoParams := decodeSingleABITuple[types.NotoUnlockOperation](t, types.NotoLockOperationABI, params.SpendInputs)
+	require.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", notoParams.TxId)
+	require.Equal(t, []string{inputCoin.ID.String()}, notoParams.Inputs)
+	require.Empty(t, []string{"0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"}, notoParams.Outputs)
+	require.Equal(t, signatureBytes, notoParams.Proof)
+	data, err := n.decodeTransactionDataV1(ctx, notoParams.Data)
+	require.NoError(t, err)
+	require.Equal(t, &types.NotoTransactionData_V1{
+		InfoStates: []pldtypes.Bytes32{
+			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
+			pldtypes.MustParseBytes32("0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F"),
+		},
+	}, data)
 
 	var invokeFn abi.Entry
 	err = json.Unmarshal([]byte(prepareRes.Transaction.FunctionAbiJson), &invokeFn)

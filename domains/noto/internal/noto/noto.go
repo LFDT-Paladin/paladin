@@ -76,14 +76,14 @@ var (
 var (
 	// ILockableCapability standardized events
 	EventTransfer      = "Transfer"
-	EventLockSpent     = "LockSpent"
-	EventLockCancelled = "LockCancelled"
 	EventLockUpdated   = "LockUpdated"
 	EventLockDelegated = "LockDelegated"
 
 	// Noto additional lock related events that include the transaction/UTXO details
-	EventNotoLockCreated = "NotoLockCreated"
-	EventNotoLockUpdated = "NotoLockUpdated"
+	EventNotoLockCreated   = "NotoLockCreated"
+	EventNotoLockUpdated   = "NotoLockUpdated"
+	EventNotoLockSpent     = "NotoLockSpent"
+	EventNotoLockCancelled = "NotoLockCancelled"
 
 	// Old variant 0 events
 	EventNotoTransfer       = "NotoTransfer"
@@ -96,8 +96,8 @@ var (
 var allEvents = []string{
 	EventTransfer,
 	EventNotoLockCreated,
-	EventLockSpent,
-	EventLockCancelled,
+	EventNotoLockSpent,
+	EventNotoLockCancelled,
 	EventLockUpdated,
 	EventLockDelegated,
 }
@@ -195,6 +195,20 @@ type UpdateLockParams struct {
 	Data         pldtypes.HexBytes `json:"data"`
 }
 
+// ILockableCapability.spendLock()
+type SpendLockParams struct {
+	LockID      pldtypes.Bytes32  `json:"lockId"`
+	SpendInputs pldtypes.HexBytes `json:"spendInputs"`
+	Data        pldtypes.HexBytes `json:"data"`
+}
+
+// ILockableCapability.cancelLock()
+type CancelLockParams struct {
+	LockID       pldtypes.Bytes32  `json:"lockId"`
+	CancelInputs pldtypes.HexBytes `json:"cancelInputs"`
+	Data         pldtypes.HexBytes `json:"data"`
+}
+
 type NotoUpdateLockParams struct {
 	TxId         string            `json:"txId"`
 	LockedInputs []string          `json:"lockedInputs"`
@@ -230,27 +244,6 @@ var DelegateLockDataABI = &abi.ParameterArray{
 	{Name: "data", Type: "bytes"},
 }
 
-type UnlockData struct {
-	TxId    pldtypes.Bytes32   `json:"txId"`
-	Inputs  []pldtypes.Bytes32 `json:"inputs"`
-	Outputs []pldtypes.Bytes32 `json:"outputs"`
-	Data    pldtypes.HexBytes  `json:"data"`
-}
-
-type UnlockDataStrings struct {
-	TxId    string            `json:"txId"`
-	Inputs  []string          `json:"inputs"`
-	Outputs []string          `json:"outputs"`
-	Data    pldtypes.HexBytes `json:"data"`
-}
-
-var UnlockDataABI = &abi.ParameterArray{
-	{Name: "txId", Type: "bytes32"},
-	{Name: "inputs", Type: "bytes32[]"},
-	{Name: "outputs", Type: "bytes32[]"},
-	{Name: "data", Type: "bytes"},
-}
-
 type NotoTransfer_Event struct {
 	TxId     pldtypes.Bytes32     `json:"txId"`
 	Operator *pldtypes.EthAddress `json:"operator"`
@@ -278,15 +271,15 @@ type NotoLockCreated_Event struct {
 	Data          pldtypes.HexBytes    `json:"data"`
 }
 
-type NotoLockSpent_Event struct {
+// INoto.NotoLockSpent and INoto.NotoLockCancelled event JSON schema
+type NotoLockSpentOrCancelled_Event struct {
+	TxId    pldtypes.Bytes32     `json:"txId"`
 	LockID  pldtypes.Bytes32     `json:"lockId"`
 	Spender *pldtypes.EthAddress `json:"spender"`
-	Data    pldtypes.HexBytes    `json:"data"`
-}
-
-type NotoLockCancelled_Event struct {
-	LockID  pldtypes.Bytes32     `json:"lockId"`
-	Spender *pldtypes.EthAddress `json:"spender"`
+	Inputs  []pldtypes.Bytes32   `json:"inputs"`
+	Outputs []pldtypes.Bytes32   `json:"outputs"`
+	TxData  pldtypes.HexBytes    `json:"txData"`
+	Proof   pldtypes.HexBytes    `json:"proof"`
 	Data    pldtypes.HexBytes    `json:"data"`
 }
 
@@ -957,6 +950,14 @@ func (n *Noto) encodeNotoLockOperation(ctx context.Context, lockOp *types.NotoLo
 	dataJSON, err := json.Marshal([]any{lockOp})
 	if err == nil {
 		abiData, err = types.NotoLockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	return abiData, err
+}
+
+func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, unlockOp *types.NotoUnlockOperation) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{unlockOp})
+	if err == nil {
+		abiData, err = types.NotoUnlockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
 	}
 	return abiData, err
 }

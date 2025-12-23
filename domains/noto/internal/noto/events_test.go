@@ -296,22 +296,18 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 	lockedInput := pldtypes.RandBytes32()
 	output := pldtypes.RandBytes32()
 	spender := (*pldtypes.EthAddress)(pldtypes.RandAddress())
+	outerData := pldtypes.RandHex(32)
+	proof := pldtypes.RandHex(32)
 
-	unlockParams := &UnlockData{
+	event := &NotoLockSpentOrCancelled_Event{
 		TxId:    txId,
-		Inputs:  []pldtypes.Bytes32{lockedInput},
-		Outputs: []pldtypes.Bytes32{output},
-		Data:    sampleV1Data(t, n),
-	}
-	unlockParamsJSON, err := json.Marshal(unlockParams)
-	require.NoError(t, err)
-	unlockParamsEncoded, err := UnlockDataABI.EncodeABIDataJSONCtx(ctx, unlockParamsJSON)
-	require.NoError(t, err)
-
-	event := &NotoLockSpent_Event{
 		LockID:  lockId,
 		Spender: spender,
-		Data:    pldtypes.HexBytes(unlockParamsEncoded),
+		Inputs:  []pldtypes.Bytes32{lockedInput},
+		Outputs: []pldtypes.Bytes32{output},
+		TxData:  sampleV1Data(t, n),
+		Proof:   pldtypes.HexBytes(proof),
+		Data:    pldtypes.HexBytes(outerData),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -319,7 +315,7 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 	req := &prototk.HandleEventBatchRequest{
 		Events: []*prototk.OnChainEvent{
 			{
-				SoliditySignature: eventSignatures[EventLockSpent],
+				SoliditySignature: eventSignatures[EventNotoLockSpent],
 				DataJson:          string(notoEventJson),
 			},
 		},

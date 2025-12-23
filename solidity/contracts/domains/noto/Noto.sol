@@ -478,8 +478,19 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes calldata data
     ) external override lockActive(lockId) onlySpender(lockId) {
         LockInfo storage lock = _locks[lockId];
-        _spendLock(lockId, lock.spendHash, spendInputs);
+        NotoUnlockOperation memory unlockOp = abi.decode(spendInputs, (NotoUnlockOperation));
+        _spendLock(lockId, lock.spendHash, unlockOp);
         emit LockSpent(lockId, msg.sender, data);
+        emit NotoLockSpent(
+            unlockOp.txId,
+            lockId,
+            msg.sender,
+            unlockOp.inputs,
+            unlockOp.outputs,
+            unlockOp.data,
+            unlockOp.proof,
+            data
+        );        
     }
 
     /**
@@ -499,17 +510,27 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes calldata data
     ) external override lockActive(lockId) onlySpender(lockId) {
         LockInfo storage lock = _locks[lockId];
-        _spendLock(lockId, lock.cancelHash, cancelInputs);
+        NotoUnlockOperation memory unlockOp = abi.decode(cancelInputs, (NotoUnlockOperation));
+        _spendLock(lockId, lock.cancelHash, unlockOp);
         emit LockCancelled(lockId, msg.sender, data);
+        emit NotoLockCancelled(
+            unlockOp.txId,
+            lockId,
+            msg.sender,
+            unlockOp.inputs,
+            unlockOp.outputs,
+            unlockOp.data,
+            unlockOp.proof,
+            data
+        );
     }
 
     function _spendLock(
         bytes32 lockId,
         bytes32 expectedHash,
-        bytes calldata encodedOperation
+        NotoUnlockOperation memory unlockOp
     ) internal {
         LockInfo storage lock = _locks[lockId];
-        NotoUnlockOperation memory unlockOp = abi.decode(encodedOperation, (NotoUnlockOperation));
         NotoLockOptions memory options;
         if (lock.options.length > 0) {
             options = abi.decode(lock.options, (NotoLockOptions));

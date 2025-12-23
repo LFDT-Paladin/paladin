@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { randomBytes } from "crypto";
-import { BytesLike, isBytesLike, Signer, TypedDataEncoder, ZeroHash } from "ethers";
+import { BytesLike, Signer, TypedDataEncoder } from "ethers";
 import hre, { ethers } from "hardhat";
 import { ILockableCapability, Noto, NotoFactory } from "../../../typechain-types";
 
@@ -17,6 +17,7 @@ export interface NotoUnlockOperation {
   inputs: BytesLike[];
   outputs: BytesLike[];
   data: BytesLike;
+  proof: BytesLike;
 }
 
 export async function newUnlockHash(
@@ -151,12 +152,13 @@ export function encodeLockParams(lockOp: NotoLockOperation): BytesLike {
 
 export function encodeUnlockParams(unlockOp: NotoUnlockOperation): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
-    ["tuple(bytes32,bytes32[],bytes32[],bytes)"], [
+    ["tuple(bytes32,bytes32[],bytes32[],bytes,bytes)"], [
     [
       unlockOp.txId,
       unlockOp.inputs,
       unlockOp.outputs,
       unlockOp.data,
+      unlockOp.proof,
     ]
   ])  
 }
@@ -230,17 +232,34 @@ export async function doUnlock(
     inputs: lockedInputs,
     outputs,
     data,
+    proof: '0x',
   });
-  const tx = await noto.connect(sender).spendLock(lockId, encodedParams, data);
+  const outerData = randomBytes32();
+  const tx = await noto.connect(sender).spendLock(lockId, encodedParams, outerData);
   const results = await tx.wait();
   expect(results).to.exist;
 
-  for (const log of results?.logs || []) {
-    const event = noto.interface.parseLog(log);
-    expect(event).to.exist;
-    expect(event?.name).to.equal("LockSpent");
-    expect(event?.args.lockId).to.equal(lockId);
-  }
+  expect(results?.logs.length).to.equal(2);
+
+  const event0 = noto.interface.parseLog(results!.logs[0]);
+  expect(event0).to.exist;
+  expect(event0?.name).to.equal("LockSpent");
+  expect(event0?.args.lockId).to.equal(lockId);
+  expect(event0?.args.spender).to.equal(await sender.getAddress());
+  expect(event0?.args.data).to.equal(outerData);
+
+  const event1 = noto.interface.parseLog(results!.logs[1]);
+  expect(event1).to.exist;
+  expect(event1?.name).to.equal("NotoLockSpent");
+  expect(event1?.args.txId).to.equal(txId);
+  expect(event1?.args.lockId).to.equal(lockId);
+  expect(event1?.args.spender).to.equal(await sender.getAddress());
+  expect(event1?.args.inputs).to.deep.equal(lockedInputs);
+  expect(event1?.args.outputs).to.deep.equal(outputs);
+  expect(event1?.args.proof).to.equal('0x');
+  expect(event1?.args.txData).to.equal(data);
+  expect(event1?.args.data).to.equal(outerData);
+
   for (const input of lockedInputs) {
     expect(await noto.getLockId(input)).to.equal(
       "0x0000000000000000000000000000000000000000000000000000000000000000"

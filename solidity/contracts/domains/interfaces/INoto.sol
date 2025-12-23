@@ -33,6 +33,33 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
+    // The Noto event for spending of a lock, contains the inputs, outputs and data.
+    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
+    event NotoLockSpent(
+        bytes32 txId,
+        bytes32 lockId,
+        address spender,
+        bytes32[] inputs,
+        bytes32[] outputs,
+        bytes txData,
+        bytes proof,
+        bytes data
+    );
+
+    // The Noto event for cancelling a lock, contains the inputs, outputs and data.
+    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
+    event NotoLockCancelled(
+        bytes32 txId,
+        bytes32 lockId,
+        address spender,
+        bytes32[] inputs,
+        bytes32[] outputs,
+        bytes txData,
+        bytes proof,
+        bytes data
+    );
+
+
     // The structure definition for a Noto lock operation, which defines
     // the inputs that will be turned into lockedOutputs.
     // The same input is used for both createLock and updateLock, however the updateLock
@@ -54,6 +81,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes32[] inputs;
         bytes32[] outputs;
         bytes data; // this is the inner-data of the prepared transaction (not the unlock)
+        bytes proof; // does not contribute to the hash
     }
 
     // The structure definition for a Noto delegate operation
