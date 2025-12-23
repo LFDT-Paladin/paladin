@@ -287,13 +287,14 @@ type NotoLockSpentOrCancelled_Event struct {
 
 // INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock update
 type NotoLockUpdated_Event struct {
-	TxId     pldtypes.Bytes32     `json:"txId"`
-	LockID   pldtypes.Bytes32     `json:"lockId"`
-	Operator *pldtypes.EthAddress `json:"operator"`
-	Inputs   []pldtypes.Bytes32   `json:"inputs"`
-	Outputs  []pldtypes.Bytes32   `json:"outputs"`
-	Proof    pldtypes.HexBytes    `json:"proof"`
-	Data     pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Operator     *pldtypes.EthAddress `json:"operator"`
+	LockContents []pldtypes.Bytes32   `json:"lockContents"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.LockDelegated event JSON schema
@@ -958,10 +959,14 @@ func (n *Noto) encodeNotoLockOperation(ctx context.Context, lockOp *types.NotoLo
 	return abiData, err
 }
 
-func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, unlockOp *types.NotoUnlockOperation) (abiData pldtypes.HexBytes, err error) {
+func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, lockID pldtypes.Bytes32, unlockOp *types.NotoUnlockOperation) (abiData pldtypes.HexBytes, err error) {
 	dataJSON, err := json.Marshal([]any{unlockOp})
 	if err == nil {
 		abiData, err = types.NotoUnlockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	if err == nil {
+		jsonUnlock, _ := json.Marshal(unlockOp)
+		log.L(ctx).Infof("Unlock operation %s: %s", lockID, jsonUnlock)
 	}
 	return abiData, err
 }

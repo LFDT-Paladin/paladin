@@ -83,34 +83,38 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		// For prepareUnlock, createMintLock, and prepareBurnUnlock transactions, include the encoded "unlock"
 		// call that can be used to unlock the coins.
 		var interfaceABI abi.ABI
-		var unlockFunction string
 		var paramsJSON []byte
 		if variant == types.NotoVariantDefault {
-			unlockFunction = "spendLock"
 			interfaceABI = n.getInterfaceABI(types.NotoVariantDefault)
 			var notoUnlockOpEncoded []byte
-			notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, &types.NotoUnlockOperation{
-				TxId:    receipt.LockInfo.SpendTxId.String(),
-				Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-				Outputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
-				Data:    receipt.Data,        // TODO: need to propagate this from the lock state
-				Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
-			})
+			var spendOutputs []*prototk.EndorsableState
+			spendOutputs, _ /* ignore cancelOutputs */, err =
+				n.splitUnlockOutputs(ctx, n.filterSchema(req.InfoStates, []string{n.coinSchema.Id}))
 			if err == nil {
+				notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, receipt.LockInfo.LockID, &types.NotoUnlockOperation{
+					TxId:    receipt.LockInfo.SpendTxId.String(),
+					Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+					Outputs: endorsableStateIDs(spendOutputs),
+					Data:    pldtypes.HexBytes{}, // TODO: need to propagate this from the lock state
+					Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
+				})
+			}
+			if err == nil {
+				receipt.LockInfo.UnlockFunction = "spendLock"
 				receipt.LockInfo.UnlockParams = map[string]any{
 					"lockId":      receipt.LockInfo.LockID,
 					"spendInputs": pldtypes.HexBytes(notoUnlockOpEncoded),
-					"data":        pldtypes.HexBytes{}, // the inner data is what matters here
+					"data":        receipt.Data, // the inner data is what matters here
 				}
 				paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
 			}
 		} else {
-			unlockFunction = "unlock"
 			interfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
 			unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New()).String()
 			if receipt.LockInfo != nil && receipt.LockInfo.SpendTxId != nil && !receipt.LockInfo.SpendTxId.IsZero() {
 				unlockTxId = receipt.LockInfo.SpendTxId.HexString0xPrefix()
 			}
+			receipt.LockInfo.UnlockFunction = "unlock"
 			receipt.LockInfo.UnlockParams = map[string]any{
 				"txId":          unlockTxId,
 				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
@@ -124,7 +128,7 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		if err != nil {
 			return nil, err
 		}
-		unlockFunctionABI := interfaceABI.Functions()[unlockFunction]
+		unlockFunctionABI := interfaceABI.Functions()[receipt.LockInfo.UnlockFunction]
 		encodedCall, err := unlockFunctionABI.EncodeCallDataJSONCtx(ctx, paramsJSON)
 		if err != nil {
 			return nil, err

@@ -23,10 +23,12 @@ interface INoto is IConfidentialToken, ILockableCapability {
     );
 
     // The Noto event for creation of a lock contains the inputs,outputs an lockedOutputs
+    // Note: The lockedInputs cannot be changed in this operation, they are emitted to allow preparing of the unlock operation
     event NotoLockUpdated(
         bytes32 indexed txId,
         bytes32 indexed lockId,
         address indexed operator,
+        bytes32[] lockContents,
         bytes32[] inputs,
         bytes32[] outputs,
         bytes proof,

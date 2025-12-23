@@ -404,10 +404,15 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         }
         _updateLock(lockOp, params, lockId, data);
 
+        // TODO: Consider if this can be removed when we're tracking off-chain state data
+        LockInfo storage lock = _locks[lockId];
+        bytes32[] memory lockContents = abi.decode(lock.content, (bytes32[]));
+
         emit NotoLockUpdated(
             lockOp.txId,
             lockId,
             msg.sender,
+            lockContents,
             lockOp.inputs,
             lockOp.outputs,
             lockOp.proof,

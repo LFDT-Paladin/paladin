@@ -218,10 +218,10 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			SpendTxId: spendTxId,
 		})
 		if err == nil {
-			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
+			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
 		}
 		if err == nil {
-			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
+			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
 		}
 		if err == nil {
 			// The noto lock operation here is empty, as we are just modifying the

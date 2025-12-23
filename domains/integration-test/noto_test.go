@@ -440,7 +440,7 @@ func (s *notoTestSuite) testNotoLock(version string) {
 					To:     recipient2Name,
 					Amount: pldtypes.Int64ToInt256(50),
 				}},
-				Data: pldtypes.HexBytes{},
+				Data: pldtypes.HexBytes{}, // TODO: if this is non-empty we don't have a way to propagate it
 			}),
 		},
 		ABI: types.NotoABI,
@@ -451,6 +451,7 @@ func (s *notoTestSuite) testNotoLock(version string) {
 
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo)
 	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams)
+	require.NotEmpty(t, prepareUnlockReceipt.States.ReadLockedInputs)
 	var unlockTXID uuid.UUID
 	if version == "v0" {
 		require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams["txId"])
@@ -487,12 +488,20 @@ func (s *notoTestSuite) testNotoLock(version string) {
 	delegateLockReceipt := <-notoReceipts
 	require.NotEmpty(t, delegateLockReceipt.LockInfo)
 	assert.Equal(t, prepareUnlockReceipt.LockInfo.LockID, delegateLockReceipt.LockInfo.LockID)
-	assert.Equal(t, recipient2Key, delegateLockReceipt.LockInfo.Delegate.String())
+	if version == "v0" {
+		// TODO: Swap in information from the state for this in V1
+		assert.Equal(t, recipient2Key, delegateLockReceipt.LockInfo.Delegate.String())
+	}
 
 	log.L(ctx).Infof("Unlock from recipient2")
 	var notoBuild *solutils.SolidityBuild
 	if version == "v1" {
 		notoBuild = solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
+		spendInputs, err := types.NotoUnlockOperationABI.DecodeABIData(pldtypes.MustParseHexBytes(prepareUnlockReceipt.LockInfo.UnlockParams["spendInputs"].(string)), 0)
+		require.NoError(t, err)
+		spendInputsJSON, err := spendInputs.Children[0].JSON()
+		require.NoError(t, err)
+		log.L(ctx).Infof("Test unlocking %s with spendInputs: %s", prepareUnlockReceipt.LockInfo.LockID, spendInputsJSON)
 	} else {
 		notoBuild = solutils.MustLoadBuild(helpers.NotoV0InterfaceJSON)
 	}
@@ -500,7 +509,7 @@ func (s *notoTestSuite) testNotoLock(version string) {
 		Public().
 		From(recipient2Name).
 		To(noto.Address).
-		Function("unlock").
+		Function(prepareUnlockReceipt.LockInfo.UnlockFunction).
 		Inputs(prepareUnlockReceipt.LockInfo.UnlockParams).
 		Send().
 		Wait(3 * time.Second)

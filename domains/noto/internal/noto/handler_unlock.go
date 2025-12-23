@@ -416,7 +416,7 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 		functionName = "spendLock"
 		var notoUnlockOpEncoded []byte
-		notoUnlockOpEncoded, err = h.noto.encodeNotoUnlockOperation(ctx, &types.NotoUnlockOperation{
+		notoUnlockOpEncoded, err = h.noto.encodeNotoUnlockOperation(ctx, inParams.LockID, &types.NotoUnlockOperation{
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(lockedInputs),
 			Outputs: endorsableStateIDs(outputs),

@@ -625,20 +625,23 @@ func (n *Noto) unlockHashFromIDs_V0(ctx context.Context, contract *ethtypes.Addr
 	})
 }
 
-func (n *Noto) unlockHashFromIDs_V1(ctx context.Context, contract *ethtypes.Address0xHex, txId string, lockedInputs, outputs []string, data pldtypes.HexBytes) (encoded pldtypes.Bytes32, err error) {
+func (n *Noto) unlockHashFromIDs_V1(ctx context.Context, contract *ethtypes.Address0xHex, lockID pldtypes.Bytes32, txId string, lockedInputs, outputs []string, data pldtypes.HexBytes) (encoded pldtypes.Bytes32, err error) {
+	msg := map[string]any{
+		"txId":         txId,
+		"lockedInputs": stringToAny(lockedInputs),
+		"outputs":      stringToAny(outputs),
+		"data":         data,
+	}
 	b, err := eip712.EncodeTypedDataV4(ctx, &eip712.TypedData{
 		Types:       NotoUnlockMaskedTypeSet_V1,
 		PrimaryType: "Unlock",
 		Domain:      n.eip712Domain(contract),
-		Message: map[string]any{
-			"txId":         txId,
-			"lockedInputs": stringToAny(lockedInputs),
-			"outputs":      stringToAny(outputs),
-			"data":         data,
-		},
+		Message:     msg,
 	})
 	if err == nil {
 		copy(encoded[:], b[0:32])
+		jsonMsg, _ := json.Marshal(msg)
+		log.L(ctx).Infof("Encoded outcome hash '%s' for unlock operation %s: %s", encoded, lockID, jsonMsg)
 	}
 	return encoded, err
 }
