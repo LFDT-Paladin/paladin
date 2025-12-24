@@ -344,10 +344,11 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.Quer
 			}
 			result := &pldapi.DomainSmartContract{
 				DomainAddress: &pt.RegistryAddress,
-				Address:       pt.Address,
+				Address:       pt.Address
 			}
 			if dc != nil {
 				result.DomainName = dc.Domain().Name()
+				result.Config = pldtypes.RawJSON(dc.config.ContractConfigJson)
 			}
 			return result, nil
 		},

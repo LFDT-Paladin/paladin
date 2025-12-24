@@ -24,6 +24,7 @@ export const RpcMethods = {
   domain_listDomains: 'domain_listDomains',
   domain_getDomain: 'domain_getDomain',
   domain_querySmartContracts: 'domain_querySmartContracts',
+  pgroup_getGroupByAddress: 'pgroup_getGroupByAddress',
   ptx_QueryPendingTransactions: 'ptx_queryPendingTransactions',
   ptx_QueryTransactionReceipts: 'ptx_queryTransactionReceipts',
   ptx_getTransactionReceipt: 'ptx_getTransactionReceipt',

@@ -47,6 +47,7 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
   } = useQuery({
     queryKey: ['contracts', domainAddress],
     queryFn: () => querySmartContractsByDomain(domainAddress),
+    refetchOnWindowFocus: true,
   });
 
   if (isFetching) {
@@ -92,7 +93,7 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
           {contracts?.map((contract: any) => (
             <TableRow key={contract.address} sx={{ height: '70px' }}>
               <TableCell>
-                <Hash title={t('address')} hash={contract.address} />
+                <Hash title={t('address')} hash={contract.address} config={contract.config} domain={contract.domainName} />
               </TableCell>
               <TableCell>
                 <DomainButtons
