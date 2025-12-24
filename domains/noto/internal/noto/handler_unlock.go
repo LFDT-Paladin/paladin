@@ -41,6 +41,7 @@ type unlockHandler struct {
 }
 
 type unlockStates struct {
+	oldLock         *loadedLockInfo // V1 only
 	lockedInputs    *preparedLockedInputs
 	v0LockedOutputs *preparedLockedOutputs // V0 only
 	outputs         *preparedOutputs
@@ -113,6 +114,15 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, nil, err
 	}
 
+	// Load the existing lock
+	var existingLock *loadedLockInfo
+	if !tx.DomainConfig.IsV0() {
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
 	requiredTotal := big.NewInt(0)
 	for _, entry := range params.Recipients {
 		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
@@ -148,16 +158,17 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var lockState *prototk.NewState
 	if tx.DomainConfig.IsV0() {
-		lockState, err = h.noto.prepareLockInfo_V0(params.LockID, fromID.address, nil, infoDistribution)
-	} else {
-		lockState, err = h.noto.prepareLockInfo_V1(params.LockID, fromID.address, spendTxId, infoDistribution)
+		// In V0 unlock repeats the lock state in the info
+		var lock *preparedLockInfo
+		lock, err = h.noto.prepareLockInfo_V0(params.LockID, fromID.address, nil, infoDistribution)
+		if err == nil {
+			infoStates = append(infoStates, lock.state)
+		}
 	}
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	infoStates = append(infoStates, lockState)
 
 	mb := h.noto.newManifestBuilder().
 		addOutputs(unlockedOutputs). // note no v0UnlockedOutputs as we're V1 only for the manifest
@@ -168,6 +179,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		},
 		mb,
 		&unlockStates{
+			oldLock:         existingLock,
 			lockedInputs:    lockedInputStates,
 			v0LockedOutputs: v0LockedOutputs,
 			outputs:         unlockedOutputs,
@@ -342,6 +354,7 @@ func (h *unlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransactio
 			return nil, err
 		}
 		states.info = append([]*prototk.NewState{manifestState} /* manifest first */, states.info...)
+		assembledTransaction.InputStates = append(assembledTransaction.InputStates, states.oldLock.stateRef)
 	}
 	assembledTransaction.InfoStates = states.info
 

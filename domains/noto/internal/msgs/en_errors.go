@@ -76,5 +76,7 @@ var (
 	MsgInvalidManifestState               = pde("PD200036", "Invalid manifest state %s")
 	MsgBurnFromNotAllowed                 = pde("PD200037", "BurnFrom is not enabled")
 	MsgTransferFromNotAllowed             = pde("PD200038", "TransferFrom is not enabled")
-	MsgInvalidOutputCount                 = pde("PD200039", "Invalid number of outputs: expected=%d actual=%d")
+	MsgInvalidLockStateLockID             = pde("PD200039", "Invalid lockId in state %s expected=%s found=%s")
+	MsgInvalidLockState                   = pde("PD200040", "Invalid lock state %s")
+	MsgInvalidLockTransition              = pde("PD200042", "Invalid lock transition")
 )

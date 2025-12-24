@@ -36,6 +36,7 @@ type ReceiptStates struct {
 	ReadLockedInputs      []*ReceiptState `json:"readLockedInputs,omitempty"`
 	PreparedOutputs       []*ReceiptState `json:"preparedOutputs,omitempty"`
 	PreparedLockedOutputs []*ReceiptState `json:"preparedLockedOutputs,omitempty"`
+	UpdatedLockInfo       []*ReceiptState `json:"updatedLockInfo,omitempty"`
 }
 
 type ReceiptLockInfo struct {
@@ -164,12 +165,20 @@ var NotoLockInfoABI_V0 = &abi.Parameter{
 }
 
 type NotoLockInfo_V1 struct {
-	Salt      pldtypes.Bytes32     `json:"salt"`
-	LockID    pldtypes.Bytes32     `json:"lockId"`
-	Owner     *pldtypes.EthAddress `json:"owner"`
-	SpendTxId pldtypes.Bytes32     `json:"spendTxId"`
+	Salt          pldtypes.Bytes32     `json:"salt"`
+	LockID        pldtypes.Bytes32     `json:"lockId"`
+	Owner         *pldtypes.EthAddress `json:"owner"`
+	Spender       *pldtypes.EthAddress `json:"spender"`
+	Replaces      pldtypes.Bytes32     `json:"replaces"`
+	SpendTxId     pldtypes.Bytes32     `json:"spendTxId"`
+	Contents      []pldtypes.Bytes32   `json:"contents"`
+	SpendOutputs  []pldtypes.Bytes32   `json:"spendOutputs"`
+	SpendData     pldtypes.HexBytes    `json:"spendData"`
+	CancelOutputs []pldtypes.Bytes32   `json:"cancelOutputs"`
+	CancelData    pldtypes.HexBytes    `json:"cancelData"`
 }
 
+// LockDetail_V1 is full representation of a lock, any prepared operation, and the current delegation
 var NotoLockInfoABI_V1 = &abi.Parameter{
 	Name:         "NotoLockInfo_V1",
 	Type:         "tuple",
@@ -178,7 +187,14 @@ var NotoLockInfoABI_V1 = &abi.Parameter{
 		{Name: "salt", Type: "bytes32"},
 		{Name: "lockId", Type: "bytes32", Indexed: true},
 		{Name: "owner", Type: "address", Indexed: true},
-		{Name: "spendTxId", Type: "bytes32"},
+		{Name: "spender", Type: "address", Indexed: true},
+		{Name: "replaces", Type: "bytes32"},
+		{Name: "spentTxId", Type: "bytes32"},
+		{Name: "contents", Type: "bytes32[]"},
+		{Name: "spendOutputs", Type: "bytes32[]"},
+		{Name: "spendData", Type: "bytes"},
+		{Name: "cancelOutputs", Type: "bytes32[]"},
+		{Name: "cancelData", Type: "bytes"},
 	},
 }
 

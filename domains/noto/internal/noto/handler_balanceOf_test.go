@@ -155,7 +155,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			StateQueryContext: "query123",
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, assert.AnError
 		}
 
@@ -177,7 +177,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			StateQueryContext: "query123",
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{},
 			}, nil
@@ -207,7 +207,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
@@ -248,7 +248,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(25),
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
@@ -283,7 +283,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			StateQueryContext: "query123",
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
@@ -319,7 +319,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(0),
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
@@ -357,7 +357,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 			Amount: largeAmount,
 		}
 
-		mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+		mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{

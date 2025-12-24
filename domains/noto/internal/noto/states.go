@@ -250,6 +250,13 @@ type preparedLockedOutputs struct {
 	states        []*prototk.NewState
 }
 
+type preparedLockInfo struct {
+	distribution identityList
+	stateV0      *types.NotoLockInfo_V0
+	stateV1      *types.NotoLockInfo_V1
+	state        *prototk.NewState
+}
+
 type identityPair struct {
 	identifier string
 	address    *pldtypes.EthAddress
@@ -438,29 +445,37 @@ func (n *Noto) prepareDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint6
 	return []*prototk.NewState{newState}, err
 }
 
-func (n *Noto) prepareLockInfo_V0(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, distributionList identityList) (*prototk.NewState, error) {
+func (n *Noto) prepareLockInfo_V0(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, distributionList identityList) (*preparedLockInfo, error) {
 	if delegate == nil {
 		delegate = &pldtypes.EthAddress{}
 	}
-	newData := &types.NotoLockInfo_V0{
+	newLockInfo := &types.NotoLockInfo_V0{
 		Salt:     pldtypes.RandBytes32(),
 		LockID:   lockID,
 		Owner:    owner,
 		Delegate: delegate,
 	}
-	return n.makeNewLockState_V0(newData, distributionList.identities())
+	lockState, err := n.makeNewLockState_V0(newLockInfo, distributionList.identities())
+	if err != nil {
+		return nil, err
+	}
+	return &preparedLockInfo{
+		stateV0:      newLockInfo,
+		state:        lockState,
+		distribution: distributionList,
+	}, nil
 }
 
-func (n *Noto) prepareLockInfo_V1(lockID pldtypes.Bytes32, owner *pldtypes.EthAddress, spendTxId *pldtypes.Bytes32, distributionList identityList) (*prototk.NewState, error) {
-	newData := &types.NotoLockInfo_V1{
-		Salt:   pldtypes.RandBytes32(),
-		LockID: lockID,
-		Owner:  owner,
+func (n *Noto) prepareLockInfo_V1(newLockInfo *types.NotoLockInfo_V1, distributionList identityList) (*preparedLockInfo, error) {
+	lockState, err := n.makeNewLockState_V1(newLockInfo, distributionList.identities())
+	if err != nil {
+		return nil, err
 	}
-	if spendTxId != nil {
-		newData.SpendTxId = *spendTxId
-	}
-	return n.makeNewLockState_V1(newData, distributionList.identities())
+	return &preparedLockInfo{
+		stateV1:      newLockInfo,
+		state:        lockState,
+		distribution: distributionList,
+	}, nil
 }
 
 func (n *Noto) filterSchema(states []*prototk.EndorsableState, schemas []string) (filtered []*prototk.EndorsableState) {
@@ -550,6 +565,23 @@ func endorsableStateIDs(states []*prototk.EndorsableState) []string {
 		inputs[i] = state.Id
 	}
 	return inputs
+}
+
+// IDs must previously have been allocated
+func newStateAllocatedIDs(states []*prototk.NewState) []pldtypes.Bytes32 {
+	inputs := make([]pldtypes.Bytes32, len(states))
+	for i, state := range states {
+		inputs[i] = pldtypes.MustParseBytes32(*state.Id)
+	}
+	return inputs
+}
+
+func stringIDs(ids []pldtypes.Bytes32) []string {
+	result := make([]string, len(ids))
+	for i, id := range ids {
+		result[i] = id.String()
+	}
+	return result
 }
 
 func stringToAny(ids []string) []any {
@@ -683,4 +715,28 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	}
 
 	return len(states), totalBalance, false, false, nil
+}
+
+func (n *Noto) allocateStateIDs(ctx context.Context, stateQueryContext string, stateLists ...[]*prototk.NewState) error {
+	var allStates []*prototk.NewState
+	for _, stateList := range stateLists {
+		allStates = append(allStates, stateList...)
+	}
+
+	// Send them to Paladin to validate and generate the IDs
+	validatedStates, err := n.Callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: stateQueryContext,
+		States:            allStates,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Store the IDs back into the objects - we do this because it means we'll send them down
+	// to Paladin as a result of the assemble, and that
+	for i, vs := range validatedStates.States {
+		generatedID := vs.Id
+		allStates[i].Id = &generatedID
+	}
+	return nil
 }

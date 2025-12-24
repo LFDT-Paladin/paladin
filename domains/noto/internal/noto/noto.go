@@ -944,6 +944,8 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 				Id:       state.Id,
 			})
 
+		case n.lockInfoSchemaV1.Id:
+			// Not a coin - so ignored in this function
 		default:
 			return nil, i18n.NewError(ctx, msgs.MsgUnexpectedSchema, state.SchemaId)
 		}
@@ -1285,7 +1287,7 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	return pldtypes.Bytes32Keccak(encoded), nil
 }
 
-func (n *Noto) extractLockInfo(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
+func (n *Noto) extractLockInfoV0(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
 	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
 	if len(lockStates) != 1 {
 		if !required {

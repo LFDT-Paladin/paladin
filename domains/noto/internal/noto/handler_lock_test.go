@@ -60,7 +60,7 @@ func TestLock(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
-	mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -118,12 +118,15 @@ func TestLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 2) // coin + lock
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
-	outputCoin, err := n.unmarshalLockedCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
+
+	outputCoin, err := n.unmarshalLockedCoin(outCoin1State.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
@@ -134,7 +137,8 @@ func TestLock(t *testing.T) {
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
 
-	lockInfo, err := n.unmarshalLockV1(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
+	lockState := assembleRes.AssembledTransaction.OutputStates[1]
+	lockInfo, err := n.unmarshalLockV1(lockState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockInfo.LockID, outputCoin.LockID)
@@ -155,21 +159,21 @@ func TestLock(t *testing.T) {
 	}
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockedCoin",
-			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
+			SchemaId:      assembleRes.AssembledTransaction.OutputStates[0].SchemaId,
+			Id:            *assembleRes.AssembledTransaction.OutputStates[0].Id,
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
+		},
+		{
+			SchemaId:      assembleRes.AssembledTransaction.OutputStates[1].SchemaId,
+			Id:            *assembleRes.AssembledTransaction.OutputStates[1].Id,
+			StateDataJson: assembleRes.AssembledTransaction.OutputStates[1].StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
-			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
+			SchemaId:      assembleRes.AssembledTransaction.InfoStates[1].SchemaId,
+			Id:            *assembleRes.AssembledTransaction.InfoStates[1].Id,
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
-		},
-		{
-			SchemaId:      "lockInfo",
-			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
 	}
 
@@ -228,15 +232,14 @@ func TestLock(t *testing.T) {
 		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:        []string{inputCoin.ID.String()},
 		Outputs:       []string{},
-		LockedOutputs: []string{"0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"},
+		LockedOutputs: []string{*outCoin1State.Id},
 		Proof:         signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
 	require.NoError(t, err)
 	require.Equal(t, &types.NotoTransactionData_V1{
 		InfoStates: []pldtypes.Bytes32{
-			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
-			pldtypes.MustParseBytes32("0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F"),
+			pldtypes.MustParseBytes32(*dataState.Id),
 		},
 	}, data)
 
@@ -295,9 +298,6 @@ func TestLock(t *testing.T) {
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	lockState := assembleRes.AssembledTransaction.InfoStates[2]
-	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
 		completeForIdentity(notaryAddress).

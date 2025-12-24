@@ -75,6 +75,15 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
+	// Load the existing lock
+	var existingLock *loadedLockInfo
+	if !tx.DomainConfig.IsV0() {
+		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Requester must own at least one locked coin state to show ownership of the lock
 	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
 	if err != nil {
@@ -93,16 +102,30 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	if err != nil {
 		return nil, err
 	}
-	var lockState *prototk.NewState
+
+	// Produce the new lock info
+	var inputStates []*prototk.StateRef
+	var outputStates []*prototk.NewState
+	var lock *preparedLockInfo
 	if tx.DomainConfig.IsV0() {
-		lockState, err = h.noto.prepareLockInfo_V0(params.LockID, senderID.address, params.Delegate, infoDistribution)
+		lock, err = h.noto.prepareLockInfo_V0(params.LockID, senderID.address, params.Delegate, infoDistribution)
+		if err == nil {
+			infoStates = append(infoStates, lock.state) // in V0 lock states were just published as info
+		}
 	} else {
-		lockState, err = h.noto.prepareLockInfo_V1(params.LockID, senderID.address, nil, infoDistribution)
+		newLock := *existingLock.lockInfo
+		newLock.Salt = pldtypes.RandBytes32()
+		newLock.Replaces = existingLock.id
+		newLock.Spender = params.Delegate
+		lock, err = h.noto.prepareLockInfo_V1(&newLock, identityList{notaryID, senderID})
+		if err == nil {
+			inputStates = append(inputStates, existingLock.stateRef)
+			outputStates = append(outputStates, lock.state) // as of V1 it is a first class transitioned state
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	infoStates = append(infoStates, lockState)
 
 	// This approval may leak the requesting signature on-chain, as all the inputs are visible on-chain
 	// TODO: need to include the spend of the UTXO state for the lock in this as that masks the delegate
@@ -114,6 +137,7 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	if !tx.DomainConfig.IsV0() {
 		manifestState, err := h.noto.newManifestBuilder().
 			addInfoStates(infoDistribution, infoStates...).
+			addLockInfo(lock).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err
@@ -124,8 +148,10 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			ReadStates: lockedInputs.states,
-			InfoStates: infoStates,
+			ReadStates:   lockedInputs.states,
+			InputStates:  inputStates,
+			OutputStates: outputStates,
+			InfoStates:   infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
 			// Sender confirms the initial request with a signature

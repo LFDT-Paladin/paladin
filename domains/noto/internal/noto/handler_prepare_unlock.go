@@ -65,20 +65,49 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	if err != nil {
 		return nil, err
 	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(states.lockedInputs.total), identityList{notaryID, fromID})
-	if err != nil {
-		return nil, err
-	}
-
+	var cancelOutputs *preparedOutputs
+	var lock *preparedLockInfo
 	if !tx.DomainConfig.IsV0() {
-		manifestState, err := mb.
-			addOutputs(cancelOutputs). // note no v0UnlockedOutputs as we're V1 only for the manifest
-			buildManifest(ctx, req.StateQueryContext)
+		// We build the cancel outputs
+		cancelOutputs, err = h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(states.lockedInputs.total), identityList{notaryID, fromID})
+		// ... and allocate ids to all the new outputs, so we can build the transaction we need to hash
+		if err == nil {
+			err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, states.outputs.states, cancelOutputs.states)
+		}
+		// ... and the txData that would be emitted for either cancel or spend
+		var txData pldtypes.HexBytes
+		if err == nil {
+			txData, err = h.noto.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
+		}
+		// ... and the new lock state as an output
+		if err == nil {
+			newLockInfo := *states.oldLock.lockInfo
+			newLockInfo.Replaces = states.oldLock.id
+			newLockInfo.Salt = pldtypes.RandBytes32()
+			newLockInfo.SpendOutputs = newStateAllocatedIDs(states.outputs.states)
+			newLockInfo.SpendData = txData
+			newLockInfo.CancelOutputs = newStateAllocatedIDs(cancelOutputs.states)
+			newLockInfo.CancelData = txData
+			newLockInfo.SpendTxId = spendTxId
+			lock, err = h.noto.prepareLockInfo_V1(&newLockInfo, identityList{notaryID, senderID, fromID})
+		}
+		// .. and then the manifest
+		var manifestState *prototk.NewState
+		if err == nil {
+			manifestState, err = mb.
+				addOutputs(cancelOutputs).
+				addLockInfo(lock).
+				buildManifest(ctx, req.StateQueryContext)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -92,6 +121,8 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	var v0LockedCoins []*types.NotoLockedCoin
 	if tx.DomainConfig.IsV1() {
 		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, cancelOutputs.states...)
+		assembledTransaction.InputStates = append(assembledTransaction.InputStates, states.oldLock.stateRef)
+		assembledTransaction.OutputStates = append(assembledTransaction.OutputStates, lock.state)
 	} else {
 		v0LockedCoins = states.v0LockedOutputs.coins
 		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.v0LockedOutputs.states...)
@@ -152,8 +183,9 @@ func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTran
 
 	params := tx.Params.(*types.UnlockParams)
 	lockedInputs := req.Reads
-	allOutputs := h.noto.filterSchema(req.Info, []string{h.noto.coinSchema.Id})
-	spendOutputs, cancelOutputs, err := h.noto.splitUnlockOutputs(ctx, allOutputs)
+
+	// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
+	_, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, &params.LockID, req.Inputs, req.Outputs, req.Info)
 	if err != nil {
 		return nil, err
 	}
@@ -178,24 +210,24 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	inParams := tx.Params.(*types.UnlockParams)
 	lockedInputs := h.noto.filterSchema(req.ReadStates, []string{h.noto.lockedCoinSchema.Id})
 	spendOutputs, lockedOutputs := h.noto.splitStates(req.InfoStates)
-	var cancelOutputs []*prototk.EndorsableState
-	if !tx.DomainConfig.IsV0() {
-		spendOutputs, cancelOutputs, err = h.noto.splitUnlockOutputs(ctx, spendOutputs)
-	}
-	if err != nil {
-		return nil, err
-	}
 
-	// As of V1 the spentTxId is in the lock state
+	var lockTransition *lockTransition           // v1 only
+	var cancelOutputs []*prototk.EndorsableState // v1 only
 	var spendTxId pldtypes.Bytes32
-	if !tx.DomainConfig.IsV0() {
-		lockInfoStates := h.noto.filterSchema(req.InfoStates, []string{h.noto.lockInfoSchemaV1.Id})
-		if len(lockInfoStates) > 0 {
-			lock, err := h.noto.unmarshalLockV1(lockInfoStates[0].StateDataJson)
-			if err == nil {
-				spendTxId = lock.SpendTxId
-			}
+	var spendData pldtypes.HexBytes
+	var cancelData pldtypes.HexBytes
+	if tx.DomainConfig.IsV0() {
+		spendData = inParams.Data
+		cancelData = inParams.Data
+	} else {
+		// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
+		lockTransition, spendOutputs, cancelOutputs, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, &inParams.LockID, req.InputStates, req.OutputStates, req.InfoStates)
+		if err != nil {
+			return nil, err
 		}
+		spendData = lockTransition.newLockInfo.SpendData
+		cancelData = lockTransition.newLockInfo.CancelData
+		spendTxId = lockTransition.newLockInfo.SpendTxId
 	}
 
 	// Include the signature from the sender
@@ -218,10 +250,10 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			SpendTxId: spendTxId,
 		})
 		if err == nil {
-			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), inParams.Data)
+			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), spendData)
 		}
 		if err == nil {
-			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), inParams.Data)
+			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), cancelData)
 		}
 		if err == nil {
 			// The noto lock operation here is empty, as we are just modifying the

@@ -182,17 +182,6 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 	return nil
 }
 
-// Split unlock output states into spend and cancel
-func (n *Noto) splitUnlockOutputs(ctx context.Context, outputs []*prototk.EndorsableState) (spendOutputs, cancelOutputs []*prototk.EndorsableState, err error) {
-	// Assume exactly one "spend" output and one "cancel" output (in that order)
-	// If variable output states need to be supported in the future, details can be passed
-	// from Assemble to Endorse using DomainData.
-	if len(outputs) != 2 {
-		return nil, nil, i18n.NewError(ctx, msgs.MsgInvalidOutputCount, 2, len(outputs))
-	}
-	return outputs[0:1], outputs[1:2], nil
-}
-
 // Parse a resolved verifier as an eth address
 func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)

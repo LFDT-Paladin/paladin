@@ -64,17 +64,35 @@ func TestUnlock(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
-	mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
-		return &prototk.FindAvailableStatesResponse{
-			States: []*prototk.StoredState{
-				{
-					Id:        inputCoin.ID.String(),
-					SchemaId:  "lockedCoin",
-					DataJson:  mustParseJSON(inputCoin.Data),
-					CreatedAt: 1,
+	inputLockInfo := &prototk.StoredState{
+		Id:       pldtypes.RandBytes32().String(),
+		SchemaId: "lockInfo_v1",
+		DataJson: fmt.Sprintf(`{
+			"lockId": "%s",
+			"salt": "%s",
+			"owner": "%s",
+			"spender": "%s"
+		}`, lockID, pldtypes.RandBytes32(), senderKey.Address, senderKey.Address),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		switch req.SchemaId {
+		case "lockInfo_v1":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{inputLockInfo},
+			}, nil
+		case "lockedCoin":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{
+					{
+						Id:        inputCoin.ID.String(),
+						SchemaId:  "lockedCoin",
+						DataJson:  mustParseJSON(inputCoin.Data),
+						CreatedAt: 1,
+					},
 				},
-			},
-		}, nil
+			}, nil
+		}
+		return nil, fmt.Errorf("unmocked query")
 	}
 
 	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
@@ -137,22 +155,24 @@ func TestUnlock(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
-	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.InputStates, 2) // locked coin and lock info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + output-info + lock-info
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + output-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
-	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
+
+	outputCoinState := assembleRes.AssembledTransaction.OutputStates[0]
+	outputCoin, err := n.unmarshalCoin(outputCoinState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLockV1(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
-	require.NoError(t, err)
-	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
-	assert.Equal(t, lockID, lockInfo.LockID)
+
+	lockState := assembleRes.AssembledTransaction.InputStates[1]
 
 	encodedTransfer, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{outputCoin})
 	require.NoError(t, err)
@@ -166,24 +186,24 @@ func TestUnlock(t *testing.T) {
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
+		{
+			SchemaId:      lockState.SchemaId,
+			Id:            lockState.Id,
+			StateDataJson: mustParseJSON(inputLockInfo),
+		},
 	}
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
-			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
-			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
+			SchemaId:      outputCoinState.SchemaId,
+			Id:            *outputCoinState.Id,
+			StateDataJson: outputCoinState.StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
-			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
-		},
-		{
-			SchemaId:      "lockInfo",
-			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			SchemaId:      dataState.SchemaId,
+			Id:            *dataState.Id,
+			StateDataJson: dataState.StateDataJson,
 		},
 	}
 
@@ -242,15 +262,14 @@ func TestUnlock(t *testing.T) {
 	// Validate the parameters
 	notoParams := decodeSingleABITuple[types.NotoUnlockOperation](t, types.NotoUnlockOperationABI, params.SpendInputs)
 	require.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", notoParams.TxId)
-	require.Equal(t, []string{inputCoin.ID.String()}, notoParams.Inputs)
-	require.Equal(t, []string{"0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"}, notoParams.Outputs)
+	require.Equal(t, []string{inputCoin.ID.String(), inputLockInfo.Id}, notoParams.Inputs)
+	require.Equal(t, []string{*outputCoinState.Id}, notoParams.Outputs)
 	require.Equal(t, signatureBytes, notoParams.Proof)
 	data, err := n.decodeTransactionDataV1(ctx, notoParams.Data)
 	require.NoError(t, err)
 	require.Equal(t, &types.NotoTransactionData_V1{
 		InfoStates: []pldtypes.Bytes32{
-			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
-			pldtypes.MustParseBytes32("0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F"),
+			pldtypes.MustParseBytes32(*dataState.Id),
 		},
 	}, data)
 
@@ -317,9 +336,6 @@ func TestUnlock(t *testing.T) {
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	lockState := assembleRes.AssembledTransaction.InfoStates[2]
-	outputCoinState := assembleRes.AssembledTransaction.OutputStates[0]
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
 		completeForIdentity(notaryAddress).
@@ -333,10 +349,6 @@ func TestUnlock(t *testing.T) {
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		completeForIdentity(receiverAddress) // receivers don't get the data
-	mt.withMissingNewStates(lockState).
-		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		completeForIdentity(receiverAddress) // receivers don't get the lock
 	mt.withMissingNewStates(outputCoinState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).

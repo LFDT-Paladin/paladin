@@ -80,7 +80,6 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	if err != nil {
 		return nil, err
 	}
-	notaryAddress := notaryID.address
 
 	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, params.Amount)
 	if err != nil {
@@ -95,16 +94,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract
-	var senderAddress *pldtypes.EthAddress
-	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
-	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
-		tx.DomainConfig.Options.Hooks != nil &&
-		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
-		senderAddress = tx.DomainConfig.Options.Hooks.PublicAddress
-	} else {
-		senderAddress = notaryAddress
-	}
-	lockID, err := h.noto.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
+	lockID, err := h.computeLockIDForLockTX(ctx, tx, notaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,16 +121,30 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	if err != nil {
 		return nil, err
 	}
-	var lockState *prototk.NewState
+	var outputStates []*prototk.NewState
+	outputStates = append(outputStates, lockedOutputStates.states...)
+	outputStates = append(outputStates, unlockedOutputStates.states...)
+
+	var lock *preparedLockInfo
 	if tx.DomainConfig.IsV0() {
-		lockState, err = h.noto.prepareLockInfo_V0(lockID, senderID.address, nil, infoDistribution)
+		lock, err = h.noto.prepareLockInfo_V0(lockID, senderID.address, nil, infoDistribution)
+		if err == nil {
+			infoStates = append(infoStates, lock.state) // in V0 lock states were just published as info
+		}
 	} else {
-		lockState, err = h.noto.prepareLockInfo_V1(lockID, senderID.address, nil, infoDistribution)
+		lock, err = h.noto.prepareLockInfo_V1(&types.NotoLockInfo_V1{
+			Salt:    pldtypes.RandBytes32(),
+			LockID:  lockID,
+			Owner:   senderID.address,
+			Spender: senderID.address,
+		}, identityList{notaryID, senderID})
+		if err == nil {
+			outputStates = append(outputStates, lock.state) // as of V1 it is a first class transitioned state
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
-	infoStates = append(infoStates, lockState)
 
 	encodedLock, err := h.noto.encodeLock(ctx, tx.ContractAddress, inputStates.coins, unlockedOutputStates.coins, lockedOutputStates.coins)
 	if err != nil {
@@ -152,16 +156,13 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 			addLockedOutputs(lockedOutputStates).
 			addOutputs(unlockedOutputStates).
 			addInfoStates(infoDistribution, infoStates...).
+			addLockInfo(lock).
 			buildManifest(ctx, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
-
-	var outputStates []*prototk.NewState
-	outputStates = append(outputStates, lockedOutputStates.states...)
-	outputStates = append(outputStates, unlockedOutputStates.states...)
 
 	attestation := []*prototk.AttestationRequest{
 		// Sender confirms the initial request with a signature
@@ -195,8 +196,29 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}, nil
 }
 
+func (h *lockHandler) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTransaction, notaryID *identityPair) (pldtypes.Bytes32, error) {
+	notaryAddress := notaryID.address
+	var senderAddress *pldtypes.EthAddress
+	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
+	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
+		tx.DomainConfig.Options.Hooks != nil &&
+		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
+		senderAddress = tx.DomainConfig.Options.Hooks.PublicAddress
+	} else {
+		senderAddress = notaryAddress
+	}
+	return h.noto.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
+}
+
 func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+	notary := tx.DomainConfig.NotaryLookup
+
 	if err := h.checkAllowed(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
 		return nil, err
 	}
 
@@ -207,6 +229,17 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	outputs, err := h.noto.parseCoinList(ctx, "output", req.Outputs)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		lockID, err := h.computeLockIDForLockTX(ctx, tx, notaryID)
+		if err == nil {
+			// TODO: Support preparation of target operation directly during lock (avoiding extra call)
+			_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, &lockID, req.Inputs, req.Outputs, req.Info)
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate the amounts, and sender's ownership of the inputs and locked outputs
@@ -336,10 +369,20 @@ func (h *lockHandler) hookInvoke(ctx context.Context, lockID pldtypes.Bytes32, t
 	}, nil
 }
 
-func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	lockID, _, _, err := h.noto.extractLockInfo(ctx, req.InfoStates, true)
-	if err != nil {
-		return nil, err
+func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (_ *prototk.PrepareTransactionResponse, err error) {
+	var lockID *pldtypes.Bytes32
+	if tx.DomainConfig.IsV0() {
+		lockID, _, _, err = h.noto.extractLockInfoV0(ctx, req.InfoStates, true)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var lt *lockTransition
+		lt, err = h.noto.decodeV1LockTransition(ctx, LOCK_CREATE, nil, req.InputStates, req.OutputStates)
+		if err != nil {
+			return nil, err
+		}
+		lockID = &lt.newLockInfo.LockID
 	}
 
 	endorsement := domain.FindAttestation("notary", req.AttestationResult)

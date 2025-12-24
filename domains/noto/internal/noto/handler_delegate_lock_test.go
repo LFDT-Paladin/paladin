@@ -61,16 +61,29 @@ func TestDelegateLock(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
-	mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
-		return &prototk.FindAvailableStatesResponse{
-			States: []*prototk.StoredState{
-				{
-					Id:       inputLockedCoin.ID.String(),
-					SchemaId: "lockedCoin",
-					DataJson: mustParseJSON(inputLockedCoin.Data),
+	inputLockState := &prototk.StoredState{
+		Id:       "0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b",
+		SchemaId: "lockInfo_v1",
+		DataJson: fmt.Sprintf(`{"lockId":"%s"}`, lockID),
+	}
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+		switch req.SchemaId {
+		case "lockInfo_v1":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{inputLockState},
+			}, nil
+		case "lockedCoin":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{
+					{
+						Id:       inputLockedCoin.ID.String(),
+						SchemaId: "lockedCoin",
+						DataJson: mustParseJSON(inputLockedCoin.Data),
+					},
 				},
-			},
-		}, nil
+			}, nil
+		}
+		return nil, fmt.Errorf("unmocked query")
 	}
 
 	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
@@ -122,10 +135,12 @@ func TestDelegateLock(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
-	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
+	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // old info
+	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1) // new info
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + txData + lockInfo
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + txData
+	assert.Equal(t, inputLockState.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
+	assert.Equal(t, "lockInfo_v1", assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
 	assert.Equal(t, inputLockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
 	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
@@ -137,6 +152,13 @@ func TestDelegateLock(t *testing.T) {
 	require.NoError(t, err)
 	signatureBytes := pldtypes.HexBytes(signature.CompactRSV())
 
+	inputStates := []*prototk.EndorsableState{
+		{
+			SchemaId:      "lockInfo_v1",
+			Id:            inputLockState.Id,
+			StateDataJson: mustParseJSON(inputLockState.DataJson),
+		},
+	}
 	readStates := []*prototk.EndorsableState{
 		{
 			SchemaId:      "lockedCoin",
@@ -155,18 +177,22 @@ func TestDelegateLock(t *testing.T) {
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
+	}
+	outputStates := []*prototk.EndorsableState{
 		{
 			SchemaId:      "lockInfo_v1",
-			Id:            "0x18e85dd928f1aead349a8a474541729232f5841258164f2eb7c36746fa541075",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
+			Id:            "0x4da2191dc83d31196a735d8df477c1a588f1a5a15c084e7d66b7157ab539019f",
+			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},
 	}
 
 	endorseRes, err := n.EndorseTransaction(ctx, &prototk.EndorseTransactionRequest{
 		Transaction:       tx,
 		ResolvedVerifiers: verifiers,
+		Inputs:            inputStates,
 		Reads:             readStates,
 		Info:              infoStates,
+		Outputs:           outputStates,
 		EndorsementRequest: &prototk.AttestationRequest{
 			Name: "notary",
 		},
@@ -220,7 +246,6 @@ func TestDelegateLock(t *testing.T) {
 		InfoStates: []pldtypes.Bytes32{
 			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
 			pldtypes.MustParseBytes32("0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"),
-			pldtypes.MustParseBytes32("0x18e85dd928f1aead349a8a474541729232f5841258164f2eb7c36746fa541075"),
 		},
 	}, data)
 
