@@ -22,7 +22,6 @@ import {
 } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { SingleValue } from '../components/SingleValue';
-import { SmartContractValue } from '../components/SmartContractValue';
 import { queryPrivacyGroupByAddress } from '../queries/privacyGroups';
 import { useQuery } from '@tanstack/react-query';
 
@@ -62,8 +61,6 @@ export const HashDialog: React.FC<Props> = ({
     >
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
         <SingleValue label={title} value={hash} />
-        {config && <SmartContractValue label={t('config')} value={config} domain={domain} />}
-        {domain === "pente" && (<SmartContractValue label={t('privacyGroupMembers')} value={privacyGroupMembers.data} domain={domain} />)}
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>
         <Button

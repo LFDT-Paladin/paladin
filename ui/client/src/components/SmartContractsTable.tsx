@@ -47,7 +47,7 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
   } = useQuery({
     queryKey: ['contracts', domainAddress],
     queryFn: () => querySmartContractsByDomain(domainAddress),
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 
   if (isFetching) {
