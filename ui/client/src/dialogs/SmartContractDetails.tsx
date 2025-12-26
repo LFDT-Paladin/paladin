@@ -53,7 +53,7 @@ export const SmartContractDetails: React.FC<Props> = ({ title, hash, dialogOpen,
          <SingleValue label={t('id')} value={privacyGroupByAddress.data?.id} />
          <SingleValue label={t('name')} value={privacyGroupByAddress.data?.name} />
          <SingleValue label={t('members')} value={privacyGroupByAddress.data?.members.join(', ')} />
-         <SingleValue label={t('configuration')} value={privacyGroupByAddress.data?.configuration} json={true} />
+         <SingleValue label={t('config')} value={privacyGroupByAddress.data?.configuration} json={true} />
          <SingleValue label={t('properties')} value={privacyGroupByAddress.data?.properties} json={true} />
        </div>
      )

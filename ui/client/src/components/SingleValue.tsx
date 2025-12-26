@@ -33,7 +33,7 @@ export const SingleValue: React.FC<Props> = ({ label, value, json }) => {
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', border: theme => `solid 1px ${theme.palette.divider}`, borderRadius: '4px' }}>
-      <Box sx={{ borderRight: theme => `solid 1px ${theme.palette.divider}`, padding: '10px', minWidth: '160px' }}>
+      <Box sx={{ borderRight: theme => `solid 1px ${theme.palette.divider}`, padding: '10px', minWidth: '160px', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
         <Typography color="textSecondary">{label}</Typography>
       </Box>
       {json ? <div style={{ marginLeft: '10px', flexGrow: 1 }}><JSONBox data={value} /></div> : <Typography sx={{ marginLeft: '10px', flexGrow: 1 }} color="textPrimary">{value}</Typography>}
