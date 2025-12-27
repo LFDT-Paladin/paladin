@@ -281,9 +281,11 @@ func TestLock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onLock"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onLock"]
+	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
+	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
+	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"sender": "%s",
 		"lockId": "%s",

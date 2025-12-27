@@ -56,7 +56,7 @@ interface INotoHooks is IPenteExternalCall {
         PreparedTransaction calldata prepared
     ) external;
 
-    function onCreateMintLock(
+    function onPrepareMintUnlock(
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,

@@ -338,9 +338,11 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onPrepareBurnUnlock"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onPrepareBurnUnlock"]
+	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
+	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
+	require.NoError(t, err)
 
 	// Verify hook invoke params
 	var hookParams UnlockHookParams
