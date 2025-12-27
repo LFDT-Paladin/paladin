@@ -126,8 +126,9 @@ func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedC
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
 // Note that mint & burn uses a different function (this is only used for transfers)
-func (n *Noto) validateUnlockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.lockedCoins) == 0 {
+func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
+		// In V0 there was no lock object to check
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)

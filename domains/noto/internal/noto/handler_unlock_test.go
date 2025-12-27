@@ -189,7 +189,7 @@ func TestUnlock(t *testing.T) {
 		{
 			SchemaId:      lockState.SchemaId,
 			Id:            lockState.Id,
-			StateDataJson: mustParseJSON(inputLockInfo),
+			StateDataJson: inputLockInfo.DataJson,
 		},
 	}
 	outputStates := []*prototk.EndorsableState{

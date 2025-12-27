@@ -77,7 +77,7 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	if variant == types.NotoVariantDefault && len(receipt.States.UpdatedLockInfo) > 0 {
 		// New style lock transition
 		var lt *lockTransition
-		lt, err = n.decodeV1LockTransition(ctx, LOCK_DECODE_ANY, nil, req.InputStates, req.OutputStates)
+		lt, err = n.validateV1LockTransition(ctx, LOCK_DECODE_ANY, nil, nil, req.InputStates, req.OutputStates)
 		var notoUnlockOpEncoded []byte
 		if err == nil && !lt.newLockInfo.SpendTxId.IsZero() {
 			// We generated a spendable lock in this transaction

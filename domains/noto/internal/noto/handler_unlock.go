@@ -282,7 +282,7 @@ func (h *unlockCommon) endorse(
 	}
 
 	// Validate the amounts, and lock creator's ownership of all locked inputs/outputs
-	if err := h.noto.validateUnlockAmounts(ctx, inputs, spendOutputs); err != nil {
+	if err := h.noto.validateUnlockAmounts(ctx, tx, inputs, spendOutputs); err != nil {
 		return nil, err
 	}
 	if err := h.noto.validateLockOwners(ctx, params.From, req.ResolvedVerifiers, inputs.lockedCoins, inputs.lockedStates); err != nil {
@@ -294,7 +294,7 @@ func (h *unlockCommon) endorse(
 
 	// If cancel outputs are present (for prepare unlock), validate the amounts and owners
 	if cancelOutputs != nil {
-		if err := h.noto.validateUnlockAmounts(ctx, inputs, cancelOutputs); err != nil {
+		if err := h.noto.validateUnlockAmounts(ctx, tx, inputs, cancelOutputs); err != nil {
 			return nil, err
 		}
 		if err := h.noto.validateLockOwners(ctx, params.From, req.ResolvedVerifiers, cancelOutputs.lockedCoins, cancelOutputs.lockedStates); err != nil {
@@ -399,6 +399,20 @@ func (h *unlockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction
 	if err != nil {
 		return nil, err
 	}
+
+	if !tx.DomainConfig.IsV0() {
+		fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+
+		// In V1 onwards the lock itself needs to be checked (it's owned by the from address)
+		_, err = h.noto.validateV1LockTransition(ctx, LOCK_SPEND, fromID, &params.LockID, req.Inputs, req.Outputs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return h.endorse(ctx, tx, params, req, inputs, outputs, nil)
 }
 

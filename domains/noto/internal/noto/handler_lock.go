@@ -221,6 +221,10 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	if err != nil {
 		return nil, err
 	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
 
 	inputs, err := h.noto.parseCoinList(ctx, "input", req.Inputs)
 	if err != nil {
@@ -235,7 +239,7 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 		lockID, err := h.computeLockIDForLockTX(ctx, tx, notaryID)
 		if err == nil {
 			// TODO: Support preparation of target operation directly during lock (avoiding extra call)
-			_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, &lockID, req.Inputs, req.Outputs, req.Info)
+			_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, senderID, &lockID, req.Inputs, req.Outputs, req.Info)
 		}
 		if err != nil {
 			return nil, err
@@ -378,7 +382,7 @@ func (h *lockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, 
 		}
 	} else {
 		var lt *lockTransition
-		lt, err = h.noto.decodeV1LockTransition(ctx, LOCK_CREATE, nil, req.InputStates, req.OutputStates)
+		lt, err = h.noto.validateV1LockTransition(ctx, LOCK_CREATE, nil, nil, req.InputStates, req.OutputStates)
 		if err != nil {
 			return nil, err
 		}

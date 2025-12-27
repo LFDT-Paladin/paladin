@@ -184,8 +184,13 @@ func (h *prepareUnlockHandler) Endorse(ctx context.Context, tx *types.ParsedTran
 	params := tx.Params.(*types.UnlockParams)
 	lockedInputs := req.Reads
 
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+
 	// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
-	_, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, &params.LockID, req.Inputs, req.Outputs, req.Info)
+	_, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, fromID, &params.LockID, req.Inputs, req.Outputs, req.Info)
 	if err != nil {
 		return nil, err
 	}
@@ -220,8 +225,13 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		spendData = inParams.Data
 		cancelData = inParams.Data
 	} else {
+		fromID, err := h.noto.findEthAddressVerifier(ctx, "from", inParams.From, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+
 		// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
-		lockTransition, spendOutputs, cancelOutputs, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, &inParams.LockID, req.InputStates, req.OutputStates, req.InfoStates)
+		lockTransition, spendOutputs, cancelOutputs, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_UPDATE, fromID, &inParams.LockID, req.InputStates, req.OutputStates, req.InfoStates)
 		if err != nil {
 			return nil, err
 		}

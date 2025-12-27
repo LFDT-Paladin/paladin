@@ -108,7 +108,7 @@ func TestLoadLockInfoLoadFail(t *testing.T) {
 	require.Regexp(t, "pop", err)
 }
 
-func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, mods ...func(in *types.NotoLockInfo_V1, out *types.NotoLockInfo_V1)) (*lockTransition, error) {
+func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, mods ...func(sender *identityPair, in *types.NotoLockInfo_V1, out *types.NotoLockInfo_V1)) (*lockTransition, error) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
@@ -133,12 +133,17 @@ func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, m
 		Spender:  owner,
 		Replaces: inputStateID,
 	}
+	sender := &identityPair{
+		address:    owner,
+		identifier: "user1",
+	}
 	for _, mod := range mods {
-		mod(inputLockInfo, outputLockInfo)
+		mod(sender, inputLockInfo, outputLockInfo)
 	}
 
-	return n.decodeV1LockTransition(ctx,
+	return n.validateV1LockTransition(ctx,
 		transitionType,
+		sender,
 		&lockID,
 		[]*prototk.EndorsableState{
 			{
@@ -162,7 +167,7 @@ func TestDecodeV1LockTransitionOKNoChange(t *testing.T) {
 }
 
 func TestDecodeV1LockTransitionOKSpenderChange(t *testing.T) {
-	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.Spender = pldtypes.RandAddress()
 	})
 	require.NoError(t, err)
@@ -171,8 +176,9 @@ func TestDecodeV1LockTransitionOKSpenderChange(t *testing.T) {
 
 func TestDecodeV1LockTransitionInvalidInputLock(t *testing.T) {
 	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
-	_, err := n.decodeV1LockTransition(context.Background(),
+	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_SPEND,
+		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
 		nil,
 		[]*prototk.EndorsableState{
 			{
@@ -188,8 +194,9 @@ func TestDecodeV1LockTransitionInvalidInputLock(t *testing.T) {
 
 func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
 	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
-	_, err := n.decodeV1LockTransition(context.Background(),
+	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_CREATE,
+		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
 		nil,
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{
@@ -205,8 +212,9 @@ func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
 
 func TestMissingLockCreate(t *testing.T) {
 	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
-	_, err := n.decodeV1LockTransition(context.Background(),
+	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_CREATE,
+		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
 		nil,
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
@@ -216,8 +224,9 @@ func TestMissingLockCreate(t *testing.T) {
 
 func TestMissingLockSpend(t *testing.T) {
 	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
-	_, err := n.decodeV1LockTransition(context.Background(),
+	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_SPEND,
+		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
 		nil,
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{},
@@ -226,21 +235,21 @@ func TestMissingLockSpend(t *testing.T) {
 }
 
 func TestDecodeV1LockTransitionMissingSpendTxId(t *testing.T) {
-	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.SpendOutputs = []pldtypes.Bytes32{pldtypes.RandBytes32()}
 	})
 	require.Regexp(t, "PD200040", err)
 }
 
 func TestDecodeV1LockTransitionBadLockID(t *testing.T) {
-	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.LockID = pldtypes.RandBytes32()
 	})
 	require.Regexp(t, "PD200039", err)
 }
 
 func TestDecodeV1LockTransitionBadChain(t *testing.T) {
-	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	_, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.Replaces = pldtypes.RandBytes32()
 	})
 	require.Regexp(t, "PD200042", err)
@@ -259,7 +268,7 @@ func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
 	}
 	spendData := pldtypes.HexBytes(pldtypes.RandHex(64))
 
-	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.SpendTxId = pldtypes.RandBytes32()
 		out.SpendOutputs = []pldtypes.Bytes32{pldtypes.MustParseBytes32(outputCoin.Id)}
 		out.CancelOutputs = []pldtypes.Bytes32{pldtypes.MustParseBytes32(cancelCoin.Id)}
@@ -287,7 +296,7 @@ func TestDecodeV1LockTransitionSplitOutputsMissing(t *testing.T) {
 	}
 	spendData := pldtypes.HexBytes(pldtypes.RandHex(64))
 
-	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(in, out *types.NotoLockInfo_V1) {
+	lt, err := newValidV1LockTransition(t, LOCK_UPDATE, func(sender *identityPair, in, out *types.NotoLockInfo_V1) {
 		out.SpendTxId = pldtypes.RandBytes32()
 		out.SpendOutputs = []pldtypes.Bytes32{pldtypes.MustParseBytes32(outputCoin.Id)}
 		out.CancelOutputs = []pldtypes.Bytes32{pldtypes.MustParseBytes32(cancelCoin.Id)}
