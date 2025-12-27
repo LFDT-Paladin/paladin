@@ -299,8 +299,9 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
 	coins := []*types.NotoCoin{}
-	for {
-		// TODO: make this configurable
+	// Supports being called with a zero transfer
+	for total.Cmp(amount.Int()) < 0 {
+		// TODO: make the coin selection configurable - currently selects oldest coins
 		queryBuilder := query.NewQueryBuilder().
 			Limit(10).
 			Sort(".created").
@@ -331,15 +332,13 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 			})
 			coins = append(coins, coin)
 			log.L(ctx).Debugf("Selecting coin %s value=%s total=%s required=%s)", state.Id, coin.Amount.Int().Text(10), total.Text(10), amount.Int().Text(10))
-			if total.Cmp(amount.Int()) >= 0 {
-				return &preparedInputs{
-					coins:  coins,
-					states: stateRefs,
-					total:  total,
-				}, false, nil
-			}
 		}
 	}
+	return &preparedInputs{
+		coins:  coins,
+		states: stateRefs,
+		total:  total,
+	}, false, nil
 }
 
 // Select from available locked states for a given lock ID and owner,
@@ -419,6 +418,16 @@ func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, 
 }
 
 func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedLockedOutputs, error) {
+
+	// No outputs if we're preparing an empty lock
+	if amount.Int().Sign() <= 0 {
+		return &preparedLockedOutputs{
+			distributions: []identityList{},
+			coins:         []*types.NotoLockedCoin{},
+			states:        []*prototk.NewState{},
+		}, nil
+	}
+
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
 	newCoin := &types.NotoLockedCoin{

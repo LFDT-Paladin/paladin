@@ -111,8 +111,9 @@ func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams
 }
 
 // Check that a lock produces locked coins matching the difference between the inputs and outputs
-func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.coins) == 0 {
+func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
+		// V0 did not support empty locks
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)

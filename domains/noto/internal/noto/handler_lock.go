@@ -41,8 +41,11 @@ func (h *lockHandler) ValidateParams(ctx context.Context, config *types.NotoPars
 	if err := json.Unmarshal([]byte(params), &lockParams); err != nil {
 		return nil, err
 	}
-	if lockParams.Amount == nil || lockParams.Amount.Int().Sign() != 1 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+	if config.IsV0() {
+		// V0 did not support empty locks
+		if lockParams.Amount == nil || lockParams.Amount.Int().Sign() != 1 {
+			return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "amount")
+		}
 	}
 	return &lockParams, nil
 }
@@ -247,7 +250,7 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	}
 
 	// Validate the amounts, and sender's ownership of the inputs and locked outputs
-	if err := h.noto.validateLockAmounts(ctx, inputs, outputs); err != nil {
+	if err := h.noto.validateLockAmounts(ctx, tx, inputs, outputs); err != nil {
 		return nil, err
 	}
 	if err := h.noto.validateOwners(ctx, tx.Transaction.From, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
