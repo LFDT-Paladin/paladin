@@ -52,11 +52,6 @@ interface INotoPrivate {
 
     function createLock(uint256 amount, bytes calldata data) external;
 
-    function createMintLock(
-        UnlockRecipient[] calldata recipients,
-        bytes calldata data
-    ) external;
-
     function unlock(
         bytes32 lockId,
         string calldata from,
@@ -67,6 +62,12 @@ interface INotoPrivate {
     function prepareUnlock(
         bytes32 lockId,
         string calldata from,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
+    function prepareMintUnlock(
+        bytes32 lockId,
         UnlockRecipient[] calldata recipients,
         bytes calldata data
     ) external;

@@ -88,6 +88,14 @@ type PrepareBurnUnlockHookParams struct {
 	Prepared PreparedTransaction  `json:"prepared"`
 }
 
+type PrepareMintUnlockHookParams struct {
+	Sender     *pldtypes.EthAddress       `json:"sender"`
+	LockId     pldtypes.Bytes32           `json:"lockId"`
+	Recipients []*ResolvedUnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes          `json:"data"`
+	Prepared   PreparedTransaction        `json:"prepared"`
+}
+
 type DelegateUnlockHookParams struct {
 	Sender     *pldtypes.EthAddress       `json:"sender"`
 	LockID     pldtypes.Bytes32           `json:"lockId"`

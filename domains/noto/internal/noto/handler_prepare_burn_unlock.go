@@ -86,10 +86,6 @@ func (h *prepareBurnUnlockHandler) Init(ctx context.Context, tx *types.ParsedTra
 	params := tx.Params.(*types.PrepareBurnUnlockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	if tx.DomainConfig.IsV0() {
-		return nil, i18n.NewError(ctx, msgs.MsgOperationNotSupportedByVersion)
-	}
-
 	if err := h.checkAllowed(ctx, tx); err != nil {
 		return nil, err
 	}
