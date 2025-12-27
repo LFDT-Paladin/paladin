@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"reflect"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -787,7 +786,7 @@ func (n *Noto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*type
 	return &params, err
 }
 
-func validateTransactionCommon[T any](
+func validateTransactionCommon[T comparable](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
 	getHandler func(method string) T,
@@ -819,11 +818,10 @@ func validateTransactionCommon[T any](
 		abi = types.NotoABI.Functions()[functionABI.Name]
 	}
 
+	var unsetT T
 	handler := getHandler(functionABI.Name)
-	handlerValue := reflect.ValueOf(handler)
-	if abi == nil || handlerValue.IsNil() {
-		var zero T
-		return nil, zero, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
+	if abi == nil || handler == unsetT {
+		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
 	// check if the handler implements the ValidateParams method cause generic T

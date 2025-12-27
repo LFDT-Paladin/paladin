@@ -218,13 +218,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 
 	var lockTransition *lockTransition           // v1 only
 	var cancelOutputs []*prototk.EndorsableState // v1 only
-	var spendTxId pldtypes.Bytes32
-	var spendData pldtypes.HexBytes
-	var cancelData pldtypes.HexBytes
-	if tx.DomainConfig.IsV0() {
-		spendData = inParams.Data
-		cancelData = inParams.Data
-	} else {
+	if !tx.DomainConfig.IsV0() {
 		fromID, err := h.noto.findEthAddressVerifier(ctx, "from", inParams.From, req.ResolvedVerifiers)
 		if err != nil {
 			return nil, err
@@ -235,9 +229,6 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		if err != nil {
 			return nil, err
 		}
-		spendData = lockTransition.newLockInfo.SpendData
-		cancelData = lockTransition.newLockInfo.CancelData
-		spendTxId = lockTransition.newLockInfo.SpendTxId
 	}
 
 	// Include the signature from the sender
@@ -250,46 +241,15 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	var interfaceABI abi.ABI
 	var functionName string
 	var paramsJSON []byte
-	var txData pldtypes.HexBytes
 
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
-		var lockParams LockParams
-		var notoLockOpEncoded []byte
-		lockParams.Options, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
-			SpendTxId: spendTxId,
-		})
-		if err == nil {
-			lockParams.SpendHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(spendOutputs), spendData)
-		}
-		if err == nil {
-			lockParams.CancelHash, err = h.noto.unlockHashFromIDs_V1(ctx, tx.ContractAddress, inParams.LockID, spendTxId.String(), endorsableStateIDs(lockedInputs), endorsableStateIDs(cancelOutputs), cancelData)
-		}
-		if err == nil {
-			// The noto lock operation here is empty, as we are just modifying the
-			// TODO: Consider if we use a UTXO on-chain to track the
-			notoLockOpEncoded, err = h.noto.encodeNotoLockOperation(ctx, &types.NotoLockOperation{
-				TxId:          req.Transaction.TransactionId,
-				Inputs:        []string{},
-				Outputs:       []string{},
-				LockedOutputs: []string{}, // must be empty for updateLock
-				Proof:         pldtypes.HexBytes{},
-			})
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
+		var lockParams *UpdateLockParams
+		lockParams, err = h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 			functionName = "updateLock"
-			params := &UpdateLockParams{
-				LockID:       inParams.LockID,
-				UpdateInputs: notoLockOpEncoded,
-				Params:       lockParams,
-				Data:         txData,
-			}
+			params := lockParams
 			paramsJSON, err = json.Marshal(params)
 		}
 	default:
@@ -299,7 +259,8 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			return nil, err
 		}
 		// We must use the legacy encoding for the transaction data, because there is no other place
-		// to pass in the transaction ID on this method
+		// to pass in the transaction ID on this
+		var txData pldtypes.HexBytes
 		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)

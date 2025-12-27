@@ -319,7 +319,7 @@ func TestPrepareUnlock(t *testing.T) {
 		Inputs:        []string{},
 		Outputs:       []string{},
 		LockedOutputs: []string{},
-		Proof:         []byte{},
+		Proof:         signatureBytes,
 	}, notoParams)
 
 	// Prepare again to test hook invoke

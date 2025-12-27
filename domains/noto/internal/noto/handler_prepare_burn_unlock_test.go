@@ -1,5 +1,5 @@
 /*
- * Copyright © 2025 Kaleido, Inc.
+ * Copyright © 2024 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -53,7 +53,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.NoError(t, err)
 
 	lockID := pldtypes.RandBytes32()
-	lockedCoin := &types.NotoLockedCoinState{
+	inputCoin := &types.NotoLockedCoinState{
 		ID: pldtypes.RandBytes32(),
 		Data: types.NotoLockedCoin{
 			LockID: lockID,
@@ -61,16 +61,36 @@ func TestPrepareBurnUnlock(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
+	inputLockInfoSalt := pldtypes.RandBytes32()
+	inputLockInfo := &prototk.StoredState{
+		Id:       "0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b",
+		SchemaId: "lockInfo_v1",
+		DataJson: fmt.Sprintf(`{
+			"lockId": "%s",
+			"salt": "%s",
+			"owner": "%s",
+			"spender": "%s"
+		}`, lockID, inputLockInfoSalt, senderKey.Address, senderKey.Address),
+	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		return &prototk.FindAvailableStatesResponse{
-			States: []*prototk.StoredState{
-				{
-					Id:       lockedCoin.ID.String(),
-					SchemaId: "lockedCoin",
-					DataJson: mustParseJSON(lockedCoin.Data),
+		switch req.SchemaId {
+		case "lockInfo_v1":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{inputLockInfo},
+			}, nil
+		case "lockedCoin":
+			return &prototk.FindAvailableStatesResponse{
+				States: []*prototk.StoredState{
+					{
+						Id:        inputCoin.ID.String(),
+						SchemaId:  "lockedCoin",
+						DataJson:  mustParseJSON(inputCoin.Data),
+						CreatedAt: 1000,
+					},
 				},
-			},
-		}, nil
+			}, nil
+		}
+		return nil, fmt.Errorf("unmocked query")
 	}
 
 	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
@@ -81,10 +101,10 @@ func TestPrepareBurnUnlock(t *testing.T) {
 			ContractAddress: contractAddress,
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
 				NotaryLookup: "notary@node1",
-				Variant:      types.NotoVariantDefault, // V1 required for prepareBurnUnlock
+				Variant:      types.NotoVariantDefault,
 				Options: types.NotoOptions{
 					Basic: &types.NotoBasicOptions{
-						AllowBurn: boolPtr(true),
+						AllowBurn: confutil.P(true),
 					},
 				},
 			}),
@@ -128,21 +148,41 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
-	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
+	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // old info
+	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1) // new info
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + lockInfo (no outputs for burn)
-	assert.Equal(t, lockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + output-info + cancel-coin
+
+	assert.Equal(t, inputLockInfo.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
+	assert.Equal(t, "lockInfo_v1", assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
+
+	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[2]
+	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
+
+	assert.Equal(t, inputCoin.ID.String(), inputCoinState.Id)
+	cancelCoin, err := n.unmarshalCoin(cancelCoinState.StateDataJson)
+	require.NoError(t, err)
+	assert.Equal(t, senderKey.Address.String(), cancelCoin.Owner.String())
+	assert.Equal(t, "100", cancelCoin.Amount.Int().String())
+	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
+
+	lockInfo, err := n.unmarshalLockV1(newLockInfoState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
+	require.NotEqual(t, lockInfo.Salt, inputLockInfoSalt)
+	require.Equal(t, inputLockInfo.Id, lockInfo.Replaces.String())
+	require.Len(t, lockInfo.SpendOutputs, 0)
+	require.Len(t, lockInfo.CancelOutputs, 1)
+	require.NotEmpty(t, lockInfo.SpendData)
+	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
 
-	// Prepare unlock with no outputs (for burning)
-	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&lockedCoin.Data}, nil, nil)
+	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{})
 	require.NoError(t, err)
 	signature, err := senderKey.SignDirect(encodedUnlock)
 	require.NoError(t, err)
@@ -151,20 +191,34 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	readStates := []*prototk.EndorsableState{
 		{
 			SchemaId:      "lockedCoin",
-			Id:            lockedCoin.ID.String(),
-			StateDataJson: mustParseJSON(lockedCoin.Data),
+			Id:            inputCoin.ID.String(),
+			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data_v1",
-			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+			SchemaId:      n.dataSchemaV1.Id,
+			Id:            *dataState.Id,
+			StateDataJson: dataState.StateDataJson,
 		},
 		{
-			SchemaId:      "lockInfo",
-			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
-			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
+			SchemaId:      n.coinSchema.Id,
+			Id:            *cancelCoinState.Id,
+			StateDataJson: cancelCoinState.StateDataJson,
+		},
+	}
+	inputStates := []*prototk.EndorsableState{
+		{
+			SchemaId:      inputLockInfo.SchemaId,
+			Id:            inputLockInfo.Id,
+			StateDataJson: inputLockInfo.DataJson,
+		},
+	}
+	outputStates := []*prototk.EndorsableState{
+		{
+			SchemaId:      n.lockInfoSchemaV1.Id,
+			Id:            *newLockInfoState.Id,
+			StateDataJson: newLockInfoState.StateDataJson,
 		},
 	}
 
@@ -173,6 +227,8 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		ResolvedVerifiers: verifiers,
 		Reads:             readStates,
 		Info:              infoStates,
+		Inputs:            inputStates,
+		Outputs:           outputStates,
 		EndorsementRequest: &prototk.AttestationRequest{
 			Name: "notary",
 		},
@@ -187,15 +243,14 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prototk.EndorseTransactionResponse_ENDORSER_SUBMIT, endorseRes.EndorsementResult)
 
-	unlockHash, err := n.unlockHashFromStates(ctx, ethtypes.MustNewAddress(contractAddress), readStates, nil, nil, pldtypes.MustParseHexBytes("0x1234"))
-	require.NoError(t, err)
-
 	// Prepare once to test base invoke
 	prepareRes, err := n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
 		Transaction:       tx,
 		ResolvedVerifiers: verifiers,
 		ReadStates:        readStates,
 		InfoStates:        infoStates,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
 		AttestationResult: []*prototk.AttestationResult{
 			{
 				Name:     "sender",
@@ -209,21 +264,46 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceBuild.ABI.Functions()["prepareUnlock"])
+	assert.Nil(t, prepareRes.Transaction.ContractAddress)
+
+	// Extract the options from the response to get the generated SpendTxId
+	updateLockABI := interfaceBuild.ABI.Functions()["updateLock"]
+	expectedFunction := mustParseJSON(updateLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
-	// Verify base invoke params
-	var baseParams NotoPrepareUnlockParams
-	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &baseParams)
+	// Decode the function parameters
+	fnParams := decodeFnParams[UpdateLockParams](t, updateLockABI, prepareRes.Transaction.ParamsJson)
+	require.Equal(t, lockID, fnParams.LockID)
+	data, err := n.decodeTransactionDataV1(ctx, fnParams.Data) // this is the transaction data for the prepare (not the prepared transaction)
 	require.NoError(t, err)
-	assert.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", *baseParams.TxId)
-	assert.Equal(t, lockID, *baseParams.LockId)
-	assert.NotEmpty(t, baseParams.UnlockTxId)
-	assert.Equal(t, []string{lockedCoin.ID.String()}, baseParams.LockedInputs)
-	assert.Equal(t, unlockHash.String(), baseParams.UnlockHash.String())
-	assert.Equal(t, signatureBytes, baseParams.Signature)
-	assert.NotEmpty(t, baseParams.Data)
+	require.Equal(t, &types.NotoTransactionData_V1{
+		InfoStates: []pldtypes.Bytes32{
+			pldtypes.MustParseBytes32(*dataState.Id),
+			pldtypes.MustParseBytes32(*cancelCoinState.Id),
+		},
+	}, data)
+
+	// Decode the options we store into the lockInfo
+	emptyTxData, err := n.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
+	require.NoError(t, err)
+	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), []string{}, emptyTxData)
+	require.NoError(t, err)
+	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[1:2]), emptyTxData)
+	require.NoError(t, err)
+	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
+
+	// Validate the encoded noto parameters passed in
+	notoParams := decodeSingleABITuple[types.NotoLockOperation](t, types.NotoLockOperationABI, fnParams.UpdateInputs)
+	require.Equal(t, &types.NotoLockOperation{
+		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:        []string{},
+		Outputs:       []string{},
+		LockedOutputs: []string{},
+		Proof:         signatureBytes,
+	}, notoParams)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"
@@ -243,6 +323,8 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		ResolvedVerifiers: verifiers,
 		ReadStates:        readStates,
 		InfoStates:        infoStates,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
 		AttestationResult: []*prototk.AttestationResult{
 			{
 				Name:     "sender",
@@ -261,26 +343,22 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 
 	// Verify hook invoke params
-	var hookParams PrepareBurnUnlockHookParams
+	var hookParams UnlockHookParams
 	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &hookParams)
 	require.NoError(t, err)
 	require.NotNil(t, hookParams.Sender)
 	assert.Equal(t, senderKey.Address.String(), hookParams.Sender.String())
-	assert.Equal(t, lockID, hookParams.LockId)
-	require.NotNil(t, hookParams.From)
-	assert.Equal(t, senderKey.Address.String(), hookParams.From.String())
-	require.NotNil(t, hookParams.Amount)
-	assert.Equal(t, pldtypes.Int64ToInt256(100).String(), hookParams.Amount.String())
+	assert.Equal(t, lockID, hookParams.LockID)
 	assert.Equal(t, pldtypes.MustParseHexBytes("0x1234"), hookParams.Data)
+
+	// Verify recipients
+	require.Len(t, hookParams.Recipients, 0)
 
 	// Verify prepared transaction
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
 	assert.NotEmpty(t, hookParams.Prepared.EncodedCall)
 
-	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	lockState := assembleRes.AssembledTransaction.InfoStates[2]
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
 		completeForIdentity(notaryAddress).
@@ -291,147 +369,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	mt.withMissingNewStates(dataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
-	mt.withMissingNewStates(lockState).
+	mt.withMissingNewStates(newLockInfoState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
-}
-
-func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
-	mockCallbacks := newMockCallbacks()
-	n := &Noto{
-		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
-	}
-	ctx := context.Background()
-	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
-
-	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
-	lockID := pldtypes.RandBytes32()
-
-	// Test missing lockId
-	tx := &prototk.TransactionSpecification{
-		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		From:          "sender@node1",
-		ContractInfo: &prototk.ContractInfo{
-			ContractAddress: contractAddress,
-			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				NotaryLookup: "notary@node1",
-				Variant:      types.NotoVariantDefault,
-			}),
-		},
-		FunctionAbiJson:   mustParseJSON(fn),
-		FunctionSignature: fn.SolString(),
-		FunctionParamsJson: `{
-			"from": "sender@node1",
-			"amount": 100,
-			"data": "0x1234"
-		}`,
-	}
-	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
-		Transaction: tx,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "lockId")
-
-	// Test missing from
-	tx.FunctionParamsJson = fmt.Sprintf(`{
-		"lockId": "%s",
-		"amount": 100,
-		"data": "0x1234"
-	}`, lockID)
-	_, err = n.InitTransaction(ctx, &prototk.InitTransactionRequest{
-		Transaction: tx,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "from")
-
-	// Test invalid amount
-	tx.FunctionParamsJson = fmt.Sprintf(`{
-		"lockId": "%s",
-		"from": "sender@node1",
-		"amount": 0,
-		"data": "0x1234"
-	}`, lockID)
-	_, err = n.InitTransaction(ctx, &prototk.InitTransactionRequest{
-		Transaction: tx,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "amount")
-
-	// Test V0 not supported
-	tx.FunctionParamsJson = fmt.Sprintf(`{
-		"lockId": "%s",
-		"from": "sender@node1",
-		"amount": 100,
-		"data": "0x1234"
-	}`, lockID)
-	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
-		NotaryLookup: "notary@node1",
-		Variant:      types.NotoVariantLegacy, // V0
-	})
-	_, err = n.InitTransaction(ctx, &prototk.InitTransactionRequest{
-		Transaction: tx,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported in Noto V0")
-}
-
-func TestPrepareBurnUnlock_BurnNotAllowed(t *testing.T) {
-	mockCallbacks := newMockCallbacks()
-	n := &Noto{
-		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
-	}
-	ctx := context.Background()
-	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
-
-	lockID := pldtypes.RandBytes32()
-	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
-	tx := &prototk.TransactionSpecification{
-		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		From:          "sender@node1",
-		ContractInfo: &prototk.ContractInfo{
-			ContractAddress: contractAddress,
-			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				NotaryLookup: "notary@node1",
-				NotaryMode:   types.NotaryModeBasic.Enum(),
-				Variant:      types.NotoVariantDefault,
-				Options: types.NotoOptions{
-					Basic: &types.NotoBasicOptions{
-						AllowBurn: boolPtr(false), // Burn not allowed
-					},
-				},
-			}),
-		},
-		FunctionAbiJson:   mustParseJSON(fn),
-		FunctionSignature: fn.SolString(),
-		FunctionParamsJson: fmt.Sprintf(`{
-		    "lockId": "%s",
-			"from": "sender@node1",
-			"amount": 100,
-			"data": "0x1234"
-		}`, lockID),
-	}
-
-	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
-		Transaction: tx,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Burn is not enabled")
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }
