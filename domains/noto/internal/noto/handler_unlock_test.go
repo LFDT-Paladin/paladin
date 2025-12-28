@@ -38,15 +38,15 @@ func TestUnlock(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV0: testSchema("lockInfo"),
+		lockInfoSchemaV1: testSchema("lockInfo_v1"),
+		dataSchemaV0:     testSchema("data"),
+		dataSchemaV1:     testSchema("data_v1"),
+		manifestSchema:   testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["unlock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -66,7 +66,7 @@ func TestUnlock(t *testing.T) {
 	}
 	inputLockInfo := &prototk.StoredState{
 		Id:       pldtypes.RandBytes32().String(),
-		SchemaId: "lockInfo_v1",
+		SchemaId: hashName("lockInfo_v1"),
 		DataJson: fmt.Sprintf(`{
 			"lockId": "%s",
 			"salt": "%s",
@@ -76,16 +76,16 @@ func TestUnlock(t *testing.T) {
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		switch req.SchemaId {
-		case "lockInfo_v1":
+		case hashName("lockInfo_v1"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{inputLockInfo},
 			}, nil
-		case "lockedCoin":
+		case hashName("lockedCoin"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
 						Id:        inputCoin.ID.String(),
-						SchemaId:  "lockedCoin",
+						SchemaId:  hashName("lockedCoin"),
 						DataJson:  mustParseJSON(inputCoin.Data),
 						CreatedAt: 1,
 					},
@@ -182,7 +182,7 @@ func TestUnlock(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockedCoin",
+			SchemaId:      hashName("lockedCoin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},

@@ -73,12 +73,12 @@ func TestTransfer(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:      mockCallbacks,
-		coinSchema:     &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema: &prototk.StateSchema{Id: "manifest"},
+		coinSchema:     testSchema("coin"),
+		dataSchemaV0:   testSchema("data"),
+		dataSchemaV1:   testSchema("data_v1"),
+		manifestSchema: testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["transfer"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -98,7 +98,7 @@ func TestTransfer(t *testing.T) {
 			States: []*prototk.StoredState{
 				{
 					Id:       inputCoin.ID.String(),
-					SchemaId: "coin",
+					SchemaId: hashName("coin"),
 					DataJson: mustParseJSON(inputCoin.Data),
 				},
 			},
@@ -192,31 +192,31 @@ func TestTransfer(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000001",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000002",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[1].StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "manifest",
+			SchemaId:      hashName("manifest"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000003",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000004",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -361,10 +361,10 @@ func TestTransfer_V0(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["transfer"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -384,7 +384,7 @@ func TestTransfer_V0(t *testing.T) {
 			States: []*prototk.StoredState{
 				{
 					Id:       inputCoin.ID.String(),
-					SchemaId: "coin",
+					SchemaId: hashName("coin"),
 					DataJson: mustParseJSON(inputCoin.Data),
 				},
 			},
@@ -478,26 +478,26 @@ func TestTransfer_V0(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000001",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000002",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[1].StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000003",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
@@ -611,14 +611,14 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
-		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
 	handler := &transferHandler{
 		transferCommon: transferCommon{noto: n},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	fn := types.NotoABI.Functions()["transfer"]
 	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"
@@ -647,14 +647,14 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
-		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
 	handler := &transferHandler{
 		transferCommon: transferCommon{noto: n},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	fn := types.NotoABI.Functions()["transfer"]
 	contractAddress := "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3"

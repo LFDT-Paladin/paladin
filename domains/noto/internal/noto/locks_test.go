@@ -30,12 +30,12 @@ func TestLoadLockInfoOk(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"},
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
 	}
 	lockID := pldtypes.RandBytes32()
 	existingState := &prototk.StoredState{
 		Id:       pldtypes.RandBytes32().String(),
-		SchemaId: "lockInfoV1",
+		SchemaId: hashName("lockInfoV1"),
 		DataJson: fmt.Sprintf(`{"lockId": "%s"}`, lockID),
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -43,7 +43,7 @@ func TestLoadLockInfoOk(t *testing.T) {
 			States: []*prototk.StoredState{existingState},
 		}, nil
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	lock, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.NoError(t, err)
@@ -57,12 +57,12 @@ func TestLoadLockInfoBadData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"},
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
 	}
 	lockID := pldtypes.RandBytes32()
 	existingState := &prototk.StoredState{
 		Id:       pldtypes.RandBytes32().String(),
-		SchemaId: "lockInfoV1",
+		SchemaId: hashName("lockInfoV1"),
 		DataJson: `{"lockId": {"wrong":true}}`,
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -70,7 +70,7 @@ func TestLoadLockInfoBadData(t *testing.T) {
 			States: []*prototk.StoredState{existingState},
 		}, nil
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "PD200040", err)
@@ -80,13 +80,13 @@ func TestLoadLockInfoNotFound(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"},
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
 	}
 	lockID := pldtypes.RandBytes32()
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{}, nil
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "PD200028", err)
@@ -96,13 +96,13 @@ func TestLoadLockInfoLoadFail(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"},
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
 	}
 	lockID := pldtypes.RandBytes32()
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "pop", err)
@@ -112,10 +112,10 @@ func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, m
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"},
+		coinSchema:       testSchema("coin"),
+		lockInfoSchemaV1: testSchema("lockInfoV1"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	lockID := pldtypes.RandBytes32()
 	owner := pldtypes.RandAddress()
 	inputStateID := pldtypes.RandBytes32()
@@ -147,14 +147,14 @@ func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, m
 		&lockID,
 		[]*prototk.EndorsableState{
 			{
-				SchemaId:      "lockInfoV1",
+				SchemaId:      hashName("lockInfoV1"),
 				Id:            inputStateID.String(),
 				StateDataJson: string(pldtypes.JSONString(inputLockInfo)),
 			},
 		},
 		[]*prototk.EndorsableState{
 			{
-				SchemaId:      "lockInfoV1",
+				SchemaId:      hashName("lockInfoV1"),
 				Id:            pldtypes.RandBytes32().String(),
 				StateDataJson: string(pldtypes.JSONString(outputLockInfo)),
 			},
@@ -175,14 +175,14 @@ func TestDecodeV1LockTransitionOKSpenderChange(t *testing.T) {
 }
 
 func TestDecodeV1LockTransitionInvalidInputLock(t *testing.T) {
-	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
+	n := &Noto{lockInfoSchemaV1: testSchema("lockInfoV1")}
 	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_SPEND,
 		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
 		nil,
 		[]*prototk.EndorsableState{
 			{
-				SchemaId:      "lockInfoV1",
+				SchemaId:      hashName("lockInfoV1"),
 				Id:            pldtypes.RandBytes32().String(),
 				StateDataJson: string(pldtypes.JSONString(`{! wrong`)),
 			},
@@ -193,7 +193,7 @@ func TestDecodeV1LockTransitionInvalidInputLock(t *testing.T) {
 }
 
 func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
-	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
+	n := &Noto{lockInfoSchemaV1: testSchema("lockInfoV1")}
 	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_CREATE,
 		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
@@ -201,7 +201,7 @@ func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
 		[]*prototk.EndorsableState{},
 		[]*prototk.EndorsableState{
 			{
-				SchemaId:      "lockInfoV1",
+				SchemaId:      hashName("lockInfoV1"),
 				Id:            pldtypes.RandBytes32().String(),
 				StateDataJson: string(pldtypes.JSONString(`{! wrong`)),
 			},
@@ -211,7 +211,7 @@ func TestDecodeV1LockTransitionInvalidOutputLock(t *testing.T) {
 }
 
 func TestMissingLockCreate(t *testing.T) {
-	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
+	n := &Noto{lockInfoSchemaV1: testSchema("lockInfoV1")}
 	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_CREATE,
 		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
@@ -223,7 +223,7 @@ func TestMissingLockCreate(t *testing.T) {
 }
 
 func TestMissingLockSpend(t *testing.T) {
-	n := &Noto{lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfoV1"}}
+	n := &Noto{lockInfoSchemaV1: testSchema("lockInfoV1")}
 	_, err := n.validateV1LockTransition(context.Background(),
 		LOCK_SPEND,
 		&identityPair{address: pldtypes.RandAddress(), identifier: "user1"},
@@ -258,12 +258,12 @@ func TestDecodeV1LockTransitionBadChain(t *testing.T) {
 func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
 	outputCoin := &prototk.EndorsableState{
 		Id:            pldtypes.RandBytes32().String(),
-		SchemaId:      "coin",
+		SchemaId:      hashName("coin"),
 		StateDataJson: `{}`,
 	}
 	cancelCoin := &prototk.EndorsableState{
 		Id:            pldtypes.RandBytes32().String(),
-		SchemaId:      "coin",
+		SchemaId:      hashName("coin"),
 		StateDataJson: `{}`,
 	}
 	spendData := pldtypes.HexBytes(pldtypes.RandHex(64))
@@ -276,7 +276,7 @@ func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	outputCoins, cancelCoins, err := lt.splitOutputs(ctx, []*prototk.EndorsableState{outputCoin, cancelCoin})
 	require.NoError(t, err)
 	require.Equal(t, []*prototk.EndorsableState{outputCoin}, outputCoins)
@@ -286,12 +286,12 @@ func TestDecodeV1LockTransitionSplitOutputsOk(t *testing.T) {
 func TestDecodeV1LockTransitionSplitOutputsMissing(t *testing.T) {
 	outputCoin := &prototk.EndorsableState{
 		Id:            pldtypes.RandBytes32().String(),
-		SchemaId:      "coin",
+		SchemaId:      hashName("coin"),
 		StateDataJson: `{}`,
 	}
 	cancelCoin := &prototk.EndorsableState{
 		Id:            pldtypes.RandBytes32().String(),
-		SchemaId:      "coin",
+		SchemaId:      hashName("coin"),
 		StateDataJson: `{}`,
 	}
 	spendData := pldtypes.HexBytes(pldtypes.RandHex(64))

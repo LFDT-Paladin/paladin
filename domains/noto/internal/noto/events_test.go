@@ -44,7 +44,7 @@ func sampleV1Data(t *testing.T, n *Noto) (data pldtypes.HexBytes) {
 func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -91,7 +91,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -121,7 +121,7 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -156,7 +156,7 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 func TestHandleEventBatch_NotoLock(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -210,7 +210,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -241,7 +241,7 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
@@ -284,7 +284,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 func TestHandleEventBatch_LockSpent(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
 		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),

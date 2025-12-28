@@ -37,15 +37,15 @@ func TestPrepareMintUnlock(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV0: testSchema("lockInfo"),
+		lockInfoSchemaV1: testSchema("lockInfo_v1"),
+		dataSchemaV0:     testSchema("data"),
+		dataSchemaV1:     testSchema("data_v1"),
+		manifestSchema:   testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["prepareMintUnlock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -57,7 +57,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 	inputLockInfoSalt := pldtypes.RandBytes32()
 	inputLockInfo := &prototk.StoredState{
 		Id:       "0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b",
-		SchemaId: "lockInfo_v1",
+		SchemaId: hashName("lockInfo_v1"),
 		DataJson: fmt.Sprintf(`{
 			"lockId": "%s",
 			"salt": "%s",
@@ -67,7 +67,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		switch req.SchemaId {
-		case "lockInfo_v1":
+		case hashName("lockInfo_v1"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{inputLockInfo},
 			}, nil
@@ -141,7 +141,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + output-info + output-coin
 
 	assert.Equal(t, inputLockInfo.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
-	assert.Equal(t, "lockInfo_v1", assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
+	assert.Equal(t, hashName("lockInfo_v1"), assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	dataState := assembleRes.AssembledTransaction.InfoStates[1]

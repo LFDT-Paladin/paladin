@@ -38,11 +38,11 @@ func TestBurn(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:      mockCallbacks,
-		coinSchema:     &prototk.StateSchema{Id: "coin"},
-		dataSchemaV1:   &prototk.StateSchema{Id: "data"},
-		manifestSchema: &prototk.StateSchema{Id: "manifest"},
+		coinSchema:     testSchema("coin"),
+		dataSchemaV1:   testSchema("data"),
+		manifestSchema: testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["burn"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -61,7 +61,7 @@ func TestBurn(t *testing.T) {
 			States: []*prototk.StoredState{
 				{
 					Id:       inputCoin.ID.String(),
-					SchemaId: "coin",
+					SchemaId: hashName("coin"),
 					DataJson: mustParseJSON(inputCoin.Data),
 				},
 			},
@@ -133,14 +133,14 @@ func TestBurn(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -269,10 +269,10 @@ func TestBurn_V0(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["burn"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -292,7 +292,7 @@ func TestBurn_V0(t *testing.T) {
 			States: []*prototk.StoredState{
 				{
 					Id:       inputCoin.ID.String(),
-					SchemaId: "coin",
+					SchemaId: hashName("coin"),
 					DataJson: mustParseJSON(inputCoin.Data),
 				},
 			},
@@ -370,14 +370,14 @@ func TestBurn_V0(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},

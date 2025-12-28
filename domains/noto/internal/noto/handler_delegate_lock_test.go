@@ -38,13 +38,13 @@ func TestDelegateLock(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV1: testSchema("lockInfo_v1"),
+		dataSchemaV1:     testSchema("data"),
+		manifestSchema:   testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["delegateLock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -63,21 +63,21 @@ func TestDelegateLock(t *testing.T) {
 	}
 	inputLockState := &prototk.StoredState{
 		Id:       "0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b",
-		SchemaId: "lockInfo_v1",
+		SchemaId: hashName("lockInfo_v1"),
 		DataJson: fmt.Sprintf(`{"lockId":"%s"}`, lockID),
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		switch req.SchemaId {
-		case "lockInfo_v1":
+		case hashName("lockInfo_v1"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{inputLockState},
 			}, nil
-		case "lockedCoin":
+		case hashName("lockedCoin"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
 						Id:       inputLockedCoin.ID.String(),
-						SchemaId: "lockedCoin",
+						SchemaId: hashName("lockedCoin"),
 						DataJson: mustParseJSON(inputLockedCoin.Data),
 					},
 				},
@@ -140,7 +140,7 @@ func TestDelegateLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + txData
 	assert.Equal(t, inputLockState.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
-	assert.Equal(t, "lockInfo_v1", assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
+	assert.Equal(t, hashName("lockInfo_v1"), assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
 	assert.Equal(t, inputLockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
 	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
@@ -154,33 +154,33 @@ func TestDelegateLock(t *testing.T) {
 
 	inputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockInfo_v1",
+			SchemaId:      hashName("lockInfo_v1"),
 			Id:            inputLockState.Id,
 			StateDataJson: mustParseJSON(inputLockState.DataJson),
 		},
 	}
 	readStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockedCoin",
+			SchemaId:      hashName("lockedCoin"),
 			Id:            inputLockedCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputLockedCoin.Data),
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "manifest",
+			SchemaId:      hashName("manifest"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 	}
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockInfo_v1",
+			SchemaId:      hashName("lockInfo_v1"),
 			Id:            "0x4da2191dc83d31196a735d8df477c1a588f1a5a15c084e7d66b7157ab539019f",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},

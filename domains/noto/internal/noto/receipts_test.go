@@ -16,7 +16,7 @@
 package noto
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -31,10 +31,10 @@ func TestReceiptTransfers(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	transfers, err := n.receiptTransfers(ctx, &prototk.BuildReceiptRequest{
 		InputStates:  []*prototk.EndorsableState{},
@@ -52,7 +52,7 @@ func TestReceiptTransfers(t *testing.T) {
 		InputStates: []*prototk.EndorsableState{},
 		OutputStates: []*prototk.EndorsableState{{
 			Id:       "1",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
@@ -70,7 +70,7 @@ func TestReceiptTransfers(t *testing.T) {
 	transfers, err = n.receiptTransfers(ctx, &prototk.BuildReceiptRequest{
 		InputStates: []*prototk.EndorsableState{{
 			Id:       "1",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
@@ -89,7 +89,7 @@ func TestReceiptTransfers(t *testing.T) {
 	transfers, err = n.receiptTransfers(ctx, &prototk.BuildReceiptRequest{
 		InputStates: []*prototk.EndorsableState{{
 			Id:       "1",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 10,
 				"owner": "%s"
@@ -97,7 +97,7 @@ func TestReceiptTransfers(t *testing.T) {
 		}},
 		OutputStates: []*prototk.EndorsableState{{
 			Id:       "2",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 8,
 				"owner": "%s"
@@ -115,7 +115,7 @@ func TestReceiptTransfers(t *testing.T) {
 	transfers, err = n.receiptTransfers(ctx, &prototk.BuildReceiptRequest{
 		InputStates: []*prototk.EndorsableState{{
 			Id:       "1",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
@@ -123,7 +123,7 @@ func TestReceiptTransfers(t *testing.T) {
 		}},
 		OutputStates: []*prototk.EndorsableState{{
 			Id:       "2",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
@@ -141,7 +141,7 @@ func TestReceiptTransfers(t *testing.T) {
 	transfers, err = n.receiptTransfers(ctx, &prototk.BuildReceiptRequest{
 		InputStates: []*prototk.EndorsableState{{
 			Id:       "1",
-			SchemaId: "lockedCoin",
+			SchemaId: hashName("lockedCoin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 10,
 				"owner": "%s"
@@ -149,28 +149,28 @@ func TestReceiptTransfers(t *testing.T) {
 		}},
 		OutputStates: []*prototk.EndorsableState{{
 			Id:       "2",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
 			}`, owner2),
 		}, {
 			Id:       "3",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
 			}`, owner3),
 		}, {
 			Id:       "4",
-			SchemaId: "coin",
+			SchemaId: hashName("coin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 1,
 				"owner": "%s"
 			}`, owner3),
 		}, {
 			Id:       "5",
-			SchemaId: "lockedCoin",
+			SchemaId: hashName("lockedCoin"),
 			StateDataJson: fmt.Sprintf(`{
 				"amount": 7,
 				"owner": "%s"
@@ -187,4 +187,17 @@ func TestReceiptTransfers(t *testing.T) {
 		To:     owner3,
 		Amount: pldtypes.Int64ToInt256(2),
 	}}, transfers)
+}
+
+func testGetDomainReceipt(t *testing.T, n *Noto, req *prototk.BuildReceiptRequest) *types.NotoDomainReceipt {
+	// Schemas all need mapping
+
+	res, err := n.BuildReceipt(t.Context(), req)
+	require.NoError(t, err)
+
+	var notoReceipt types.NotoDomainReceipt
+	err = json.Unmarshal([]byte(res.ReceiptJson), &notoReceipt)
+	require.NoError(t, err)
+
+	return &notoReceipt
 }

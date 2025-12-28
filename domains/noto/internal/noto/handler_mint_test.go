@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -38,12 +37,12 @@ func TestMint(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:      mockCallbacks,
-		coinSchema:     &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema: &prototk.StateSchema{Id: "manifest"},
+		coinSchema:     testSchema("coin"),
+		dataSchemaV0:   testSchema("data"),
+		dataSchemaV1:   testSchema("data_v1"),
+		manifestSchema: testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["mint"]
 
 	receiverAddress := "0x2000000000000000000000000000000000000000"
@@ -120,14 +119,14 @@ func TestMint(t *testing.T) {
 
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
@@ -257,10 +256,10 @@ func TestMint_V0(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["mint"]
 
 	receiverAddress := "0x2000000000000000000000000000000000000000"
@@ -337,14 +336,14 @@ func TestMint_V0(t *testing.T) {
 
 	outputStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
 			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},

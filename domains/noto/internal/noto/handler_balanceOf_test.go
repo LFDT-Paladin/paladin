@@ -31,7 +31,7 @@ import (
 
 func TestBalanceOfValidateParams(t *testing.T) {
 	h := balanceOfHandler{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name        string
@@ -90,7 +90,7 @@ func TestBalanceOfInitCall(t *testing.T) {
 		Callbacks: mockCallbacks,
 	}
 	h := balanceOfHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: &types.BalanceOfParam{
@@ -119,10 +119,10 @@ func TestBalanceOfExecCall(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
+		coinSchema: testSchema("coin"),
 	}
 	h := balanceOfHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: &types.BalanceOfParam{
@@ -212,7 +212,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 				States: []*prototk.StoredState{
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: mustParseJSON(coin),
 					},
 				},
@@ -253,12 +253,12 @@ func TestBalanceOfExecCall(t *testing.T) {
 				States: []*prototk.StoredState{
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: mustParseJSON(coin1),
 					},
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: mustParseJSON(coin2),
 					},
 				},
@@ -288,7 +288,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 				States: []*prototk.StoredState{
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: "bad json",
 					},
 				},
@@ -324,7 +324,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 				States: []*prototk.StoredState{
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: mustParseJSON(coin),
 					},
 				},
@@ -362,7 +362,7 @@ func TestBalanceOfExecCall(t *testing.T) {
 				States: []*prototk.StoredState{
 					{
 						Id:       pldtypes.RandBytes32().String(),
-						SchemaId: "coin",
+						SchemaId: hashName("coin"),
 						DataJson: mustParseJSON(coin),
 					},
 				},

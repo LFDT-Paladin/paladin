@@ -38,15 +38,15 @@ func TestPrepareUnlock(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV0: testSchema("lockInfo"),
+		lockInfoSchemaV1: testSchema("lockInfo_v1"),
+		dataSchemaV0:     testSchema("data"),
+		dataSchemaV1:     testSchema("data_v1"),
+		manifestSchema:   testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["prepareUnlock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -66,7 +66,7 @@ func TestPrepareUnlock(t *testing.T) {
 	inputLockInfoSalt := pldtypes.RandBytes32()
 	inputLockInfo := &prototk.StoredState{
 		Id:       "0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b",
-		SchemaId: "lockInfo_v1",
+		SchemaId: hashName("lockInfo_v1"),
 		DataJson: fmt.Sprintf(`{
 			"lockId": "%s",
 			"salt": "%s",
@@ -76,16 +76,16 @@ func TestPrepareUnlock(t *testing.T) {
 	}
 	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		switch req.SchemaId {
-		case "lockInfo_v1":
+		case hashName("lockInfo_v1"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{inputLockInfo},
 			}, nil
-		case "lockedCoin":
+		case hashName("lockedCoin"):
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
 						Id:        inputCoin.ID.String(),
-						SchemaId:  "lockedCoin",
+						SchemaId:  hashName("lockedCoin"),
 						DataJson:  mustParseJSON(inputCoin.Data),
 						CreatedAt: 1000,
 					},
@@ -161,7 +161,7 @@ func TestPrepareUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + output-info + output-coin + cancel-coin
 
 	assert.Equal(t, inputLockInfo.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
-	assert.Equal(t, "lockInfo_v1", assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
+	assert.Equal(t, hashName("lockInfo_v1"), assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
 
 	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
@@ -202,7 +202,7 @@ func TestPrepareUnlock(t *testing.T) {
 
 	readStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockedCoin",
+			SchemaId:      hashName("lockedCoin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
@@ -410,13 +410,13 @@ func TestPrepareUnlock_V0(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
-		coinSchema:       &prototk.StateSchema{Id: "coin"},
-		lockedCoinSchema: &prototk.StateSchema{Id: "lockedCoin"},
-		lockInfoSchemaV0: &prototk.StateSchema{Id: "lockInfo"},
-		lockInfoSchemaV1: &prototk.StateSchema{Id: "UNUSED"}, // needs to be there for coin filtering
-		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV0: testSchema("lockInfo"),
+		lockInfoSchemaV1: testSchema("UNUSED"), // needs to be there for coin filtering
+		dataSchemaV0:     testSchema("data"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	fn := types.NotoABI.Functions()["prepareUnlock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
@@ -438,7 +438,7 @@ func TestPrepareUnlock_V0(t *testing.T) {
 			States: []*prototk.StoredState{
 				{
 					Id:       inputCoin.ID.String(),
-					SchemaId: "lockedCoin",
+					SchemaId: hashName("lockedCoin"),
 					DataJson: mustParseJSON(inputCoin.Data),
 				},
 			},
@@ -529,24 +529,24 @@ func TestPrepareUnlock_V0(t *testing.T) {
 
 	readStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "lockedCoin",
+			SchemaId:      hashName("lockedCoin"),
 			Id:            inputCoin.ID.String(),
 			StateDataJson: mustParseJSON(inputCoin.Data),
 		},
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      hashName("data"),
 			Id:            "0x4cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
 		},
 		{
-			SchemaId:      "lockInfo",
+			SchemaId:      hashName("lockInfo"),
 			Id:            "0x69101A0740EC8096B83653600FA7553D676FC92BCC6E203C3572D2CAC4F1DB2F",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 		{
-			SchemaId:      "coin",
+			SchemaId:      hashName("coin"),
 			Id:            "0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[2].StateDataJson,
 		},
@@ -571,7 +571,7 @@ func TestPrepareUnlock_V0(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, prototk.EndorseTransactionResponse_ENDORSER_SUBMIT, endorseRes.EndorsementResult)
 
-	unlockHash, err := unlockHashFromStates_V0(ctx, n, ethtypes.MustNewAddress(contractAddress), readStates, nil, n.filterSchema(infoStates, []string{"coin"}), pldtypes.MustParseHexBytes("0x1234"))
+	unlockHash, err := unlockHashFromStates_V0(ctx, n, ethtypes.MustNewAddress(contractAddress), readStates, nil, n.filterSchema(infoStates, []string{hashName("coin")}), pldtypes.MustParseHexBytes("0x1234"))
 	require.NoError(t, err)
 
 	// Prepare once to test base invoke
