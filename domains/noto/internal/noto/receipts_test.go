@@ -22,10 +22,27 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newNotoFullSchemaSet(t *testing.T) (*domain.MockDomainCallbacks, *Noto) {
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks:        mockCallbacks,
+		coinSchema:       testSchema("coin"),
+		lockedCoinSchema: testSchema("lockedCoin"),
+		lockInfoSchemaV0: testSchema("lockInfo"),
+		lockInfoSchemaV1: testSchema("lockInfo_v1"),
+		dataSchemaV0:     testSchema("data"),
+		dataSchemaV1:     testSchema("data_v1"),
+		manifestSchema:   testSchema("manifest"),
+	}
+	return mockCallbacks, n
+}
 
 func TestReceiptTransfers(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
@@ -187,6 +204,72 @@ func TestReceiptTransfers(t *testing.T) {
 		To:     owner3,
 		Amount: pldtypes.Int64ToInt256(2),
 	}}, transfers)
+}
+
+func TestBuildReceiptBadDataState(t *testing.T) {
+	_, n := newNotoFullSchemaSet(t)
+
+	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+		TransactionId: uuid.New().String(),
+		InfoStates: []*prototk.EndorsableState{
+			{
+				Id:            pldtypes.RandBytes32().String(),
+				SchemaId:      n.dataSchemaV1.Id,
+				StateDataJson: `{! bad data`,
+			},
+		},
+	})
+	require.Error(t, err)
+}
+
+func TestBuildReceiptBadCoinSchemaId(t *testing.T) {
+	n := Noto{
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
+		coinSchema:   &prototk.StateSchema{Id: "not_b32"},
+	}
+
+	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+		TransactionId: uuid.New().String(),
+		InputStates: []*prototk.EndorsableState{
+			{
+				Id:            pldtypes.RandBytes32().String(),
+				SchemaId:      "not_b32",
+				StateDataJson: `{}`,
+			},
+		},
+	})
+	require.Error(t, err)
+}
+
+func TestBuildReceiptBadV0LockInfo(t *testing.T) {
+	_, n := newNotoFullSchemaSet(t)
+
+	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+		TransactionId: uuid.New().String(),
+		InfoStates: []*prototk.EndorsableState{
+			{
+				Id:       pldtypes.RandBytes32().String(),
+				SchemaId: n.dataSchemaV0.Id,
+				StateDataJson: `{
+				  "variant": "0x00"
+				}`,
+			},
+			{
+				Id:            pldtypes.RandBytes32().String(),
+				SchemaId:      n.lockInfoSchemaV0.Id,
+				StateDataJson: `{! bad data`,
+			},
+		},
+		ReadStates: []*prototk.EndorsableState{
+			{
+				Id:            pldtypes.RandBytes32().String(),
+				SchemaId:      n.lockedCoinSchema.Id,
+				StateDataJson: `{}`,
+			},
+		},
+	})
+	require.Error(t, err)
 }
 
 func testGetDomainReceipt(t *testing.T, n *Noto, req *prototk.BuildReceiptRequest) *types.NotoDomainReceipt {

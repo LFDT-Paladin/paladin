@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -79,11 +80,16 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		var lt *lockTransition
 		lt, err = n.validateV1LockTransition(ctx, LOCK_DECODE_ANY, nil, nil, req.InputStates, req.OutputStates)
 		var notoUnlockOpEncoded []byte
+		if err == nil && lt.newLockState != nil {
+			receipt.LockInfo = &types.ReceiptLockInfo{
+				LockID: lt.newLockInfo.LockID,
+			}
+		}
 		if err == nil && !lt.newLockInfo.SpendTxId.IsZero() {
 			// We generated a spendable lock in this transaction
 			unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantDefault)
 			notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, receipt.LockInfo.LockID, &types.NotoUnlockOperation{
-				TxId:    receipt.LockInfo.SpendTxId.String(),
+				TxId:    lt.newLockInfo.SpendTxId.String(),
 				Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
 				Outputs: stringIDs(lt.newLockInfo.SpendOutputs),
 				Data:    lt.newLockInfo.SpendData,
@@ -116,13 +122,9 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			}
 
 			unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
-			unlockTxId := pldtypes.Bytes32UUIDFirst16(uuid.New()).String()
-			if receipt.LockInfo != nil && receipt.LockInfo.SpendTxId != nil && !receipt.LockInfo.SpendTxId.IsZero() {
-				unlockTxId = receipt.LockInfo.SpendTxId.HexString0xPrefix()
-			}
 			receipt.LockInfo.UnlockFunction = "unlock"
 			receipt.LockInfo.UnlockParams = map[string]any{
-				"txId":          unlockTxId,
+				"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(), // In V0 we generated a new UUID each time you request a receipt
 				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
 				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
 				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
@@ -136,16 +138,13 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		unlockFunctionABI := unlockInterfaceABI.Functions()[receipt.LockInfo.UnlockFunction]
 		receipt.LockInfo.UnlockCall, err = unlockFunctionABI.EncodeCallDataJSONCtx(ctx, paramsJSON)
 	}
-	if err != nil {
-		return nil, err
+	if err == nil {
+		receipt.Transfers, err = n.receiptTransfers(ctx, req)
 	}
-
-	receipt.Transfers, err = n.receiptTransfers(ctx, req)
-	if err != nil {
-		return nil, err
+	var receiptJSON []byte
+	if err == nil {
+		receiptJSON, err = json.Marshal(receipt)
 	}
-
-	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -210,25 +209,22 @@ func (n *Noto) receiptTransfers(ctx context.Context, req *prototk.BuildReceiptRe
 		return true
 	}
 
+	parsedOK := true
 	for _, coin := range inputCoins.coins {
-		if !parseInput(coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseInput(coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range inputCoins.lockedCoins {
-		if !parseInput(coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseInput(coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range outputCoins.coins {
-		if !parseOutput(*coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseOutput(*coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range outputCoins.lockedCoins {
-		if !parseOutput(*coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseOutput(*coin.Owner, coin.Amount.Int())
+	}
+	if !parsedOK {
+		log.L(ctx).Warnf("Failed to parse transfer coins")
+		return nil, nil
 	}
 
 	if len(to) == 0 && from != nil && fromAmount.BitLen() > 0 {

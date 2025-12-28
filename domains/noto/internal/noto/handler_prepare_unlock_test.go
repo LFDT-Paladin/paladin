@@ -404,6 +404,17 @@ func TestPrepareUnlock(t *testing.T) {
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)
+
+	receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     tx.TransactionId,
+		UnavailableStates: false,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
+		InfoStates:        infoStates,
+	})
+	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
+	require.Equal(t, "spendLock", receipt.LockInfo.UnlockFunction)
+	require.NotNil(t, receipt.LockInfo.UnlockParams)
 }
 
 func TestPrepareUnlock_V0(t *testing.T) {
@@ -415,6 +426,7 @@ func TestPrepareUnlock_V0(t *testing.T) {
 		lockInfoSchemaV0: testSchema("lockInfo"),
 		lockInfoSchemaV1: testSchema("UNUSED"), // needs to be there for coin filtering
 		dataSchemaV0:     testSchema("data"),
+		dataSchemaV1:     testSchema("UNUSED"), // needs to be there for coin filtering
 	}
 	ctx := t.Context()
 	fn := types.NotoABI.Functions()["prepareUnlock"]
@@ -655,6 +667,16 @@ func TestPrepareUnlock_V0(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, lockID, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     tx.TransactionId,
+		UnavailableStates: false,
+		ReadStates:        readStates,
+		InfoStates:        infoStates,
+	})
+	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
+	require.Equal(t, "unlock", receipt.LockInfo.UnlockFunction)
+	require.NotNil(t, receipt.LockInfo.UnlockParams)
 }
 
 func unlockHashFromStates_V0(ctx context.Context, n *Noto, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {

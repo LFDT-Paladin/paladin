@@ -317,16 +317,16 @@ func TestLock(t *testing.T) {
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
 
-	// receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
-	// 	TransactionId:     tx.TransactionId,
-	// 	UnavailableStates: false,
-	// 	InputStates:       inputStates,
-	// 	OutputStates:      outputStates,
-	// 	InfoStates:        infoStates,
-	// })
-	// require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
-	// require.Empty(t, receipt.LockInfo.UnlockFunction) // not prepared
-	// require.Nil(t, receipt.LockInfo.UnlockParams)     // not prepared
+	receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
+		TransactionId:     tx.TransactionId,
+		UnavailableStates: false,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
+		InfoStates:        infoStates,
+	})
+	require.Equal(t, lockInfo.LockID, receipt.LockInfo.LockID)
+	require.Empty(t, receipt.LockInfo.UnlockFunction) // not prepared
+	require.Nil(t, receipt.LockInfo.UnlockParams)     // not prepared
 }
 
 func TestLock_V0(t *testing.T) {
