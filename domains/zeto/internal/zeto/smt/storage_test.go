@@ -16,6 +16,7 @@
 package smt
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -29,15 +30,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func returnCustomError() (*prototk.FindAvailableStatesResponse, error) {
+func returnCustomError(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return nil, errors.New("test error")
 }
 
-func returnEmptyStates() (*prototk.FindAvailableStatesResponse, error) {
+func returnEmptyStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return &prototk.FindAvailableStatesResponse{}, nil
 }
 
-func returnBadData() (*prototk.FindAvailableStatesResponse, error) {
+func returnBadData(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return &prototk.FindAvailableStatesResponse{
 		States: []*prototk.StoredState{
 			{
@@ -47,7 +48,7 @@ func returnBadData() (*prototk.FindAvailableStatesResponse, error) {
 	}, nil
 }
 
-func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
+func returnNode(t int) func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	var data []byte
 	if t == 0 {
 		data, _ = json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
@@ -97,7 +98,7 @@ func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
 			"type":       "0x02", // leaf node
 		})
 	}
-	return func() (*prototk.FindAvailableStatesResponse, error) {
+	return func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
