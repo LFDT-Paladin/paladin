@@ -276,9 +276,8 @@ async function main(): Promise<boolean> {
     .waitForReceipt(DEFAULT_POLL_TIMEOUT, true);
   if (!checkReceipt(receipt)) return false;
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
-  const cashUnlockParams = domainReceipt?.lockInfo?.unlockParams;
   const cashUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (cashUnlockParams === undefined || cashUnlockCall === undefined) {
+  if (cashUnlockCall === undefined) {
     logger.error("No unlock data found in domain receipt");
     return false;
   }
@@ -319,9 +318,8 @@ async function main(): Promise<boolean> {
     .waitForReceipt(DEFAULT_POLL_TIMEOUT, true);
   if (!checkReceipt(receipt)) return false;
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
-  const assetUnlockParams = domainReceipt?.lockInfo?.unlockParams;
   const assetUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (assetUnlockParams === undefined || assetUnlockCall === undefined) {
+  if (assetUnlockCall === undefined) {
     logger.error("No unlock data found in domain receipt");
     return false;
   }

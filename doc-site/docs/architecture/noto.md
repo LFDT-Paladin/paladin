@@ -580,3 +580,95 @@ No information is leaked to Party C, that allows them to infer that Party A and 
     - a) Receives the private data for `#7` to allow it to store `S7` in its wallet
     - b) Receives the confirmation from the blockchain that `TX2` created `#7`
     - Now `Party C` has `S7` confirmed in its wallet and ready to spend
+
+## Locking and atomic settlement
+
+![Noto locking state machine](../images/noto_lock_state_machine_v1.svg)
+
+This model supports advanced DvP and PvP transactions, where locks are prepared, and then delegated for on-chain atomic settlement to a smart contract that coordinates multiple legs of a transaction.
+
+The delegated smart contract can either:
+
+1. Complete the predetermined transaction outcome (logically "commit")
+2. Revert ownership back to the owner (logically "rollback")
+
+The delegated smart contract can perform either of these actions directly on-chain without involvement of the notary. This is possible because the notary pre-verifies and records the transaction signature (hash of masked inputs and outputs) in the lock. Then when the lock is spent/cancelled the hash of the prepared transaction is compared on-chain to the actual activity being instructed.
+
+Transaction legs might include Noto token transactions from multiple smart contracts with different notaries, alongside transparent ERC-20 token legs, ZKP token legs (Zeto and other ZKP domains), and preparation of the transaction that occurs in EVM privacy groups (Pente).
+
+The atomic coordination smart contract can be set up to ensure that all of these legs commit with a pre-agreed outcome across all legs, or they all rollback.
+
+As such fully atomic settlement.
+
+<details>
+  <summary>Mermaid diagram source</summary>
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Avaiable coins"]) -- owner:createLock(coins) --> B["LOCK
+lockId,contents,owner,spendHash,cancelHash,options"]
+    B -- owner:delegateLock(spender) --> C["DELEGATED_LOCK
+lockId,contents,owner,spender,spendHash,cancelHash,options"]
+    B -. owner:spendLock(inputs,outputs) .-> Y(["New Coins
+SPEND OUTCOME"])
+    B -. owner:cancelLock(inputs,outputs) .-> Z(["New Coins
+CANCEL OUTCOME"])
+    B -- owner:updateLock(spendHash,cancelHash,options) --> B
+    C -- delegate:delegateLock(spender) --> C
+    C -- delegate:delegateLock(owner) --> B
+    C -- delegate:spendLock(inputs,outputs) --> Y
+    C -- delegate:cancelLock(inputs,outputs) --> Z
+```
+</details>
+
+<details>
+  <summary>Noto V0 model</summary>
+
+Noto V0 had a very similar locking model, but with a more complex terminology that was simplified in V1, and a couple of functional limitations that were addressed in V1.
+
+The functional issues addressed V0 as part of the upgrade were:
+- No UTXO state transactions for the lock object itself, only the locked input coins
+    - This prevented the use of the model for locking a `mint` operation
+- Only the success path was prepared - the cancel path was a re-delegate to nil
+    - Meaning additional steps after a transaction cancel/rollback to reclaim tokens
+
+![Noto locking state machine (V0)](../images/noto_lock_state_machine_v0.svg)
+
+> Mermaid syntax rendered above using ELK layout.
+
+```mermaid
+---
+config:
+  theme: redux
+  layout: elk
+---
+flowchart TB
+    A(["Original coins"]) -- owner:lock(coins) --> B["Locked[coins,lockId,owner]
+(unprepared)
+(undelegated)"]
+    B -- owner:prepareUnlock(inputs,outputs) --> C["Locked[coins,lockId,owner,unlockHash]
+PREPARED
+(undlegated)"]
+    C -- owner:prepareUnlock(inputs,outputs) --> C
+    C -- owner:unlock() --> X(["New Coins (any)"])
+    C -- owner:delegateLock(address) --> D["Locked(coins,lockId,unlockHash,delegate)
+PREPARED
+DELEGATED"]
+    B -- owner:delegateLock(address) --> E["Locked(coins,lockId,delegate)
+(unprepared)
+DELEGATED"]
+    D -- delegate:delegateLock(address) --> D
+    D -- delegate:delegateLock(nil) --> C
+    D -- delegate:unlock(matching hash) --> Y(["New Coins - PREPARED SET"])
+    E -- delegate:delegate(address) --> E
+    E -- delegate:unlock() --> X
+    E -- delegate:delegate(nil) --> B
+    B -- owner:unlock() --> X
+```
+
+</details>

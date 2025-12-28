@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type transferCommon struct {
@@ -171,7 +172,7 @@ func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTr
 	if err := h.noto.validateTransferAmounts(ctx, inputs, outputs); err != nil {
 		return nil, err
 	}
-	if err := h.noto.validateOwners(ctx, from, req, inputs.coins, inputs.states); err != nil {
+	if err := h.noto.validateOwners(ctx, from, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err
 	}
 
@@ -200,23 +201,43 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	if err != nil {
 		return nil, err
 	}
-	params := &NotoTransferParams{
-		TxId:      req.Transaction.TransactionId,
-		Inputs:    endorsableStateIDs(req.InputStates),
-		Outputs:   endorsableStateIDs(req.OutputStates),
-		Signature: signature.Payload,
-		Data:      data,
+
+	var interfaceABI abi.ABI
+	var functionName string
+	var paramsJSON []byte
+
+	switch tx.DomainConfig.Variant {
+	case types.NotoVariantDefault:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
+		functionName = "transfer"
+		if withApproval {
+			functionName = "transferWithApproval"
+		}
+		params := &NotoTransferParams{
+			TxId:    req.Transaction.TransactionId,
+			Inputs:  endorsableStateIDs(req.InputStates),
+			Outputs: endorsableStateIDs(req.OutputStates),
+			Proof:   signature.Payload,
+			Data:    data,
+		}
+		paramsJSON, err = json.Marshal(params)
+	default:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
+		functionName = "transfer"
+		params := &NotoTransfer_V0_Params{
+			TxId:      req.Transaction.TransactionId,
+			Inputs:    endorsableStateIDs(req.InputStates),
+			Outputs:   endorsableStateIDs(req.OutputStates),
+			Signature: signature.Payload,
+			Data:      data,
+		}
+		paramsJSON, err = json.Marshal(params)
 	}
-	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
-	fn := "transfer"
-	if withApproval {
-		fn = "transferWithApproval"
-	}
 	return &TransactionWrapper{
-		functionABI: interfaceBuild.ABI.Functions()[fn],
+		functionABI: interfaceABI.Functions()[functionName],
 		paramsJSON:  paramsJSON,
 	}, nil
 }

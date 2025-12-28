@@ -81,7 +81,7 @@ func TestTransfer(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
-	mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -256,9 +256,9 @@ func TestTransfer(t *testing.T) {
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"inputs": ["%s"],
 		"outputs": ["0x0000000000000000000000000000000000000000000000000000000000000001","0x0000000000000000000000000000000000000000000000000000000000000002"],
-		"signature": "%s",
+		"proof": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x000100010000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000004"
+		"data": "0x000200000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000004"
 	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -299,9 +299,11 @@ func TestTransfer(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onTransfer"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onTransfer"]
+	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
+	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
+	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"sender": "%s",
 		"from": "%s",

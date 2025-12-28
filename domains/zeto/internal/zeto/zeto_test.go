@@ -503,7 +503,7 @@ func TestPrepareTransaction(t *testing.T) {
 
 func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}
@@ -533,7 +533,7 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 
 func TestHandleEventBatch(t *testing.T) {
 	z, testCallbacks := newTestZeto()
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return nil, errors.New("find merkle tree root error")
 	}
 	ctx := context.Background()
@@ -563,7 +563,7 @@ func TestHandleEventBatch(t *testing.T) {
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. find merkle tree root error")
 
-	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil
 	}
 	res1, err := z.HandleEventBatch(ctx, req)

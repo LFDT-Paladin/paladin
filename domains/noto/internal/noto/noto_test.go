@@ -32,6 +32,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func decodeFnParams[T any](t *testing.T, abiFn *abi.Entry, paramsJSONStr string) *T {
+	cv, err := abiFn.Inputs.ParseJSON([]byte(paramsJSONStr))
+	require.NoError(t, err)
+	var v T
+	reEncodedParamsJSON, err := cv.JSON()
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
+
+func decodeSingleABITuple[T any](t *testing.T, typeList abi.ParameterArray, paramsEncoded pldtypes.HexBytes) *T {
+	cv, err := typeList.DecodeABIData([]byte(paramsEncoded), 0)
+	require.NoError(t, err)
+	require.Len(t, cv.Children, 1)
+	var v T
+	serializer := abi.NewSerializer().
+		SetFormattingMode(abi.FormatAsObjects).
+		SetByteSerializer(abi.HexByteSerializer0xPrefix)
+	reEncodedParamsJSON, err := serializer.SerializeJSON(cv.Children[0])
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
+
 var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {

@@ -56,7 +56,7 @@ func TestBurn(t *testing.T) {
 			Amount: pldtypes.Int64ToInt256(100),
 		},
 	}
-	mockCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	mockCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -190,9 +190,9 @@ func TestBurn(t *testing.T) {
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"inputs": ["%s"],
 		"outputs": [],
-		"signature": "%s",
+		"proof": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x00010001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
+		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
 	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -232,9 +232,11 @@ func TestBurn(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onBurn"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onBurn"]
+	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
+	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
+	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"sender": "%s",
 		"from": "%s",

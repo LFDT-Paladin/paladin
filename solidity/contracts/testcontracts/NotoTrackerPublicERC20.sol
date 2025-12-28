@@ -45,7 +45,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         address sender,
         address to,
         uint256 amount,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyNotary(sender) {
         _mint(to, amount);
@@ -57,7 +57,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         address from,
         address to,
         uint256 amount,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlySelf(sender, from) {
         _transfer(from, to, amount);
@@ -68,7 +68,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         address sender,
         address from,
         uint256 amount,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlySelf(sender, from) {
         _burn(from, amount);
@@ -80,18 +80,18 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         bytes32 lockId,
         address from,
         uint256 amount,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlySelf(sender, from) {
         _locks.onLock(lockId, from, amount);
         _executeOperation(prepared);
     }
 
-    function onCreateMintLock(
+    function onPrepareMintUnlock(
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external virtual override onlyNotary(sender) {
         _locks.onPrepareUnlock(lockId, recipients);
@@ -100,10 +100,10 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
 
     function onPrepareBurnUnlock(
         address sender,
-        bytes32 lockId,
+        bytes32 /* lockId */,
         address from,
-        uint256 amount,
-        bytes calldata data,
+        uint256 /* amount */,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlySelf(sender, from) {
         // No recipients (so no pending balances to update here)
@@ -114,7 +114,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
         address from = _locks.ownerOf(lockId);
@@ -129,7 +129,7 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
-        bytes calldata data,
+        bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) external override onlyLockOwner(sender, lockId) {
         _locks.onPrepareUnlock(lockId, recipients);
@@ -137,19 +137,19 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
     }
 
     function onDelegateLock(
-        address sender,
-        bytes32 lockId,
-        address delegate,
+        address /* sender */,
+        bytes32 /* lockId */,
+        address /* delegate */,
         PreparedTransaction calldata prepared
     ) external override {
         _executeOperation(prepared);
     }
 
     function handleDelegateUnlock(
-        address sender,
+        address /* sender */,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
-        bytes calldata data
+        bytes calldata /* data */
     ) external override {
         address from = _locks.ownerOf(lockId);
         _locks.handleDelegateUnlock(lockId, recipients);

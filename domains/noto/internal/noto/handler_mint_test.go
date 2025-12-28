@@ -176,9 +176,9 @@ func TestMint(t *testing.T) {
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"outputs": ["0x26b394af655bdc794a6d7cd7f8004eec20bffb374e4ddd24cdaefe554878d945"],
-		"signature": "%s",
+		"proof": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x00010001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
+		"data": "0x00020000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000014cc7840e186de23c4127b4853c878708d2642f1942959692885e098f1944547d"
 	}`, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -218,9 +218,11 @@ func TestMint(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction = mustParseJSON(hooksBuild.ABI.Functions()["onMint"])
-	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onMint"]
+	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
+	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
+	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`{
 		"sender": "%s",
 		"to": "0x2000000000000000000000000000000000000000",
