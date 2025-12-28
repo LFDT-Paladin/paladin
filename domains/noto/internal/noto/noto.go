@@ -1323,3 +1323,17 @@ func (n *Noto) encodeNotoDelegateOperation(ctx context.Context, notoDelegateOp *
 	}
 	return encoded, err
 }
+
+func (n *Noto) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTransaction, notaryID *identityPair) (pldtypes.Bytes32, error) {
+	notaryAddress := notaryID.address
+	var senderAddress *pldtypes.EthAddress
+	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
+	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
+		tx.DomainConfig.Options.Hooks != nil &&
+		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
+		senderAddress = tx.DomainConfig.Options.Hooks.PublicAddress
+	} else {
+		senderAddress = notaryAddress
+	}
+	return n.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
+}

@@ -59,6 +59,12 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    function createdTransferLock(
+        string calldata from,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
     function prepareUnlock(
         bytes32 lockId,
         string calldata from,

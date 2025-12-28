@@ -97,7 +97,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}
 
 	// Pre-compute the lockId as it will be generated on the smart contract
-	lockID, err := h.computeLockIDForLockTX(ctx, tx, notaryID)
+	lockID, err := h.noto.computeLockIDForLockTX(ctx, tx, notaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,20 +199,6 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	}, nil
 }
 
-func (h *lockHandler) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTransaction, notaryID *identityPair) (pldtypes.Bytes32, error) {
-	notaryAddress := notaryID.address
-	var senderAddress *pldtypes.EthAddress
-	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
-	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
-		tx.DomainConfig.Options.Hooks != nil &&
-		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
-		senderAddress = tx.DomainConfig.Options.Hooks.PublicAddress
-	} else {
-		senderAddress = notaryAddress
-	}
-	return h.noto.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
-}
-
 func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
@@ -239,7 +225,7 @@ func (h *lockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, 
 	}
 
 	if !tx.DomainConfig.IsV0() {
-		lockID, err := h.computeLockIDForLockTX(ctx, tx, notaryID)
+		lockID, err := h.noto.computeLockIDForLockTX(ctx, tx, notaryID)
 		if err == nil {
 			// TODO: Support preparation of target operation directly during lock (avoiding extra call)
 			_, _, _, err = h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, senderID, &lockID, req.Inputs, req.Outputs, req.Info)
@@ -296,10 +282,11 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
 		var notoLockOpEncoded []byte
+		lockStates := h.noto.filterSchema(req.OutputStates, []string{h.noto.lockInfoSchemaV1.Id})
 		notoLockOpEncoded, err = h.noto.encodeNotoLockOperation(ctx, &types.NotoLockOperation{
 			TxId:          req.Transaction.TransactionId,
 			Inputs:        endorsableStateIDs(inputs),
-			Outputs:       endorsableStateIDs(outputs),
+			Outputs:       append(endorsableStateIDs(lockStates), endorsableStateIDs(outputs)...),
 			LockedOutputs: endorsableStateIDs(lockedOutputs),
 			Proof:         lockSignature.Payload,
 		})

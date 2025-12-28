@@ -171,7 +171,6 @@ type NotoLockInfo_V1 struct {
 	Spender       *pldtypes.EthAddress `json:"spender"`
 	Replaces      pldtypes.Bytes32     `json:"replaces"`
 	SpendTxId     pldtypes.Bytes32     `json:"spendTxId"`
-	Contents      []pldtypes.Bytes32   `json:"contents"`
 	SpendOutputs  []pldtypes.Bytes32   `json:"spendOutputs"`
 	SpendData     pldtypes.HexBytes    `json:"spendData"`
 	CancelOutputs []pldtypes.Bytes32   `json:"cancelOutputs"`

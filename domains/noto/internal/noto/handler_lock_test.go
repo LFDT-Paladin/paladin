@@ -231,7 +231,7 @@ func TestLock(t *testing.T) {
 	require.Equal(t, &types.NotoLockOperation{
 		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:        []string{inputCoin.ID.String()},
-		Outputs:       []string{},
+		Outputs:       []string{*lockState.Id},
 		LockedOutputs: []string{*outCoin1State.Id},
 		Proof:         signatureBytes,
 	}, notoParams)
@@ -729,7 +729,7 @@ func TestLockEmpty(t *testing.T) {
 	require.Equal(t, &types.NotoLockOperation{
 		TxId:          "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:        []string{},
-		Outputs:       []string{},
+		Outputs:       []string{*lockState.Id},
 		LockedOutputs: []string{},
 		Proof:         signatureBytes,
 	}, notoParams)
