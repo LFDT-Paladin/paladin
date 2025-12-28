@@ -228,7 +228,7 @@ func TestDelegateLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode the parameters
-	delegateLockABI := interfaceBuild.ABI.Functions()["delegateLock"]
+	delegateLockABI := interfaceV1Build.ABI.Functions()["delegateLock"]
 	expectedFunction := mustParseJSON(delegateLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)

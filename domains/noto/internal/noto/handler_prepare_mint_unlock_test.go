@@ -245,7 +245,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Extract the options from the response to get the generated SpendTxId
-	updateLockABI := interfaceBuild.ABI.Functions()["updateLock"]
+	updateLockABI := interfaceV1Build.ABI.Functions()["updateLock"]
 	expectedFunction := mustParseJSON(updateLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)

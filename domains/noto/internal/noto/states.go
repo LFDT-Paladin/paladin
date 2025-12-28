@@ -178,10 +178,17 @@ func (n *Noto) makeNewLockedCoinState(coin *types.NotoLockedCoin, distributionLi
 	}, nil
 }
 
-func (n *Noto) makeNewInfoState(info *types.TransactionData, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.HexUint64, distributionList []string) (*prototk.NewState, error) {
 	infoJSON, err := json.Marshal(info)
 	if err != nil {
 		return nil, err
+	}
+	if variant == types.NotoVariantLegacy {
+		return &prototk.NewState{
+			SchemaId:         n.dataSchemaV0.Id,
+			StateDataJson:    string(infoJSON),
+			DistributionList: distributionList,
+		}, nil
 	}
 	return &prototk.NewState{
 		SchemaId:         n.dataSchemaV1.Id,
@@ -450,7 +457,7 @@ func (n *Noto) prepareDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint6
 		Data:    data,
 		Variant: variant,
 	}
-	newState, err := n.makeNewInfoState(newData, distributionList)
+	newState, err := n.makeNewInfoState(newData, variant, distributionList)
 	return []*prototk.NewState{newState}, err
 }
 

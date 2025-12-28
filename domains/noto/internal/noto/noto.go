@@ -46,13 +46,13 @@ type ParamValidator interface {
 }
 
 //go:embed abis/NotoFactory.json
-var notoFactoryJSON []byte
+var notoFactoryV1JSON []byte
 
 //go:embed abis/NotoFactory_V0.json
 var notoFactoryV0JSON []byte
 
 //go:embed abis/INoto.json
-var notoInterfaceJSON []byte
+var notoInterfaceV1JSON []byte
 
 //go:embed abis/INoto_V0.json
 var notoInterfaceV0JSON []byte
@@ -64,9 +64,9 @@ var notoErrorsJSON []byte
 var notoHooksJSON []byte
 
 var (
-	factoryBuild     = solutils.MustLoadBuild(notoFactoryJSON)
+	factoryV1Build   = solutils.MustLoadBuild(notoFactoryV1JSON)
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
-	interfaceBuild   = solutils.MustLoadBuild(notoInterfaceJSON)
+	interfaceV1Build = solutils.MustLoadBuild(notoInterfaceV1JSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
 	errorsBuild      = solutils.MustLoadBuild(notoErrorsJSON)
 	hooksBuild       = solutils.MustLoadBuild(notoHooksJSON)
@@ -110,8 +110,8 @@ var allEventsV0 = []string{
 	EventNotoLockDelegated,
 }
 
-var allEventsJSON = mustBuildEventsJSON(interfaceBuild.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
-var eventSignatures = mustLoadEventSignatures(interfaceBuild.ABI, allEvents)
+var allEventsJSON = mustBuildEventsJSON(interfaceV1Build.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
+var eventSignatures = mustLoadEventSignatures(interfaceV1Build.ABI, allEvents)
 var eventSignaturesV0 = mustLoadEventSignatures(interfaceV0Build.ABI, allEventsV0)
 
 var allSchemas = []*abi.Parameter{
@@ -612,7 +612,7 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	// Default to the V0 NotoFactory ABI if no version is specified
 	abi := factoryV0Build.ABI
 	if n.config.FactoryVersion == 1 {
-		abi = factoryBuild.ABI
+		abi = factoryV1Build.ABI
 	}
 
 	functionName := "deploy"
@@ -1254,7 +1254,7 @@ func (n *Noto) getInterfaceABI(variant pldtypes.HexUint64) abi.ABI {
 	if variant == types.NotoVariantLegacy {
 		return interfaceV0Build.ABI
 	}
-	return interfaceBuild.ABI
+	return interfaceV1Build.ABI
 }
 
 // computeLockId computes the lockId the same way the contract does:

@@ -249,7 +249,7 @@ func TestUnlock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode the parameters
-	spendLockABI := interfaceBuild.ABI.Functions()["spendLock"]
+	spendLockABI := interfaceV1Build.ABI.Functions()["spendLock"]
 	expectedFunction := mustParseJSON(spendLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
