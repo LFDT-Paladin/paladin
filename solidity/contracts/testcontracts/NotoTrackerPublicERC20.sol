@@ -136,6 +136,20 @@ contract NotoTrackerPublicERC20 is INotoHooks, ERC20 {
         _executeOperation(prepared);
     }
 
+        function onCreateTransferLock(
+        address sender,
+        bytes32 lockId,
+        address from,
+        uint256 amount,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata /* data */,
+        PreparedTransaction calldata prepared
+    ) external override onlyLockOwner(sender, lockId) {
+        _locks.onLock(lockId, from, amount);
+        _locks.onPrepareUnlock(lockId, recipients);
+        _executeOperation(prepared);
+    }
+
     function onDelegateLock(
         address /* sender */,
         bytes32 /* lockId */,

@@ -351,6 +351,7 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 	if err != nil {
 		return nil, err
 	}
+	requiredTotal := big.NewInt(0)
 	recipients := make([]*ResolvedUnlockRecipient, len(inParams.Recipients))
 	for i, entry := range inParams.Recipients {
 		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
@@ -358,6 +359,7 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 			return nil, err
 		}
 		recipients[i] = &ResolvedUnlockRecipient{To: toID.address, Amount: entry.Amount}
+		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 
 	encodedCall, err := baseTransaction.encode(ctx)
@@ -367,6 +369,8 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 	params := &UnlockHookParams{
 		Sender:     fromID.address,
 		LockID:     inParams.LockID,
+		From:       fromID.address,
+		Amount:     (*pldtypes.HexUint256)(requiredTotal),
 		Recipients: recipients,
 		Data:       inParams.Data,
 		Prepared: PreparedTransaction{
