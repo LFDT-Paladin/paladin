@@ -16,6 +16,7 @@
 package noto
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -29,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newNotoFullSchemaSet(t *testing.T) (*domain.MockDomainCallbacks, *Noto) {
+func newNotoFullSchemaSet(t *testing.T) (context.Context, *domain.MockDomainCallbacks, *Noto) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
@@ -41,7 +42,7 @@ func newNotoFullSchemaSet(t *testing.T) (*domain.MockDomainCallbacks, *Noto) {
 		dataSchemaV1:     testSchema("data_v1"),
 		manifestSchema:   testSchema("manifest"),
 	}
-	return mockCallbacks, n
+	return t.Context(), mockCallbacks, n
 }
 
 func TestReceiptTransfers(t *testing.T) {
@@ -207,9 +208,9 @@ func TestReceiptTransfers(t *testing.T) {
 }
 
 func TestBuildReceiptBadDataState(t *testing.T) {
-	_, n := newNotoFullSchemaSet(t)
+	ctx, _, n := newNotoFullSchemaSet(t)
 
-	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+	_, err := n.BuildReceipt(ctx, &prototk.BuildReceiptRequest{
 		TransactionId: uuid.New().String(),
 		InfoStates: []*prototk.EndorsableState{
 			{
@@ -243,9 +244,9 @@ func TestBuildReceiptBadCoinSchemaId(t *testing.T) {
 }
 
 func TestBuildReceiptBadV0LockInfo(t *testing.T) {
-	_, n := newNotoFullSchemaSet(t)
+	ctx, _, n := newNotoFullSchemaSet(t)
 
-	_, err := n.BuildReceipt(t.Context(), &prototk.BuildReceiptRequest{
+	_, err := n.BuildReceipt(ctx, &prototk.BuildReceiptRequest{
 		TransactionId: uuid.New().String(),
 		InfoStates: []*prototk.EndorsableState{
 			{

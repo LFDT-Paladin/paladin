@@ -605,7 +605,7 @@ func (h *unlockCommon) buildCreateLockParams(ctx context.Context, tx *types.Pars
 		// The noto lock operation here is empty, as we are just modifying the lock
 		notoLockOpEncoded, err = h.noto.encodeNotoLockOperation(ctx, &types.NotoLockOperation{
 			TxId:          tx.Transaction.TransactionId,
-			Inputs:        append([]string{lockTransition.prevLockState.Id}, endorsableStateIDs(inputs)...),
+			Inputs:        endorsableStateIDs(inputs),
 			Outputs:       append([]string{lockTransition.newLockState.Id}, endorsableStateIDs(additionalOutputs)...),
 			LockedOutputs: endorsableStateIDs(lockedOutputs),
 			Proof:         proof,

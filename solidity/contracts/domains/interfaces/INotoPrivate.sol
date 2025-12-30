@@ -59,7 +59,7 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
-    function createdTransferLock(
+    function createTransferLock(
         string calldata from,
         UnlockRecipient[] calldata recipients,
         bytes calldata data
