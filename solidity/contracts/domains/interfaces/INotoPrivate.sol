@@ -65,6 +65,17 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    function createMintLock(
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
+    function createBurnLock(
+        string calldata from,
+        uint256 amount,
+        bytes calldata data
+    ) external;
+
     function prepareUnlock(
         bytes32 lockId,
         string calldata from,

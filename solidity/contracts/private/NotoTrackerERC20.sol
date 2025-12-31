@@ -99,7 +99,7 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
     function _onPrepareUnlock(
         address /* sender */,
         bytes32 lockId,
-        UnlockRecipient[] calldata recipients,
+        UnlockRecipient[] memory recipients,
         bytes calldata /* data */,
         PreparedTransaction calldata prepared
     ) internal virtual {
@@ -202,6 +202,29 @@ contract NotoTrackerERC20 is INotoHooks, ERC20 {
     ) external virtual override onlySelf(sender, from) {
         _locks.onLock(lockId, from, amount);
         _onPrepareUnlock(sender, lockId, recipients, data, prepared);
+    }
+
+    function onCreateMintLock(
+        address sender,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlyNotary(sender) {
+        _onPrepareUnlock(sender, lockId, recipients, data, prepared);
+    }
+
+    function onCreateBurnLock(
+        address sender,
+        bytes32 lockId,
+        address from,
+        uint256 amount,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external virtual override onlySelf(sender, from) {
+        _locks.onLock(lockId, from, amount);
+        UnlockRecipient[] memory none = new UnlockRecipient[](0);
+        _onPrepareUnlock(sender, lockId, none, data, prepared);
     }
 
     function onDelegateLock(
