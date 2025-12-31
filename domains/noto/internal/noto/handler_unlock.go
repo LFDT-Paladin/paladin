@@ -236,7 +236,13 @@ func (h *unlockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.P
 		if err != nil {
 			return nil, err
 		}
-		outputs, err := h.noto.prepareOutputs(toID, entry.Amount, identityList{notaryID, fromID, toID})
+		var distribution identityList
+		if fromID != nil {
+			distribution = identityList{notaryID, fromID, toID}
+		} else {
+			distribution = identityList{notaryID, toID}
+		}
+		outputs, err := h.noto.prepareOutputs(toID, entry.Amount, distribution)
 		if err != nil {
 			return nil, err
 		}

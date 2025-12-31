@@ -115,6 +115,11 @@ type CreateTransferLockParams struct {
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
+type CreateMintLockParams struct {
+	Recipients []*UnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes  `json:"data"`
+}
+
 type PrepareMintUnlockParams struct {
 	LockID     pldtypes.Bytes32   `json:"lockId"`
 	Recipients []*UnlockRecipient `json:"recipients"`

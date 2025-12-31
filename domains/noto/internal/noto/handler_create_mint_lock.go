@@ -33,39 +33,49 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
-type createTransferLockHandler struct {
+type createMintLockHandler struct {
 	unlockCommon
 }
 
-func (h *createTransferLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
 	if config.IsV0() {
-		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createTransferLock is not supported in Noto V0")
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0")
 	}
 
-	var createTransferLockParams types.CreateTransferLockParams
-	err := json.Unmarshal([]byte(params), &createTransferLockParams)
-	if len(createTransferLockParams.From) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "from")
-	}
-	if len(createTransferLockParams.Recipients) == 0 {
+	var createMintLockParams types.CreateMintLockParams
+	err := json.Unmarshal([]byte(params), &createMintLockParams)
+	if len(createMintLockParams.Recipients) == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgParameterRequired, "recipients")
 	}
-	for _, entry := range createTransferLockParams.Recipients {
+	for _, entry := range createMintLockParams.Recipients {
 		if entry.Amount == nil || entry.Amount.Int().Sign() != 1 {
 			return nil, i18n.NewError(ctx, msgs.MsgParameterGreaterThanZero, "recipient amount")
 		}
 	}
-	return &createTransferLockParams, err
+	return &createMintLockParams, err
 }
 
-func (h *createTransferLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
-	params := tx.Params.(*types.CreateTransferLockParams)
+func (h *createMintLockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransaction, from string) error {
+	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
+		return nil
+	}
+	if !*tx.DomainConfig.Options.Basic.RestrictMint {
+		return nil
+	}
+	if from == tx.DomainConfig.NotaryLookup {
+		return nil
+	}
+	return i18n.NewError(ctx, msgs.MsgMintOnlyNotary, tx.DomainConfig.NotaryLookup, from)
+}
+
+func (h *createMintLockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
+	params := tx.Params.(*types.CreateMintLockParams)
 	notary := tx.DomainConfig.NotaryLookup
-	if err := h.checkAllowed(ctx, tx, params.From); err != nil {
+	if err := h.checkAllowed(ctx, tx, req.Transaction.From); err != nil {
 		return nil, err
 	}
 
-	lookups := []string{notary, tx.Transaction.From, params.From}
+	lookups := []string{notary, tx.Transaction.From}
 	for _, entry := range params.Recipients {
 		lookups = append(lookups, entry.To)
 	}
@@ -75,8 +85,8 @@ func (h *createTransferLockHandler) Init(ctx context.Context, tx *types.ParsedTr
 	}, nil
 }
 
-func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
-	params := tx.Params.(*types.CreateTransferLockParams)
+func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
+	params := tx.Params.(*types.CreateMintLockParams)
 	notary := tx.DomainConfig.NotaryLookup
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
@@ -88,30 +98,6 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	if err != nil {
 		return nil, err
 	}
-	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
-
-	// Work out the amount we need
-	requiredTotal := big.NewInt(0)
-	for _, entry := range params.Recipients {
-		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
-	}
-
-	// Prepare the input coins
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, senderID, (*pldtypes.HexUint256)(requiredTotal))
-	if err != nil {
-		if revert {
-			message := err.Error()
-			return &prototk.AssembleTransactionResponse{
-				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-				RevertReason:   &message,
-			}, nil
-		}
-		return nil, err
-	}
-	remainder := new(big.Int).Sub(inputStates.total, requiredTotal)
 
 	// Pre-compute the lockId as it will be generated on the smart contract
 	lockID, err := h.noto.computeLockIDForLockTX(ctx, tx, notaryID)
@@ -119,43 +105,21 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 		return nil, err
 	}
 
-	// Create the locked output states
-	lockedOutputStates, err := h.noto.prepareLockedOutputs(lockID, senderID, (*pldtypes.HexUint256)(requiredTotal), identityList{notaryID, senderID, fromID})
-	if err != nil {
-		return nil, err
-	}
-
 	// Build the outputs for unlock
-	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
+	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, tx, notaryID, nil, params.Recipients, req.ResolvedVerifiers, big.NewInt(0))
 	if err != nil {
 		return nil, err
-	}
-
-	// If we have a remainder, that output gets unlocked immediately
-	var remainderOutputs preparedOutputs
-	if remainder.Sign() > 0 {
-		remainderOutputs.distributions = []identityList{spendOutputs.distributions[len(spendOutputs.distributions)-1]}
-		remainderOutputs.states = []*prototk.NewState{spendOutputs.states[len(spendOutputs.states)-1]}
-		remainderOutputs.coins = []*types.NotoCoin{spendOutputs.coins[len(spendOutputs.coins)-1]}
-		spendOutputs.distributions = spendOutputs.distributions[0 : len(spendOutputs.distributions)-1]
-		spendOutputs.states = spendOutputs.states[0 : len(spendOutputs.states)-1]
-		spendOutputs.coins = spendOutputs.coins[0 : len(spendOutputs.coins)-1]
 	}
 
 	// Build the info for the initiating transaction
-	infoDistribution := identityList{notaryID, senderID, fromID}
+	infoDistribution := identityList{notaryID, senderID}
 	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 
-	// We build the cancel outputs
-	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(requiredTotal), identityList{notaryID, senderID, fromID})
-	// ... and allocate ids to all the new outputs, so we can build the transaction we need to hash
-	if err == nil {
-		err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, spendOutputs.states, cancelOutputs.states)
-	}
-	// ... and the txData that would be emitted for either cancel or spend
+	// Create the txData that would be emitted for either cancel or spend
+	err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, spendOutputs.states)
 	var txData pldtypes.HexBytes
 	if err == nil {
 		txData, err = h.noto.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
@@ -170,19 +134,16 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 			Spender:       senderID.address,
 			SpendOutputs:  newStateAllocatedIDs(spendOutputs.states),
 			SpendData:     txData,
-			CancelOutputs: newStateAllocatedIDs(cancelOutputs.states),
+			CancelOutputs: []pldtypes.Bytes32{ /* nothing to return */ },
 			CancelData:    txData,
 			SpendTxId:     spendTxId,
-		}, identityList{notaryID, senderID, fromID})
+		}, identityList{notaryID, senderID})
 	}
 	// .. and then the manifest
 	var manifestState *prototk.NewState
 	if err == nil {
 		manifestState, err = h.noto.newManifestBuilder().
-			addLockedOutputs(lockedOutputStates).
 			addOutputs(spendOutputs).
-			addOutputs(cancelOutputs).
-			addOutputs(&remainderOutputs).
 			addLockInfo(lock).
 			addInfoStates(infoDistribution, infoStates...).
 			buildManifest(ctx, req.StateQueryContext)
@@ -192,20 +153,16 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}
 
 	// The sender signs the spending of the locked outputs to the target account
-	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, lockedOutputStates.coins, nil, spendOutputs.coins)
+	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, spendOutputs.coins)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create the assembly with the full set of stats
 	assembly := &prototk.AssembledTransaction{}
-	assembly.InputStates = append(assembly.InputStates, inputStates.states...)
 	assembly.OutputStates = []*prototk.NewState{lock.state}
-	assembly.OutputStates = append(assembly.OutputStates, lockedOutputStates.states...)
-	assembly.OutputStates = append(assembly.OutputStates, remainderOutputs.states...)
 	assembly.InfoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	assembly.InfoStates = append(assembly.InfoStates, spendOutputs.states...)
-	assembly.InfoStates = append(assembly.InfoStates, cancelOutputs.states...)
 
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult:       prototk.AssembleTransactionResponse_OK,
@@ -233,19 +190,14 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}, nil
 }
 
-func (h *createTransferLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
-	params := tx.Params.(*types.CreateTransferLockParams)
-	if err := h.checkAllowed(ctx, tx, params.From); err != nil {
-		return nil, err
-	}
-
-	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", params.From, req.ResolvedVerifiers)
-	if err != nil {
+func (h *createMintLockHandler) Endorse(ctx context.Context, tx *types.ParsedTransaction, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
+	params := tx.Params.(*types.CreateMintLockParams)
+	if err := h.checkAllowed(ctx, tx, req.Transaction.From); err != nil {
 		return nil, err
 	}
 
 	// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
-	_, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, fromID, nil, req.Inputs, req.Outputs, req.Info)
+	_, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, nil, nil, req.Inputs, req.Outputs, req.Info)
 	if err != nil {
 		return nil, err
 	}
@@ -267,23 +219,20 @@ func (h *createTransferLockHandler) Endorse(ctx context.Context, tx *types.Parse
 		return nil, err
 	}
 
-	// Validate the amounts, and sender's ownership of the inputs
-	totalOutputs := new(big.Int).Add(outputs.lockedTotal, outputs.total)
-	if inputs.total.Cmp(totalOutputs) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "totalOutputs", inputs.total, totalOutputs)
+	// Work out the amount we need
+	requiredTotal := big.NewInt(0)
+	for _, entry := range params.Recipients {
+		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
-	if outputs.lockedTotal.Cmp(parsedSpendOutputs.total) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "spendOutputs", inputs.total, parsedSpendOutputs.total)
+	if len(inputs.coins) > 0 || len(outputs.lockedCoins) > 0 || len(outputs.coins) > 0 || len(parsedCancelOutputs.coins) > 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgInvalidInputs, "mint", inputs.coins)
 	}
-	if outputs.lockedTotal.Cmp(parsedCancelOutputs.total) != 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "cancelOutputs", inputs.total, parsedCancelOutputs.total)
-	}
-	if err := h.noto.validateOwners(ctx, fromID.identifier, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
-		return nil, err
+	if requiredTotal.Cmp(parsedSpendOutputs.total) != 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "mint", requiredTotal.Text(10), parsedSpendOutputs.total.Text(10))
 	}
 
 	// Notary checks the signature from the sender, then submits the transaction
-	encodedTransfer, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, outputs.lockedCoins, nil, parsedSpendOutputs.coins)
+	encodedTransfer, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, parsedSpendOutputs.coins)
 	if err != nil {
 		return nil, err
 	}
@@ -295,19 +244,10 @@ func (h *createTransferLockHandler) Endorse(ctx context.Context, tx *types.Parse
 	}, nil
 }
 
-func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (_ *TransactionWrapper, err error) {
-	inParams := tx.Params.(*types.CreateTransferLockParams)
-	inputCoinStates := h.noto.filterSchema(req.InputStates, []string{h.noto.coinSchema.Id})
-	lockedCoinStates := h.noto.filterSchema(req.OutputStates, []string{h.noto.lockedCoinSchema.Id})
-	remainderCoinStates := h.noto.filterSchema(req.OutputStates, []string{h.noto.coinSchema.Id})
-
-	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", inParams.From, req.ResolvedVerifiers)
-	if err != nil {
-		return nil, err
-	}
+func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (_ *TransactionWrapper, err error) {
 
 	// We should have a valid lock transition, from which we can obtain the spend and cancel outputs
-	lockTransition, spendOutputs, cancelOutputs, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, fromID, nil, req.InputStates, req.OutputStates, req.InfoStates)
+	lockTransition, spendOutputs, _, err := h.noto.decodeV1LockTransitionWithOutputs(ctx, LOCK_CREATE, nil, nil, req.InputStates, req.OutputStates, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}
@@ -328,11 +268,11 @@ func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *ty
 		tx,
 		lockTransition,
 		sender.Payload,
-		inputCoinStates,
-		lockedCoinStates,
-		remainderCoinStates,
+		[]*prototk.EndorsableState{},
+		[]*prototk.EndorsableState{},
+		[]*prototk.EndorsableState{},
 		spendOutputs,
-		cancelOutputs,
+		[]*prototk.EndorsableState{},
 		req.InfoStates,
 	)
 	if err == nil {
@@ -351,8 +291,8 @@ func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *ty
 	}, nil
 }
 
-func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
-	inParams := tx.Params.(*types.CreateTransferLockParams)
+func (h *createMintLockHandler) hookInvoke(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper) (*TransactionWrapper, error) {
+	inParams := tx.Params.(*types.CreateMintLockParams)
 
 	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
@@ -365,7 +305,6 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 		return nil, err
 	}
 
-	requiredTotal := big.NewInt(0)
 	recipients := make([]*ResolvedUnlockRecipient, len(inParams.Recipients))
 	for i, entry := range inParams.Recipients {
 		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, req.ResolvedVerifiers)
@@ -373,18 +312,15 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 			return nil, err
 		}
 		recipients[i] = &ResolvedUnlockRecipient{To: toID.address, Amount: entry.Amount}
-		requiredTotal = requiredTotal.Add(requiredTotal, entry.Amount.Int())
 	}
 
 	encodedCall, err := baseTransaction.encode(ctx)
 	if err != nil {
 		return nil, err
 	}
-	params := &CreateTransferLockHookParams{
+	params := &CreateMintLockHookParams{
 		Sender:     fromID.address,
 		LockID:     lockTransition.newLockInfo.LockID,
-		From:       fromID.address,
-		Amount:     (*pldtypes.HexUint256)(requiredTotal),
 		Recipients: recipients,
 		Data:       inParams.Data,
 		Prepared: PreparedTransaction{
@@ -395,7 +331,7 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 
 	transactionType, functionABI, paramsJSON, err := h.noto.wrapHookTransaction(
 		tx.DomainConfig,
-		hooksBuild.ABI.Functions()["onCreateTransferLock"],
+		hooksBuild.ABI.Functions()["onCreateMintLock"],
 		params,
 	)
 	if err != nil {
@@ -410,7 +346,7 @@ func (h *createTransferLockHandler) hookInvoke(ctx context.Context, tx *types.Pa
 	}, nil
 }
 
-func (h *createTransferLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
+func (h *createMintLockHandler) Prepare(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
 	baseTransaction, err := h.baseLedgerInvoke(ctx, tx, req)
 	if err != nil {
 		return nil, err
