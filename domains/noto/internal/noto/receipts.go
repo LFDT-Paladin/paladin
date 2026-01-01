@@ -86,6 +86,7 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			}
 		}
 		if err == nil && !lt.newLockInfo.SpendTxId.IsZero() {
+			receipt.LockInfo.SpendTxId = &lt.newLockInfo.SpendTxId
 			// We generated a spendable lock in this transaction
 			unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantDefault)
 			notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, receipt.LockInfo.LockID, &types.NotoUnlockOperation{

@@ -136,10 +136,15 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		}
 	} else {
 		lock, err = h.noto.prepareLockInfo_V1(&types.NotoLockInfo_V1{
-			Salt:    pldtypes.RandBytes32(),
-			LockID:  lockID,
-			Owner:   senderID.address,
-			Spender: senderID.address,
+			Salt:          pldtypes.RandBytes32(),
+			LockID:        lockID,
+			Owner:         senderID.address,
+			Spender:       senderID.address,
+			SpendOutputs:  []pldtypes.Bytes32{},
+			SpendData:     pldtypes.HexBytes{},
+			CancelOutputs: []pldtypes.Bytes32{},
+			CancelData:    pldtypes.HexBytes{},
+			SpendTxId:     pldtypes.Bytes32{}, // zero
 		}, identityList{notaryID, senderID})
 		if err == nil {
 			outputStates = append(outputStates, lock.state) // as of V1 it is a first class transitioned state
