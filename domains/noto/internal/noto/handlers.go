@@ -52,6 +52,8 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 		return &createTransferLockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "createMintLock":
 		return &createMintLockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createBurnLock":
+		return &createBurnLockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareUnlock":
 		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareMintUnlock":

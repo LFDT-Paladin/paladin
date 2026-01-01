@@ -89,6 +89,15 @@ type CreateMintLockHookParams struct {
 	Prepared   PreparedTransaction        `json:"prepared"`
 }
 
+type CreateBurnLockHookParams struct {
+	Sender   *pldtypes.EthAddress `json:"sender"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	From     *pldtypes.EthAddress `json:"from"`
+	Amount   *pldtypes.HexUint256 `json:"amount"`
+	Data     pldtypes.HexBytes    `json:"data"`
+	Prepared PreparedTransaction  `json:"prepared"`
+}
+
 type ApproveUnlockHookParams struct {
 	Sender   *pldtypes.EthAddress `json:"sender"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`

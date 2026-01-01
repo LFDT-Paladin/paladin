@@ -266,7 +266,7 @@ func TestCreateMintLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify hook invoke params
-	var hookParams UnlockHookParams
+	var hookParams CreateMintLockHookParams
 	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &hookParams)
 	require.NoError(t, err)
 	require.NotNil(t, hookParams.Sender)

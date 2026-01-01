@@ -120,6 +120,12 @@ type CreateMintLockParams struct {
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
+type CreateBurnLockParams struct {
+	From   string               `json:"from"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+	Data   pldtypes.HexBytes    `json:"data"`
+}
+
 type PrepareMintUnlockParams struct {
 	LockID     pldtypes.Bytes32   `json:"lockId"`
 	Recipients []*UnlockRecipient `json:"recipients"`

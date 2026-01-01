@@ -32,12 +32,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCreateTransferLock(t *testing.T) {
+func TestCreateBurnLock(t *testing.T) {
 	ctx, mockCallbacks, n := newNotoFullSchemaSet(t)
-	fn := types.NotoABI.Functions()["createTransferLock"]
+	fn := types.NotoABI.Functions()["createBurnLock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
-	receiverAddress := "0x2000000000000000000000000000000000000000"
 	senderKey, err := secp256k1.GenerateSecp256k1KeyPair()
 	require.NoError(t, err)
 
@@ -72,10 +71,7 @@ func TestCreateTransferLock(t *testing.T) {
 		FunctionSignature: fn.SolString(),
 		FunctionParamsJson: `{
 			"from": "sender@node1",
-			"recipients": [{
-				"to": "receiver@node2",
-				"amount": 100
-			}],
+			"amount": 100,
 			"data": "0x1234"
 		}`,
 	}
@@ -84,10 +80,9 @@ func TestCreateTransferLock(t *testing.T) {
 		Transaction: tx,
 	})
 	require.NoError(t, err)
-	require.Len(t, initRes.RequiredVerifiers, 3)
+	require.Len(t, initRes.RequiredVerifiers, 2)
 	assert.Equal(t, "notary@node1", initRes.RequiredVerifiers[0].Lookup)
 	assert.Equal(t, "sender@node1", initRes.RequiredVerifiers[1].Lookup)
-	assert.Equal(t, "receiver@node2", initRes.RequiredVerifiers[2].Lookup)
 
 	verifiers := []*prototk.ResolvedVerifier{
 		{
@@ -102,12 +97,6 @@ func TestCreateTransferLock(t *testing.T) {
 			VerifierType: verifiers.ETH_ADDRESS,
 			Verifier:     senderKey.Address.String(),
 		},
-		{
-			Lookup:       "receiver@node2",
-			Algorithm:    algorithms.ECDSA_SECP256K1,
-			VerifierType: verifiers.ETH_ADDRESS,
-			Verifier:     receiverAddress,
-		},
 	}
 
 	assembleRes, err := n.AssembleTransaction(ctx, &prototk.AssembleTransactionRequest{
@@ -119,13 +108,12 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // the input coin
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 3) // lock + locked-coin + remainder-coin
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + data + spend-coin + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.InputStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
 	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	spendCoinState := assembleRes.AssembledTransaction.InfoStates[2]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[3]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[2]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 	lockedCoinState := assembleRes.AssembledTransaction.OutputStates[1]
 	remainderCoinState := assembleRes.AssembledTransaction.OutputStates[2]
@@ -137,10 +125,6 @@ func TestCreateTransferLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), remainderCoin.Owner.String())
 	assert.Equal(t, "50", remainderCoin.Amount.Int().String())
-	spendCoin, err := n.unmarshalCoin(spendCoinState.StateDataJson)
-	require.NoError(t, err)
-	assert.Equal(t, receiverAddress, spendCoin.Owner.String())
-	assert.Equal(t, "100", spendCoin.Amount.Int().String())
 	cancelCoin, err := n.unmarshalCoin(cancelCoinState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), cancelCoin.Owner.String())
@@ -156,12 +140,12 @@ func TestCreateTransferLock(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, lockID, lockInfo.LockID)
-	require.Len(t, lockInfo.SpendOutputs, 1)
+	require.Len(t, lockInfo.SpendOutputs, 0)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
 	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
 
-	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{lockedCoin}, []*types.NotoLockedCoin{}, []*types.NotoCoin{spendCoin})
+	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{lockedCoin}, []*types.NotoLockedCoin{}, []*types.NotoCoin{})
 	require.NoError(t, err)
 	signature, err := senderKey.SignDirect(encodedUnlock)
 	require.NoError(t, err)
@@ -196,11 +180,6 @@ func TestCreateTransferLock(t *testing.T) {
 			SchemaId:      n.dataSchemaV1.Id,
 			Id:            *dataState.Id,
 			StateDataJson: dataState.StateDataJson,
-		},
-		{
-			SchemaId:      n.coinSchema.Id,
-			Id:            *spendCoinState.Id,
-			StateDataJson: spendCoinState.StateDataJson,
 		},
 		{
 			SchemaId:      n.coinSchema.Id,
@@ -266,7 +245,6 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Equal(t, &types.NotoTransactionData_V1{
 		InfoStates: []pldtypes.Bytes32{
 			pldtypes.MustParseBytes32(*dataState.Id),
-			pldtypes.MustParseBytes32(*spendCoinState.Id),
 			pldtypes.MustParseBytes32(*cancelCoinState.Id),
 		},
 	}, data)
@@ -275,10 +253,10 @@ func TestCreateTransferLock(t *testing.T) {
 	emptyTxData, err := n.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
 	require.NoError(t, err)
 	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), emptyTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, emptyTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[2:3]), emptyTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), emptyTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
 
@@ -325,27 +303,21 @@ func TestCreateTransferLock(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunctionABI := hooksBuild.ABI.Functions()["onCreateTransferLock"]
+	expectedFunctionABI := hooksBuild.ABI.Functions()["onCreateBurnLock"]
 	assert.JSONEq(t, mustParseJSON(expectedFunctionABI), prepareRes.Transaction.FunctionAbiJson)
 	assert.Equal(t, &hookAddress, prepareRes.Transaction.ContractAddress)
 	_, err = expectedFunctionABI.EncodeCallDataJSON([]byte(prepareRes.Transaction.ParamsJson))
 	require.NoError(t, err)
 
 	// Verify hook invoke params
-	var hookParams CreateTransferLockHookParams
+	var hookParams CreateBurnLockHookParams
 	err = json.Unmarshal([]byte(prepareRes.Transaction.ParamsJson), &hookParams)
 	require.NoError(t, err)
 	require.NotNil(t, hookParams.Sender)
 	assert.Equal(t, senderKey.Address.String(), hookParams.Sender.String())
 	assert.Equal(t, lockID, hookParams.LockID)
 	assert.Equal(t, pldtypes.MustParseHexBytes("0x1234"), hookParams.Data)
-
-	// Verify recipients
-	require.Len(t, hookParams.Recipients, 1)
-	require.NotNil(t, hookParams.Recipients[0].To)
-	assert.Equal(t, pldtypes.MustEthAddress("0x2000000000000000000000000000000000000000").String(), hookParams.Recipients[0].To.String())
-	require.NotNil(t, hookParams.Recipients[0].Amount)
-	assert.Equal(t, pldtypes.Int64ToInt256(100).String(), hookParams.Recipients[0].Amount.String())
+	require.Equal(t, int64(100), hookParams.Amount.Int().Int64())
 
 	// Verify prepared transaction
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
@@ -355,24 +327,16 @@ func TestCreateTransferLock(t *testing.T) {
 	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
 	mt.withMissingStates( /* no missing states */ ).
 		completeForIdentity(notaryAddress).
-		completeForIdentity(senderKey.Address.String()).
-		completeForIdentity(receiverAddress)
+		completeForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(manifestState, dataState).
 		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		incompleteForIdentity(receiverAddress)
+		incompleteForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(dataState).
 		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		completeForIdentity(receiverAddress) // receivers don't get the data
+		incompleteForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(newLockInfoState).
 		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		completeForIdentity(receiverAddress) // receivers don't get the lock
-	mt.withMissingNewStates(spendCoinState).
-		incompleteForIdentity(notaryAddress).
-		incompleteForIdentity(senderKey.Address.String()).
-		incompleteForIdentity(receiverAddress)
+		incompleteForIdentity(senderKey.Address.String())
 
 	receipt := testGetDomainReceipt(t, n, &prototk.BuildReceiptRequest{
 		TransactionId:     tx.TransactionId,
@@ -386,12 +350,11 @@ func TestCreateTransferLock(t *testing.T) {
 	require.NotNil(t, receipt.LockInfo.UnlockParams)
 }
 
-func TestCreateTransferLockInsufficientFunds(t *testing.T) {
+func TestCreateBurnLockInsufficientFunds(t *testing.T) {
 	ctx, mockCallbacks, n := newNotoFullSchemaSet(t)
-	fn := types.NotoABI.Functions()["createTransferLock"]
+	fn := types.NotoABI.Functions()["createBurnLock"]
 
 	notaryAddress := "0x1000000000000000000000000000000000000000"
-	receiverAddress := "0x2000000000000000000000000000000000000000"
 	senderKey, err := secp256k1.GenerateSecp256k1KeyPair()
 	require.NoError(t, err)
 
@@ -413,10 +376,7 @@ func TestCreateTransferLockInsufficientFunds(t *testing.T) {
 		FunctionSignature: fn.SolString(),
 		FunctionParamsJson: `{
 			"from": "sender@node1",
-			"recipients": [{
-				"to": "receiver@node2",
-				"amount": 100
-			}],
+			"amount": 100,
 			"data": "0x1234"
 		}`,
 	}
@@ -425,10 +385,9 @@ func TestCreateTransferLockInsufficientFunds(t *testing.T) {
 		Transaction: tx,
 	})
 	require.NoError(t, err)
-	require.Len(t, initRes.RequiredVerifiers, 3)
+	require.Len(t, initRes.RequiredVerifiers, 2)
 	assert.Equal(t, "notary@node1", initRes.RequiredVerifiers[0].Lookup)
 	assert.Equal(t, "sender@node1", initRes.RequiredVerifiers[1].Lookup)
-	assert.Equal(t, "receiver@node2", initRes.RequiredVerifiers[2].Lookup)
 
 	verifiers := []*prototk.ResolvedVerifier{
 		{
@@ -442,12 +401,6 @@ func TestCreateTransferLockInsufficientFunds(t *testing.T) {
 			Algorithm:    algorithms.ECDSA_SECP256K1,
 			VerifierType: verifiers.ETH_ADDRESS,
 			Verifier:     senderKey.Address.String(),
-		},
-		{
-			Lookup:       "receiver@node2",
-			Algorithm:    algorithms.ECDSA_SECP256K1,
-			VerifierType: verifiers.ETH_ADDRESS,
-			Verifier:     receiverAddress,
 		},
 	}
 
