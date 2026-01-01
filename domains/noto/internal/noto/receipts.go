@@ -105,33 +105,48 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			}
 			paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
 		}
-	} else if variant == types.NotoVariantLegacy && (len(receipt.States.PreparedOutputs) > 0 || len(receipt.States.ReadLockedInputs) > 0) {
-		// Old info-based decoding scheme
-		var lockID *pldtypes.Bytes32
-		var spendTxID *pldtypes.Bytes32
-		var delegate *pldtypes.EthAddress
-		lockID, spendTxID, delegate, err = n.extractLockInfoV0(ctx, req.InfoStates, false)
-		if err != nil {
-			return nil, err
-		}
-		if lockID != nil {
-			receipt.LockInfo = &types.ReceiptLockInfo{
-				LockID:    *lockID,
-				SpendTxId: spendTxID, // only for V1
-				Delegate:  delegate,  // only for V0
-			}
+	} else if variant == types.NotoVariantLegacy {
 
-			unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
-			receipt.LockInfo.UnlockFunction = "unlock"
-			receipt.LockInfo.UnlockParams = map[string]any{
-				"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(), // In V0 we generated a new UUID each time you request a receipt
-				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
-				"signature":     pldtypes.HexBytes{},
-				"data":          receipt.Data,
+		lockInfoStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id})
+		if len(lockInfoStates) == 1 {
+			var lock *types.NotoLockInfo_V0
+			lock, err = n.unmarshalLockV0(lockInfoStates[0].StateDataJson)
+			if err == nil {
+				receipt.LockInfo = &types.ReceiptLockInfo{LockID: lock.LockID}
+				if !lock.Delegate.IsZero() {
+					receipt.LockInfo.Delegate = lock.Delegate
+				}
 			}
-			paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
+		}
+
+		if receipt.LockInfo != nil && len(receipt.States.ReadLockedInputs) > 0 && len(receipt.States.PreparedOutputs) > 0 {
+			// Old info-based decoding scheme
+			var lockID *pldtypes.Bytes32
+			var spendTxID *pldtypes.Bytes32
+			var delegate *pldtypes.EthAddress
+			lockID, spendTxID, delegate, err = n.extractLockInfoV0(ctx, req.InfoStates, false)
+			if err != nil {
+				return nil, err
+			}
+			if lockID != nil {
+				receipt.LockInfo = &types.ReceiptLockInfo{
+					LockID:    *lockID,
+					SpendTxId: spendTxID, // only for V1
+					Delegate:  delegate,  // only for V0
+				}
+
+				unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
+				receipt.LockInfo.UnlockFunction = "unlock"
+				receipt.LockInfo.UnlockParams = map[string]any{
+					"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(), // In V0 we generated a new UUID each time you request a receipt
+					"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+					"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
+					"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+					"signature":     pldtypes.HexBytes{},
+					"data":          receipt.Data,
+				}
+				paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
+			}
 		}
 	}
 	if err == nil && unlockInterfaceABI != nil {
