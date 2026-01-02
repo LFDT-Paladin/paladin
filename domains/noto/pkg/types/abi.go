@@ -221,6 +221,8 @@ var NotoDelegateOperationABI = abi.ParameterArray{
 		InternalType: "struct NotoDelegateOperation",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
 			{Name: "proof", Type: "bytes"},
 		},
 	},

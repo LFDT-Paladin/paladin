@@ -83,13 +83,13 @@ var (
 	EventNotoLockUpdated   = "NotoLockUpdated"
 	EventNotoLockSpent     = "NotoLockSpent"
 	EventNotoLockCancelled = "NotoLockCancelled"
+	EventNotoLockDelegated = "NotoLockDelegated"
 
 	// Old variant 0 events
 	EventNotoTransfer       = "NotoTransfer"
 	EventNotoLock           = "NotoLock"
 	EventNotoUnlock         = "NotoUnlock"
 	EventNotoUnlockPrepared = "NotoUnlockPrepared"
-	EventNotoLockDelegated  = "NotoLockDelegated"
 )
 
 var allEvents = []string{
@@ -98,6 +98,7 @@ var allEvents = []string{
 	EventNotoLockUpdated,
 	EventNotoLockSpent,
 	EventNotoLockCancelled,
+	EventNotoLockDelegated,
 	EventLockUpdated,
 	EventLockDelegated,
 }
