@@ -298,12 +298,14 @@ type NotoLockUpdated_Event struct {
 
 // INoto.LockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
-	TxId   pldtypes.Bytes32     `json:"txId"`
-	LockID pldtypes.Bytes32     `json:"lockId"`
-	From   *pldtypes.EthAddress `json:"from"`
-	To     *pldtypes.EthAddress `json:"to"`
-	Proof  pldtypes.HexBytes    `json:"proof"`
-	Data   pldtypes.HexBytes    `json:"data"`
+	TxId    pldtypes.Bytes32     `json:"txId"`
+	LockID  pldtypes.Bytes32     `json:"lockId"`
+	From    *pldtypes.EthAddress `json:"from"`
+	To      *pldtypes.EthAddress `json:"to"`
+	Inputs  []pldtypes.Bytes32   `json:"inputs"`
+	Outputs []pldtypes.Bytes32   `json:"outputs"`
+	Proof   pldtypes.HexBytes    `json:"proof"`
+	Data    pldtypes.HexBytes    `json:"data"`
 }
 
 type parsedCoins struct {

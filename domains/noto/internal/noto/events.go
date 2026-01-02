@@ -145,6 +145,8 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, lockDelegated.TxId, txData.InfoStates, res)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockDelegated.TxId, lockDelegated.Inputs)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockDelegated.TxId, lockDelegated.Outputs)...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockDelegated event in batch %s: %s", req.BatchId, err)
 		}

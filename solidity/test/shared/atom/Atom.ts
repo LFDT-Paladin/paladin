@@ -133,6 +133,8 @@ describe("Atom", function () {
     const delegateTxId = randomBytes32();
     const delegateLockParams = {
       txId: delegateTxId,
+      inputs: [],
+      outputs: [],
       proof: "0x",
     };
     const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);

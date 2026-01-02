@@ -600,6 +600,9 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         address previousSpender = lock.spender;
         lock.spender = newSpender;
 
+        _processLockedInputs(lockId, delegateOp.inputs);
+        _processOutputs(delegateOp.outputs);
+
         emit LockDelegated(lockId, previousSpender, newSpender, data);
 
         emit NotoLockDelegated(
@@ -607,6 +610,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             lockId,
             previousSpender,
             newSpender,
+            delegateOp.inputs,
+            delegateOp.outputs,
             delegateOp.proof,
             data
         );
