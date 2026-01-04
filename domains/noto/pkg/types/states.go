@@ -46,6 +46,9 @@ type ReceiptLockInfo struct {
 	UnlockFunction string               `json:"unlockFunction,omitempty"` // only set for prepareUnlock
 	UnlockParams   map[string]any       `json:"unlockParams,omitempty"`   // only set for prepareUnlock
 	UnlockCall     pldtypes.HexBytes    `json:"unlockCall,omitempty"`     // only set for prepareUnlock
+	CancelFunction string               `json:"cancelFunction,omitempty"` // only set for prepareUnlock
+	CancelParams   map[string]any       `json:"cancelParams,omitempty"`   // only set for prepareUnlock
+	CancelCall     pldtypes.HexBytes    `json:"cancelCall,omitempty"`     // only set for prepareUnlock
 }
 
 type ReceiptState struct {
