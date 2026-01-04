@@ -29,7 +29,7 @@ import (
 
 func TestPrepareInputs(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}
@@ -43,13 +43,13 @@ func TestPrepareInputs(t *testing.T) {
 	_, _, _, err := prepareInputsForTransfer(ctx, callbacks, coinSchema, false, stateQueryContext, "Alice", []*types.FungibleTransferParamEntry{{Amount: pldtypes.Uint64ToUint256(100)}})
 	assert.EqualError(t, err, "PD210032: Failed to query the state store for available coins. test error")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{}, nil
 	}
 	_, _, _, err = prepareInputsForTransfer(ctx, callbacks, coinSchema, false, stateQueryContext, "Alice", []*types.FungibleTransferParamEntry{{Amount: pldtypes.Uint64ToUint256(100)}})
 	assert.EqualError(t, err, "PD210033: Insufficient funds (available=0)")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -62,7 +62,7 @@ func TestPrepareInputs(t *testing.T) {
 	_, _, _, err = prepareInputsForTransfer(ctx, callbacks, coinSchema, false, stateQueryContext, "Alice", []*types.FungibleTransferParamEntry{{Amount: pldtypes.Uint64ToUint256(100)}})
 	assert.EqualError(t, err, "PD210034: Coin state-1 is invalid: invalid character 'b' looking for beginning of value")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{Id: "state-1", DataJson: "{\"amount\": \"10\"}"},

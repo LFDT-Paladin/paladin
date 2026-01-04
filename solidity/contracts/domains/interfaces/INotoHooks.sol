@@ -56,7 +56,7 @@ interface INotoHooks is IPenteExternalCall {
         PreparedTransaction calldata prepared
     ) external;
 
-    function onCreateMintLock(
+    function onPrepareMintUnlock(
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
@@ -77,6 +77,33 @@ interface INotoHooks is IPenteExternalCall {
         address sender,
         bytes32 lockId,
         UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external;
+
+    function onCreateTransferLock(
+        address sender,
+        bytes32 lockId,
+        address from,
+        uint256 amount,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external;
+
+    function onCreateMintLock(
+        address sender,
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data,
+        PreparedTransaction calldata prepared
+    ) external;
+
+    function onCreateBurnLock(
+        address sender,
+        bytes32 lockId,
+        address from,
+        uint256 amount,
         bytes calldata data,
         PreparedTransaction calldata prepared
     ) external;
