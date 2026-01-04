@@ -76,7 +76,7 @@ func TestHandleMintEvent(t *testing.T) {
 		SoliditySignature: "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
 
 	// bad transaction data for the mint event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -152,7 +152,7 @@ func TestHandleTransferEvent(t *testing.T) {
 		SoliditySignature: "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
 
 	// bad data for the transfer event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -226,7 +226,7 @@ func TestHandleTransferWithEncryptionEvent(t *testing.T) {
 		SoliditySignature: "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
 
 	// bad data for the transfer event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -300,8 +300,8 @@ func TestHandleLockedEvent(t *testing.T) {
 	}
 	res := &prototk.HandleEventBatchResponse{}
 
-	smtSpec1 := &common.MerkleTreeSpec{Tree: merkleTree1, Storage: storage1}
-	smtSpec2 := &common.MerkleTreeSpec{Tree: merkleTree2, Storage: storage2}
+	smtSpec1 := &smt.MerkleTreeSpec{Tree: merkleTree1, Storage: storage1}
+	smtSpec2 := &smt.MerkleTreeSpec{Tree: merkleTree2, Storage: storage2}
 
 	// bad data for the locked event - should be logged and move on
 	err = z.handleLockedEvent(ctx, smtSpec1, smtSpec2, ev, "Zeto_AnonNullifier", res)
@@ -352,7 +352,7 @@ func TestHandleWithdrawEvent(t *testing.T) {
 		SoliditySignature: "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)",
 	}
 
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
 
 	// bad data for the withdraw event - should be logged and move on
 	res := &prototk.HandleEventBatchResponse{}
@@ -411,7 +411,7 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 	storage := smt.NewStatesStorage(testCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher())
 	merkleTree, err := zetosmt.NewSmt(storage, zetosmt.SMT_HEIGHT_KYC)
 	require.NoError(t, err)
-	smtSpec := &common.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
+	smtSpec := &smt.MerkleTreeSpec{Tree: merkleTree, Storage: storage}
 
 	count := 0
 	data, _ := json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
@@ -434,7 +434,7 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 	errStorage := smt.NewStatesStorage(errCallbacks, "testToken1", "context1", "merkle_tree_root", "merkle_tree_node", signercommon.GetHasher())
 	errMerkleTree, err := zetosmt.NewSmt(errStorage, zetosmt.SMT_HEIGHT_KYC)
 	require.NoError(t, err)
-	errSmtSpec := &common.MerkleTreeSpec{Tree: errMerkleTree, Storage: errStorage}
+	errSmtSpec := &smt.MerkleTreeSpec{Tree: errMerkleTree, Storage: errStorage}
 
 	ctx := context.Background()
 

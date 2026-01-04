@@ -24,10 +24,8 @@ import (
 	"math/big"
 
 	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
@@ -48,54 +46,28 @@ type StateSchemas struct {
 	MerkleTreeNodeSchema *prototk.StateSchema
 }
 
-type MerkleTreeType int
-
-const (
-	StatesTree MerkleTreeType = iota
-	LockedStatesTree
-	KycStatesTree
-)
-
-type MerkleTreeSpec struct {
-	Name       string
-	Levels     int
-	Type       MerkleTreeType
-	Storage    smt.StatesStorage
-	Tree       core.SparseMerkleTree
-	EmptyProof *proto.MerkleProof
-}
-
-func NewMerkleTreeSpec(ctx context.Context, name string, treeType MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
-	var tree core.SparseMerkleTree
+func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*smt.MerkleTreeSpec, error) {
 	var levels int
 	switch treeType {
-	case StatesTree:
+	case smt.StatesTree:
 		levels = zetosmt.SMT_HEIGHT_UTXO
-	case LockedStatesTree:
+	case smt.LockedStatesTree:
 		levels = zetosmt.SMT_HEIGHT_UTXO
-	case KycStatesTree:
+	case smt.KycStatesTree:
 		levels = zetosmt.SMT_HEIGHT_KYC
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownSmtType, treeType)
 	}
 	hasher := common.GetHasher()
-	storage := smt.NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, hasher)
-	tree, err := zetosmt.NewSmt(storage, levels)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmt, name, err)
-	}
 	emptyProof := &zetosmt.Empty_Proof_Utxos
-	if treeType == KycStatesTree {
+	if treeType == smt.KycStatesTree {
 		emptyProof = &zetosmt.Empty_Proof_kyc
 	}
-	return &MerkleTreeSpec{
-		Name:       name,
-		Levels:     levels,
-		Type:       treeType,
-		Storage:    storage,
-		Tree:       tree,
-		EmptyProof: emptyProof,
-	}, nil
+	spec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, emptyProof, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmtSpec, name, err)
+	}
+	return spec, nil
 }
 
 const modulus = "21888242871839275222246405745257275088548364400416034343698204186575808495617"

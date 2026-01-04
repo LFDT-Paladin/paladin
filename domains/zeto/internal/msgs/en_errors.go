@@ -58,7 +58,7 @@ var (
 	MsgUnexpectedFuncSignature             = pde("PD210016", "Unexpected signature for function '%s': expected='%s', actual='%s'")
 	MsgErrorDecodeContractAddress          = pde("PD210017", "Failed to decode contract address. %s")
 	MsgErrorAbiDecodeDomainInstanceConfig  = pde("PD210018", "Failed to abi decode domain instance config bytes. %s")
-	MsgErrorNewSmt                         = pde("PD210019", "Failed to create Merkle tree for %s: %s")
+	MsgErrorNewSmtSpec                     = pde("PD210019", "Failed to create Merkle tree spec for %s: %s")
 	MsgErrorHandleEvents                   = pde("PD210020", "Failed to handle events %s")
 	MsgErrorGetNewSmtStates                = pde("PD210021", "Failed to get new states for Merkle tree %s: %s")
 	MsgErrorGetVerifier                    = pde("PD210022", "Failed to get verifier. %s")

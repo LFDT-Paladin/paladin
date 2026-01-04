@@ -561,7 +561,7 @@ func TestHandleEventBatch(t *testing.T) {
 
 	req.ContractInfo.ContractAddress = "0x1234567890123456789012345678901234567890"
 	_, err = z.HandleEventBatch(ctx, req)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_AnonNullifier_0x1234567890123456789012345678901234567890: find merkle tree root error")
 
 	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
 		return &pb.FindAvailableStatesResponse{}, nil

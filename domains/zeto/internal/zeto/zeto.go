@@ -516,24 +516,24 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 
 	var res prototk.HandleEventBatchResponse
 	var errors []string
-	var smtForStates *common.MerkleTreeSpec
-	var smtForLockedStates *common.MerkleTreeSpec
-	var smtForKyc *common.MerkleTreeSpec
+	var smtForStates *smt.MerkleTreeSpec
+	var smtForLockedStates *smt.MerkleTreeSpec
+	var smtForKyc *smt.MerkleTreeSpec
 	if common.IsNullifiersToken(domainConfig.TokenName) {
 		smtName := zetosmt.MerkleTreeName(domainConfig.TokenName, contractAddress)
-		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 		smtName = zetosmt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
-		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if common.IsKycToken(domainConfig.TokenName) {
 		smtName := zetosmt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
-		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, smt.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}

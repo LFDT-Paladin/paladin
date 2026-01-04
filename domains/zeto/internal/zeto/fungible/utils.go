@@ -32,6 +32,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
 	zetocore "github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
@@ -124,7 +126,7 @@ func utxosFromStates(ctx context.Context, states []*prototk.EndorsableState, des
 	return utxos, nil
 }
 
-func generateMerkleProofs(ctx context.Context, smtSpec *common.MerkleTreeSpec, indexes []*big.Int, targetSize int) (*corepb.MerkleProofObject, error) {
+func generateMerkleProofs(ctx context.Context, smtSpec *smt.MerkleTreeSpec, indexes []*big.Int, targetSize int) (*corepb.MerkleProofObject, error) {
 	// verify that the input UTXOs have been indexed by the Merkle tree DB
 	// and generate a merkle proof for each
 	mtRoot := smtSpec.Tree.Root()
@@ -338,9 +340,9 @@ func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 	if forLockedStates {
 		smtName = zetosmt.MerkleTreeNameForLockedStates(tokenName, contractAddress)
 	}
-	smtType := common.StatesTree
+	smtType := smt.StatesTree
 	if forLockedStates {
-		smtType = common.LockedStatesTree
+		smtType = smt.LockedStatesTree
 	}
 
 	mt, err := common.NewMerkleTreeSpec(ctx, smtName, smtType, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
@@ -363,7 +365,7 @@ func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 
 func smtProofForOwners(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, inputOwner string, outputCoins []*types.ZetoCoin, targetSize int) (*corepb.MerkleProofObject, error) {
 	smtName := zetosmt.MerkleTreeNameForKycStates(tokenName, contractAddress)
-	mt, err := common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
+	mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.KycStatesTree, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
 	if err != nil {
 		return nil, err
 	}
