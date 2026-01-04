@@ -25,14 +25,14 @@ import (
 var _ plugintk.DomainCallbacks = &MockDomainCallbacks{}
 
 type MockDomainCallbacks struct {
-	MockFindAvailableStates  func() (*prototk.FindAvailableStatesResponse, error)
+	MockFindAvailableStates  func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error)
 	MockLocalNodeName        func() (*prototk.LocalNodeNameResponse, error)
 	MockValidateStates       func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 	MockLookupKeyIdentifiers func(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
 }
 
 func (dc *MockDomainCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-	return dc.MockFindAvailableStates()
+	return dc.MockFindAvailableStates(ctx, req)
 }
 
 func (dc *MockDomainCallbacks) EncodeData(ctx context.Context, req *prototk.EncodeDataRequest) (*prototk.EncodeDataResponse, error) {

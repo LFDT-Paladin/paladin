@@ -27,7 +27,7 @@ import (
 
 func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res *prototk.HandleEventBatchResponse, req *prototk.HandleEventBatchRequest) error {
 	switch ev.SoliditySignature {
-	case eventSignaturesV0[NotoTransfer]:
+	case eventSignaturesV0[EventNotoTransfer]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var transfer NotoTransfer_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &transfer); err == nil {
@@ -42,7 +42,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed NotoTransfer event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignaturesV0[NotoLock]:
+	case eventSignaturesV0[EventNotoLock]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lock NotoLock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
@@ -58,7 +58,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed NotoLock event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignaturesV0[NotoUnlock]:
+	case eventSignaturesV0[EventNotoUnlock]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlock NotoUnlock_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlock); err == nil {
@@ -95,7 +95,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			}
 			if domainConfig.IsNotary &&
 				domainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
-				!domainConfig.Options.Hooks.PublicAddress.Equals(unlock.Sender) {
+				!domainConfig.Options.Hooks.PublicAddress.Equals(&unlock.Sender) {
 				err = n.handleNotaryPrivateUnlockV0(ctx, req.StateQueryContext, domainConfig, &unlock)
 				if err != nil {
 					log.L(ctx).Errorf("Failed to handle NotoUnlock event in batch %s: %s", req.BatchId, err)
@@ -106,7 +106,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed NotoUnlock event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignaturesV0[NotoUnlockPrepared]:
+	case eventSignaturesV0[EventNotoUnlockPrepared]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var unlockPrepared NotoUnlockPrepared_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &unlockPrepared); err == nil {
@@ -121,7 +121,7 @@ func (n *Noto) handleV0Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			log.L(ctx).Warnf("Ignoring malformed NotoUnlockPrepared event in batch %s: %s", req.BatchId, err)
 		}
 
-	case eventSignaturesV0[NotoLockDelegated]:
+	case eventSignaturesV0[EventNotoLockDelegated]:
 		log.L(ctx).Infof("Processing '%s' event in batch %s", ev.SoliditySignature, req.BatchId)
 		var lockDelegated NotoLockDelegated_V0_Event
 		if err := json.Unmarshal([]byte(ev.DataJson), &lockDelegated); err == nil {
@@ -156,5 +156,5 @@ func (n *Noto) handleNotaryPrivateUnlockV0(ctx context.Context, stateQueryContex
 		lockID = coin.LockID
 		// TODO: should we check that all inputs have the same lock ID?
 	}
-	return n.handleNotaryPrivateUnlock(ctx, stateQueryContext, domainConfig, unlock.LockedInputs, unlock.Outputs, unlock.Sender, unlock.Data, lockID)
+	return n.handleNotaryPrivateUnlock(ctx, stateQueryContext, domainConfig, unlock.LockedInputs, unlock.Outputs, &unlock.Sender, unlock.Data, lockID)
 }

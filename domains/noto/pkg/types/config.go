@@ -54,7 +54,7 @@ var NotoConfigABI_V1 = &abi.ParameterArray{
 }
 
 var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
-var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00010001")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {

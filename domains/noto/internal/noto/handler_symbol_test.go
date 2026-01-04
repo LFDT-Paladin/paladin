@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -26,7 +25,7 @@ import (
 
 func TestSymbolValidateParams(t *testing.T) {
 	h := symbolHandler{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	result, err := h.ValidateParams(ctx, nil, "")
 	assert.NoError(t, err)
@@ -39,7 +38,7 @@ func TestSymbolInitCall(t *testing.T) {
 		Callbacks: mockCallbacks,
 	}
 	h := symbolHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil, // symbol() has no parameters
@@ -61,7 +60,7 @@ func TestSymbolExecCall(t *testing.T) {
 		Callbacks: mockCallbacks,
 	}
 	h := symbolHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil,

@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -31,6 +32,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func decodeFnParams[T any](t *testing.T, abiFn *abi.Entry, paramsJSONStr string) *T {
+	cv, err := abiFn.Inputs.ParseJSON([]byte(paramsJSONStr))
+	require.NoError(t, err)
+	var v T
+	reEncodedParamsJSON, err := cv.JSON()
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
+
+func decodeSingleABITuple[T any](t *testing.T, typeList abi.ParameterArray, paramsEncoded pldtypes.HexBytes) *T {
+	cv, err := typeList.DecodeABIData([]byte(paramsEncoded), 0)
+	require.NoError(t, err)
+	require.Len(t, cv.Children, 1)
+	var v T
+	serializer := abi.NewSerializer().
+		SetFormattingMode(abi.FormatAsObjects).
+		SetByteSerializer(abi.HexByteSerializer0xPrefix)
+	reEncodedParamsJSON, err := serializer.SerializeJSON(cv.Children[0])
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
 
 var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	dataJSON, err := json.Marshal(data)
@@ -85,7 +112,7 @@ func TestABIParseFailure(t *testing.T) {
 func TestNotoDomainInit(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	configureRes, err := n.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{
 		Name:       "noto",
@@ -119,7 +146,7 @@ func TestNotoDomainInit(t *testing.T) {
 func TestNotoDomainDeployDefaults(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -176,7 +203,7 @@ func TestNotoDomainDeployDefaults(t *testing.T) {
 func TestNotoDomainDeployBasicConfig(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -240,7 +267,7 @@ func TestNotoDomainDeployBasicConfig(t *testing.T) {
 func TestNotoDomainDeployHooksConfig(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	groupSalt := pldtypes.RandBytes32()
 	deployTransaction := &prototk.DeployTransactionSpecification{
@@ -709,7 +736,7 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 
 func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.Sign(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
@@ -723,7 +750,7 @@ func TestUnimplementedMethods(t *testing.T) {
 
 func TestDecodeConfigInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _, err := n.decodeConfig(ctx, types.NotoConfigID_V0)
 	assert.ErrorContains(t, err, "FF22047")
@@ -731,8 +758,22 @@ func TestDecodeConfigInvalid(t *testing.T) {
 
 func TestRecoverSignatureInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.recoverSignature(ctx, nil, nil)
 	assert.ErrorContains(t, err, "FF22087")
+}
+
+func hashName(name string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(name))
+	hash := h.Sum(nil)
+	return ((pldtypes.HexBytes)(hash)).String()
+}
+
+func testSchema(name string) *prototk.StateSchema {
+	nameHash := hashName(name)
+	return &prototk.StateSchema{
+		Id: nameHash,
+	}
 }

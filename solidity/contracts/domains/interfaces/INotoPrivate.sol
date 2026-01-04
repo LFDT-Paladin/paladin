@@ -12,6 +12,14 @@ interface INotoPrivate {
         uint256 amount;
     }
 
+    struct UnlockPublicParams {
+        bytes32[] lockedInputs;
+        bytes32[] lockedOutputs;
+        bytes32[] outputs;
+        bytes proof;
+        bytes data;
+    }
+
     function mint(
         string calldata to,
         uint256 amount,
@@ -44,11 +52,6 @@ interface INotoPrivate {
 
     function createLock(uint256 amount, bytes calldata data) external;
 
-    function createMintLock(
-        UnlockRecipient[] calldata recipients,
-        bytes calldata data
-    ) external;
-
     function unlock(
         bytes32 lockId,
         string calldata from,
@@ -56,10 +59,33 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    function createTransferLock(
+        string calldata from,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
+    function createMintLock(
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
+    function createBurnLock(
+        string calldata from,
+        uint256 amount,
+        bytes calldata data
+    ) external;
+
     function prepareUnlock(
         bytes32 lockId,
         string calldata from,
         UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
+
+    function prepareMintUnlock(
+        bytes32 lockId,
+        uint256 amount,
         bytes calldata data
     ) external;
 

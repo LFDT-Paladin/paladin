@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 //go:embed abis/INotoPrivate.json
@@ -108,7 +109,25 @@ type UnlockParams struct {
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
+type CreateTransferLockParams struct {
+	From       string             `json:"from"`
+	Recipients []*UnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes  `json:"data"`
+}
+
 type CreateMintLockParams struct {
+	Recipients []*UnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes  `json:"data"`
+}
+
+type CreateBurnLockParams struct {
+	From   string               `json:"from"`
+	Amount *pldtypes.HexUint256 `json:"amount"`
+	Data   pldtypes.HexBytes    `json:"data"`
+}
+
+type PrepareMintUnlockParams struct {
+	LockID     pldtypes.Bytes32   `json:"lockId"`
 	Recipients []*UnlockRecipient `json:"recipients"`
 	Data       pldtypes.HexBytes  `json:"data"`
 }
@@ -141,6 +160,11 @@ type UnlockPublicParams struct {
 	Data          pldtypes.HexBytes `json:"data"`
 }
 
+type SpendLockPublicParams struct {
+	LockID pldtypes.Bytes32  `json:"lockId"`
+	Data   pldtypes.HexBytes `json:"data"`
+}
+
 type BalanceOfParam struct {
 	Account string `json:"account"`
 }
@@ -149,4 +173,85 @@ type BalanceOfResult struct {
 	TotalBalance *pldtypes.HexUint256 `json:"totalBalance"`
 	TotalStates  *pldtypes.HexUint256 `json:"totalStates"`
 	Overflow     bool                 `json:"overflow"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.createLock() / ILockableCapability.updateLock()
+type NotoLockOperation struct {
+	TxId          string            `json:"txId"`
+	Inputs        []string          `json:"inputs"`
+	Outputs       []string          `json:"outputs"`
+	LockedOutputs []string          `json:"lockedOutputs"`
+	Proof         pldtypes.HexBytes `json:"proof"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.spendLock() / ILockableCapability.cancelLock()
+type NotoUnlockOperation struct {
+	TxId    string            `json:"txId"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Data    pldtypes.HexBytes `json:"data"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.delegateLock()
+type NotoDelegateOperation struct {
+	TxId    string            `json:"txId"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+}
+
+var NotoLockOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "lockedOutputs", Type: "bytes32[]"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
+var NotoDelegateOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoDelegateOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
+var NotoUnlockOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "data", Type: "bytes"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
+type NotoLockOptions struct {
+	SpendTxId pldtypes.Bytes32 `json:"spendTxId"`
+}
+
+var NotoLockOptionsABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoLockOptions",
+		Components: abi.ParameterArray{
+			{Name: "spendTxId", Type: "bytes32"},
+		},
+	},
 }

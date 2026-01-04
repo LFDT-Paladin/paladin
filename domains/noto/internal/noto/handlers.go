@@ -46,14 +46,20 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 		return &burnFromHandler{burnCommon: burnCommon{noto: n}}
 	case "lock", "createLock":
 		return &lockHandler{noto: n}
-	case "createMintLock":
-		return &createMintLockHandler{noto: n}
 	case "unlock":
 		return &unlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createTransferLock":
+		return &createTransferLockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createMintLock":
+		return &createMintLockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createBurnLock":
+		return &createBurnLockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareUnlock":
 		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "prepareMintUnlock":
+		return &prepareMintUnlockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareBurnUnlock":
-		return &prepareBurnUnlockHandler{noto: n}
+		return &prepareBurnUnlockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "delegateLock":
 		return &delegateLockHandler{noto: n}
 	default:
@@ -111,8 +117,9 @@ func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams
 }
 
 // Check that a lock produces locked coins matching the difference between the inputs and outputs
-func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.coins) == 0 {
+func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
+		// V0 did not support empty locks
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
@@ -123,8 +130,10 @@ func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedC
 }
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
-func (n *Noto) validateUnlockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.lockedCoins) == 0 {
+// Note that mint & burn uses a different function (this is only used for transfers)
+func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
+		// In V0 there was no lock object to check
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)
@@ -151,8 +160,8 @@ func (n *Noto) validateSignature(ctx context.Context, name string, attestations 
 }
 
 // Check that all coins are owned by the transaction sender
-func (n *Noto) validateOwners(ctx context.Context, owner string, req *prototk.EndorseTransactionRequest, coins []*types.NotoCoin, states []*prototk.StateRef) error {
-	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, req.ResolvedVerifiers)
+func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoCoin, states []*prototk.StateRef) error {
+	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, verifiers)
 	if err != nil {
 		return err
 	}

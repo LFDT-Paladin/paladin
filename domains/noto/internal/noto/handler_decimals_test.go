@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -26,7 +25,7 @@ import (
 
 func TestDecimalsValidateParams(t *testing.T) {
 	h := decimalsHandler{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	result, err := h.ValidateParams(ctx, nil, "")
 	assert.NoError(t, err)
@@ -39,7 +38,7 @@ func TestDecimalsInitCall(t *testing.T) {
 		Callbacks: mockCallbacks,
 	}
 	h := decimalsHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil, // decimals() has no parameters
@@ -61,7 +60,7 @@ func TestDecimalsExecCall(t *testing.T) {
 		Callbacks: mockCallbacks,
 	}
 	h := decimalsHandler{noto: n}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	parsedTx := &types.ParsedTransaction{
 		Params: nil,

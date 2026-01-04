@@ -205,9 +205,8 @@ async function main(): Promise<boolean> {
   receipt = await paladin2.ptx.getTransactionReceiptFull(receipt.id);
 
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
-  const assetUnlockParams = domainReceipt?.lockInfo?.unlockParams;
   const assetUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (assetUnlockParams === undefined || assetUnlockCall === undefined) {
+  if (assetUnlockCall === undefined) {
     logger.error("No unlock data found in domain receipt");
     return false;
   }

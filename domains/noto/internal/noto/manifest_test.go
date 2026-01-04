@@ -170,7 +170,7 @@ func (mts *manifestTesterAvailabilityScenario) incompleteForIdentity(localAddres
 func TestBuildManifestFailValidateStates(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockCallbacks.MockValidateStates = func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
 		return nil, fmt.Errorf("pop")
