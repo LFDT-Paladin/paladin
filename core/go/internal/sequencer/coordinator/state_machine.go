@@ -92,6 +92,7 @@ func init() {
 		State_Idle: {
 			OnTransitionTo: action_Idle,
 			Events: map[EventType]EventHandler{
+				common.Event_HeartbeatInterval: {},
 				Event_TransactionsDelegated: {
 					Transitions: []Transition{{
 						To: State_Active,
@@ -344,7 +345,6 @@ func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error 
 	case *common.HeartbeatIntervalEvent:
 		c.heartbeatIntervalsSinceStateChange++
 		//TODO is this the right place to do this vs more generically in the handleEvent function?
-		// MRW TODO - propagating a coordinator heartbeat doesn't have an effect on transactions. Not sure we will ever go through this code
 		err = c.propagateEventToAllTransactions(ctx, event)
 	}
 	if err != nil {
@@ -458,6 +458,8 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 				if err != nil {
 					log.L(ctx).Errorf("error sending heartbeat: %v", err)
 				}
+				// Queue heartbeat interval event to self so transactions can track grace periods
+				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
 			case <-c.heartbeatCtx.Done():
 				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
 				c.heartbeatCtx = nil

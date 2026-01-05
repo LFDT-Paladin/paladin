@@ -274,14 +274,6 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 		return
 	}
 
-	for _, transaction := range coordinatorSnapshot.ConfirmedTransactions {
-		log.L(ctx).Debugf("received a heartbeat containing a confirmed transaction: %s", transaction.ID.String())
-		heartbeatIntervalEvent := &coordTransaction.HeartbeatIntervalEvent{}
-		heartbeatIntervalEvent.TransactionID = transaction.ID
-		heartbeatIntervalEvent.EventTime = time.Now()
-		seq.GetCoordinator().QueueEvent(ctx, heartbeatIntervalEvent)
-	}
-
 	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
 }
 

@@ -714,26 +714,6 @@ func TestStateTransitionEvent_Fields(t *testing.T) {
 	assert.Equal(t, toState, event.ToState)
 }
 
-func TestHeartbeatIntervalEvent_Type(t *testing.T) {
-	event := &HeartbeatIntervalEvent{}
-	assert.Equal(t, Event_HeartbeatInterval, event.Type())
-}
-
-func TestHeartbeatIntervalEvent_TypeString(t *testing.T) {
-	event := &HeartbeatIntervalEvent{}
-	assert.Equal(t, "Event_HeartbeatInterval", event.TypeString())
-}
-
-func TestHeartbeatIntervalEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &HeartbeatIntervalEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
 func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseCoordinatorEvent implement the Event interface
 	txID := uuid.New()
@@ -829,11 +809,6 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&StateTransitionEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: txID,
-			},
-		},
-		&HeartbeatIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

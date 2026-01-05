@@ -67,7 +67,6 @@ const (
 	Event_Confirmed                                                                      // confirmation received from the blockchain of either a successful or reverted transaction
 	Event_RequestTimeoutInterval                                                         // event emitted by the state machine on a regular period while we have pending requests
 	Event_StateTransition                                                                // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
-	Event_HeartbeatInterval                                                              // event emitted by the state machine on a regular period while we have pending requests
 	Event_AssembleTimeout                                                                // the assemble timeout period has passed since we sent the first assemble request
 )
 
@@ -302,7 +301,7 @@ func init() {
 		State_Reverted: {
 			OnTransitionTo: action_NotifyDependentsOfRevert,
 			Events: map[EventType]EventHandler{
-				Event_HeartbeatInterval: {
+				common.Event_HeartbeatInterval: {
 					Transitions: []Transition{
 						{
 							If: guard_HasGracePeriodPassedSinceStateChange,
@@ -314,7 +313,7 @@ func init() {
 		State_Confirmed: {
 			OnTransitionTo: action_NotifyOfConfirmation,
 			Events: map[EventType]EventHandler{
-				Event_HeartbeatInterval: {
+				common.Event_HeartbeatInterval: {
 					Transitions: []Transition{
 						{
 							If: guard_HasGracePeriodPassedSinceStateChange,
@@ -436,8 +435,8 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 		t.latestSubmissionHash = &event.SubmissionHash
 	case *ConfirmedEvent:
 		t.revertReason = event.RevertReason
-	case *HeartbeatIntervalEvent:
-		log.L(ctx).Infof("coordinator transaction increasing heartbeatIntervalsSinceStateChange")
+	case *common.HeartbeatIntervalEvent:
+		log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.ID.String(), t.GetCurrentState().String(), t.heartbeatIntervalsSinceStateChange+1)
 		t.heartbeatIntervalsSinceStateChange++
 	default:
 		//other events may trigger actions and/or state transitions but not require any internal state to be updated

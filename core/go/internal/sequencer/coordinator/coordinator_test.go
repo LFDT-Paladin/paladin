@@ -2069,6 +2069,53 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 	assert.NoError(t, err, "heartbeat event should be handled successfully by all transaction states")
 }
 
+func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForConfirmedTransaction(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create a transaction in State_Confirmed with 4 heartbeat intervals
+	// (grace period is 5, so after one more heartbeat it should transition to State_Final)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		HeartbeatIntervalsSinceStateChange(4)
+	txn := txBuilder.Build()
+
+	// Add transaction to coordinator
+	c.transactionsByID[txn.ID] = txn
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should start in State_Confirmed")
+
+	// Propagate heartbeat event
+	event := &common.HeartbeatIntervalEvent{}
+	err := c.ProcessEvent(ctx, event)
+	assert.NoError(t, err)
+
+	// Transaction should have transitioned to State_Final (counter went from 4 to 5, which >= grace period of 5)
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "transaction should have transitioned to State_Final after heartbeat")
+}
+
+func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForRevertedTransaction(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create a transaction in State_Reverted with 4 heartbeat intervals
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).
+		HeartbeatIntervalsSinceStateChange(4)
+	txn := txBuilder.Build()
+
+	// Add transaction to coordinator
+	c.transactionsByID[txn.ID] = txn
+	assert.Equal(t, transaction.State_Reverted, txn.GetCurrentState(), "transaction should start in State_Reverted")
+
+	// Propagate heartbeat event
+	event := &common.HeartbeatIntervalEvent{}
+	err := c.ProcessEvent(ctx, event)
+	assert.NoError(t, err)
+
+	// Transaction should have transitioned to State_Final
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "transaction should have transitioned to State_Final after heartbeat")
+}
+
 func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
