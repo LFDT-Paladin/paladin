@@ -207,10 +207,14 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-c.stopEventLoop:
+			// Synchronously move the state machine to closed
+			err := c.ProcessEvent(ctx, &CoordinatorClosedEvent{})
+			if err != nil {
+				// Log internal error
+				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error processing coordinator closed event for contract %s: %v", c.contractAddress.String(), err)
+				log.L(ctx).Error(err)
+			}
 			log.L(ctx).Debugf("coordinator event loop stopped for contract %s", c.contractAddress.String())
-			return
-		case <-c.ctx.Done():
-			log.L(ctx).Debugf("coordinator event loop cancelled for contract %s", c.contractAddress.String())
 			return
 		}
 	}
@@ -261,9 +265,6 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			c.inFlightMutex.L.Unlock()
 		case <-c.stopDispatchLoop:
 			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("coordinator dispatch loop for contract %s cancelled", c.contractAddress.String())
 			return
 		}
 	}
@@ -617,15 +618,24 @@ func ptrTo[T any](v T) *T {
 func (c *coordinator) Stop() {
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
-	// MRW TODO - The state machine doesn't really have a "please take over from me" path. Not a current priority
-	// but it will be needed in the future.
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-c.eventLoopStopped:
+		return
+	default:
+	}
 
+	// Stop the event and dispatch loops
 	c.stopEventLoop <- struct{}{}
 	c.stopDispatchLoop <- struct{}{}
-	c.cancelCtx()
 	<-c.eventLoopStopped
 	<-c.dispatchLoopStopped
+
+	// Stop the loopback goroutine
 	c.transportWriter.StopLoopbackWriter()
+
+	// Cancel this coordinator's context which will cancel any timers started
+	c.cancelCtx()
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.

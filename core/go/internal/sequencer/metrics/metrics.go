@@ -79,6 +79,7 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 	registry.MustRegister(metrics.endorsedTransactions)
 	registry.MustRegister(metrics.dispatchedTransactions)
 	registry.MustRegister(metrics.confirmedTransactions)
+	registry.MustRegister(metrics.revertedTransactions)
 	registry.MustRegister(metrics.sequencerStage)
 	registry.MustRegister(metrics.activeCoordinators)
 	registry.MustRegister(metrics.activeSequencers)
