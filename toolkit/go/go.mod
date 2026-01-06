@@ -7,13 +7,13 @@ require (
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/smt v0.0.0-20260106165231-9195ebce0295
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/go-resty/resty/v2 v2.14.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20251211220821-d577ad3aa4ec
 	github.com/hyperledger/firefly-signer v1.1.22
 	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/prometheus/client_golang v1.22.0
@@ -38,6 +38,7 @@ require (
 	github.com/dchest/blake512 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/hyperledger/firefly-common v1.5.9 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

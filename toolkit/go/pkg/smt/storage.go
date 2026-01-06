@@ -25,9 +25,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
-	zetocore "github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
+	utxocore "github.com/LFDT-Paladin/smt/pkg/utxo/core"
 )
 
 type StatesStorage interface {
@@ -49,7 +49,7 @@ type statesStorage struct {
 	pendingNodesTx    *nodesTx
 	rootNode          *smtRootNode
 	committedNewNodes map[core.NodeRef]*smtNode
-	hasher            zetocore.Hasher
+	hasher            utxocore.Hasher
 }
 
 // this corresponds to the new nodes resulted from the execution of
@@ -77,7 +77,7 @@ func (n *nodesTx) getNode(ref core.NodeRef) (core.Node, error) {
 	return nil, core.ErrNotFound
 }
 
-func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher zetocore.Hasher) StatesStorage {
+func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher utxocore.Hasher) StatesStorage {
 	return &statesStorage{
 		CoreInterface:     c,
 		smtName:           smtName,
@@ -273,7 +273,7 @@ func (s *statesStorage) Rollback() error {
 	return nil
 }
 
-func (s *statesStorage) GetHasher() zetocore.Hasher {
+func (s *statesStorage) GetHasher() utxocore.Hasher {
 	return s.hasher
 }
 

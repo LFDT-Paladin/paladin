@@ -148,7 +148,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 			for _, newState := range returnedStates.states {
 				newState.NullifierSpecs = []*prototk.NullifierSpec{
 					{
-						Party:        tx.Transaction.From,
+						Party:        from,
 						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
 						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
 						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,

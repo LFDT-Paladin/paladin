@@ -27,8 +27,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/iden3/go-iden3-crypto/poseidon"
@@ -213,32 +214,11 @@ func (z *ZetoNFToken) validate() error {
 	return nil
 }
 
-var MerkleTreeRootABI = &abi.Parameter{
-	Type:         "tuple",
-	InternalType: "struct MerkleTreeRoot",
-	Components: abi.ParameterArray{
-		{Name: "smtName", Type: "string", Indexed: true},
-		{Name: "rootIndex", Type: "bytes32"},
-	},
-}
-
-var MerkleTreeNodeABI = &abi.Parameter{
-	Type:         "tuple",
-	InternalType: "struct MerkleTreeNode",
-	Components: abi.ParameterArray{
-		{Name: "refKey", Type: "bytes32", Indexed: true},
-		{Name: "index", Type: "bytes32"},
-		{Name: "type", Type: "bytes1"},
-		{Name: "leftChild", Type: "bytes32"},
-		{Name: "rightChild", Type: "bytes32"},
-	},
-}
-
 func GetStateSchemas() ([]string, error) {
 	coinJSON, _ := json.Marshal(ZetoCoinABI)
 	nftJSON, _ := json.Marshal(ZetoNFTokenABI)
-	smtRootJSON, _ := json.Marshal(MerkleTreeRootABI)
-	smtNodeJSON, _ := json.Marshal(MerkleTreeNodeABI)
+	smtRootJSON, _ := json.Marshal(smt.MerkleTreeRootABI)
+	smtNodeJSON, _ := json.Marshal(smt.MerkleTreeNodeABI)
 	infoJSON, _ := json.Marshal(TransactionDataABI)
 
 	return []string{

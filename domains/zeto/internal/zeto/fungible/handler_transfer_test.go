@@ -514,7 +514,7 @@ func TestGenerateMerkleProofs(t *testing.T) {
 	inputCoins[0].Owner = pldtypes.MustParseHexBytes("0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025")
 	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 	// _, _, err = generateMerkleProofs(ctx, h.callbacks, h.stateSchemas.MerkleTreeRootSchema, h.stateSchemas.MerkleTreeNodeSchema, "Zeto_Anon", queryContext, addr, inputCoins, false)
-	assert.EqualError(t, err, "PD210054: Failed to create new leaf node. inputs values not inside Finite Field")
+	assert.EqualError(t, err, "PD021210: Failed to create new leaf node. inputs values not inside Finite Field")
 
 	inputCoins[0].Salt = pldtypes.MustParseHexUint256("0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec")
 	calls := 0
@@ -537,7 +537,7 @@ func TestGenerateMerkleProofs(t *testing.T) {
 	mt, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
 	assert.NoError(t, err)
 	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
-	assert.EqualError(t, err, "PD210055: Failed to query the smt DB for leaf node (ref=789c99b9a2196addb3ac11567135877e8b86bc9b5f7725808a79757fd36b2a2a). key not found")
+	assert.EqualError(t, err, "PD021211: Failed to query the smt DB for leaf node (ref=789c99b9a2196addb3ac11567135877e8b86bc9b5f7725808a79757fd36b2a2a). key not found")
 
 	testCallbacks.MockFindAvailableStates = func() (*pb.FindAvailableStatesResponse, error) {
 		defer func() { calls++ }()

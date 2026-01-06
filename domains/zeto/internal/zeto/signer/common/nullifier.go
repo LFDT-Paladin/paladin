@@ -19,7 +19,7 @@ import (
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 

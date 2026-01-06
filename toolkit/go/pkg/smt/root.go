@@ -19,7 +19,17 @@ import (
 	"crypto/sha256"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
+
+var MerkleTreeRootABI = &abi.Parameter{
+	Type:         "tuple",
+	InternalType: "struct MerkleTreeRoot",
+	Components: abi.ParameterArray{
+		{Name: "smtName", Type: "string", Indexed: true},
+		{Name: "rootIndex", Type: "bytes32"},
+	},
+}
 
 type MerkleTreeRoot struct {
 	SmtName   string           `json:"smtName"`

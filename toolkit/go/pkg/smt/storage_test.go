@@ -24,9 +24,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/smt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -135,7 +135,7 @@ func TestStorage(t *testing.T) {
 
 	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnBadData}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
 	mt, err = smt.NewMerkleTree(storage, 64)
-	assert.EqualError(t, err, "PD0212103: Failed to unmarshal root node index. invalid character 'b' looking for beginning of value")
+	assert.EqualError(t, err, "PD021203: Failed to unmarshal root node index. invalid character 'b' looking for beginning of value")
 	assert.NotNil(t, storage)
 	assert.Nil(t, mt)
 

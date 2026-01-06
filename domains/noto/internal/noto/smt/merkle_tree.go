@@ -16,32 +16,23 @@
 package smt
 
 import (
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	pldsmt "github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/smt"
+	utxocore "github.com/LFDT-Paladin/smt/pkg/utxo/core"
 )
 
 const SMT_HEIGHT_UTXO = 64
-
-var Empty_Proof_Utxos proto.MerkleProof
-
-func init() {
-	var nodes []string
-	for i := 0; i < SMT_HEIGHT_UTXO; i++ {
-		nodes = append(nodes, "0")
-	}
-	Empty_Proof_Utxos = proto.MerkleProof{
-		Nodes: nodes,
-	}
-}
 
 func NewSmt(storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
 	mt, err := smt.NewMerkleTree(storage, levels)
 	return mt, err
 }
 
-func MerkleTreeName(tokenName string, domainInstanceContract *pldtypes.EthAddress) string {
-	return "smt_noto_" + tokenName + "_" + domainInstanceContract.String()
+func MerkleTreeName(domainInstanceContract string) string {
+	return "smt_noto_" + domainInstanceContract
+}
+
+func GetHasher() utxocore.Hasher {
+	return &pldsmt.Keccak256Hasher{}
 }

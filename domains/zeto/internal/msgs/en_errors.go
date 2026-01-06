@@ -60,7 +60,6 @@ var (
 	MsgErrorAbiDecodeDomainInstanceConfig  = pde("PD210018", "Failed to abi decode domain instance config bytes. %s")
 	MsgErrorNewSmtSpec                     = pde("PD210019", "Failed to create Merkle tree spec for %s: %s")
 	MsgErrorHandleEvents                   = pde("PD210020", "Failed to handle events %s")
-	MsgErrorGetNewSmtStates                = pde("PD210021", "Failed to get new states for Merkle tree %s: %s")
 	MsgErrorGetVerifier                    = pde("PD210022", "Failed to get verifier. %s")
 	MsgErrorSign                           = pde("PD210023", "Failed to sign. %s")
 	MsgNoTransferParams                    = pde("PD210024", "No transfer parameters provided")
@@ -93,15 +92,12 @@ var (
 	MsgErrorFindTokenAbi                   = pde("PD210051", "Failed to find abi for the token contract %s. %s")
 	MsgErrorGenerateMTP                    = pde("PD210052", "Failed to generate merkle proofs. %s")
 	MsgErrorMarshalExtraObj                = pde("PD210053", "Failed to marshal the extras object in the proving request. %s")
-	MsgErrorNewLeafNode                    = pde("PD210054", "Failed to create new leaf node. %s")
-	MsgErrorQueryLeafNode                  = pde("PD210055", "Failed to query the smt DB for leaf node (ref=%s). %s")
 
 	MsgErrorHashMismatch         = pde("PD210057", "Coin (ref=%s) found in the merkle tree but the persisted hash %s (index=%s) did not match the expected hash %s (index=%s)")
 	MsgErrorConvertToCircomProof = pde("PD210058", "Failed to convert to circom verifier proof. %s")
 	MsgErrorUnmarshalLockParams  = pde("PD210059", "Failed to unmarshal lock parameters. %s")
 	MsgErrorDecodeTransferCall   = pde("PD210060", "Failed to decode the transfer call. %s")
 	MsgErrorUpdateSMT            = pde("PD210061", "Failed to update merkle tree for the %s event. %s")
-	MsgErrorAddLeafNode          = pde("PD210062", "Failed to add leaf node. %s")
 
 	MsgInvalidCompressedPubkeyLen            = pde("PD210072", "Invalid compressed public key length: %d")
 	MsgInvalidPrivkeyLen                     = pde("PD210073", "Invalid key length: %d")

@@ -24,6 +24,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
@@ -40,7 +41,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
@@ -516,9 +517,9 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 
 	var res prototk.HandleEventBatchResponse
 	var errors []string
-	var smtForStates *smt.MerkleTreeSpec
-	var smtForLockedStates *smt.MerkleTreeSpec
-	var smtForKyc *smt.MerkleTreeSpec
+	var smtForStates *common.MerkleTreeSpec
+	var smtForLockedStates *common.MerkleTreeSpec
+	var smtForKyc *common.MerkleTreeSpec
 	if common.IsNullifiersToken(domainConfig.TokenName) {
 		smtName := zetosmt.MerkleTreeName(domainConfig.TokenName, contractAddress)
 		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
@@ -564,14 +565,14 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	if common.IsNullifiersToken(domainConfig.TokenName) {
 		newStatesForSMT, err := smtForStates.Storage.GetNewStates()
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
 		}
 		if len(newStatesForSMT) > 0 {
 			res.NewStates = append(res.NewStates, newStatesForSMT...)
 		}
 		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates()
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
 		}
 		if len(newStatesForSMTForLocked) > 0 {
 			res.NewStates = append(res.NewStates, newStatesForSMTForLocked...)
@@ -579,7 +580,7 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 		if common.IsKycToken(domainConfig.TokenName) {
 			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates()
 			if err != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
+				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
 			}
 			if len(newStatesForSMTForKyc) > 0 {
 				res.NewStates = append(res.NewStates, newStatesForSMTForKyc...)

@@ -46,7 +46,12 @@ type StateSchemas struct {
 	MerkleTreeNodeSchema *prototk.StateSchema
 }
 
-func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*smt.MerkleTreeSpec, error) {
+type MerkleTreeSpec struct {
+	smt.MerkleTreeSpec
+	EmptyProof *corepb.MerkleProof
+}
+
+func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTreeType, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
 	var levels int
 	switch treeType {
 	case smt.StatesTree:
@@ -63,9 +68,13 @@ func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTree
 	if treeType == smt.KycStatesTree {
 		emptyProof = &zetosmt.Empty_Proof_kyc
 	}
-	spec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, emptyProof, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
+	mtSpec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmtSpec, name, err)
+	}
+	spec := &MerkleTreeSpec{
+		MerkleTreeSpec: *mtSpec,
+		EmptyProof:     emptyProof,
 	}
 	return spec, nil
 }

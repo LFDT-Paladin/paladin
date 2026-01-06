@@ -19,7 +19,20 @@ import (
 	"crypto/sha256"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
+
+var MerkleTreeNodeABI = &abi.Parameter{
+	Type:         "tuple",
+	InternalType: "struct MerkleTreeNode",
+	Components: abi.ParameterArray{
+		{Name: "refKey", Type: "bytes32", Indexed: true},
+		{Name: "index", Type: "bytes32"},
+		{Name: "type", Type: "bytes1"},
+		{Name: "leftChild", Type: "bytes32"},
+		{Name: "rightChild", Type: "bytes32"},
+	},
+}
 
 type MerkleTreeNode struct {
 	RefKey     pldtypes.Bytes32  `json:"refKey"`

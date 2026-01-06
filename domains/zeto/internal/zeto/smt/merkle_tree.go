@@ -19,8 +19,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	pldsmt "github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/smt"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/smt"
 )
 
 const SMT_HEIGHT_UTXO = 64

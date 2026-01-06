@@ -18,17 +18,10 @@ package smt
 import (
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPackageInit(t *testing.T) {
-	assert.Equal(t, SMT_HEIGHT_UTXO, len(Empty_Proof_Utxos.Nodes))
-	assert.Equal(t, "0", Empty_Proof_Utxos.Nodes[0])
-	assert.Equal(t, "0", Empty_Proof_Utxos.Nodes[SMT_HEIGHT_UTXO-1])
-}
-
 func TestMerkleTreeName(t *testing.T) {
-	address, _ := pldtypes.ParseEthAddress("0xe12c416382988005ace9b2e2f9a8a904d8be961c")
-	assert.Equal(t, "smt_noto_test1_0xe12c416382988005ace9b2e2f9a8a904d8be961c", MerkleTreeName("test1", address))
+	address := "0xe12c416382988005ace9b2e2f9a8a904d8be961c"
+	assert.Equal(t, "smt_noto_0xe12c416382988005ace9b2e2f9a8a904d8be961c", MerkleTreeName(address))
 }

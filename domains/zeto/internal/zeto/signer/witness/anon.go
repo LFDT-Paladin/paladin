@@ -9,8 +9,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	pb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/key-manager/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo"
 )
 
 type FungibleWitnessInputs struct {
