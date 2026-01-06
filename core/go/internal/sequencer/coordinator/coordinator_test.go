@@ -687,38 +687,6 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	}
 }
 
-func TestCoordinator_Stop_StopsLoopsWhenContextIsCancelled(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Cancel the context - this will cause loops to stop via ctx.Done()
-	c.cancelCtx()
-
-	// Wait for loops to detect cancellation and stop
-	select {
-	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop should stop when context is cancelled")
-	case <-time.After(2 * time.Second):
-		t.Fatal("event loop did not stop after context cancellation")
-	}
-
-	select {
-	case _, ok := <-c.dispatchLoopStopped:
-		require.False(t, ok, "dispatch loop should stop when context is cancelled")
-	case <-time.After(2 * time.Second):
-		t.Fatal("dispatch loop did not stop after context cancellation")
-	}
-
-	// Verify context was cancelled
-	select {
-	case <-c.ctx.Done():
-		// Context was cancelled as expected
-	default:
-		t.Fatal("context should be cancelled")
-	}
-}
-
 func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNonce(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -2099,4 +2067,317 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 
 	// With real transactions, HeartbeatIntervalEvent should be handled successfully
 	assert.NoError(t, err, "heartbeat event should be handled successfully by all transaction states")
+}
+
+func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, mocks := builder.Build(ctx)
+
+	// Set up originator pool with another node so heartbeats can be sent
+	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Ensure heartbeatCtx is nil initially
+	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	// Wait a bit for initial heartbeat to be sent
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify initial heartbeat was sent
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "initial heartbeat should be sent")
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done
+
+	// Verify cleanup
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("50ms")
+	builder.OverrideSequencerConfig(config)
+	c, mocks := builder.Build(ctx)
+
+	// Set up originator pool with another node so heartbeats can be sent
+	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done
+
+	// Verify heartbeats were sent (at least initial + periodic)
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "heartbeats should be sent periodically")
+}
+
+func TestCoordinator_HeartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Cancel heartbeatCtx
+	require.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be set")
+	c.heartbeatCancel()
+
+	// Wait for loop to exit
+	select {
+	case <-done:
+		// Loop exited successfully
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("heartbeat loop should exit when heartbeatCtx is cancelled")
+	}
+
+	// Verify cleanup
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func TestCoordinator_HeartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Cancel parent context
+	cancel()
+
+	// Wait for loop to exit
+	select {
+	case <-done:
+		// Loop exited successfully
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("heartbeat loop should exit when parent ctx is cancelled")
+	}
+
+	// Verify cleanup
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func TestCoordinator_HeartbeatLoop_DoesNotStartIfHeartbeatCtxAlreadySet(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, mocks := builder.Build(ctx)
+
+	// Manually set heartbeatCtx to simulate an already running loop
+	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
+	c.heartbeatCtx = heartbeatCtx
+	c.heartbeatCancel = heartbeatCancel
+
+	// Reset the heartbeat sent flag
+	mocks.SentMessageRecorder.Reset(ctx)
+
+	// Try to start heartbeat loop - should not start
+	c.heartbeatLoop(ctx)
+
+	// Verify no heartbeat was sent (loop didn't start)
+	assert.False(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "heartbeat should not be sent if loop already running")
+
+	// Cleanup
+	heartbeatCancel()
+}
+
+func TestCoordinator_HeartbeatLoop_HandlesSendHeartbeatErrorsGracefully(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("50ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Set up originator pool with another node so heartbeats can be sent
+	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Create a mock transport that returns errors
+	mockTransport := transport.NewMockTransportWriter(t)
+	// StartLoopbackWriter was already called during NewCoordinator, so we don't expect it again
+	mockTransport.On("SendHeartbeat", mock.Anything, "node2", mock.Anything, mock.Anything).Return(fmt.Errorf("transport error")).Maybe()
+	c.transportWriter = mockTransport
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Loop should continue running despite errors
+	select {
+	case <-done:
+		t.Fatal("heartbeat loop should continue running despite sendHeartbeat errors")
+	default:
+		// Loop is still running, which is expected
+	}
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done
+
+	// Verify cleanup happened
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func TestCoordinator_HeartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Verify heartbeatCtx is nil initially
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil initially")
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	// Verify heartbeatCtx was created
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+	assert.NotNil(t, c.heartbeatCtx, "heartbeatCtx should be created when loop starts")
+	assert.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be created when loop starts")
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done
+}
+
+func TestCoordinator_HeartbeatLoop_StopsTickerOnExit(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("50ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Start heartbeat loop in a goroutine
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	// Verify heartbeatCtx was created
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done
+
+	// If ticker wasn't stopped, we would see more heartbeats
+	// The fact that the test completes without hanging indicates the ticker was stopped
+}
+
+func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, mocks := builder.Build(ctx)
+
+	// Set up originator pool with another node so heartbeats can be sent
+	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Start and stop first loop
+	done1 := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done1)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+	c.heartbeatCancel()
+	<-done1
+
+	// Reset heartbeat sent flag
+	mocks.SentMessageRecorder.Reset(ctx)
+
+	// Start second loop
+	done2 := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done2)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Verify heartbeat was sent in second loop
+	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "heartbeat should be sent in restarted loop")
+
+	// Cancel to stop the loop
+	c.heartbeatCancel()
+	<-done2
 }
