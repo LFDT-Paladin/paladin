@@ -159,7 +159,7 @@ func TestSendTransactionSubmitted_NilContractAddress(t *testing.T) {
 	err := tw.SendTransactionSubmitted(ctx, txID, originatorNode, nil, txHash)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract address")
-	
+
 	// Verify no messages were sent
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
@@ -202,7 +202,7 @@ func TestSendTransactionSubmitted_VerifyProtoFields(t *testing.T) {
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
-	
+
 	var capturedPayload []byte
 	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
 		capturedPayload = msg.Payload
@@ -262,7 +262,7 @@ func TestSendDelegationRequest_Success(t *testing.T) {
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
-	
+
 	callCount := 0
 	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
 		callCount++
@@ -1076,7 +1076,7 @@ func TestSendNonceAssigned_VerifyGeneratedId(t *testing.T) {
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
-	
+
 	var capturedPayload []byte
 	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
 		capturedPayload = msg.Payload
@@ -1303,12 +1303,12 @@ func TestSendHeartbeat_Success(t *testing.T) {
 	targetNode := "target-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	coordinatorSnapshot := &common.CoordinatorSnapshot{
-		CoordinatorState: "Idle",
-		BlockHeight:      100,
-		FlushPoints:       []*common.FlushPoint{},
-		PooledTransactions: []*common.Transaction{},
+		CoordinatorState:       "Idle",
+		BlockHeight:            100,
+		FlushPoints:            []*common.FlushPoint{},
+		PooledTransactions:     []*common.Transaction{},
 		DispatchedTransactions: []*common.DispatchedTransaction{},
-		ConfirmedTransactions: []*common.ConfirmedTransaction{},
+		ConfirmedTransactions:  []*common.ConfirmedTransaction{},
 	}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -1860,3 +1860,144 @@ func TestSendDispatched_Loopback(t *testing.T) {
 	mockLoopbackTransport.AssertExpectations(t)
 }
 
+func TestSendTransactionUnknown_Success(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestID := uuid.New()
+	coordinatorNode := "coordinator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_TransactionUnknown {
+			return false
+		}
+		if msg.Node != coordinatorNode {
+			return false
+		}
+		if msg.Component.String() != "TRANSACTION_ENGINE" {
+			return false
+		}
+		var txUnknown engineProto.TransactionUnknown
+		err := proto.Unmarshal(msg.Payload, &txUnknown)
+		if err != nil {
+			return false
+		}
+		if txUnknown.TransactionId != txID.String() {
+			return false
+		}
+		if txUnknown.ContractAddress != contractAddress.HexString() {
+			return false
+		}
+		if txUnknown.AssembleRequestId != assembleRequestID.String() {
+			return false
+		}
+		if txUnknown.Id == "" {
+			return false
+		}
+		return true
+	})).Return(nil)
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	require.NoError(t, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendTransactionUnknown_NilContractAddress(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestID := uuid.New()
+	coordinatorNode := "coordinator-node"
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   nil, // No contract address
+	}
+
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attempt to send transaction unknown without specifying contract address")
+}
+
+func TestSendTransactionUnknown_SendError(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestID := uuid.New()
+	coordinatorNode := "coordinator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.Anything).Return(errors.New("send failed"))
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "send failed")
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendTransactionUnknown_Loopback(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestID := uuid.New()
+	coordinatorNode := "local-node" // Same as local node
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	loopbackQueue := make(chan *components.FireAndForgetMessageSend, 1)
+
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockLoopbackTransport.On("LoopbackQueue").Return(loopbackQueue).Maybe()
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-loopbackQueue:
+		assert.Equal(t, MessageType_TransactionUnknown, msg.MessageType)
+		assert.Equal(t, "local-node", msg.Node)
+		// Verify payload
+		var txUnknown engineProto.TransactionUnknown
+		err := proto.Unmarshal(msg.Payload, &txUnknown)
+		require.NoError(t, err)
+		assert.Equal(t, txID.String(), txUnknown.TransactionId)
+		assert.Equal(t, contractAddress.HexString(), txUnknown.ContractAddress)
+		assert.Equal(t, assembleRequestID.String(), txUnknown.AssembleRequestId)
+	default:
+		t.Fatal("Expected message in loopback queue")
+	}
+
+	mockTransportManager.AssertExpectations(t)
+	mockLoopbackTransport.AssertExpectations(t)
+}

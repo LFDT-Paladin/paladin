@@ -326,6 +326,8 @@ func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error 
 		err = c.propagateEventToTransaction(ctx, event)
 	case *transaction.AssembleRevertResponseEvent:
 		err = c.propagateEventToTransaction(ctx, event)
+	case *transaction.TransactionUnknownByOriginatorEvent:
+		err = c.propagateEventToTransaction(ctx, event)
 	case *TransactionDispatchConfirmedEvent:
 		err = c.propagateEventToTransaction(ctx, event)
 	case *NewBlockEvent:

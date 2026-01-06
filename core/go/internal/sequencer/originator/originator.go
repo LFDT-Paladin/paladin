@@ -164,14 +164,40 @@ func (o *originator) delegateLoop(ctx context.Context) {
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
 	if txn := o.transactionsByID[event.GetTransactionID()]; txn != nil {
 		return txn.HandleEvent(ctx, event)
-	} else {
-		log.L(ctx).Debugf("ignoring event because transaction not known to this originator %s", event.GetTransactionID().String())
 	}
-	return nil
+
+	// Transaction not known to this originator.
+	// The most likely cause is that the transaction reached a terminal state (e.g., reverted during assembly)
+	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
+	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
+
+	// Extract coordinator and request ID from events that require a response
+	var coordinator string
+	var requestID uuid.UUID
+
+	switch e := event.(type) {
+	case *transaction.AssembleRequestReceivedEvent:
+		coordinator = e.Coordinator
+		requestID = e.RequestID
+	case *transaction.PreDispatchRequestReceivedEvent:
+		coordinator = e.Coordinator
+		requestID = e.RequestID
+	default:
+		// Other events can be safely ignored
+		return nil
+	}
+
+	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
+		event.TypeString(), event.GetTransactionID(), coordinator)
+	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID(), requestID)
 }
 
 func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
-	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics)
+	// Cleanup callback to remove transaction from originator's tracking maps
+	onCleanup := func(ctx context.Context) {
+		o.removeTransaction(ctx, txn.ID)
+	}
+	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics, onCleanup)
 	if err != nil {
 		log.L(ctx).Errorf("error creating transaction: %v", err)
 		return err
@@ -186,6 +212,23 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 		return err
 	}
 	return nil
+}
+
+func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
+	log.L(ctx).Debugf("removing transaction %s from originator", txnID.String())
+
+	// Remove from transactionsByID
+	delete(o.transactionsByID, txnID)
+
+	// Remove from transactionsOrdered
+	for i, id := range o.transactionsOrdered {
+		if *id == txnID {
+			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
+			break
+		}
+	}
+
+	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
 }
 
 func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {

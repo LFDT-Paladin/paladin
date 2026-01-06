@@ -599,3 +599,25 @@ func TestCoordinatorTransaction_Confirmed_NoTransition_OnHeartbeatInterval_IfNot
 
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
+
+func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOriginator(t *testing.T) {
+	// Test that when an originator reports a transaction as unknown (most likely because
+	// it reverted during assembly but the response was lost and the transaction has since
+	// been cleaned up on the originator), the coordinator transitions to State_Final
+	ctx := context.Background()
+	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
+
+	txn, mocks := txnBuilder.BuildWithMocks()
+
+	mocks.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	err := txn.HandleEvent(ctx, &transaction.TransactionUnknownByOriginatorEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.ID,
+		},
+		AssembleRequestID: uuid.New(),
+	})
+	assert.NoError(t, err)
+
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}

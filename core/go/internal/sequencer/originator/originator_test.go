@@ -258,13 +258,14 @@ func TestOriginator_DelegateLoopStopsOnContextCancellation(t *testing.T) {
 }
 
 func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T) {
-	// Test that propagateEventToTransaction handles events for transactions not known to the originator
+	// Test that propagateEventToTransaction sends a TransactionUnknown response when receiving
+	// an AssembleRequestReceivedEvent for a transaction not known to the originator
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, _ := builder.Build(ctx)
+	s, mocks := builder.Build(ctx)
 
 	// Create a transaction event with a transaction ID that doesn't exist in the originator
 	unknownTxID := uuid.New()
@@ -279,9 +280,41 @@ func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T)
 		StateLocksJSON:          []byte("{}"),
 	}
 
-	// ProcessEvent should call propagateEventToTransaction, which should handle the unknown transaction gracefully
+	// ProcessEvent should call propagateEventToTransaction, which should send a TransactionUnknown response
 	err := s.ProcessEvent(ctx, event)
 	assert.NoError(t, err, "ProcessEvent should return nil when transaction is not known to originator")
+
+	// Verify that SendTransactionUnknown was called with the correct parameters
+	assert.True(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to be called")
+	txID, coordinator, requestID := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
+	assert.Equal(t, unknownTxID, txID, "TransactionUnknown should be sent for the correct transaction ID")
+	assert.Equal(t, coordinatorLocator, coordinator, "TransactionUnknown should be sent to the correct coordinator")
+	assert.Equal(t, assembleRequestIdempotencyKey, requestID, "TransactionUnknown should include the assemble request ID")
+}
+func TestOriginator_PropagateEventToTransaction_UnknownTransaction_NoResponse(t *testing.T) {
+	// Test that propagateEventToTransaction does NOT send a TransactionUnknown response
+	// for events that don't require a response (e.g., confirmation events)
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, mocks := builder.Build(ctx)
+
+	// Create a ConfirmedSuccessEvent for an unknown transaction
+	unknownTxID := uuid.New()
+	event := &transaction.ConfirmedSuccessEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: unknownTxID,
+		},
+	}
+
+	// ProcessEvent should not send a TransactionUnknown response for confirmation events
+	err := s.ProcessEvent(ctx, event)
+	assert.NoError(t, err, "ProcessEvent should return nil when transaction is not known to originator")
+
+	// Verify that SendTransactionUnknown was NOT called
+	assert.False(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to NOT be called for confirmation events")
 }
 
 func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {

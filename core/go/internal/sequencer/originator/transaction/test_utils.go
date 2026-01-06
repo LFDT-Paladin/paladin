@@ -37,6 +37,10 @@ type SentMessageRecorder struct {
 	hasSentAssembleSuccessResponse bool
 	hasSentAssembleRevertResponse  bool
 	hasSentAssembleParkResponse    bool
+	hasSentTransactionUnknown      bool
+	transactionUnknownTxID         uuid.UUID
+	transactionUnknownCoordinator  string
+	transactionUnknownRequestID    uuid.UUID
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -110,6 +114,22 @@ func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID
 	return nil
 }
 
+func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID, assembleRequestID uuid.UUID) error {
+	r.hasSentTransactionUnknown = true
+	r.transactionUnknownTxID = txID
+	r.transactionUnknownCoordinator = coordinatorNode
+	r.transactionUnknownRequestID = assembleRequestID
+	return nil
+}
+
+func (r *SentMessageRecorder) HasSentTransactionUnknown() bool {
+	return r.hasSentTransactionUnknown
+}
+
+func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, coordinator string, requestID uuid.UUID) {
+	return r.transactionUnknownTxID, r.transactionUnknownCoordinator, r.transactionUnknownRequestID
+}
+
 func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
 	return nil
 }
@@ -135,6 +155,10 @@ func (r *SentMessageRecorder) Reset(_ context.Context) {
 	r.hasSentAssembleSuccessResponse = false
 	r.hasSentAssembleRevertResponse = false
 	r.hasSentAssembleParkResponse = false
+	r.hasSentTransactionUnknown = false
+	r.transactionUnknownTxID = uuid.UUID{}
+	r.transactionUnknownCoordinator = ""
+	r.transactionUnknownRequestID = uuid.UUID{}
 }
 
 type TransactionBuilderForTesting struct {
@@ -240,7 +264,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 			return nil
 		}
 	}
-	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.eventHandler, b.fakeEngineIntegration, b.metrics)
+	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.eventHandler, b.fakeEngineIntegration, b.metrics, func(ctx context.Context) {})
 
 	txn.stateMachine.currentState = b.state
 

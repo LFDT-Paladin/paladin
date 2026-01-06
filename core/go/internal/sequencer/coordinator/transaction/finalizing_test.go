@@ -19,7 +19,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -112,12 +115,12 @@ func TestAction_Cleanup_ForgetError(t *testing.T) {
 	ctx := context.Background()
 	// Create a transaction first to get its ID
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	
+
 	// Create a mock grapher that returns an error
 	mockGrapher := NewMockGrapher(t)
 	expectedError := errors.New("forget error")
 	mockGrapher.EXPECT().Forget(txn.ID).Return(expectedError)
-	
+
 	// Set the mock grapher on the transaction
 	txn.grapher = mockGrapher
 
@@ -129,7 +132,7 @@ func TestAction_Cleanup_ForgetError(t *testing.T) {
 
 	// Call action_Cleanup
 	err := action_Cleanup(ctx, txn)
-	
+
 	// Verify error is returned
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
@@ -138,3 +141,51 @@ func TestAction_Cleanup_ForgetError(t *testing.T) {
 	assert.True(t, cleanupCalled, "onCleanup should have been called even if Forget returns error")
 }
 
+func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	// Set up the mock to verify QueueTransactionFinalize is called with correct parameters
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		txn.Domain,
+		pldtypes.EthAddress{},
+		txn.originator,
+		txn.ID,
+		"originator reported transaction as unknown",
+		mock.Anything, // onSuccess callback
+		mock.Anything, // onError callback
+	).Return(nil)
+
+	// Call action_FinalizeAsUnknownByOriginator
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	require.NoError(t, err)
+
+	// Verify QueueTransactionFinalize was called
+	mockSyncPoints.AssertExpectations(t)
+}
+
+func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	// Set up a cancel function to track if it's called
+	cancelCalled := false
+	txn.cancelAssembleTimeoutSchedule = func() { cancelCalled = true }
+
+	// Set up the mock
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
+	).Return(nil)
+
+	// Call action_FinalizeAsUnknownByOriginator
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	require.NoError(t, err)
+
+	// Verify the cancel function was called
+	assert.True(t, cancelCalled, "cancelAssembleTimeoutSchedule should have been called")
+}

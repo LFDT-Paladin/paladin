@@ -306,3 +306,20 @@ func (*StateTransitionEvent) Type() EventType {
 func (*StateTransitionEvent) TypeString() string {
 	return "Event_StateTransition"
 }
+
+// TransactionUnknownByOriginatorEvent is sent by an originator when it receives a message
+// for a transaction it doesn't recognize. The most likely cause is that the transaction reached
+// a terminal state (e.g. reverted during assembly) but the response was lost, and the transaction
+// has since been removed from memory on the originator after cleanup.
+type TransactionUnknownByOriginatorEvent struct {
+	BaseCoordinatorEvent
+	AssembleRequestID uuid.UUID
+}
+
+func (*TransactionUnknownByOriginatorEvent) Type() EventType {
+	return Event_TransactionUnknownByOriginator
+}
+
+func (*TransactionUnknownByOriginatorEvent) TypeString() string {
+	return "Event_TransactionUnknownByOriginator"
+}

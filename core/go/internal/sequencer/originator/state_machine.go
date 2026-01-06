@@ -38,7 +38,7 @@ const (
 
 const (
 	Event_HeartbeatInterval                EventType = iota + 300 // the heartbeat interval has passed since the last time a heartbeat was received or the last time this event was received
-	Event_HeartbeatReceived                                       // a heartbeat message was received from the current active coordinator
+	Event_HeartbeatReceived                                       // a heartbeat message was received from the current active coordinatorgit
 	Event_TransactionCreated                                      // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
 	Event_TransactionConfirmed                                    // a transaction, that was send by this originator, has been confirmed on the base ledger
 	Event_NewBlock                                                // a new block has been mined on the base ledger
