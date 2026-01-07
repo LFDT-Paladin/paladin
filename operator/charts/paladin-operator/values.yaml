@@ -109,7 +109,7 @@ smartContractsReferences:
     address: ""
   penteFactoryProxy:
     address: ""
-  zetoFactory:
+  zetoFactoryProxy:
     address: ""
   registry:
     address: ""
@@ -179,6 +179,8 @@ smartContractDeployments:
   zetoImplAnonNullifierKyc:
     from: ""
   zetoFactory:
+    from: ""
+  zetoFactoryProxy:
     from: ""
 
 # Transaction Invoke Configuration

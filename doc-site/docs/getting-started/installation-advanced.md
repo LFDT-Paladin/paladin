@@ -202,7 +202,7 @@ and past it to the values file:
 smartContractsReferences:
   notoFactoryProxy:
     address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-  zetoFactory:
+  zetoFactoryProxy:
     address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
   penteFactoryProxy:
     address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"
@@ -227,7 +227,7 @@ mode: attach
 smartContractsReferences:
   notoFactorProxy:
     address: "0xd93630936d854fb718b89537cce4acc97fd50463"
-  zetoFactory:
+  zetoFactoryProxy:
     address: "0xc29ed8a902ff787445bdabee9ae5e2380089959d"
   penteFactoryProxy:
     address: "0x48c11bbb7caa77329d53b89235fec64733a24ca1"

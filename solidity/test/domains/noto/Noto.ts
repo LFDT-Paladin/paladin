@@ -1,7 +1,7 @@
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { Noto } from "../../../typechain-types";
+import { Noto, NotoFactory } from "../../../typechain-types";
 import {
   deployNotoInstance,
   doDelegateLock,
@@ -19,9 +19,27 @@ describe("Noto", function () {
   async function deployNotoFixture() {
     const [notary, other] = await ethers.getSigners();
 
-    const NotoFactory = await ethers.getContractFactory("NotoFactory");
-    const notoFactory = await NotoFactory.deploy();
+    // Deploy the Noto implementation
     const Noto = await ethers.getContractFactory("Noto");
+    const notoImpl = await Noto.deploy();
+
+    // Deploy the factory implementation
+    const NotoFactoryImpl = await ethers.getContractFactory("NotoFactory");
+    const notoFactoryImpl = await NotoFactoryImpl.deploy();
+
+    // Deploy the factory proxy with initialize calldata
+    const ERC1967Proxy = await ethers.getContractFactory("ERC1967Proxy");
+    const initData = NotoFactoryImpl.interface.encodeFunctionData("initialize", [
+      await notoImpl.getAddress(),
+    ]);
+    const proxy = await ERC1967Proxy.deploy(
+      await notoFactoryImpl.getAddress(),
+      initData
+    );
+
+    // Get factory interface at proxy address
+    const notoFactory = NotoFactoryImpl.attach(await proxy.getAddress()) as NotoFactory;
+
     const noto = Noto.attach(
       await deployNotoInstance(notoFactory, notary.address)
     );

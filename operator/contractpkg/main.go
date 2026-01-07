@@ -76,6 +76,7 @@ var snakeToCamelMap = map[string]string{
 	"zeto_impl_anon_nullifier":          "zetoImplAnonNullifier",
 	"zeto_impl_anon_nullifier_kyc":      "zetoImplAnonNullifierKyc",
 	"zeto_factory":                      "zetoFactory",
+	"zeto_factory_proxy":                "zetoFactoryProxy",
 
 	// Transaction Invokes
 	"zeto_anon":               "zetoAnon",
@@ -354,16 +355,10 @@ func template() error {
 			if err := yaml.Unmarshal(content, &domain); err != nil {
 				return fmt.Errorf("error unmarshalling content: %v", err)
 			}
-			// For noto and pente, reference the proxy; for others, reference the factory directly
-			var valuesRef, deploymentName string
-			switch domain.Name {
-			case "noto", "pente":
-				valuesRef = fmt.Sprintf(".Values.smartContractsReferences.%sFactoryProxy", domain.Name)
-				deploymentName = fmt.Sprintf("%s-factory-proxy", domain.Name)
-			default:
-				valuesRef = fmt.Sprintf(".Values.smartContractsReferences.%sFactory", domain.Name)
-				deploymentName = fmt.Sprintf("%s-factory", domain.Name)
-			}
+
+			valuesRef := fmt.Sprintf(".Values.smartContractsReferences.%sFactoryProxy", domain.Name)
+			deploymentName := fmt.Sprintf("%s-factory-proxy", domain.Name)
+
 			domain.Spec.RegistryAddress = fmt.Sprintf("{{ %s.address }}", valuesRef)
 			domain.Spec.SmartContractDeployment = fmt.Sprintf("{{- if ne .Values.mode \"attach\" }}%s{{- end }}", deploymentName)
 

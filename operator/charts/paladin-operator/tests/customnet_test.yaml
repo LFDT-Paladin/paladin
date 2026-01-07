@@ -610,9 +610,9 @@ tests:
         notoFactoryProxy:
           address: ""
           deployment: noto-factory-proxy
-        zetoFactory:
+        zetoFactoryProxy:
           address: ""
-          deployment: zeto-factory
+          deployment: zeto-factory-proxy
         penteFactoryProxy:
           address: ""
           deployment: pente-factory-proxy
@@ -706,7 +706,7 @@ tests:
         template: samples/core_v1alpha1_paladindomain_zeto.yaml
       - equal:
           path: 'spec.smartContractDeployment'
-          value: 'zeto-factory'
+          value: 'zeto-factory-proxy'
         documentIndex: 0
         template: samples/core_v1alpha1_paladindomain_zeto.yaml
       - equal:
@@ -733,9 +733,9 @@ tests:
         notoFactoryProxy:
           address: ""
           deployment: noto-factory-proxy
-        zetoFactory:
+        zetoFactoryProxy:
           address: ""
-          deployment: zeto-factory
+          deployment: zeto-factory-proxy
         penteFactoryProxy:
           address: ""
           deployment: pente-factory-proxy
@@ -827,15 +827,16 @@ tests:
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory.yaml
       - samples/core_v1alpha1_smartcontractdeployment_pente_factory_proxy.yaml
       - samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+      - samples/core_v1alpha1_smartcontractdeployment_zeto_factory_proxy.yaml
     set:
       mode: customnet
       smartContractsReferences:
         notoFactoryProxy:
           address: ""
           deployment: noto-factory-proxy
-        zetoFactory:
+        zetoFactoryProxy:
           address: ""
-          deployment: zeto-factory
+          deployment: zeto-factory-proxy
         penteFactoryProxy:
           address: ""
           deployment: pente-factory-proxy
@@ -916,6 +917,9 @@ tests:
       - hasDocuments:
           count: 1
         template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+      - hasDocuments:
+          count: 1
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory_proxy.yaml
       - equal:
           path: 'metadata.name'
           value: 'registry'
@@ -966,6 +970,16 @@ tests:
           value: 'zeto-factory'
         documentIndex: 0
         template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory.yaml
+      - equal:
+          path: 'metadata.name'
+          value: 'zeto-factory-proxy'
+        documentIndex: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory_proxy.yaml
+      - contains:
+          path: 'spec.requiredContractDeployments'
+          content: 'zeto-factory'
+        documentIndex: 0
+        template: samples/core_v1alpha1_smartcontractdeployment_zeto_factory_proxy.yaml
 
   # Test using the actual values-customnet.yaml file
   - it: customnet using values-customnet.yaml

@@ -111,5 +111,13 @@
     },
     "zeto_factory": {
         "filename": "test/e2e/abis/zeto/ZetoFactory.json"
+    },
+    "zeto_factory_proxy": {
+        "filename": "test/e2e/abis/ERC1967Proxy.json",
+        "requiredDeployments": ["zeto_factory"],
+        "params": [
+            "{{index .status.resolvedContractAddresses \"zeto-factory\"}}",
+            "0x8129fc1c"
+        ]
     }
 }
