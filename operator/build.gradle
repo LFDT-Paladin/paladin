@@ -386,7 +386,7 @@ task helmUnitTest(type: Exec, dependsOn: [prepareOperatorChart]) {
 }
 
 // Task to install the operator using Helm
-task installOperatorDefault(dependsOn: [installCrds, promoteKindImages]) {
+task installOperatorDefault(dependsOn: [installCrds, promoteKindImages, helmUnitTest]) {
     doLast {
         installOperator(namespace, 'charts/paladin-operator/values.yaml')
         
