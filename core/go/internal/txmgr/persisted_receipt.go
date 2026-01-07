@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -412,6 +413,12 @@ func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.Trans
 			}
 		}
 	}
+
+	fullReceipt, err = tm.mergeDispatches(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	if err != nil {
+		return nil, err
+	}
+
 	return tm.mergeReceiptPublicTransactions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 }
 
@@ -422,6 +429,32 @@ func (tm *txManager) mergeReceiptPublicTransactions(ctx context.Context, dbTX pe
 	}
 	for _, tx := range txs {
 		tx.Public = pubTxByTX[tx.ID]
+	}
+	return txs[0], nil
+}
+
+func (tm *txManager) mergeDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	txdps := []*syncpoints.DispatchPersisted{}
+	err := dbTX.DB().Table("dispatches").
+		WithContext(ctx).
+		Where(`"private_transaction_id" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
+	}
+	for _, tx := range txs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
+			for i, txdp := range txdps {
+				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
+			}
+		}
 	}
 	return txs[0], nil
 }

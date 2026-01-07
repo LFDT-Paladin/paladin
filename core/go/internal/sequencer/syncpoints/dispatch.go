@@ -105,10 +105,9 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 			}
 
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
-				// Get node from identity locator
 				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
-				if binding.TransactionID.String() == privateTx.PrivateTransactionID {
-					log.L(dCtx.Ctx()).Tracef("Sending sequencerdispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
+				if node != s.transportMgr.LocalNodeName() && binding.TransactionID.String() == privateTx.PrivateTransactionID {
+					log.L(dCtx.Ctx()).Debugf("Sending sequencerdispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
 					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 						Node:        node,
 						MessageType: pldapi.RMTSequencingActivity.Enum(),

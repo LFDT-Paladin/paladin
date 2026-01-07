@@ -136,6 +136,7 @@ type TransactionFull struct {
 	Public            []*PublicTx                   `docstruct:"TransactionFull" json:"public"`                      // list of public transactions associated
 	History           []*TransactionHistory         `docstruct:"TransactionFull" json:"history,omitempty"`           // list of values previously provided for this transaction
 	SequencerActivity []*SequencingProgressActivity `docstruct:"TransactionFull" json:"sequencerActivity,omitempty"` // list of sequencing activity for this transactions
+	Dispatches        []*Dispatch                   `docstruct:"TransactionFull" json:"dispatches,omitempty"`        // list of dispatches for this transaction
 }
 
 type ABIDecodedData struct {
@@ -157,6 +158,7 @@ type TransactionReceiptFull struct {
 	DomainReceiptError string                        `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
 	Public             []*PublicTx                   `docstruct:"TransactionReceiptFull" json:"public"`                      // list of public transactions associated with this receipt
 	SequencerActivity  []*SequencingProgressActivity `docstruct:"TransactionReceiptFull" json:"sequencerActivity,omitempty"` // list of sequencing activity for this transactions
+	Dispatches         []*Dispatch                   `docstruct:"TransactionReceiptFull" json:"dispatches,omitempty"`        // list of dispatches for this receipt
 }
 
 type TransactionReceiptBatch struct {

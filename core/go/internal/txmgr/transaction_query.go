@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -102,14 +103,23 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 	}
 }
 
-func (tm *txManager) mapPersistedTXSequencingActivity(pth *sequencer.DBSequencingActivity) *pldapi.SequencingProgressActivity {
+func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencingProgressActivity {
 	return &pldapi.SequencingProgressActivity{
-		LocalID:        pth.LocalID,
-		RemoteID:       pth.RemoteID,
-		Timestamp:      pth.Timestamp,
-		ActivityType:   pth.ActivityType,
-		SubmittingNode: pth.SubmittingNode,
-		TransactionID:  pth.TransactionID,
+		LocalID:        psa.LocalID,
+		RemoteID:       psa.RemoteID,
+		Timestamp:      psa.Timestamp,
+		ActivityType:   psa.ActivityType,
+		SubmittingNode: psa.SubmittingNode,
+		TransactionID:  psa.TransactionID,
+	}
+}
+
+func (tm *txManager) mapPersistedTXDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
+	return &pldapi.Dispatch{
+		ID:                       pd.ID,
+		PrivateTransactionID:     pd.PrivateTransactionID,
+		PublicTransactionAddress: pd.PublicTransactionAddress,
+		PublicTransactionID:      pd.PublicTransactionID,
 	}
 }
 
@@ -220,6 +230,11 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		return nil, err
 	}
 
+	ptxs, err = tm.AddDispatches(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
 	return tm.mergePublicTransactions(ctx, dbTX, txIDs, ptxs)
 }
 
@@ -272,6 +287,32 @@ func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.
 			tx.SequencerActivity = make([]*pldapi.SequencingProgressActivity, len(txsas))
 			for i, txsa := range txsas {
 				tx.SequencerActivity[i] = tm.mapPersistedTXSequencingActivity(txsa)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
+func (tm *txManager) AddDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txdps := []*syncpoints.DispatchPersisted{}
+	err := dbTX.DB().Table("dispatches").
+		WithContext(ctx).
+		Where(`"private_transaction_id" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
+	}
+	for _, tx := range ptxs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
+			for i, txdp := range txdps {
+				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
 			}
 		}
 	}

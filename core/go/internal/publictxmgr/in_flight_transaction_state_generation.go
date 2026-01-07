@@ -315,12 +315,20 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 						Gas:   &gasLimit,
 						Value: rsc.InMemoryTx.GetValue(),
 					},
+					Submissions: []*pldapi.PublicTxSubmissionData{
+						{
+							PublicTxGasPricing: pldapi.PublicTxGasPricing{
+								MaxPriorityFeePerGas: rsc.InMemoryTx.GetGasPriceObject().MaxPriorityFeePerGas,
+								MaxFeePerGas:         rsc.InMemoryTx.GetGasPriceObject().MaxFeePerGas,
+							},
+						},
+					},
 				}
-				if rsc.InMemoryTx.GetGasPriceObject() != nil {
+				if rsc.InMemoryTx.GetTransactionFixedGasPrice() != nil {
 					log.L(ctx).Debugf("PersistTxState TXID %s: Setting gas pricing to %+v", newSubmission.PrivateTXID, rsc.InMemoryTx.GetGasPriceObject())
 					newSubmission.Binding.PublicTxOptions.PublicTxGasPricing = pldapi.PublicTxGasPricing{
-						MaxPriorityFeePerGas: rsc.InMemoryTx.GetGasPriceObject().MaxPriorityFeePerGas,
-						MaxFeePerGas:         rsc.InMemoryTx.GetGasPriceObject().MaxFeePerGas,
+						MaxPriorityFeePerGas: rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxPriorityFeePerGas,
+						MaxFeePerGas:         rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxFeePerGas,
 					}
 				}
 			}

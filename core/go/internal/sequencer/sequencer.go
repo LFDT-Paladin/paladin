@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -592,11 +591,12 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
 		// related to their coordinated private transaction submissions
-		log.L(ctx).Debugf("Distributing public TX submission to originator %s", sender)
-
-		senderNode := strings.Split(sender, "@")[1]
+		senderNode, err := pldtypes.PrivateIdentityLocator(sender).Node(ctx, false)
+		if err != nil {
+			return err
+		}
 		if senderNode != sMgr.nodeName {
-			log.L(ctx).Debugf("Sending reliable message to node %s because that's not us", senderNode)
+			log.L(ctx).Debugf("Distributing public transaction submission to node %s", senderNode)
 			// Send reliable message to the node under the current DBTX
 			err = sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
 				MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
