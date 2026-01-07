@@ -55,6 +55,14 @@ jobs:
   docker:
     runs-on: ${{ inputs.runs-on }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - name: Print inputs
         run: |
           echo "dockerfile: ${{ inputs.dockerfile }}"
@@ -63,11 +71,9 @@ jobs:
           echo "image_tag: ${{ inputs.image_tag }}"
           echo "push: ${{ inputs.push }}"
           echo "platforms: ${{ inputs.platforms }}"
-          
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -133,3 +139,6 @@ jobs:
           name: ${{ inputs.image }}-${{ github.sha }}
           path: /tmp/${{ steps.image-name-sanitizer.outputs.IMAGE_NAME_SANITIZED }}-${{ github.sha }}.tar
           retention-days: 7
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage

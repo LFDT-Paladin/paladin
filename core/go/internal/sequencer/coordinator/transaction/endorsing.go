@@ -127,7 +127,7 @@ func (t *Transaction) sendEndorsementRequests(ctx context.Context) error {
 	if t.pendingEndorsementRequests == nil {
 		//we are starting a new round of endorsement requests so set an interval to remind us to resend any requests that have not been fulfilled on a periodic basis
 		//this is done by emitting events rather so that this behavior is obvious from the state machine definition
-		t.cancelEndorsementRequestTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.requestTimeout, func() {
+		t.cancelEndorsementRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
 			err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: t.ID,

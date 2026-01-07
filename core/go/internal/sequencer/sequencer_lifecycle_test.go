@@ -181,7 +181,7 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mockDomainSmartContract := componentsmocks.NewDomainSmartContract(t)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomainSmartContract.EXPECT().Domain().Return(mockDomain).Twice()
-	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-coordinator")}).Maybe()
+	mockDomainSmartContract.EXPECT().ContractConfig().Return(&prototk.ContractConfig{StaticCoordinator: proto.String("test-identity@test-coordinator")}).Maybe()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mockDomainSmartContract, nil)
 	mocks.stateManager.EXPECT().NewDomainContext(ctx, mockDomain, *contractAddr).Return(componentsmocks.NewDomainContext(t)).Twice()
 
@@ -266,6 +266,95 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
 	assert.True(t, seq.lastTXTime.After(time.Now().Add(-time.Second)))
 }
 
+func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create and store an existing sequencer
+	existingSeq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = existingSeq
+
+	// Setup expectations for existing sequencer
+	mocks.setupDefaultExpectations(ctx, contractAddr)
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	// Setup coordinator expectations - GetCurrentCoordinator returns empty string (no coordinator set)
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("").Once()
+
+	// Create a mock private transaction with required verifiers
+	tx := &components.PrivateTransaction{
+		ID: uuid.New(),
+		PreAssembly: &components.TransactionPreAssembly{
+			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
+				{Lookup: "verifier1@node1"},
+			},
+		},
+	}
+
+	// Setup expectations for setInitialCoordinator to succeed
+	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
+	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
+	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(nil).Once()
+
+	//  this should call setInitialCoordinator
+	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, tx)
+
+	// Verify results
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, existingSeq, result)
+
+	// Verify lastTXTime was updated
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	seq := sm.sequencers[contractAddr.String()]
+	assert.True(t, seq.lastTXTime.After(time.Now().Add(-time.Second)))
+}
+
+func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Error(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create and store an existing sequencer
+	existingSeq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = existingSeq
+
+	// Setup expectations for existing sequencer
+	mocks.setupDefaultExpectations(ctx, contractAddr)
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	// Setup coordinator expectations - GetCurrentCoordinator returns empty string (no coordinator set)
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("").Once()
+
+	// Create a mock private transaction with required verifiers
+	tx := &components.PrivateTransaction{
+		ID: uuid.New(),
+		PreAssembly: &components.TransactionPreAssembly{
+			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
+				{Lookup: "verifier1@node1"},
+			},
+		},
+	}
+
+	// Setup expectations for setInitialCoordinator to fail
+	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
+	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
+	expectedError := errors.New("failed to set active coordinator")
+	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(expectedError).Once()
+
+	// this should call setInitialCoordinator
+	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, tx)
+
+	// Verify that the error from setInitialCoordinator is returned
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
+	assert.Nil(t, result)
+}
+
 func TestSequencerManager_LoadSequencer_NoDomainAPI(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
@@ -328,10 +417,6 @@ func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T)
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
 
-	// No sequencers in the map
-	sm.sequencersLock.Lock()
-	defer sm.sequencersLock.Unlock()
-
 	// Call stopLowestPrioritySequencer
 	sm.stopLowestPrioritySequencer(ctx)
 
@@ -372,6 +457,7 @@ func TestSequencerManager_stopLowestPrioritySequencer_IdleSequencer(t *testing.T
 	seq := newSequencerForTesting(contractAddr, mocks)
 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
 	mocks.originator.EXPECT().Stop().Once()
+	mocks.coordinator.EXPECT().Stop().Once()
 
 	sm.sequencersLock.Lock()
 	sm.sequencers[contractAddr.String()] = seq
@@ -492,6 +578,7 @@ func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
 	mocks2.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
 	mocks3.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
 	mocks1.coordinator.EXPECT().Stop().Once()
+	mocks1.originator.EXPECT().Stop().Once()
 	mocks1.metrics.EXPECT().SetActiveCoordinators(3).Once()
 
 	sm.sequencersLock.Lock()
@@ -511,4 +598,160 @@ func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
 	assert.Contains(t, sm.sequencers, contractAddr3.String())
 
 	mocks1.metrics.AssertExpectations(t)
+}
+
+func TestSequencerManager_setInitialCoordinator_InvalidVerifierLookup(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create a sequencer
+	seq := newSequencerForTesting(contractAddr, mocks)
+
+	// Create a transaction with an invalid verifier lookup (too many @ symbols)
+	tx := &components.PrivateTransaction{
+		ID: uuid.New(),
+		PreAssembly: &components.TransactionPreAssembly{
+			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
+				{Lookup: "invalid@format@too@many"}, // Invalid format - too many @ symbols
+			},
+		},
+	}
+
+	// Call setInitialCoordinator
+	err := sm.setInitialCoordinator(ctx, tx, seq)
+
+	// Verify that an error is returned
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PD020006") // Error code for invalid private identity locator format
+}
+
+func TestSequencerManager_setInitialCoordinator_SetActiveCoordinatorError(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create a sequencer
+	seq := newSequencerForTesting(contractAddr, mocks)
+
+	// Create a transaction with valid required verifiers
+	tx := &components.PrivateTransaction{
+		ID: uuid.New(),
+		PreAssembly: &components.TransactionPreAssembly{
+			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
+				{Lookup: "verifier1@node1"},
+			},
+		},
+	}
+
+	// Setup expectations for successful verifier validation
+	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
+
+	// Setup expectation for GetActiveCoordinatorNode to return a coordinator
+	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
+
+	// Setup expectation for SetActiveCoordinator to return an error (this is what we're testing)
+	expectedError := errors.New("failed to set active coordinator")
+	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(expectedError).Once()
+
+	// Call setInitialCoordinator
+	err := sm.setInitialCoordinator(ctx, tx, seq)
+
+	// Verify that the error from SetActiveCoordinator is returned
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
+}
+
+func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Call StopAllSequencers with empty sequencers map
+	sm.StopAllSequencers(ctx)
+
+	assert.Empty(t, sm.sequencers)
+}
+
+func TestSequencerManager_StopAllSequencers_SingleSequencer(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create and store a sequencer
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	// Setup expectations for Stop() calls
+	mocks.coordinator.EXPECT().Stop().Once()
+	mocks.originator.EXPECT().Stop().Once()
+
+	// Call StopAllSequencers
+	sm.StopAllSequencers(ctx)
+
+	// Sequencers map should still contain the sequencer (it's not deleted, just stopped)
+	assert.Contains(t, sm.sequencers, contractAddr.String())
+
+	mocks.coordinator.AssertExpectations(t)
+	mocks.originator.AssertExpectations(t)
+}
+
+func TestSequencerManager_StopAllSequencers_MultipleSequencers(t *testing.T) {
+	ctx := context.Background()
+	contractAddr1 := pldtypes.RandAddress()
+	contractAddr2 := pldtypes.RandAddress()
+	contractAddr3 := pldtypes.RandAddress()
+	mocks1 := newSequencerLifecycleTestMocks(t)
+	mocks2 := newSequencerLifecycleTestMocks(t)
+	mocks3 := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks1)
+
+	// Create and store multiple sequencers
+	seq1 := newSequencerForTesting(contractAddr1, mocks1)
+	seq2 := newSequencerForTesting(contractAddr2, mocks2)
+	seq3 := newSequencerForTesting(contractAddr3, mocks3)
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr1.String()] = seq1
+	sm.sequencers[contractAddr2.String()] = seq2
+	sm.sequencers[contractAddr3.String()] = seq3
+	sm.sequencersLock.Unlock()
+
+	// Setup expectations for Stop() calls on all sequencers
+	mocks1.coordinator.EXPECT().Stop().Once()
+	mocks1.originator.EXPECT().Stop().Once()
+	mocks2.coordinator.EXPECT().Stop().Once()
+	mocks2.originator.EXPECT().Stop().Once()
+	mocks3.coordinator.EXPECT().Stop().Once()
+	mocks3.originator.EXPECT().Stop().Once()
+
+	// Verify shutdown is initially false
+	sm.sequencersLock.RLock()
+	initialCount := len(sm.sequencers)
+	sm.sequencersLock.RUnlock()
+	assert.Equal(t, 3, initialCount)
+
+	// Call StopAllSequencers
+	sm.StopAllSequencers(ctx)
+
+	// Verify shutdown flag is set to true
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	// All sequencers should still be in the map (they're not deleted, just stopped)
+	assert.Contains(t, sm.sequencers, contractAddr1.String())
+	assert.Contains(t, sm.sequencers, contractAddr2.String())
+	assert.Contains(t, sm.sequencers, contractAddr3.String())
+	assert.Equal(t, 3, len(sm.sequencers))
+
+	mocks1.coordinator.AssertExpectations(t)
+	mocks1.originator.AssertExpectations(t)
+	mocks2.coordinator.AssertExpectations(t)
+	mocks2.originator.AssertExpectations(t)
+	mocks3.coordinator.AssertExpectations(t)
+	mocks3.originator.AssertExpectations(t)
 }

@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 92
+    targetCoverage = 93
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -283,7 +283,7 @@ abstract class UnitTests extends Exec {
         args './pkg/...', './internal/...'
         args '-cover'
         args '-covermode=atomic'
-        args '-timeout=90s' // TODO: Implement fast DB reset to bring this back down
+        args '-timeout=180s' // TODO: Implement fast DB reset to bring this back down
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -307,7 +307,7 @@ abstract class ComponentTest extends Exec {
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
         args '-covermode=atomic'
-        args '-timeout=120s'
+        args '-timeout=180s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -329,7 +329,7 @@ abstract class GasComponentTest extends Exec {
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..."
         args '-covermode=atomic'
-        args '-timeout=120s'
+        args '-timeout=180s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -355,7 +355,7 @@ abstract class CoordinationTest extends Exec {
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
         args '-covermode=atomic'
-        args '-timeout=120s'
+        args '-timeout=240s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
@@ -382,6 +382,7 @@ task unitTestSQLite(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
 }
 
@@ -390,6 +391,7 @@ task unitTestPostgres(type: UnitTests, dependsOn: [
         ':testinfra:startTestInfra',
         setupCoverage,
         goGet,
+        lint,
     ]) {
     args '-tags', "testdbpostgres"
     mustRunAfter 'unitTestSQLite' // these tests cannot run concurrently

@@ -26,7 +26,7 @@ type Clock interface {
 	Now() Time
 	HasExpired(Time, Duration) bool
 	Duration(milliseconds int) Duration
-	ScheduleInterval(context.Context, Duration, func()) (cancel func())
+	ScheduleTimer(context.Context, Duration, func()) (cancel func())
 }
 
 type Duration interface {
@@ -54,16 +54,20 @@ func (c *realClock) HasExpired(start Time, duration Duration) bool {
 	return time.Now().After(realStart.Add(realDuration))
 }
 
-func (c *realClock) ScheduleInterval(ctx context.Context, duration Duration, f func()) (cancel func()) {
+func (c *realClock) ScheduleTimer(ctx context.Context, duration Duration, f func()) (cancel func()) {
+	timerCtx, cancel := context.WithCancel(ctx)
 	realDuration := duration.(time.Duration)
-	ticker := time.NewTicker(realDuration)
+	timer := time.NewTimer(realDuration)
 	go func() {
-		<-ticker.C
-		f()
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			f()
+		case <-timerCtx.Done():
+			return
+		}
 	}()
-	return func() {
-		ticker.Stop()
-	}
+	return cancel
 }
 
 type FakeClockForTesting struct {
@@ -95,7 +99,7 @@ func (c *FakeClockForTesting) HasExpired(start Time, duration Duration) bool {
 
 }
 
-func (c *FakeClockForTesting) ScheduleInterval(context.Context, Duration, func()) (cancel func()) {
+func (c *FakeClockForTesting) ScheduleTimer(context.Context, Duration, func()) (cancel func()) {
 	return func() {}
 }
 
