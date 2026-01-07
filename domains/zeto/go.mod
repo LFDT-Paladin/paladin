@@ -7,6 +7,7 @@ require (
 	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-000000000000
+	github.com/LFDT-Paladin/smt v0.0.0-20260106165231-9195ebce0295
 	github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966
 	github.com/hyperledger/firefly-signer v1.1.22
 	github.com/iden3/go-iden3-crypto v0.0.17
@@ -21,7 +22,6 @@ require (
 
 require (
 	github.com/Code-Hex/go-generics-cache v1.5.1 // indirect
-	github.com/LFDT-Paladin/smt v0.0.0-20260106165231-9195ebce0295 // indirect
 	github.com/aidarkhanov/nanoid v1.0.8 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2 // indirect
