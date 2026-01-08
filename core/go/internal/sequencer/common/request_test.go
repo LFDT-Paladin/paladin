@@ -101,3 +101,30 @@ func Test_IdempotentRequest_FirstRequestTime(t *testing.T) {
 	assert.NotEqual(t, request.FirstRequestTime(), request.requestTime)
 
 }
+
+func Test_IdempotentRequest_IdempotencyKey(t *testing.T) {
+	ctx := context.Background()
+	clock := RealClock()
+	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+
+	// Verify the idempotency key is a valid UUID
+	key := request.IdempotencyKey()
+	assert.NotEqual(t, uuid.Nil, key)
+
+	// Verify the key remains the same across multiple calls
+	key2 := request.IdempotencyKey()
+	assert.Equal(t, key, key2)
+
+	// Verify the key is passed to the send function
+	var receivedKey uuid.UUID
+	requestWithKeyCapture := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		receivedKey = idempotencyKey
+		return nil
+	})
+	expectedKey := requestWithKeyCapture.IdempotencyKey()
+	err := requestWithKeyCapture.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedKey, receivedKey)
+}

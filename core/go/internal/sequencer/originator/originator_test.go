@@ -400,24 +400,17 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	// Reset the message recorder to track events after Stop()
 	mocks.SentMessageRecorder.Reset(ctx)
 
-	// Call Stop() - this should send a signal to stopEventLoop channel
+	// Call Stop() - this should send a signal to stopEventLoop channel, and then wait for it
 	s.Stop()
 
-	// Wait a bit to ensure the stop signal is processed by the event loop
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify that Stop() completed without blocking (the channel send should succeed)
+	// Verify that Stop() completed by loading up len(s.originatorEvents) events but no more. These should be buffered and hence should not block
 	transactionBuilder2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn2 := transactionBuilder2.BuildSparse()
 	event2 := &TransactionCreatedEvent{
 		Transaction: txn2,
 	}
 
-	s.QueueEvent(ctx, event2)
-
-	// Wait for the event to be processed
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify that events can still be processed after Stop() is called
-	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Event loop should continue processing events after receiving stop signal")
+	for i := 0; i < len(s.originatorEvents); i++ {
+		s.QueueEvent(ctx, event2)
+	}
 }
