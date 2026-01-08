@@ -504,7 +504,7 @@ func TestAddActivityWrap(t *testing.T) {
 
 func TestHandleNewTransactionTransferOnlyWithProvideGas(t *testing.T) {
 	ctx := context.Background()
-	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+	_, ptm, _, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		mocks.db.MatchExpectationsInOrder(false)
 		mocks.db.ExpectBegin()
 		mocks.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{}))

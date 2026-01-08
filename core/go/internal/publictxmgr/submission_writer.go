@@ -83,8 +83,8 @@ func (sw *submissionWriter) runBatch(ctx context.Context, tx persistence.DBTX, v
 					Gas:   value.Binding.Gas,
 					Value: value.Binding.Value,
 					PublicTxGasPricing: pldapi.PublicTxGasPricing{
-						MaxPriorityFeePerGas: value.Binding.PublicTxOptions.PublicTxGasPricing.MaxPriorityFeePerGas,
-						MaxFeePerGas:         value.Binding.PublicTxOptions.PublicTxGasPricing.MaxFeePerGas,
+						MaxPriorityFeePerGas: value.Binding.MaxPriorityFeePerGas,
+						MaxFeePerGas:         value.Binding.MaxFeePerGas,
 					},
 				},
 			}

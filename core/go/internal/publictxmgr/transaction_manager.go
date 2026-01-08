@@ -401,12 +401,12 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 		dbTransaction := &DBPublicTxn{
 			From:            tx.From,
 			To:              tx.To,
-			Nonce:           (*uint64)(tx.PublicTx.Nonce),
-			Gas:             tx.PublicTx.Gas.Uint64(),
+			Nonce:           (*uint64)(tx.Nonce),
+			Gas:             tx.Gas.Uint64(),
 			Value:           tx.Value,
 			Data:            tx.Data,
 			Dispatcher:      tx.Dispatcher,
-			Created:         tx.PublicTx.Created,
+			Created:         tx.Created,
 			FixedGasPricing: pldtypes.JSONString(tx.PublicTxGasPricing),
 		}
 		persistedTransactions = append(persistedTransactions, dbTransaction)
@@ -418,8 +418,8 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 		}
 		persistedSubmissions = append(persistedSubmissions, dbSubmission)
 		dbBinding := &DBPublicTxnBinding{
-			Transaction:     tx.PublicTxBinding.Transaction,
-			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.PublicTxBinding.TransactionType),
+			Transaction:     tx.Transaction,
+			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.TransactionType),
 		}
 		persistedBindings = append(persistedBindings, dbBinding)
 	}

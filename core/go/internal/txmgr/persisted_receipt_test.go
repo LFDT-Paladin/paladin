@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
@@ -203,7 +204,14 @@ func TestFinalizeTransactionsInsertOkOffChain(t *testing.T) {
 
 func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 
-	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+	var txID *uuid.UUID
+	var err error
+	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), mockQueryPublicTxForTransactions(func(ids []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error) {
+		pubTX := map[uuid.UUID][]*pldapi.PublicTx{
+			*txID: {},
+		}
+		return pubTX, nil
+	}), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 		mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(
@@ -220,7 +228,7 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 	callData, err := exampleABI[0].EncodeCallDataJSON([]byte(`[]`))
 	require.NoError(t, err)
 
-	txID, err := txm.sendTransactionNewDBTX(ctx, &pldapi.TransactionInput{
+	txID, err = txm.sendTransactionNewDBTX(ctx, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     "me",
 			Type:     pldapi.TransactionTypePrivate.Enum(),
@@ -267,7 +275,8 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 	  	"transactionHash":"0xd0561b310b77e47bc16fb3c40d48b72255b1748efeecf7452373dfce8045af30", 
 		"transactionIndex":10,
 		"states": {"none": true},
-		"domainReceiptError": "not available"
+		"domainReceiptError": "not available",
+		"public": []
 	}`, txID, receipt.Sequence), pldtypes.JSONString(receipt).Pretty())
 
 }
