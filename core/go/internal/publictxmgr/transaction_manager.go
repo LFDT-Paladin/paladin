@@ -305,9 +305,9 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 	// This could be a lot of transactions, but just logging the IDs if trace is enabled shouldn't be too heavy weight
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("WriteNewTransactions transactions: %+v", len(transactions))
-		for i, txi := range transactions {
+		for _, txi := range transactions {
 			for _, bnd := range txi.Bindings {
-				log.L(ctx).Tracef("WriteNewTransactions transaction ID %+v", i, bnd.TransactionID)
+				log.L(ctx).Tracef("WriteNewTransactions transaction ID %+v", bnd.TransactionID)
 			}
 		}
 	}
