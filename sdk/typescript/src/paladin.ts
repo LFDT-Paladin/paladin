@@ -5,6 +5,8 @@ import {
   Algorithms,
   IABIDecodedData,
   IBlockchainEventListener,
+  IDomain,
+  IDomainSmartContract,
   IEthAddress,
   IEventWithData,
   IKeyMappingAndVerifier,
@@ -1104,7 +1106,7 @@ export default class PaladinClient {
   };
 
   domain = {
-    listDomains: async () => {
+    listDomains: async (): Promise<string[]> => {
       const res = await this.post<JsonRpcResult<string[]>>(
         "domain_listDomains",
         []
@@ -1112,8 +1114,8 @@ export default class PaladinClient {
       return res.data.result;
     },
 
-    getDomain: async (name: string) => {
-      const res = await this.post<JsonRpcResult<any>>(
+    getDomain: async (name: string): Promise<IDomain | undefined> => {
+      const res = await this.post<JsonRpcResult<IDomain>>(
         "domain_getDomain",
         [name],
         { validateStatus: (status) => status < 300 || status === 404 }
@@ -1121,8 +1123,10 @@ export default class PaladinClient {
       return res.status === 404 ? undefined : res.data.result;
     },
 
-    getDomainByAddress: async (address: string) => {
-      const res = await this.post<JsonRpcResult<any>>(
+    getDomainByAddress: async (
+      address: string
+    ): Promise<IDomain | undefined> => {
+      const res = await this.post<JsonRpcResult<IDomain>>(
         "domain_getDomainByAddress",
         [address],
         { validateStatus: (status) => status < 300 || status === 404 }
@@ -1130,16 +1134,20 @@ export default class PaladinClient {
       return res.status === 404 ? undefined : res.data.result;
     },
 
-    querySmartContracts: async (query: IQuery) => {
-      const res = await this.post<JsonRpcResult<any[]>>(
+    querySmartContracts: async (
+      query: IQuery
+    ): Promise<IDomainSmartContract[]> => {
+      const res = await this.post<JsonRpcResult<IDomainSmartContract[]>>(
         "domain_querySmartContracts",
         [query]
       );
       return res.data.result;
     },
 
-    getSmartContractByAddress: async (address: string) => {
-      const res = await this.post<JsonRpcResult<any>>(
+    getSmartContractByAddress: async (
+      address: string
+    ): Promise<IDomainSmartContract | undefined> => {
+      const res = await this.post<JsonRpcResult<IDomainSmartContract>>(
         "domain_getSmartContractByAddress",
         [address],
         { validateStatus: (status) => status < 300 || status === 404 }
