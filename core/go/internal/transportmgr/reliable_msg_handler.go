@@ -91,7 +91,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	var preparedTxnToAdd []*components.PreparedTransactionWithRefs
 	var txReceiptsToFinalize []*components.ReceiptInput
 	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxWithBinding // public transaction submissions
-	var sequencingActivitiesToPersist []*pldapi.SequencingProgressActivity
+	var sequencingActivitiesToPersist []*pldapi.SequencerActivity
 	var msgsToReceive []*receivedPrivacyGroupMessage
 	var privacyGroupsToAdd []*receivedPrivacyGroup
 
@@ -190,7 +190,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			}
 		case RMHMessageTypeSequencingActivity:
 			log.L(ctx).Debugf("received sequencing activity, parseSequencingActivityMsg: %+v", v.msg)
-			var sequencingActivity pldapi.SequencingProgressActivity
+			var sequencingActivity pldapi.SequencerActivity
 			err := json.Unmarshal(v.msg.Payload, &sequencingActivity)
 			if err != nil {
 				acksToSend = append(acksToSend,
@@ -617,7 +617,7 @@ func (tm *transportManager) buildSequencingProgressActivityMsg(ctx context.Conte
 	}, nil, nil
 }
 
-func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *pldapi.SequencingProgressActivity, err error) {
+func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *pldapi.SequencerActivity, err error) {
 	err = json.Unmarshal(data, &sequencingProgress)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)

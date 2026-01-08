@@ -103,8 +103,8 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 	}
 }
 
-func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencingProgressActivity {
-	return &pldapi.SequencingProgressActivity{
+func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencerActivity {
+	return &pldapi.SequencerActivity{
 		LocalID:        psa.LocalID,
 		RemoteID:       psa.RemoteID,
 		Timestamp:      psa.Timestamp,
@@ -284,7 +284,7 @@ func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.
 	}
 	for _, tx := range ptxs {
 		if txsas, ok := txsaMap[*tx.ID]; ok {
-			tx.SequencerActivity = make([]*pldapi.SequencingProgressActivity, len(txsas))
+			tx.SequencerActivity = make([]*pldapi.SequencerActivity, len(txsas))
 			for i, txsa := range txsas {
 				tx.SequencerActivity[i] = tm.mapPersistedTXSequencingActivity(txsa)
 			}

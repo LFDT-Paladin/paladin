@@ -6,7 +6,9 @@ title: TransactionReceiptFull
 ### Example
 
 ```json
-{}
+{
+    "public": null
+}
 ```
 
 ### Field Descriptions
@@ -29,4 +31,9 @@ title: TransactionReceiptFull
 | `states` | The state receipt for the transaction (private transactions only) | [`TransactionStates`](transactionstates.md#transactionstates) |
 | `domainReceipt` | The domain receipt for the transaction (private transaction only) | [`RawJSON`](simpletypes.md#rawjson) |
 | `domainReceiptError` | Contains the error if it was not possible to obtain the domain receipt for a private transaction | `string` |
+| `public` | Public transactions submitted for this receipt's transaction | [`PublicTx[]`](publictx.md#publictx) |
+| `dispatches` | Dispatches for this receipt's transaction | [`Dispatch[]`](#dispatch) |
+
+## Dispatch
+
 

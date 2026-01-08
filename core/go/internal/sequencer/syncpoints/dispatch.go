@@ -96,10 +96,10 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	// Sequencer activity dispatch records for public transactions
 	for _, publicDispatch := range dispatchBatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
-			sequencingProgress := &pldapi.SequencingProgressActivity{
+			sequencingProgress := &pldapi.SequencerActivity{
 				RemoteID:       privateTx.ID, // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
 				Timestamp:      pldtypes.TimestampNow(),
-				ActivityType:   string(pldapi.SequencingProgressActivityType_Dispatched),
+				ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
 				SubmittingNode: s.transportMgr.LocalNodeName(), // Us
 				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
 			}

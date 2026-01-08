@@ -155,7 +155,7 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 
 	// Check Alice has the sequencing activity Bob has distributed to her
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencingProgressActivityType_Dispatched)) // Only 1 activity type supported currently
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatched)) // Only 1 activity type supported currently
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].SubmittingNode, bob.GetName())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID, aliceTx.ID())
 

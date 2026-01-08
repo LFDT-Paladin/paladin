@@ -21,17 +21,17 @@ import (
 	"github.com/google/uuid"
 )
 
-type SequencingProgressActivityType string
+type SequencerActivityType string
 
 const (
-	SequencingProgressActivityType_Dispatched SequencingProgressActivityType = "dispatched"
+	SequencerActivityType_Dispatched SequencerActivityType = "dispatched"
 )
 
-type SequencingProgressActivity struct {
-	LocalID        *uint64            `docstruct:"SequencingProgressActivity" json:"localId,omitempty"`  // only a local DB identifier for the sequencing activity
-	RemoteID       string             `docstruct:"SequencingProgressActivity" json:"remoteId,omitempty"` // Optional depending on the activity type. It may have a remote ID that correlates with something on another node
-	Timestamp      pldtypes.Timestamp `docstruct:"SequencingProgressActivity" json:"timestamp,omitempty"`
-	ActivityType   string             `docstruct:"SequencingProgressActivity" json:"activityType,omitempty"`
-	SubmittingNode string             `docstruct:"SequencingProgressActivity" json:"submittingNode,omitempty"` // The node where this activity took place
-	TransactionID  uuid.UUID          `docstruct:"SequencingProgressActivity" json:"transactionId,omitempty"`
+type SequencerActivity struct {
+	LocalID        *uint64            `docstruct:"SequencerActivity" json:"localId,omitempty"`  // only a local DB identifier for the sequencing activity
+	RemoteID       string             `docstruct:"SequencerActivity" json:"remoteId,omitempty"` // Optional depending on the activity type. It may have a remote ID that correlates with something on another node
+	Timestamp      pldtypes.Timestamp `docstruct:"SequencerActivity" json:"timestamp,omitempty"`
+	ActivityType   string             `docstruct:"SequencerActivity" json:"activityType,omitempty"`
+	SubmittingNode string             `docstruct:"SequencerActivity" json:"submittingNode,omitempty"` // The node where this activity took place
+	TransactionID  uuid.UUID          `docstruct:"SequencerActivity" json:"transactionId,omitempty"`
 }

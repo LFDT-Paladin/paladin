@@ -40,7 +40,7 @@ func (DBSequencingActivity) TableName() string {
 	return "sequencer_activities"
 }
 
-func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencingProgressActivity) error {
+func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error {
 	log.L(ctx).Debugf("WriteReceivedSequencingActivities sequencingActivities: %+v", sequencingActivities)
 	dbActivities := make([]*DBSequencingActivity, 0, len(sequencingActivities))
 	for _, sequencingActivity := range sequencingActivities {
