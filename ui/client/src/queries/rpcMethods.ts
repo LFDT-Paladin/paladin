@@ -19,6 +19,7 @@ import { getBasePath } from '../utils';
 export const RpcEndpoint = getBasePath();
 
 export const RpcMethods = {
+  bidx_getTransactionEventsByHash: 'bidx_getTransactionEventsByHash',
   bidx_QueryIndexedEvents: 'bidx_queryIndexedEvents',
   bidx_QueryIndexedTransactions: 'bidx_queryIndexedTransactions',
   domain_listDomains: 'domain_listDomains',

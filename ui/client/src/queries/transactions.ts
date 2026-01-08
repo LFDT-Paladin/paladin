@@ -44,6 +44,15 @@ export const fetchIndexedTransactions = async (
     ],
   };
 
+  if (txHash && txHash.length > 0) {
+    requestPayload.params[0].equal = [
+      {
+        field: 'hash',
+        value: txHash,
+      },
+    ];
+  }
+
   if (pageParam !== undefined) {
     requestPayload.params[0].or = [
       {
@@ -100,10 +109,6 @@ export const fetchIndexedTransactions = async (
             .includes(paladinTransaction.id)
       ),
     });
-  }
-
-  if (txHash && txHash.length > 0) {
-    enrichedTransactions = enrichedTransactions.filter((transaction) => transaction.hash === txHash);
   }
 
   return enrichedTransactions;

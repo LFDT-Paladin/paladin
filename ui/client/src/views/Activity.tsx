@@ -14,16 +14,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { useState } from "react";
-import { Box, Fade, Grid2, TextField, useMediaQuery, useTheme } from "@mui/material";
+import { useState, useEffect } from "react";
+import { Box, Fade, Grid2, TextField } from "@mui/material";
 import { Transactions } from "../components/Transactions";
 import { Events } from "../components/Events";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 
 export const Activity: React.FC = () => {
 
   const { t } = useTranslation();
   const [txHash, setTxHash] = useState('');
+
+  const [searchParams] = useSearchParams();
+  
+  useEffect(() => {
+    if (searchParams.get('hash')) {
+      setTxHash(searchParams.get('hash') as string);
+    }
+  }, [searchParams]);
 
   return (
     <Fade timeout={600} in={true}>
@@ -31,11 +40,11 @@ export const Activity: React.FC = () => {
         <Grid2 container marginBottom={4}>
             <TextField label={t("filterByTransactionHash")} fullWidth size="medium" value={txHash} onChange={(e) => setTxHash(e.target.value)} />
         </Grid2>
-        <Grid2 container spacing={8}>
-          <Grid2 size={{ md: 6, sm: 12, xs: 12 }} alignSelf="center">
+        <Grid2 container>
+          <Grid2 size={{ md: 6, sm: 12, xs: 12 }} alignSelf="center" borderRight={2} borderColor={theme => theme.palette.primary.main} paddingRight={8}>
             <Transactions txHash={txHash} />
           </Grid2>
-          <Grid2 size={{ md: 6, sm: 12, xs: 12 }}>
+          <Grid2 size={{ md: 6, sm: 12, xs: 12 }} paddingLeft={8}>
             <Events txHash={txHash} />
           </Grid2>
         </Grid2>
