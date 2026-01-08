@@ -52,6 +52,8 @@ func TestGetTransactionByIDFullPublicFail(t *testing.T) {
 			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(txID))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(sqlmock.NewRows([]string{"id", "tx_id"}).AddRow(uuid.New(), txID))
+			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 		}, mockQueryPublicTxForTransactions(func(ids []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error) {
 			return nil, fmt.Errorf("pop")
 		}))
@@ -88,6 +90,8 @@ func TestGetTransactionByIDFullPublicHistory(t *testing.T) {
 				AddRow(uuid.New(), txID, to1).
 				AddRow(uuid.New(), txID, to2)
 			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(rows)
+			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 		}, mockQueryPublicTxForTransactions(func(ids []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error) {
 			pubTX := map[uuid.UUID][]*pldapi.PublicTx{
 				txID: {{
