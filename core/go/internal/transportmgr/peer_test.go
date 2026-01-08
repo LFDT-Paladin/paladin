@@ -768,63 +768,6 @@ func TestSendMessageErrorHandlerCalled(t *testing.T) {
 	}
 }
 
-func TestProcessReliableMsgPagePublicTransaction(t *testing.T) {
-
-	ctx, tm, tp, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
-		})
-	defer done()
-
-	p := &peer{
-		ctx:       ctx,
-		tm:        tm,
-		transport: tp.t,
-	}
-
-	publicTx := &pldapi.PublicTxToDistribute{
-		PublicTxInput: pldapi.PublicTxInput{
-			From: pldtypes.RandAddress(),
-			To:   pldtypes.RandAddress(),
-			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
-		},
-		Nonce: confutil.P(pldtypes.HexUint64(1)),
-	}
-
-	rm := &pldapi.ReliableMessage{
-		ID:          uuid.New(),
-		Sequence:    50,
-		MessageType: pldapi.RMTPublicTransaction.Enum(),
-		Node:        "node2",
-		Metadata:    pldtypes.JSONString(publicTx),
-		Created:     pldtypes.TimestampNow(),
-	}
-
-	sentMessages := make(chan *prototk.PaladinMsg, 1)
-	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
-		sent := req.Message
-		sentMessages <- sent
-		return nil, nil
-	}
-
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
-	require.NoError(t, err)
-
-	sentMsg := <-sentMessages
-
-	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
-	require.NoError(t, err)
-	require.Equal(t, RMHMessageTypePublicTransaction, rMsg.MessageType)
-
-	var receivedPublicTx pldapi.PublicTxToDistribute
-	err = json.Unmarshal(rMsg.Payload, &receivedPublicTx)
-	require.NoError(t, err)
-	require.Equal(t, publicTx.From, receivedPublicTx.From)
-	require.Equal(t, publicTx.To, receivedPublicTx.To)
-	require.Equal(t, publicTx.Data, receivedPublicTx.Data)
-	require.Equal(t, publicTx.Nonce, receivedPublicTx.Nonce)
-}
-
 func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, false,
@@ -839,13 +782,19 @@ func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 		transport: tp.t,
 	}
 
-	publicTxSubmission := &pldapi.PublicTxToDistribute{
-		PublicTxInput: pldapi.PublicTxInput{
-			From: pldtypes.RandAddress(),
-			To:   pldtypes.RandAddress(),
-			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:  *pldtypes.RandAddress(),
+			To:    pldtypes.RandAddress(),
+			Data:  pldtypes.HexBytes(pldtypes.RandBytes(100)),
+			Nonce: confutil.P(pldtypes.HexUint64(2)),
 		},
-		Nonce: confutil.P(pldtypes.HexUint64(2)),
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:                uuid.New(),
+			TransactionType:            pldapi.TransactionTypePublic.Enum(),
+			TransactionSender:          "node2",
+			TransactionContractAddress: "contractAddress",
+		},
 	}
 
 	rm := &pldapi.ReliableMessage{
@@ -873,11 +822,72 @@ func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, RMHMessageTypePublicTransactionSubmission, rMsg.MessageType)
 
-	var receivedPublicTxSubmission pldapi.PublicTxToDistribute
+	var receivedPublicTxSubmission pldapi.PublicTxWithBinding
 	err = json.Unmarshal(rMsg.Payload, &receivedPublicTxSubmission)
 	require.NoError(t, err)
 	require.Equal(t, publicTxSubmission.From, receivedPublicTxSubmission.From)
 	require.Equal(t, publicTxSubmission.To, receivedPublicTxSubmission.To)
 	require.Equal(t, publicTxSubmission.Data, receivedPublicTxSubmission.Data)
 	require.Equal(t, publicTxSubmission.Nonce, receivedPublicTxSubmission.Nonce)
+	require.Equal(t, publicTxSubmission.Transaction, receivedPublicTxSubmission.Transaction)
+	require.Equal(t, publicTxSubmission.TransactionType, receivedPublicTxSubmission.TransactionType)
+	require.Equal(t, publicTxSubmission.TransactionSender, receivedPublicTxSubmission.TransactionSender)
+	require.Equal(t, publicTxSubmission.TransactionContractAddress, receivedPublicTxSubmission.TransactionContractAddress)
+}
+
+func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	sequencerActivity := &pldapi.SequencerActivity{
+		RemoteID:       "remoteID",
+		Timestamp:      pldtypes.TimestampNow(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+		SubmittingNode: "node2",
+		TransactionID:  uuid.New(),
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTSequencingActivity.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(sequencerActivity),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypeSequencingActivity, rMsg.MessageType)
+
+	var receivedSequencerActivity pldapi.SequencerActivity
+	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
+	require.NoError(t, err)
+	require.Equal(t, sequencerActivity.RemoteID, receivedSequencerActivity.RemoteID)
+	require.Equal(t, sequencerActivity.Timestamp, receivedSequencerActivity.Timestamp)
+	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
+	require.Equal(t, sequencerActivity.SubmittingNode, receivedSequencerActivity.SubmittingNode)
+	require.Equal(t, sequencerActivity.TransactionID, receivedSequencerActivity.TransactionID)
 }

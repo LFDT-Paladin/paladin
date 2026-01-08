@@ -143,12 +143,19 @@ func (imtxs *inMemoryTxState) GetPubTxnID() uint64 {
 	return imtxs.mtx.ptx.PublicTxnID
 }
 
-func (imtxs *inMemoryTxState) GetTransactionType() pldapi.TransactionType {
-	return pldapi.TransactionType(imtxs.mtx.ptx.Binding.TransactionType)
+func (imtxs *inMemoryTxState) GetTransactionType() *pldapi.TransactionType {
+	if imtxs.mtx.ptx.Binding != nil {
+		transactionType := pldapi.TransactionType(imtxs.mtx.ptx.Binding.TransactionType)
+		return &transactionType
+	}
+	return nil
 }
 
 func (imtxs *inMemoryTxState) GetPrivateTXOriginator() string {
-	return imtxs.mtx.ptx.Binding.Sender
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.Sender
+	}
+	return ""
 }
 
 func (imtxs *inMemoryTxState) GetSignerNonce() string {

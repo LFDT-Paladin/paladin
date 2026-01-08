@@ -167,6 +167,9 @@ func newTestPublicTxManager(t *testing.T, realDBAndSigner bool, extraSetup ...fu
 		mocks.allComponents.On("Persistence").Return(p).Maybe()
 	}
 	mocks.allComponents.On("KeyManager").Return(mocks.keyManager).Maybe()
+	transportManager := componentsmocks.NewTransportManager(t)
+	transportManager.On("LocalNodeName").Return("node1").Maybe()
+	mocks.allComponents.On("TransportManager").Return(transportManager).Maybe()
 
 	// Run any extra functions before we create the manager
 	for _, setup := range extraSetup {
@@ -213,10 +216,8 @@ func TestTransactionLifecycleRealKeyMgrAndDB(t *testing.T) {
 	})
 	defer done()
 
-	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
-	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)
 
 	// Mock a gas price
 	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
@@ -538,10 +539,8 @@ func TestEngineSuspendResumeRealDB(t *testing.T) {
 	})
 	defer done()
 
-	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
-	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)
 
 	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
@@ -629,10 +628,8 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 	})
 	defer done()
 
-	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
-	m.txManager.On("GetTransactionByIDWithDBTX", mock.Anything, mock.Anything, mock.Anything).Return(fakeTx, nil)
 
 	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)

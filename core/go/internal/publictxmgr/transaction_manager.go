@@ -313,7 +313,6 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 	}
 
 	persistedTransactions := make([]*DBPublicTxn, len(transactions))
-	transactionsToDistribute := make([]*pldapi.PublicTxWithBinding, len(transactions))
 	for i, txi := range transactions {
 		persistedTransactions[i] = &DBPublicTxn{
 			From:            *txi.From, // safe because validated in ValidateTransaction
@@ -323,23 +322,6 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 			Data:            txi.Data,
 			Dispatcher:      ptm.nodeName,
 			FixedGasPricing: pldtypes.JSONString(txi.PublicTxGasPricing),
-		}
-		publicTX := &pldapi.PublicTx{
-			To:              txi.To,
-			Data:            txi.Data,
-			From:            *txi.From,
-			PublicTxOptions: txi.PublicTxOptions,
-		}
-
-		// Create a public TX with a single binding to distribute to the originator
-		transactionsToDistribute[i] = &pldapi.PublicTxWithBinding{
-			PublicTx: publicTX,
-			PublicTxBinding: pldapi.PublicTxBinding{
-				Transaction:                txi.Bindings[0].TransactionID,
-				TransactionType:            txi.Bindings[0].TransactionType,
-				TransactionSender:          txi.Bindings[0].TransactionSender,
-				TransactionContractAddress: txi.Bindings[0].TransactionContractAddress,
-			},
 		}
 	}
 	// All the nonce processing to this point should have ensured we do not have a conflict on nonces.
