@@ -36,7 +36,7 @@ import (
 
 type msgWithErrChan struct {
 	*prototk.PaladinMsg
-	errChan chan error
+	errorHandler func(ctx context.Context, err error)
 }
 
 type peer struct {
@@ -481,12 +481,9 @@ func (p *peer) sender() {
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
-					if msg.errChan != nil {
-						msg.errChan <- err
+					if msg.errorHandler != nil {
+						msg.errorHandler(p.ctx, err)
 					}
-				}
-				if msg.errChan != nil {
-					close(msg.errChan)
 				}
 			}
 		}

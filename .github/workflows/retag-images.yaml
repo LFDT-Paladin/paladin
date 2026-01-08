@@ -40,6 +40,14 @@ jobs:
       matrix:
         image: [paladin, paladin-operator]
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -49,11 +57,6 @@ jobs:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Set Repository Name
         id: repo
@@ -84,12 +87,23 @@ jobs:
               docker.io/${REPO}/${IMAGE}:${SOURCE_TAG}
           fi
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
   retag-ghcr:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         image: [paladin, paladin-operator]
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -99,11 +113,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
 
       - name: Set Repository Name
         id: repo
@@ -133,3 +142,6 @@ jobs:
               --tag ghcr.io/${REPO}/${IMAGE}:latest \
               ghcr.io/${REPO}/${IMAGE}:${SOURCE_TAG}
           fi
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage

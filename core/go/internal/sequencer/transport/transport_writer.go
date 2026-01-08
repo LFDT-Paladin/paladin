@@ -18,7 +18,6 @@ package transport
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -35,8 +34,9 @@ import (
 )
 
 type TransportWriter interface {
-	Start(ctx context.Context) error
-	SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error
+	StartLoopbackWriter(ctx context.Context)
+	StopLoopbackWriter()
+	SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error
 	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error
 	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
 	SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error
@@ -55,43 +55,51 @@ type TransportWriter interface {
 func NewTransportWriter(contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
 	loopbackTransport := NewLoopbackTransportWriter(loopbackHandler)
 	return &transportWriter{
-		nodeID:            nodeID,
-		transportManager:  transportManager,
-		loopbackTransport: loopbackTransport,
-		contractAddress:   contractAddress,
+		nodeID:                nodeID,
+		transportManager:      transportManager,
+		loopbackTransport:     loopbackTransport,
+		contractAddress:       contractAddress,
+		stopLoopbackSender:    make(chan struct{}),
+		loopbackSenderStopped: make(chan struct{}),
 	}
 }
 
 type transportWriter struct {
-	nodeID            string
-	transportManager  components.TransportManager
-	loopbackTransport LoopbackTransportManager
-	contractAddress   *pldtypes.EthAddress
+	nodeID                string
+	transportManager      components.TransportManager
+	loopbackTransport     LoopbackTransportManager
+	contractAddress       *pldtypes.EthAddress
+	stopLoopbackSender    chan struct{}
+	loopbackSenderStopped chan struct{}
 }
 
-func (tw *transportWriter) Start(ctx context.Context) error {
+func (tw *transportWriter) StartLoopbackWriter(ctx context.Context) {
 	// We use a separate goroutine to send loopback messages to free up the event loops.
-	go tw.loopbackSend(ctx)
-	return nil
+	go tw.loopbackSender(ctx)
+}
+
+func (tw *transportWriter) StopLoopbackWriter() {
+	// We use a separate goroutine to send loopback messages to free up the event loops.
+	tw.stopLoopbackSender <- struct{}{}
+	<-tw.loopbackSenderStopped
 }
 
 func (tw *transportWriter) SendDelegationRequest(
 	ctx context.Context,
-	coordinatorLocator string,
+	coordinatorNode string,
 	transactions []*components.PrivateTransaction,
 	blockHeight uint64,
 ) error {
 	for _, transaction := range transactions {
-
 		transactionBytes, err := json.Marshal(transaction)
 
 		if err != nil {
 			log.L(ctx).Errorf("error marshalling transaction message: %s", err)
 		}
+
 		delegationRequest := &engineProto.DelegationRequest{
-			// DelegationId:       delegationId, // MRW TODO
-			TransactionId: transaction.ID.String(),
-			// DelegateNodeId:     delegateNodeId, // MRW TODO
+			TransactionId:      transaction.ID.String(),
+			DelegateNodeId:     coordinatorNode,
 			PrivateTransaction: transactionBytes,
 			BlockHeight:        int64(blockHeight),
 		}
@@ -100,17 +108,11 @@ func (tw *transportWriter) SendDelegationRequest(
 			log.L(ctx).Errorf("error marshalling delegationRequest  message: %s", err)
 		}
 
-		parts := strings.Split(coordinatorLocator, "@")
-		node := parts[0]
-		if len(parts) > 1 {
-			node = parts[1]
-		}
-
 		if err = tw.send(ctx, &components.FireAndForgetMessageSend{
 			MessageType: MessageType_DelegationRequest,
 			Payload:     delegationRequestBytes,
 			Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-			Node:        node,
+			Node:        coordinatorNode,
 		}); err != nil {
 			log.L(ctx).Errorf("error sending delegationRequest message: %s", err)
 		}
@@ -249,10 +251,9 @@ func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid
 		return err
 	}
 
-	partyFull := strings.Split(party, "@")
-	partyNode := partyFull[0]
-	if len(partyFull) > 1 {
-		partyNode = partyFull[1]
+	partyNode, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, false)
+	if err != nil {
+		return err
 	}
 
 	err = tw.send(ctx, &components.FireAndForgetMessageSend{
@@ -563,15 +564,14 @@ func (tw *transportWriter) SendPreDispatchRequest(ctx context.Context, originato
 	return err
 }
 
-func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
+func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transactionOriginatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginator)
+	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginatorNode)
 
 	dispatchResponseEvent := &engineProto.TransactionDispatched{
 		Id:              idempotencyKey.String(),
 		TransactionId:   transactionSpecification.TransactionId,
 		ContractAddress: tw.contractAddress.HexString(),
-		Signer:          transactionOriginator,
 	}
 
 	dispatchResponseEventBytes, err := proto.Marshal(dispatchResponseEvent)
@@ -579,18 +579,11 @@ func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transact
 		log.L(ctx).Errorf("error marshalling dispatch confirmation request  message: %s", err)
 	}
 
-	// Split transactionOriginator into node and domain
-	parts := strings.Split(transactionOriginator, "@")
-	node := parts[0]
-	if len(parts) > 1 {
-		node = parts[1]
-	}
-
 	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
 		MessageType: MessageType_PreDispatchResponse,
 		Payload:     dispatchResponseEventBytes,
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Node:        node,
+		Node:        transactionOriginatorNode,
 	}); err != nil {
 		log.L(ctx).Errorf("error sending dispatched event: %s", err)
 	}
@@ -613,11 +606,10 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 		log.L(ctx).Errorf("error marshalling dispatch confirmation request  message: %s", err)
 	}
 
-	// Split transactionOriginator into node and domain
-	parts := strings.Split(transactionOriginator, "@")
-	node := parts[0]
-	if len(parts) > 1 {
-		node = parts[1]
+	node, err := pldtypes.PrivateIdentityLocator(transactionOriginator).Node(ctx, false)
+	if err != nil {
+		log.L(ctx).Errorf("error getting transaction dispatched originator node id for %s: %s", transactionOriginator, err)
+		return err
 	}
 
 	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
@@ -654,7 +646,8 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 // Run the loopback transport in a goroutine to avoid blocking the event loop. This is important for the
 // channel-based event queue to ensure the queue consumer is not blocked when we happen to be sending
 // to ourselves. We have a queue of 1 to ensure FIFO order within a node for local fire and forget messages.
-func (tw *transportWriter) loopbackSend(ctx context.Context) {
+func (tw *transportWriter) loopbackSender(ctx context.Context) {
+	defer close(tw.loopbackSenderStopped)
 	for {
 		select {
 		case queuedPayload, ok := <-tw.loopbackTransport.LoopbackQueue():
@@ -667,7 +660,7 @@ func (tw *transportWriter) loopbackSend(ctx context.Context) {
 			if err != nil {
 				log.L(ctx).Errorf("error sending %s to loopback interface for contract %s: %s", queuedPayload.MessageType, tw.contractAddress.String(), err)
 			}
-		case <-ctx.Done():
+		case <-tw.stopLoopbackSender:
 			log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 			return
 		}

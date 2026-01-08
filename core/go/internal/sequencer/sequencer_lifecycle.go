@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -91,6 +90,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			sMgr.sequencersLock.RUnlock()
 		}
 	}()
+
 	if sMgr.sequencers[contractAddr.String()] == nil {
 		//swap the read lock for a write lock
 		sMgr.sequencersLock.RUnlock()
@@ -226,14 +226,25 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 	return sMgr.sequencers[contractAddr.String()], nil
 }
 
+func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
+	sMgr.sequencersLock.Lock()
+	defer sMgr.sequencersLock.Unlock()
+	for _, sequencer := range sMgr.sequencers {
+		sequencer.GetCoordinator().Stop()
+		sequencer.GetOriginator().Stop()
+	}
+}
+
 func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *components.PrivateTransaction, sequencer *sequencer) error {
 
 	if tx != nil && tx.PreAssembly != nil && tx.PreAssembly.RequiredVerifiers != nil {
 		log.L(ctx).Debugf("setting initial coordinator for %s, updating origininator node pool to include required verifiers of transaction %s", sequencer.contractAddress, tx.ID.String())
-		for _, verifiers := range tx.PreAssembly.RequiredVerifiers {
-			if strings.Contains(verifiers.Lookup, "@") {
-				sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, strings.Split(verifiers.Lookup, "@")[1])
+		for _, verifier := range tx.PreAssembly.RequiredVerifiers {
+			_, node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Validate(ctx, sMgr.nodeName, false)
+			if err != nil {
+				return err
 			}
+			sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, node)
 		}
 
 		// Get the best candidate for an initial coordinator, and use as the delegate for any originated transactions
@@ -435,7 +446,13 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 
 // Must be called within the sequencer's write lock
 func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
-
+	readlock := true
+	sMgr.sequencersLock.RLock()
+	defer func() {
+		if readlock {
+			sMgr.sequencersLock.RUnlock()
+		}
+	}()
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("max concurrent sequencers reached, finding lowest priority sequencer to stop")
 	if len(sMgr.sequencers) != 0 {
 		// If any sequencers are already closing we can wait for them to close instead of stopping a different one
@@ -453,7 +470,14 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 				sequencer.coordinator.GetCurrentState() == coordinator.State_Observing {
 				// This sequencer is already idle or observing so we can page it out immediately
 
+				// swap the read lock for a write lock
+				sMgr.sequencersLock.RUnlock()
+				readlock = false
+				sMgr.sequencersLock.Lock()
+				defer sMgr.sequencersLock.Unlock()
+
 				log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencer.contractAddress)
+				sequencer.coordinator.Stop()
 				sequencer.originator.Stop()
 				delete(sMgr.sequencers, sequencer.contractAddress)
 				return
@@ -468,6 +492,12 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 		sort.Slice(sequencers, func(i, j int) bool {
 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
 		})
+
+		// swap the read lock for a write lock
+		sMgr.sequencersLock.RUnlock()
+		readlock = false
+		sMgr.sequencersLock.Lock()
+		defer sMgr.sequencersLock.Unlock()
 
 		// Stop the lowest priority sequencer by emitting an event and waiting for it to move to closed
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
@@ -510,9 +540,16 @@ func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
 		})
 
+		// swap the read lock for a write lock
+		sMgr.sequencersLock.RUnlock()
+		readlock = false
+		sMgr.sequencersLock.Lock()
+		defer sMgr.sequencersLock.Unlock()
+
 		// Stop the lowest priority coordinator by emitting an event asking it to handover to another coordinator
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
 		sequencers[0].coordinator.Stop()
+		sequencers[0].originator.Stop()
 		delete(sMgr.sequencers, sequencers[0].contractAddress)
 	} else {
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("%d coordinators within max coordinator limit %d", activeCoordinators, sMgr.targetActiveCoordinatorsLimit)

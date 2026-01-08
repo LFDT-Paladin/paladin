@@ -11,7 +11,7 @@ permissions:
   id-token: write
   
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       rc_tag:
         required: true
@@ -43,14 +43,10 @@ jobs:
       - id: set-vars
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-          INPUT_LATEST: ${{ github.event.inputs.latest }}
-          INPUT_RC_TAG: ${{ github.event.inputs.rc_tag }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_LATEST: ${{ inputs.latest }}
+          INPUT_RC_TAG: ${{ inputs.rc_tag }}
         run: |
-          
-          echo "Workflow dispatch or other event"
           TAG="$INPUT_TAG"
           RC_TAG="$INPUT_RC_TAG"
           
@@ -204,9 +200,7 @@ jobs:
     with:
       ref: ${{ needs.setup.outputs.rc_tag }}
       sdk_version: ${{ needs.setup.outputs.tag }}
-      sdk_tag: ${{ needs.setup.outputs.sdk_tag }}
-    secrets:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }} 
+      sdk_tag: ${{ needs.setup.outputs.sdk_tag }} 
 
   # ================================ Prepare release ================================
   # Override SDK version in examples and create a release branch
@@ -251,6 +245,9 @@ jobs:
           submodules: recursive
           ref: ${{ needs.setup.outputs.rc_tag }}
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
       - name: Download Helm artifacts
         uses: actions/download-artifact@v4
         with:
@@ -285,3 +282,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
