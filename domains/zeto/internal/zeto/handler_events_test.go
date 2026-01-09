@@ -136,7 +136,7 @@ func TestHandleMintEvent(t *testing.T) {
 	err = z.handleMintEvent(ctx, smtSpec, ev, "Zeto_AnonNullifier", res)
 	assert.NoError(t, err)
 	assert.Len(t, res.TransactionsComplete, 1)
-	newStates, err := storage.GetNewStates()
+	newStates, err := storage.GetNewStates(t.Context())
 	require.NoError(t, err)
 	assert.Len(t, newStates, 2)
 	assert.Equal(t, "merkle_tree_root", newStates[0].SchemaId)

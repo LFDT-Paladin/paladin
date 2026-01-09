@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -29,7 +30,7 @@ import (
 
 func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (res *prototk.BuildReceiptResponse, err error) {
 	receipt := &types.NotoDomainReceipt{}
-
+	log.L(ctx).Debugf("Building Noto receipt from endorsable states: %+v", req)
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id})
 	var variant pldtypes.HexUint64
 	if len(infoStates) == 1 {
@@ -93,9 +94,9 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 				"txId":   receipt.LockInfo.UnlockTxId,
 				"lockId": receipt.LockInfo.LockID,
 				"params": &NotoUnlockStruct{
-					LockedInputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-					LockedOutputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-					Outputs:       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+					LockedInputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}), false),
+					LockedOutputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id}), false),
+					Outputs:       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id}), false),
 					Signature:     pldtypes.HexBytes{},
 					Data:          receipt.Data,
 				},
@@ -109,9 +110,9 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			}
 			receipt.LockInfo.UnlockParams = map[string]any{
 				"txId":          unlockTxId,
-				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}), false),
+				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id}), false),
+				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id}), false),
 				"signature":     pldtypes.HexBytes{},
 				"data":          receipt.Data,
 			}
@@ -138,6 +139,7 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		return nil, err
 	}
 
+	log.L(ctx).Debugf("Built Noto receipt: %s", string(receiptJSON))
 	return &prototk.BuildReceiptResponse{
 		ReceiptJson: string(receiptJSON),
 	}, nil

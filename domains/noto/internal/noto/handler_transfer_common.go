@@ -17,18 +17,22 @@ package noto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type transferCommon struct {
@@ -227,7 +231,7 @@ func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTr
 	}, nil
 }
 
-func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, withApproval bool) (*TransactionWrapper, error) {
+func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, withApproval bool, useNullifier bool) (*TransactionWrapper, error) {
 	// Include the signature from the sender
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	signature := domain.FindAttestation("sender", req.AttestationResult)
@@ -239,11 +243,40 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	if err != nil {
 		return nil, err
 	}
+	payload := signature.Payload
+	if useNullifier {
+		// for nullifier variants, the "signature" parameter includes both the signature and the root
+		smtName := notosmt.MerkleTreeName(tx.ContractAddress.String())
+		smtType := smt.StatesTree
+		hasher := &smt.Keccak256Hasher{}
+		mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, h.noto.Callbacks, h.noto.merkleTreeRootSchema.Id, h.noto.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		root := mt.Tree.Root()
+		jsonObj := map[string]interface{}{
+			"root":      "0x" + root.BigInt().Text(16),
+			"signature": "0x" + hex.EncodeToString(payload),
+		}
+		jsonBytes, err := json.Marshal(jsonObj)
+		if err != nil {
+			return nil, err
+		}
+		args := abi.ParameterArray{
+			{Name: "root", Type: "uint256"},
+			{Name: "signature", Type: "bytes"},
+		}
+		encoded, err := args.EncodeABIDataJSON(jsonBytes)
+		if err != nil {
+			return nil, err
+		}
+		payload = encoded
+	}
 	params := &NotoTransferParams{
 		TxId:      req.Transaction.TransactionId,
-		Inputs:    endorsableStateIDs(req.InputStates),
-		Outputs:   endorsableStateIDs(req.OutputStates),
-		Signature: signature.Payload,
+		Inputs:    endorsableStateIDs(req.InputStates, useNullifier),
+		Outputs:   endorsableStateIDs(req.OutputStates, false),
+		Signature: payload,
 		Data:      data,
 	}
 	paramsJSON, err := json.Marshal(params)
@@ -308,12 +341,13 @@ func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.Parse
 }
 
 func (h *transferCommon) prepareTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*prototk.PrepareTransactionResponse, error) {
+	useNullifier := tx.DomainConfig.IsNullifierVariant()
 	endorsement := domain.FindAttestation("notary", req.AttestationResult)
 	if endorsement == nil || endorsement.Verifier.Lookup != tx.DomainConfig.NotaryLookup {
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvokeTransfer(ctx, tx, req, false)
+	baseTransaction, err := h.baseLedgerInvokeTransfer(ctx, tx, req, false, useNullifier)
 	if err != nil {
 		return nil, err
 	}

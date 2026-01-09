@@ -1019,12 +1019,15 @@ func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.Sig
 		var coin *types.NotoCoin
 		var hashBytes *pldtypes.Bytes32
 		err := json.Unmarshal(req.Payload, &coin)
+		log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
 		if err == nil {
 			hashBytes, err = calculateNullifier(coin)
 		}
 		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
 		}
+		log.L(ctx).Infof("generated nullifier (string): %s\n", hashBytes.String())
+		log.L(ctx).Infof("generated nullifier (bytes): %x\n", hashBytes.Bytes())
 		return &prototk.SignResponse{
 			Payload: hashBytes.Bytes(),
 		}, nil

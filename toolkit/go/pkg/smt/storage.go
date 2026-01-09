@@ -32,7 +32,7 @@ import (
 
 type StatesStorage interface {
 	core.Storage
-	GetNewStates() ([]*prototk.NewConfirmedState, error)
+	GetNewStates(ctx context.Context) ([]*prototk.NewConfirmedState, error)
 	SetTransactionId(txId string)
 }
 
@@ -98,9 +98,8 @@ func (s *statesStorage) SetTransactionId(txId string) {
 	s.pendingNodesTx.transactionId = txId
 }
 
-func (s *statesStorage) GetNewStates() ([]*prototk.NewConfirmedState, error) {
+func (s *statesStorage) GetNewStates(ctx context.Context) ([]*prototk.NewConfirmedState, error) {
 	var newStates []*prototk.NewConfirmedState
-	ctx := context.Background()
 	if s.rootNode != nil {
 		newRootNodeState, err := s.makeNewStateFromRootNode(ctx, s.rootNode)
 		if err != nil {
@@ -313,7 +312,10 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	}
 
 	data, _ := json.Marshal(newNode)
-	hash, err := newNode.Hash(s.smtName)
+	if err != nil {
+		return nil, err
+	}
+	hash, err := newNode.Hash_EIP712(ctx)
 	if err != nil {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
 	}
@@ -338,9 +340,9 @@ func (s *statesStorage) makeNewStateFromRootNode(ctx context.Context, rootNode *
 	}
 	data, err := json.Marshal(newRoot)
 	if err != nil {
-		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUpsertRootNode, err)
+		return nil, err
 	}
-	hash, err := newRoot.Hash()
+	hash, err := newRoot.Hash_EIP712(ctx)
 	if err != nil {
 		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
 	}

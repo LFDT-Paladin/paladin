@@ -563,14 +563,14 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 		return &res, i18n.NewError(ctx, msgs.MsgErrorHandleEvents, formatErrors(errors))
 	}
 	if common.IsNullifiersToken(domainConfig.TokenName) {
-		newStatesForSMT, err := smtForStates.Storage.GetNewStates()
+		newStatesForSMT, err := smtForStates.Storage.GetNewStates(ctx)
 		if err != nil {
 			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
 		}
 		if len(newStatesForSMT) > 0 {
 			res.NewStates = append(res.NewStates, newStatesForSMT...)
 		}
-		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates()
+		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates(ctx)
 		if err != nil {
 			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
 		}
@@ -578,7 +578,7 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 			res.NewStates = append(res.NewStates, newStatesForSMTForLocked...)
 		}
 		if common.IsKycToken(domainConfig.TokenName) {
-			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates()
+			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates(ctx)
 			if err != nil {
 				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
 			}

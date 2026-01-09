@@ -2,8 +2,6 @@
 pragma solidity ^0.8.20;
 
 import {SmtLib} from "@iden3/contracts/contracts/lib/SmtLib.sol";
-import {Keccak256Hasher} from "@iden3/contracts/contracts/lib/hash/KeccakHasher.sol";
-import {IHasher} from "@iden3/contracts/contracts/interfaces/IHasher.sol";
 import {Noto} from "./Noto.sol";
 
 uint256 constant MAX_SMT_DEPTH = 64;
@@ -15,7 +13,6 @@ contract NotoNullifiers is Noto {
     uint64 public constant NotoVariantNullifiers = 0x0002;
 
     mapping(bytes32 => bool) private _nullifiers;
-    IHasher private _hasher;
 
     function initialize(
         string memory name_,
@@ -24,8 +21,6 @@ contract NotoNullifiers is Noto {
     ) public virtual override initializer {
         super.initialize(name_, symbol_, notary_);
         _commitmentsTree.initialize(MAX_SMT_DEPTH);
-        _hasher = new Keccak256Hasher();
-        _commitmentsTree.setHasher(_hasher);
     }
 
     function buildConfig(
@@ -46,21 +41,21 @@ contract NotoNullifiers is Noto {
 
     function transfer(
         bytes32 txId,
-        bytes32[] calldata nullifiers,
+        bytes32[] calldata inputs,
         bytes32[] calldata outputs,
-        bytes calldata proof,
+        bytes calldata signature,
         bytes calldata data
     ) external virtual override onlyNotary txIdNotUsed(txId) {
-        (uint256 root, bytes memory signature) = abi.decode(
-            proof,
+        (uint256 root, bytes memory _signature) = abi.decode(
+            signature,
             (uint256, bytes)
         );
         if (!_commitmentsTree.rootExists(root)) {
             revert NotoInvalidRoot(root);
         }
-        _processNullifiers(nullifiers);
+        _processNullifiers(inputs);
         _processOutputs(outputs);
-        emit NotoTransfer(txId, nullifiers, outputs, signature, data);
+        emit NotoTransfer(txId, inputs, outputs, _signature, data);
     }
 
     /**
@@ -158,6 +153,7 @@ contract NotoNullifiers is Noto {
         uint256 value
     ) internal view returns (uint256) {
         uint256[3] memory params = [index, value, uint256(1)];
-        return _hasher.hash3(params);
+        bytes memory encoded = abi.encode(params);
+        return uint256(keccak256(encoded));
     }
 }

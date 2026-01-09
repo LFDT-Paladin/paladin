@@ -195,7 +195,7 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	}
 	params := &NotoMintParams{
 		TxId:      req.Transaction.TransactionId,
-		Outputs:   endorsableStateIDs(req.OutputStates),
+		Outputs:   endorsableStateIDs(req.OutputStates, false),
 		Signature: sender.Payload,
 		Data:      data,
 	}

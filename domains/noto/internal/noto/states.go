@@ -33,7 +33,6 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
-	"golang.org/x/crypto/sha3"
 )
 
 var EIP712DomainName = "noto"
@@ -449,10 +448,24 @@ func encodedStateIDs(states []*pldapi.StateEncoded) []string {
 	return inputs
 }
 
-func endorsableStateIDs(states []*prototk.EndorsableState) []string {
+func endorsableStateIDs(states []*prototk.EndorsableState, useNullifier bool) []string {
 	inputs := make([]string, len(states))
 	for i, state := range states {
-		inputs[i] = state.Id
+		if !useNullifier {
+			inputs[i] = state.Id
+		} else {
+			// Use the nullifier as the ID
+			var coin types.NotoCoin
+			var hashBytes *pldtypes.Bytes32
+			err := json.Unmarshal([]byte(state.StateDataJson), &coin)
+			if err == nil {
+				hashBytes, err = calculateNullifier(&coin)
+			}
+			if err != nil {
+				return nil
+			}
+			inputs[i] = hashBytes.HexString()
+		}
 	}
 	return inputs
 }
@@ -517,7 +530,7 @@ func (n *Noto) encodeUnlock(ctx context.Context, contract *ethtypes.Address0xHex
 }
 
 func (n *Noto) unlockHashFromStates(ctx context.Context, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []*prototk.EndorsableState, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
-	return n.unlockHashFromIDs(ctx, contract, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(outputs), data)
+	return n.unlockHashFromIDs(ctx, contract, endorsableStateIDs(lockedInputs, false), endorsableStateIDs(lockedOutputs, false), endorsableStateIDs(outputs, false), data)
 }
 
 func (n *Noto) unlockHashFromIDs(ctx context.Context, contract *ethtypes.Address0xHex, lockedInputs, lockedOutputs, outputs []string, data pldtypes.HexBytes) (ethtypes.HexBytes0xPrefix, error) {
@@ -601,10 +614,6 @@ func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {
 		return nil, err
 	}
 	// then keccak256 the result
-	hash := sha3.NewLegacyKeccak256()
-	hash.Write(encoded)
-	h32 := make([]byte, 32)
-	h := hash.Sum(h32)
-	ret := pldtypes.Bytes32(h)
+	ret := pldtypes.Bytes32Keccak(encoded)
 	return &ret, nil
 }

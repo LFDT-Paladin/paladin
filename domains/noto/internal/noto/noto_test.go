@@ -77,7 +77,7 @@ func TestNotoDomainInit(t *testing.T) {
 		ConfigJson: "{}",
 	})
 	require.NoError(t, err)
-	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 6)
+	assert.Len(t, configureRes.DomainConfig.AbiStateSchemasJson, 8)
 
 	initRes, err := n.InitDomain(ctx, &prototk.InitDomainRequest{
 		AbiStateSchemas: []*prototk.StateSchema{
@@ -87,6 +87,8 @@ func TestNotoDomainInit(t *testing.T) {
 			{Id: "schema4"},
 			{Id: "schema5"},
 			{Id: "schema6"},
+			{Id: "schema7"},
+			{Id: "schema8"},
 		},
 	})
 	require.NoError(t, err)
@@ -688,10 +690,7 @@ func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
 	ctx := context.Background()
 
-	_, err := n.GetVerifier(ctx, nil)
-	assert.ErrorContains(t, err, "PD200022")
-
-	_, err = n.ValidateStateHashes(ctx, nil)
+	_, err := n.ValidateStateHashes(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
 }
 

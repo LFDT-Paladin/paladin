@@ -315,9 +315,9 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 			TxId:   req.Transaction.TransactionId,
 			LockId: &inParams.LockID,
 			Params: NotoUnlockStruct{
-				LockedInputs:  endorsableStateIDs(lockedInputs),
-				LockedOutputs: endorsableStateIDs(lockedOutputs),
-				Outputs:       endorsableStateIDs(outputs),
+				LockedInputs:  endorsableStateIDs(lockedInputs, false),
+				LockedOutputs: endorsableStateIDs(lockedOutputs, false),
+				Outputs:       endorsableStateIDs(outputs, false),
 				Signature:     unlockSignature.Payload,
 				Data:          data,
 			},
@@ -327,9 +327,9 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		params := &types.UnlockPublicParams{
 			TxId:          req.Transaction.TransactionId,
-			LockedInputs:  endorsableStateIDs(lockedInputs),
-			LockedOutputs: endorsableStateIDs(lockedOutputs),
-			Outputs:       endorsableStateIDs(outputs),
+			LockedInputs:  endorsableStateIDs(lockedInputs, false),
+			LockedOutputs: endorsableStateIDs(lockedOutputs, false),
+			Outputs:       endorsableStateIDs(outputs, false),
 			Signature:     unlockSignature.Payload,
 			Data:          data,
 		}

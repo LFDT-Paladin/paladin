@@ -16,13 +16,18 @@
 package smt
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/hex"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
+	"github.com/hyperledger/firefly-signer/pkg/eip712"
+	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
 var MerkleTreeNodeABI = &abi.Parameter{
+	Name:         "MerkleTreeNode",
 	Type:         "tuple",
 	InternalType: "struct MerkleTreeNode",
 	Components: abi.ParameterArray{
@@ -51,4 +56,21 @@ func (m *MerkleTreeNode) Hash(smtName string) (string, error) {
 	h.Write(m.LeftChild.Bytes())
 	h.Write(m.RightChild.Bytes())
 	return pldtypes.Bytes32(h.Sum(nil)).HexString(), nil
+}
+
+func (m *MerkleTreeNode) Hash_EIP712(ctx context.Context) (string, error) {
+	tc, err := MerkleTreeNodeABI.TypeComponentTreeCtx(ctx)
+	if err != nil {
+		return "", err
+	}
+	primaryType, typeSet, err := eip712.ABItoTypedDataV4(ctx, tc)
+	if err != nil {
+		return "", err
+	}
+	var hash ethtypes.HexBytes0xPrefix
+	hash, err = eip712.HashStruct(ctx, primaryType, pldtypes.JSONString(m).ToMap(), typeSet)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash), nil
 }

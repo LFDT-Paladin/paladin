@@ -245,7 +245,7 @@ func (h *prepareBurnUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 		TxId:         &req.Transaction.TransactionId,
 		LockId:       &params.LockID,
 		UnlockTxId:   &unlockTxId,
-		LockedInputs: endorsableStateIDs(lockedInputs),
+		LockedInputs: endorsableStateIDs(lockedInputs, false),
 		UnlockHash:   pldtypes.Bytes32(unlockHash),
 		Signature:    sender.Payload,
 		Data:         data,

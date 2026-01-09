@@ -171,7 +171,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 
 	// Handle new states representing new SMT nodes
 	if useNullifier {
-		newStatesForSMT, err := smtForStates.Storage.GetNewStates()
+		newStatesForSMT, err := smtForStates.Storage.GetNewStates(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("Failed to get new SMT states for tree %s: %s", smtForStates.Name, err)
 			return nil

@@ -126,7 +126,7 @@ func TestStorage(t *testing.T) {
 	assert.NotNil(t, mt)
 	assert.Nil(t, storage.(*statesStorage).rootNode)
 	assert.Equal(t, 0, len(storage.(*statesStorage).committedNewNodes))
-	newStates, err := storage.(*statesStorage).GetNewStates()
+	newStates, err := storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Len(t, newStates, 0)
 	idx, err := storage.(*statesStorage).GetRootNodeRef()
@@ -146,7 +146,7 @@ func TestStorage(t *testing.T) {
 	assert.NotNil(t, mt)
 	assert.Nil(t, storage.(*statesStorage).pendingNodesTx)
 
-	newStates, err = storage.(*statesStorage).GetNewStates()
+	newStates, err = storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Empty(t, newStates)
 	idx, err = storage.(*statesStorage).GetRootNodeRef()
@@ -161,7 +161,7 @@ func TestStorage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "d204000000000000000000000000000000000000000000000000000000000000", storage.(*statesStorage).pendingNodesTx.inflightRoot.Hex())
 	assert.Nil(t, tx.Rollback())
-	newStates, err = storage.(*statesStorage).GetNewStates()
+	newStates, err = storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(newStates))
 }
@@ -180,7 +180,7 @@ func TestUpsertRootNodeIndex(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "d204000000000000000000000000000000000000000000000000000000000000", storage.(*statesStorage).pendingNodesTx.inflightRoot.Hex())
 	assert.Nil(t, tx.Commit())
-	newStates, err := storage.(*statesStorage).GetNewStates()
+	newStates, err := storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(newStates))
 
@@ -272,11 +272,11 @@ func TestInsertNode(t *testing.T) {
 	assert.NoError(t, err)
 	err = tx1.UpsertRootNodeRef(n.Ref())
 	assert.NoError(t, err)
-	newStates, err := storage.(*statesStorage).GetNewStates()
+	newStates, err := storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(newStates))
 	assert.Nil(t, tx1.Commit())
-	newStates, err = storage.(*statesStorage).GetNewStates()
+	newStates, err = storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(newStates))
 
@@ -291,11 +291,11 @@ func TestInsertNode(t *testing.T) {
 	assert.NoError(t, err)
 	err = tx1.UpsertRootNodeRef(n.Ref())
 	assert.NoError(t, err)
-	newStates, err = storage.(*statesStorage).GetNewStates()
+	newStates, err = storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(newStates))
 	assert.Nil(t, tx2.Commit())
-	newStates, err = storage.(*statesStorage).GetNewStates()
+	newStates, err = storage.(*statesStorage).GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(newStates))
 }
@@ -339,7 +339,7 @@ func TestGetNewStates(t *testing.T) {
 
 	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher)
 	storage := s.(*statesStorage)
-	states, err := storage.GetNewStates()
+	states, err := storage.GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Len(t, states, 0)
 
@@ -348,7 +348,7 @@ func TestGetNewStates(t *testing.T) {
 		root: rootNode,
 		txId: "txid",
 	}
-	states, err = storage.GetNewStates()
+	states, err = storage.GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Len(t, states, 1)
 
@@ -360,7 +360,7 @@ func TestGetNewStates(t *testing.T) {
 			txId: "txid",
 		},
 	}
-	states, err = storage.GetNewStates()
+	states, err = storage.GetNewStates(t.Context())
 	assert.NoError(t, err)
 	assert.Len(t, states, 2)
 }

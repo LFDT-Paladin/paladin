@@ -170,7 +170,7 @@ func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransactio
 	}, nil
 }
 
-func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest) (*TransactionWrapper, error) {
+func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, useNullifier bool) (*TransactionWrapper, error) {
 	// Include the signature from the sender/notary
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	sender := domain.FindAttestation("sender", req.AttestationResult)
@@ -184,8 +184,8 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	}
 	params := &NotoBurnParams{
 		TxId:      req.Transaction.TransactionId,
-		Inputs:    endorsableStateIDs(req.InputStates),
-		Outputs:   endorsableStateIDs(req.OutputStates),
+		Inputs:    endorsableStateIDs(req.InputStates, useNullifier),
+		Outputs:   endorsableStateIDs(req.OutputStates, false),
 		Signature: sender.Payload,
 		Data:      data,
 	}
@@ -248,7 +248,8 @@ func (h *burnCommon) prepareBurn(ctx context.Context, tx *types.ParsedTransactio
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "notary")
 	}
 
-	baseTransaction, err := h.baseLedgerInvokeBurn(ctx, tx, req)
+	useNullifier := tx.DomainConfig.IsNullifierVariant()
+	baseTransaction, err := h.baseLedgerInvokeBurn(ctx, tx, req, useNullifier)
 	if err != nil {
 		return nil, err
 	}

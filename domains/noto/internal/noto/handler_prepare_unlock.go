@@ -151,7 +151,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 			TxId:         &req.Transaction.TransactionId,
 			LockId:       &inParams.LockID,
 			UnlockTxId:   &unlockTxId,
-			LockedInputs: endorsableStateIDs(lockedInputs),
+			LockedInputs: endorsableStateIDs(lockedInputs, false),
 			UnlockHash:   pldtypes.Bytes32(unlockHash),
 			Signature:    sender.Payload,
 			Data:         data,
@@ -160,7 +160,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 	} else {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 		params := &NotoPrepareUnlockParams{
-			LockedInputs: endorsableStateIDs(lockedInputs),
+			LockedInputs: endorsableStateIDs(lockedInputs, false),
 			UnlockHash:   pldtypes.Bytes32(unlockHash),
 			Signature:    sender.Payload,
 			Data:         data,

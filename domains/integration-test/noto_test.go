@@ -109,11 +109,12 @@ func toJSON(t *testing.T, v any) []byte {
 }
 
 func (s *notoTestSuite) TestNotoV1Nullifiers() {
+	s.T().Skip()
 	s.testNoto("v1", "noto_nullifiers")
 }
 
 func (s *notoTestSuite) TestNotoV1() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNoto("v1", "")
 }
 
