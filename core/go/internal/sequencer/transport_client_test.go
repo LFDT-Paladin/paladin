@@ -36,6 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -43,6 +44,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type transportClientTestMocks struct {
@@ -65,11 +67,11 @@ func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
 	return &transportClientTestMocks{
 		components:      componentsmocks.NewAllComponents(t),
 		domainManager:   componentsmocks.NewDomainManager(t),
-		stateManager:   componentsmocks.NewStateManager(t),
-		persistence:    persistencemocks.NewPersistence(t),
-		txManager:      componentsmocks.NewTXManager(t),
+		stateManager:    componentsmocks.NewStateManager(t),
+		persistence:     persistencemocks.NewPersistence(t),
+		txManager:       componentsmocks.NewTXManager(t),
 		keyManager:      componentsmocks.NewKeyManager(t),
-		domainAPI:      componentsmocks.NewDomainSmartContract(t),
+		domainAPI:       componentsmocks.NewDomainSmartContract(t),
 		domain:          componentsmocks.NewDomain(t),
 		domainContext:   componentsmocks.NewDomainContext(t),
 		transportWriter: transport.NewMockTransportWriter(t),
@@ -184,7 +186,7 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 	assembleRequest := &engineProto.AssembleRequest{
 		TransactionId:     txID.String(),
 		AssembleRequestId: requestID.String(),
-		ContractAddress:  contractAddr.String(),
+		ContractAddress:   contractAddr.String(),
 		PreAssembly:       preAssemblyJSON,
 		StateLocks:        []byte("{}"),
 		BlockHeight:       100,
@@ -250,7 +252,7 @@ func TestHandleAssembleRequest_InvalidContractAddress(t *testing.T) {
 	assembleRequest := &engineProto.AssembleRequest{
 		TransactionId:     txID.String(),
 		AssembleRequestId: requestID.String(),
-		ContractAddress:  "invalid-address",
+		ContractAddress:   "invalid-address",
 		PreAssembly:       preAssemblyJSON,
 		StateLocks:        []byte("{}"),
 		BlockHeight:       100,
@@ -282,7 +284,7 @@ func TestHandleAssembleRequest_LoadSequencerError(t *testing.T) {
 	assembleRequest := &engineProto.AssembleRequest{
 		TransactionId:     txID.String(),
 		AssembleRequestId: requestID.String(),
-		ContractAddress:  contractAddr.String(),
+		ContractAddress:   contractAddr.String(),
 		PreAssembly:       preAssemblyJSON,
 		StateLocks:        []byte("{}"),
 		BlockHeight:       100,
@@ -325,7 +327,7 @@ func TestHandleAssembleResponse_Success(t *testing.T) {
 	assembleResponse := &engineProto.AssembleResponse{
 		TransactionId:     txID.String(),
 		AssembleRequestId: requestID.String(),
-		ContractAddress:  contractAddr.String(),
+		ContractAddress:   contractAddr.String(),
 		PreAssembly:       preAssemblyJSON,
 		PostAssembly:      postAssemblyJSON,
 	}
@@ -377,7 +379,7 @@ func TestHandleAssembleResponse_Revert(t *testing.T) {
 	assembleResponse := &engineProto.AssembleResponse{
 		TransactionId:     txID.String(),
 		AssembleRequestId: requestID.String(),
-		ContractAddress:  contractAddr.String(),
+		ContractAddress:   contractAddr.String(),
 		PreAssembly:       preAssemblyJSON,
 		PostAssembly:      postAssemblyJSON,
 	}
@@ -420,9 +422,9 @@ func TestHandleAssembleError_Success(t *testing.T) {
 
 	txID := uuid.New()
 	assembleError := &engineProto.AssembleError{
-		TransactionId:  txID.String(),
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
-		ErrorMessage:   "test error",
+		ErrorMessage:    "test error",
 	}
 	payload, _ := proto.Marshal(assembleError)
 
@@ -559,9 +561,9 @@ func TestHandleNonceAssigned_Success(t *testing.T) {
 
 	txID := uuid.New()
 	nonceAssigned := &engineProto.NonceAssigned{
-		TransactionId:  txID.String(),
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
-		Nonce:          42,
+		Nonce:           42,
 	}
 	payload, _ := proto.Marshal(nonceAssigned)
 
@@ -603,9 +605,9 @@ func TestHandleTransactionSubmitted_Success(t *testing.T) {
 	txID := uuid.New()
 	hash := pldtypes.RandBytes32()
 	transactionSubmitted := &engineProto.TransactionSubmitted{
-		TransactionId:  txID.String(),
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
-		Hash:           hash[:],
+		Hash:            hash[:],
 	}
 	payload, _ := proto.Marshal(transactionSubmitted)
 
@@ -646,7 +648,7 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 
 	txID := uuid.New()
 	transactionConfirmed := &engineProto.TransactionConfirmed{
-		TransactionId:  txID.String(),
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
@@ -688,9 +690,9 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 	txID := uuid.New()
 	revertReason := pldtypes.HexBytes("test revert reason")
 	transactionConfirmed := &engineProto.TransactionConfirmed{
-		TransactionId:  txID.String(),
+		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
-		RevertReason:   revertReason,
+		RevertReason:    revertReason,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
 
@@ -735,7 +737,7 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 	txIDBytes := [16]byte(txID)
 	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 	dispatchedEvent := &engineProto.TransactionDispatched{
-		TransactionId:  txIDHex,
+		TransactionId:   txIDHex,
 		ContractAddress: contractAddr.String(),
 	}
 	payload, _ := proto.Marshal(dispatchedEvent)
@@ -901,9 +903,9 @@ func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 
 	preDispatchRequest := &engineProto.TransactionDispatched{
-		Id:             requestID.String(),
-		TransactionId: txIDHex,
-		ContractAddress: contractAddr.String(),
+		Id:               requestID.String(),
+		TransactionId:    txIDHex,
+		ContractAddress:  contractAddr.String(),
 		PostAssembleHash: hash[:],
 	}
 	payload, _ := proto.Marshal(preDispatchRequest)
@@ -950,8 +952,8 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	txIDHex := "0x" + fmt.Sprintf("%032x", txIDBytes)
 
 	preDispatchResponse := &engineProto.TransactionDispatched{
-		Id:             requestID.String(),
-		TransactionId: txIDHex,
+		Id:              requestID.String(),
+		TransactionId:   txIDHex,
 		ContractAddress: contractAddr.String(),
 	}
 	payload, _ := proto.Marshal(preDispatchResponse)
@@ -1023,3 +1025,1351 @@ func TestHandleDelegationRequestAcknowledgment_UnmarshalError(t *testing.T) {
 	sm.handleDelegationRequestAcknowledgment(ctx, message)
 }
 
+// Test handleEndorsementRequest
+func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	idempotencyKey := uuid.New().String()
+	party := "party@test-node"
+
+	// Create test data
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: contractAddr.String(),
+		},
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		IdempotencyKey:           idempotencyKey,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Times(2)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Times(3)
+	mocks.persistence.EXPECT().NOTX().Return(nil).Times(3)
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Times(2)
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Times(2).Return(resolvedKey, nil)
+	mocks.keyManager.EXPECT().Sign(ctx, resolvedKey, "raw", []byte("endorsement-payload")).Return([]byte("signature"), nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result - SIGN
+	endorsementResult := &components.EndorsementResult{
+		Result:  prototk.EndorseTransactionResponse_SIGN,
+		Payload: []byte("endorsement-payload"),
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.MatchedBy(func(req *components.PrivateTransactionEndorseRequest) bool {
+		return req.TransactionSpecification != nil && req.Endorsement != nil
+	})).Return(endorsementResult, nil).Once()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinator.EndorsementRequestedEvent)
+		return ok && event.From == "coordinator-node"
+	})).Once()
+
+	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
+	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, "", "endorsement1", party, "coordinator-node").Return(nil).Once()
+
+	sm.handleEndorsementRequest(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+	mocks.transportWriter.AssertExpectations(t)
+	mocks.metrics.AssertExpectations(t)
+}
+
+func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	idempotencyKey := uuid.New().String()
+	party := "party@test-node"
+	revertReason := "transaction reverted"
+
+	// Create test data
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: contractAddr.String(),
+		},
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		IdempotencyKey:           idempotencyKey,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Times(2)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Times(3)
+	mocks.persistence.EXPECT().NOTX().Return(nil).Times(3)
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result - REVERT
+	endorsementResult := &components.EndorsementResult{
+		Result:       prototk.EndorseTransactionResponse_REVERT,
+		Payload:      []byte("endorsement-payload"),
+		RevertReason: &revertReason,
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
+
+	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
+	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, revertReason, "endorsement1", party, "coordinator-node").Return(nil).Once()
+
+	sm.handleEndorsementRequest(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+	mocks.transportWriter.AssertExpectations(t)
+	mocks.metrics.AssertExpectations(t)
+}
+
+func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	idempotencyKey := uuid.New().String()
+	party := "party@test-node"
+
+	// Create test data
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress: contractAddr.String(),
+		},
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		IdempotencyKey:           idempotencyKey,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Times(2)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Times(3)
+	mocks.persistence.EXPECT().NOTX().Return(nil).Times(3)
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result - ENDORSER_SUBMIT
+	endorsementResult := &components.EndorsementResult{
+		Result:  prototk.EndorseTransactionResponse_ENDORSER_SUBMIT,
+		Payload: []byte("endorsement-payload"),
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
+
+	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
+	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.MatchedBy(func(att *prototk.AttestationResult) bool {
+		return len(att.Constraints) > 0 && att.Constraints[0] == prototk.AttestationResult_ENDORSER_MUST_SUBMIT
+	}), endorsementResult, "", "endorsement1", party, "coordinator-node").Return(nil).Once()
+
+	sm.handleEndorsementRequest(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+	mocks.transportWriter.AssertExpectations(t)
+	mocks.metrics.AssertExpectations(t)
+}
+
+func TestHandleEndorsementRequest_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     []byte("invalid-proto"),
+	}
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_InvalidContractAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	txID := uuid.New().String()
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:   txID,
+		ContractAddress: "invalid-address",
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_GetSmartContractError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:   txID,
+		ContractAddress: contractAddr.String(),
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_TransactionSpecificationUnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	invalidAny, _ := anypb.New(&prototk.TransactionSpecification{})
+	invalidAny.Value = []byte("invalid")
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		TransactionSpecification: invalidAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_VerifierUnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	txSpecAny, _ := anypb.New(txSpec)
+	invalidAny, _ := anypb.New(&prototk.ResolvedVerifier{})
+	invalidAny.Value = []byte("invalid")
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{invalidAny},
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_SignatureUnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	txSpecAny, _ := anypb.New(txSpec)
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+	verifierAny, _ := anypb.New(verifier)
+	invalidAny, _ := anypb.New(&prototk.AttestationResult{})
+	invalidAny.Value = []byte("invalid")
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{invalidAny},
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_IdentityResolutionError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		Party:                    "invalid-party",
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Mock identity resolution will fail
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(nil, errors.New("key not found")).Once()
+
+	// Should not panic - identity resolution will fail
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_ResolveKeyError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	party := "party@test-node"
+
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Mock identity resolution succeeds but key resolution fails
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Maybe()
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(nil, errors.New("key not found")).Maybe()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_EndorseTransactionError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	party := "party@test-node"
+
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement error
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(nil, errors.New("endorsement failed")).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_LoadSequencerError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	party := "party@test-node"
+
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result
+	endorsementResult := &components.EndorsementResult{
+		Result:  prototk.EndorseTransactionResponse_SIGN,
+		Payload: []byte("endorsement-payload"),
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	// Mock identity validation for signing (signing happens before LoadSequencer)
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+	mocks.keyManager.EXPECT().Sign(ctx, resolvedKey, "raw", []byte("endorsement-payload")).Return([]byte("signature"), nil).Once()
+
+	// Mock LoadSequencer failure
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	idempotencyKey := uuid.New().String()
+	party := "party@test-node"
+
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		IdempotencyKey:           idempotencyKey,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result
+	endorsementResult := &components.EndorsementResult{
+		Result:  prototk.EndorseTransactionResponse_SIGN,
+		Payload: []byte("endorsement-payload"),
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	// Mock identity validation for signing
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+	mocks.keyManager.EXPECT().Sign(ctx, resolvedKey, "raw", []byte("endorsement-payload")).Return([]byte("signature"), nil).Once()
+
+	// Mock LoadSequencer
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
+
+	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
+	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, "", "endorsement1", party, "coordinator-node").Return(errors.New("send failed")).Once()
+
+	// Should not panic
+	sm.handleEndorsementRequest(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+	mocks.transportWriter.AssertExpectations(t)
+	mocks.metrics.AssertExpectations(t)
+}
+
+func TestHandleEndorsementRequest_SignValidationError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New().String()
+	party := "party@other-node" // Different node, so validation will fail
+
+	txSpec := &prototk.TransactionSpecification{
+		TransactionId: txID,
+	}
+	verifier := &prototk.ResolvedVerifier{
+		Lookup: "verifier@node1",
+	}
+
+	signature := &prototk.AttestationResult{
+		Name: "sig1",
+	}
+
+	state := &prototk.EndorsableState{
+		Id: "state1",
+	}
+
+	attestationRequest := &prototk.AttestationRequest{
+		Name:            "endorsement1",
+		Algorithm:       "ECDSA",
+		VerifierType:    "eth_address",
+		PayloadType:     "raw",
+		AttestationType: prototk.AttestationType_ENDORSE,
+	}
+
+	txSpecAny, _ := anypb.New(txSpec)
+	verifierAny, _ := anypb.New(verifier)
+	signatureAny, _ := anypb.New(signature)
+	stateAny, _ := anypb.New(state)
+	attestationAny, _ := anypb.New(attestationRequest)
+
+	endorsementRequest := &engineProto.EndorsementRequest{
+		TransactionId:            txID,
+		ContractAddress:          contractAddr.String(),
+		Party:                    party,
+		TransactionSpecification: txSpecAny,
+		Verifiers:                []*anypb.Any{verifierAny},
+		Signatures:               []*anypb.Any{signatureAny},
+		InputStates:              []*anypb.Any{stateAny},
+		ReadStates:               []*anypb.Any{stateAny},
+		OutputStates:             []*anypb.Any{stateAny},
+		InfoStates:               []*anypb.Any{stateAny},
+		AttestationRequest:       attestationAny,
+	}
+	payload, _ := proto.Marshal(endorsementRequest)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementRequest,
+		Payload:     payload,
+	}
+
+	// Setup mocks
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Maybe()
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(mocks.domainAPI, nil).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	// Mock identity resolution
+	mocks.components.EXPECT().KeyManager().Return(mocks.keyManager).Once()
+	resolvedKey := &pldapi.KeyMappingAndVerifier{
+		Verifier: &pldapi.KeyVerifier{
+			Verifier:  "test-verifier",
+			Type:      "eth_address",
+			Algorithm: "ECDSA",
+		},
+	}
+	mocks.keyManager.EXPECT().ResolveKeyNewDatabaseTX(ctx, mock.Anything, "ECDSA", "eth_address").Return(resolvedKey, nil).Once()
+
+	// Mock domain context
+	mocks.domainAPI.EXPECT().Domain().Return(mocks.domain).Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+	mocks.components.EXPECT().StateManager().Return(mocks.stateManager).Once()
+	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Once()
+	mocks.domainContext.EXPECT().Close().Once()
+
+	// Mock endorsement result - SIGN but for different node
+	endorsementResult := &components.EndorsementResult{
+		Result:  prototk.EndorseTransactionResponse_SIGN,
+		Payload: []byte("endorsement-payload"),
+		Endorser: &prototk.ResolvedVerifier{
+			Lookup: party,
+		},
+	}
+	mocks.domainAPI.EXPECT().EndorseTransaction(mocks.domainContext, mock.Anything, mock.Anything).Return(endorsementResult, nil).Once()
+
+	// Validation will fail because party is for different node, so signing won't happen
+	// But LoadSequencer will still be called
+	mocks.metrics.EXPECT().SetActiveSequencers(0).Maybe()
+
+	// Should not panic - validation will fail because party is for different node
+	sm.handleEndorsementRequest(ctx, message)
+}
+
+// Test handleEndorsementResponse
+func TestHandleEndorsementResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	idempotencyKey := uuid.New()
+	attestationRequestName := "endorsement1"
+
+	// Create endorsement
+	endorsement := &prototk.AttestationResult{
+		Name: "test-endorsement",
+	}
+	endorsementAny, _ := anypb.New(endorsement)
+
+	endorsementResponse := &engineProto.EndorsementResponse{
+		TransactionId:          txID.String(),
+		IdempotencyKey:         idempotencyKey.String(),
+		ContractAddress:        contractAddr.String(),
+		Endorsement:            endorsementAny,
+		AttestationRequestName: attestationRequestName,
+	}
+	payload, _ := proto.Marshal(endorsementResponse)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     payload,
+	}
+
+	// Setup mocks - LoadSequencer will be called
+	setupDefaultMocks(ctx, mocks, contractAddr)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	// Mock GetCurrentCoordinator call from LoadSequencer
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordTransaction.EndorsedEvent)
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.Endorsement != nil
+	})).Once()
+
+	sm.handleEndorsementResponse(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+}
+
+func TestHandleEndorsementResponse_Revert(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	idempotencyKey := uuid.New()
+	revertReason := "transaction reverted"
+	attestationRequestName := "endorsement1"
+
+	endorsementResponse := &engineProto.EndorsementResponse{
+		TransactionId:          txID.String(),
+		IdempotencyKey:         idempotencyKey.String(),
+		ContractAddress:        contractAddr.String(),
+		RevertReason:           &revertReason,
+		AttestationRequestName: attestationRequestName,
+	}
+	payload, _ := proto.Marshal(endorsementResponse)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     payload,
+	}
+
+	// Setup mocks - LoadSequencer will be called
+	setupDefaultMocks(ctx, mocks, contractAddr)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	// Mock GetCurrentCoordinator call from LoadSequencer
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordTransaction.EndorsedRejectedEvent)
+		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
+	})).Once()
+
+	sm.handleEndorsementResponse(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+}
+
+func TestHandleEndorsementResponse_UnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     []byte("invalid-proto"),
+	}
+
+	// Should not panic
+	sm.handleEndorsementResponse(ctx, message)
+}
+
+func TestHandleEndorsementResponse_InvalidContractAddress(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	txID := uuid.New()
+	idempotencyKey := uuid.New()
+
+	endorsementResponse := &engineProto.EndorsementResponse{
+		TransactionId:   txID.String(),
+		IdempotencyKey:  idempotencyKey.String(),
+		ContractAddress: "invalid-address",
+	}
+	payload, _ := proto.Marshal(endorsementResponse)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     payload,
+	}
+
+	// Should not panic
+	sm.handleEndorsementResponse(ctx, message)
+}
+
+func TestHandleEndorsementResponse_LoadSequencerError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	idempotencyKey := uuid.New()
+
+	endorsementResponse := &engineProto.EndorsementResponse{
+		TransactionId:   txID.String(),
+		IdempotencyKey:  idempotencyKey.String(),
+		ContractAddress: contractAddr.String(),
+	}
+	payload, _ := proto.Marshal(endorsementResponse)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     payload,
+	}
+
+	// Setup mocks - LoadSequencer will fail
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, errors.New("not found")).Once()
+
+	// Should not panic
+	sm.handleEndorsementResponse(ctx, message)
+}
+
+func TestHandleEndorsementResponse_EndorsementUnmarshalError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	idempotencyKey := uuid.New()
+
+	// Create invalid endorsement (corrupted data)
+	invalidEndorsementAny, _ := anypb.New(&prototk.AttestationResult{})
+	invalidEndorsementAny.Value = []byte("invalid-endorsement-data")
+
+	endorsementResponse := &engineProto.EndorsementResponse{
+		TransactionId:   txID.String(),
+		IdempotencyKey:  idempotencyKey.String(),
+		ContractAddress: contractAddr.String(),
+		Endorsement:     invalidEndorsementAny,
+	}
+	payload, _ := proto.Marshal(endorsementResponse)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_EndorsementResponse,
+		Payload:     payload,
+	}
+
+	// Setup mocks - LoadSequencer will be called
+	setupDefaultMocks(ctx, mocks, contractAddr)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	// Mock GetCurrentCoordinator call from LoadSequencer
+	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
+
+	// Should not panic - endorsement unmarshal will fail but function should handle it gracefully
+	sm.handleEndorsementResponse(ctx, message)
+
+	mocks.coordinator.AssertExpectations(t)
+}

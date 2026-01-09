@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -2423,4 +2424,128 @@ func TestInitWithGasOracleInvalidMethod(t *testing.T) {
 	err := hgc.Init(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid HTTP method for gas oracle API: DELETE")
+}
+
+// TestGetGasPriceFromGasOracleTemplateExecuteFailure tests template execution failure (lines 182-183)
+func TestGetGasPriceFromGasOracleTemplateExecuteFailure(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxFeePerGas": "{{.maxFeePerGas}}",
+				"maxPriorityFeePerGas": "{{.maxPriorityFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Manually replace the template with one that will fail at execution time
+	// Using a template function that panics, which causes Execute to return an error
+	badTemplate := template.Must(template.New("badTemplate").Funcs(template.FuncMap{
+		"panicFunc": func() string {
+			panic("template execution panic")
+		},
+	}).Parse(`{{panicFunc}}`))
+	hgc.gasOracleTemplate = badTemplate
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock successful HTTP response
+	mockResponse := `{
+		"maxFeePerGas": "0x2FAF080",
+		"maxPriorityFeePerGas": "0x3B9ACA0"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "Failed to execute gas oracle template")
+}
+
+// TestGetGasPriceFromGasOracleMissingMaxFeePerGasAfterParsing tests missing MaxFeePerGas validation after JSON parsing (line 195)
+func TestGetGasPriceFromGasOracleMissingMaxFeePerGasAfterParsing(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxPriorityFeePerGas": "{{.maxPriorityFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock response that has maxPriorityFeePerGas but not maxFeePerGas
+	// The template will produce valid JSON without maxFeePerGas field
+	mockResponse := `{
+		"maxPriorityFeePerGas": "0x3B9ACA0"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "maxFeePerGas not found in templated gas oracle response")
+}
+
+// TestGetGasPriceFromGasOracleMissingMaxPriorityFeePerGasAfterParsing tests missing MaxPriorityFeePerGas validation after JSON parsing (line 199)
+func TestGetGasPriceFromGasOracleMissingMaxPriorityFeePerGasAfterParsing(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxFeePerGas": "{{.maxFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock response that has maxFeePerGas but not maxPriorityFeePerGas
+	// The template will produce valid JSON without maxPriorityFeePerGas field
+	mockResponse := `{
+		"maxFeePerGas": "0x2FAF080"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "maxPriorityFeePerGas not found in templated gas oracle response")
 }

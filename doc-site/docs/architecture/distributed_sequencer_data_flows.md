@@ -5,10 +5,23 @@ Paladin nodes communicate transaction data between themselves in order to assemb
 To aid with problem diagnostics and to allow an identity who submits a transaction to track its progress through sequencing and on to the base ledger, additional information is passed between certain nodes. This includes:
 
  - Sequencing activity
+    - This is available on the originator node.
     - This aids with problem diagnosis. For example a submitting node is able to confirm if any attempts have been made to progress the transaction
-    - Currently the only sequencing activity that is recorded is `dispatch` activity. This is recorded when a node intends to submit a public transaction to the base ledger (but may not necessarily have done so yet), or when a node creates a chained transaction (see #chain_transactions) 
+    - Currently the only sequencing activity type that is recorded is the `dispatch` activity. This is recorded when a node intends to submit a public transaction to the base ledger (but may not necessarily have done so yet), or when a node creates a chained transaction (see #chained_transactions) 
+    - Sequencing activities have an optional `remote_id` which is used to correlate the activity with a record on the coordinating node. For `dispatch` activities the `remote_id` is the ID of a `dispatch` on the coordinating node.
  - Public transaction submissions to the base ledger
+    - This is available from both the originator node and the coordinator node (see JSON/RPC call types below).
     - This also aids with problem diagnosis. For example a submitting node is able to confirm if any attempts have been made to submit the base ledger transaction, and whether those attempts have been successful.
+ - Dispatch information
+    - This is available on the coordinator node.
+    - This can be used to determine if a node has attempted to dispatch a public transaction
+    - The `remote_id` of the `dispatch` sequencer activity is the ID of a `dispatch` record at the coordinator node. 
+
+The follow JSON/RPC queries can be used to retrieve sequencing activities and public transaction submissions:
+
+ - `ptx_getTransactionFull` see [TransactionFull](../reference/types/transactionfull.md#transactionfull)
+ - `ptx_getTransactionReceiptFull` see [TransactionReceiptFull](../reference/types/transactionreceiptfull.md)
+    - If the node that coordinated the transaction is not the same as the originating node, the full Paladin transaction is not available to query. `ptx_getTransactionReceiptFull` can be used instead to retrieve the receipt and its related public transactions.
 
 The following diagram gives an example of the data flows between nodes for a private transaction submitted byte **member1** to **Node 1**.
 

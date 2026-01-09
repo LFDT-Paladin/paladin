@@ -1140,3 +1140,225 @@ func TestReceiptSorting(t *testing.T) {
 		{ReceiptInput: components.ReceiptInput{OnChain: pldtypes.OnChainLocation{Type: pldtypes.OnChainEvent, BlockNumber: 1100}}},
 	}, receiptList)
 }
+
+func TestNotifyTransactionsQueryPublicTxError(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	contract1 := pldtypes.RandAddress()
+	eventTxHash := pldtypes.RandHex(32)
+
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		// Mock QueryPublicTxForTransactions to return an error to exercise the error logging
+		var queryJson *query.QueryJSON = nil
+		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(nil, fmt.Errorf("database query failed"))
+
+		mc.sequencerManager.On("HandleTransactionConfirmedByChainedTransaction", mock.Anything, mock.Anything).Return(nil)
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+	mp.Mock.ExpectCommit()
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				{
+					TransactionId: txIDBytes32.String(),
+					Location: &prototk.OnChainEventLocation{
+						TransactionHash:  eventTxHash,
+						BlockNumber:      1000,
+						TransactionIndex: 0,
+						LogIndex:         0,
+					},
+				},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	// Add an inflight waiter so notifyTransactions has something to notify
+	req := td.dm.privateTxWaiter.AddInflight(td.ctx, txID)
+
+	err = mp.P.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{
+					Address:      *td.d.registryAddress,
+					IndexedEvent: &pldapi.IndexedEvent{},
+					Data:         pldtypes.RawJSON(`{"result": "success"}`),
+				},
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// Wait for the post-commit hook to execute notifyTransactions
+	_, err = req.Wait()
+	require.NoError(t, err)
+}
+
+func TestNotifyTransactionsHandleTransactionConfirmedError(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	contract1 := pldtypes.RandAddress()
+	eventTxHash := pldtypes.RandHex(32)
+	matchTxHash := pldtypes.MustParseBytes32(eventTxHash)
+
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		// Mock QueryPublicTxForTransactions to return a matching public transaction
+		var queryJson *query.QueryJSON = nil
+		matchTXNonce := pldtypes.MustParseHexUint64("1")
+		matchFrom := *pldtypes.RandAddress()
+		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(map[uuid.UUID][]*pldapi.PublicTx{txID: {
+			{
+				TransactionHash: &matchTxHash,
+				Nonce:           &matchTXNonce,
+				From:            matchFrom,
+			},
+		}}, nil)
+
+		// Mock HandleTransactionConfirmed to return an error to exercise the error logging at line 146
+		mc.sequencerManager.On("HandleTransactionConfirmed", mock.Anything, mock.Anything, &matchFrom, &matchTXNonce).Return(fmt.Errorf("sequencer manager error"))
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+	mp.Mock.ExpectCommit()
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				{
+					TransactionId: txIDBytes32.String(),
+					Location: &prototk.OnChainEventLocation{
+						TransactionHash:  eventTxHash,
+						BlockNumber:      1000,
+						TransactionIndex: 0,
+						LogIndex:         0,
+					},
+				},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	// Add an inflight waiter so notifyTransactions has something to notify
+	req := td.dm.privateTxWaiter.AddInflight(td.ctx, txID)
+
+	err = mp.P.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{
+					Address:      *contract1,
+					IndexedEvent: &pldapi.IndexedEvent{},
+					Data:         pldtypes.RawJSON(`{"result": "success"}`),
+				},
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// Wait for the post-commit hook to execute notifyTransactions
+	_, err = req.Wait()
+	require.NoError(t, err)
+}
+
+func TestNotifyTransactionsHandleTransactionConfirmedByChainedTransactionError(t *testing.T) {
+	batchID := uuid.New()
+	txID := uuid.New()
+	txIDBytes32 := pldtypes.Bytes32UUIDFirst16(txID)
+	contract1 := pldtypes.RandAddress()
+	eventTxHash := pldtypes.RandHex(32)
+
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		mc.txManager.On("FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+		// Mock QueryPublicTxForTransactions to return empty (no matching public transaction)
+		// This will cause the code to fall back to HandleTransactionConfirmedByChainedTransaction
+		var queryJson *query.QueryJSON = nil
+		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(map[uuid.UUID][]*pldapi.PublicTx{}, nil)
+
+		// Mock HandleTransactionConfirmedByChainedTransaction to return an error to exercise the error logging at lines 155-160
+		mc.sequencerManager.On("HandleTransactionConfirmedByChainedTransaction", mock.Anything, mock.Anything).Return(fmt.Errorf("chained transaction confirmation error"))
+	})
+	defer done()
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(t, err)
+
+	mp.Mock.ExpectBegin()
+	mp.Mock.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows(
+		[]string{"address", "domain_address"},
+	).AddRow(contract1, td.d.registryAddress))
+	mp.Mock.ExpectCommit()
+
+	td.tp.Functions.HandleEventBatch = func(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+		return &prototk.HandleEventBatchResponse{
+			TransactionsComplete: []*prototk.CompletedTransaction{
+				{
+					TransactionId: txIDBytes32.String(),
+					Location: &prototk.OnChainEventLocation{
+						TransactionHash:  eventTxHash,
+						BlockNumber:      1000,
+						TransactionIndex: 0,
+						LogIndex:         0,
+					},
+				},
+			},
+		}, nil
+	}
+	td.tp.Functions.InitContract = func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+		return &prototk.InitContractResponse{Valid: true, ContractConfig: &prototk.ContractConfig{}}, nil
+	}
+
+	// Add an inflight waiter so notifyTransactions has something to notify
+	req := td.dm.privateTxWaiter.AddInflight(td.ctx, txID)
+
+	err = mp.P.Transaction(td.ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return td.d.handleEventBatch(td.ctx, dbTX, &blockindexer.EventDeliveryBatch{
+			BatchID: batchID,
+			Events: []*pldapi.EventWithData{
+				{
+					Address:      *td.d.registryAddress,
+					IndexedEvent: &pldapi.IndexedEvent{},
+					Data:         pldtypes.RawJSON(`{"result": "success"}`),
+				},
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// Wait for the post-commit hook to execute notifyTransactions
+	_, err = req.Wait()
+	require.NoError(t, err)
+}
