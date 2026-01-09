@@ -36,7 +36,7 @@ type DBPublicTxn struct {
 	Suspended       bool                   `gorm:"column:suspended"` // excluded from processing because it's suspended by user
 	Dispatcher      string                 `gorm:"column:dispatcher"`
 	Completed       *DBPublicTxnCompletion `gorm:"foreignKey:pub_txn_id;references:pub_txn_id"` // excluded from processing because it's done
-	Submissions     []*DBPubTxnSubmission  `gorm:"-"`                                           // we do the aggregation, not GORM
+	Submissions     []*DBPubTxnSubmission  `gorm:"foreignKey:pub_txn_id"`                       // we do the aggregation, not GORM
 	// Binding is used only on queries by transaction (GORM doesn't seem to allow us to define a separate struct for this)
 	Binding *DBPublicTxnBinding `gorm:"foreignKey:pub_txn_id;references:pub_txn_id;"`
 }

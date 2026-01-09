@@ -378,7 +378,6 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 
 	persistedTransactions := make([]*DBPublicTxn, 0, len(txns))
 	persistedSubmissions := make([]*DBPubTxnSubmission, 0, len(txns))
-	persistedBindings := make([]*DBPublicTxnBinding, 0, len(txns))
 	for _, tx := range txns {
 		dbTransaction := &DBPublicTxn{
 			From:            tx.From,
@@ -391,7 +390,6 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			Created:         tx.Created,
 			FixedGasPricing: pldtypes.JSONString(tx.PublicTxGasPricing),
 		}
-		persistedTransactions = append(persistedTransactions, dbTransaction)
 		dbSubmission := &DBPubTxnSubmission{
 			TransactionHash: *tx.TransactionHash,
 			Created:         tx.PublicTx.Submissions[0].Time, // We should never get here without exactly one submission
@@ -403,38 +401,18 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			Transaction:     tx.Transaction,
 			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.TransactionType),
 		}
-		persistedBindings = append(persistedBindings, dbBinding)
+		dbTransaction.Submissions = persistedSubmissions
+		dbTransaction.Binding = dbBinding
+		persistedTransactions = append(persistedTransactions, dbTransaction)
 	}
 
-	for i, tx := range persistedTransactions {
-		err = dbTX.DB().
-			WithContext(ctx).
-			Table("public_txns").
-			Create(tx).
-			Error
-		if err != nil {
-			return err
-		}
-
-		persistedSubmissions[i].PublicTxnID = tx.PublicTxnID
-		persistedBindings[i].PublicTxnID = tx.PublicTxnID
-		err = dbTX.DB().
-			WithContext(ctx).
-			Table("public_submissions").
-			Create(persistedSubmissions[i]).
-			Error
-		if err != nil {
-			return err
-		}
-
-		err = dbTX.DB().
-			WithContext(ctx).
-			Table("public_txn_bindings").
-			Create(persistedBindings[i]).
-			Error
-		if err != nil {
-			return err
-		}
+	err = dbTX.DB().
+		WithContext(ctx).
+		Table("public_txns").
+		Create(persistedTransactions).
+		Error
+	if err != nil {
+		return err
 	}
 
 	return err
