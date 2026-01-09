@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -81,4 +81,3 @@ func TestStateWithLabels_ValueSet_WithResolvingValueSet(t *testing.T) {
 	result := state.ValueSet()
 	assert.Equal(t, labelValues, result)
 }
-

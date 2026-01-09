@@ -155,7 +155,7 @@ func TestUpsertSchemaAndStates(t *testing.T) {
 	ctx, ss, _, done := newDBTestStateManager(t)
 	defer done()
 
-	// Enable trace logging to exercise the trace log lines in pendingStateWrites.exec
+	// Enable trace logging to exercise the trace log lines
 	log.EnsureInit()
 	originalLevel := log.GetLevel()
 	log.SetLevel("trace")
@@ -194,9 +194,7 @@ func TestUpsertSchemaAndStates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dc.unFlushed.states, 3)
 
-	// This will exercise the trace logging lines 79-81 in pendingStateWrites.exec
 	syncFlushContext(t, dc)
-
 }
 
 func TestStateLockErrorsTransaction(t *testing.T) {
@@ -251,7 +249,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	ctx, ss, _, done := newDBTestStateManager(t)
 	defer done()
 
-	// Enable trace logging to exercise the trace log lines in FindAvailableStates
+	// Enable trace logging to exercise the trace log lines
 	log.EnsureInit()
 	originalLevel := log.GetLevel()
 	log.SetLevel("trace")
@@ -1635,7 +1633,6 @@ func TestMergeUnFlushedMultipleMatches(t *testing.T) {
 	ctx, ss, _, _, done := newDBMockStateManager(t)
 	defer done()
 
-	// Enable trace logging to exercise the trace log lines in mergeUnFlushed
 	log.EnsureInit()
 	originalLevel := log.GetLevel()
 	log.SetLevel("trace")
@@ -1669,7 +1666,6 @@ func TestMergeUnFlushedMultipleMatches(t *testing.T) {
 	dc.creatingStates[s3.ID.String()] = s3
 
 	// All states should match a query that matches all
-	// This will exercise the trace logging lines 217-219 in mergeUnFlushed
 	matches, err := dc.mergeUnFlushed(schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
 	require.NoError(t, err)
 	require.Len(t, matches, 3)

@@ -876,7 +876,6 @@ func TestDispatchActionInvalidAction(t *testing.T) {
 	testNonce := uint64(12345)
 
 	// Call dispatchAction with an invalid action type (beyond the defined constants)
-	// This should trigger the default return case (line 71)
 	invalidAction := AsyncRequestType(999) // Invalid action type
 	err := ptm.dispatchAction(ctx, *testAddress, testNonce, invalidAction)
 

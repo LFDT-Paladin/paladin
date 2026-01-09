@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -218,4 +218,3 @@ func TestWriteReceivedSequencingActivities_ActivityWithAllFields(t *testing.T) {
 	err = sm.WriteReceivedSequencingActivities(ctx, mp.P.NOTX(), []*pldapi.SequencerActivity{sequencingActivity})
 	require.NoError(t, err)
 }
-

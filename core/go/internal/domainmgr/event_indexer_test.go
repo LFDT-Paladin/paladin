@@ -1308,7 +1308,6 @@ func TestNotifyTransactionsHandleTransactionConfirmedByChainedTransactionError(t
 		var queryJson *query.QueryJSON = nil
 		mc.publicTxManager.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, []uuid.UUID{txID}, queryJson).Return(map[uuid.UUID][]*pldapi.PublicTx{}, nil)
 
-		// Mock HandleTransactionConfirmedByChainedTransaction to return an error to exercise the error logging at lines 155-160
 		mc.sequencerManager.On("HandleTransactionConfirmedByChainedTransaction", mock.Anything, mock.Anything).Return(fmt.Errorf("chained transaction confirmation error"))
 	})
 	defer done()
