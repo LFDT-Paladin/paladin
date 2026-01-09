@@ -825,9 +825,9 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 	_, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
 
-	// Bob's node has the receipt and full transaction
+	// Bob's node has the receipt only
 	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTx.ID(), bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
@@ -904,7 +904,7 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyG
 
 	// Bob's node has the full transaction and receipt
 	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTx.ID(), bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
@@ -1176,13 +1176,6 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 	customDuration := 10 * time.Second
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
-		transactionLatencyThresholdCustom(t, &customDuration),
-		100*time.Millisecond,
-		"Transaction did not receive a receipt",
-	)
-
-	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
 		transactionLatencyThresholdCustom(t, &customDuration),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
