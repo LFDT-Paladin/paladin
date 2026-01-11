@@ -90,8 +90,10 @@ export const fetchEvents = async (pageParam?: IEvent, txHash?: string): Promise<
     ];
   }
 
-  return await returnResponse(
-    () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
-    i18next.t("errorFetchingLatestEvents")
+  return <Promise<IEvent[]>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(requestPayload))),
+      i18next.t("errorFetchingLatestEvents")
+    )
   );
 };
