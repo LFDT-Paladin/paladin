@@ -23,6 +23,11 @@ import { RpcEndpoint, RpcMethods } from "./rpcMethods";
 export const fetchEvents = async (pageParam?: IEvent, txHash?: string): Promise<IEvent[]> => {
 
   if (txHash && txHash.length > 0) {
+
+    if (pageParam !== undefined) {
+      return [];
+    }
+
     const requestPayload: any = {
       jsonrpc: "2.0",
       id: Date.now(),
