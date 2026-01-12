@@ -1,5 +1,5 @@
 /*
- * Copyright © 2025 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -232,10 +232,10 @@ func TestFakeClockForTesting_ScheduleTimer_ReturnsCancelFunction(t *testing.T) {
 
 	// Verify cancel function is returned and can be called
 	assert.NotNil(t, cancel, "ScheduleTimer should return a cancel function")
-	
+
 	// Call cancel - should not panic
 	cancel()
-	
+
 	// Verify callback was never called (fake clock doesn't actually schedule)
 	assert.False(t, callbackCalled, "callback should not be called in fake clock")
 }
@@ -320,7 +320,6 @@ func TestFakeClockForTesting_ScheduleTimer_WithNilCallback(t *testing.T) {
 	// Should not panic even with nil callback
 	cancel := clock.ScheduleTimer(ctx, duration, nil)
 	assert.NotNil(t, cancel, "should return cancel function even with nil callback")
-	
+
 	cancel()
 }
-
