@@ -171,17 +171,14 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
 	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
 
-	// Extract coordinator and request ID from events that require a response
+	// Extract coordinator from events that require a response
 	var coordinator string
-	var requestID uuid.UUID
 
 	switch e := event.(type) {
 	case *transaction.AssembleRequestReceivedEvent:
 		coordinator = e.Coordinator
-		requestID = e.RequestID
 	case *transaction.PreDispatchRequestReceivedEvent:
 		coordinator = e.Coordinator
-		requestID = e.RequestID
 	default:
 		// Other events can be safely ignored
 		return nil
@@ -189,7 +186,7 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 
 	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
 		event.TypeString(), event.GetTransactionID(), coordinator)
-	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID(), requestID)
+	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
 func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {

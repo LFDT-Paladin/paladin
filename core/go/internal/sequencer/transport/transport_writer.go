@@ -50,7 +50,7 @@ type TransportWriter interface {
 	SendPreDispatchRequest(ctx context.Context, originatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, hash *pldtypes.Bytes32) error
 	SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
 	SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
-	SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID, assembleRequestID uuid.UUID) error
+	SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error
 }
 
 func NewTransportWriter(contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
@@ -624,11 +624,11 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 	return err
 }
 
-// SendTransactionUnknown is sent by an originator when it receives a message for a transaction
+// SendTransactionUnknown is called by an originator when it receives a message for a transaction
 // it doesn't recognize. The most likely cause is that the transaction reached a terminal state
 // (e.g. reverted during assembly) but the response to the coordinator was lost, and the
 // transaction has since been removed from memory on the originator after cleanup.
-func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID, assembleRequestID uuid.UUID) error {
+func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Warnf("transport writer sending transaction unknown message for tx %s to coordinator %s", txID, coordinatorNode)
 
 	if tw.contractAddress == nil {
@@ -637,10 +637,9 @@ func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinat
 	}
 
 	txUnknown := &engineProto.TransactionUnknown{
-		Id:                uuid.New().String(),
-		TransactionId:     txID.String(),
-		ContractAddress:   tw.contractAddress.HexString(),
-		AssembleRequestId: assembleRequestID.String(),
+		Id:              uuid.New().String(),
+		TransactionId:   txID.String(),
+		ContractAddress: tw.contractAddress.HexString(),
 	}
 	txUnknownBytes, err := proto.Marshal(txUnknown)
 	if err != nil {

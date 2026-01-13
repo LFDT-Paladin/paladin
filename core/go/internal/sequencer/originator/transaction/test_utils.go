@@ -40,7 +40,6 @@ type SentMessageRecorder struct {
 	hasSentTransactionUnknown      bool
 	transactionUnknownTxID         uuid.UUID
 	transactionUnknownCoordinator  string
-	transactionUnknownRequestID    uuid.UUID
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -114,11 +113,10 @@ func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID, assembleRequestID uuid.UUID) error {
+func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
 	r.hasSentTransactionUnknown = true
 	r.transactionUnknownTxID = txID
 	r.transactionUnknownCoordinator = coordinatorNode
-	r.transactionUnknownRequestID = assembleRequestID
 	return nil
 }
 
@@ -126,8 +124,8 @@ func (r *SentMessageRecorder) HasSentTransactionUnknown() bool {
 	return r.hasSentTransactionUnknown
 }
 
-func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, coordinator string, requestID uuid.UUID) {
-	return r.transactionUnknownTxID, r.transactionUnknownCoordinator, r.transactionUnknownRequestID
+func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, coordinator string) {
+	return r.transactionUnknownTxID, r.transactionUnknownCoordinator
 }
 
 func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
@@ -158,7 +156,6 @@ func (r *SentMessageRecorder) Reset(_ context.Context) {
 	r.hasSentTransactionUnknown = false
 	r.transactionUnknownTxID = uuid.UUID{}
 	r.transactionUnknownCoordinator = ""
-	r.transactionUnknownRequestID = uuid.UUID{}
 }
 
 type TransactionBuilderForTesting struct {

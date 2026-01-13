@@ -615,7 +615,6 @@ func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOrigina
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
-		AssembleRequestID: uuid.New(),
 	})
 	assert.NoError(t, err)
 

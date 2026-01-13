@@ -187,5 +187,4 @@ message TransactionUnknown {
     string id = 1;
     string transaction_id = 2;
     string contract_address = 3;
-    string assemble_request_id = 4;
 }

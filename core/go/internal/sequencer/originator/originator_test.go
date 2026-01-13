@@ -286,10 +286,9 @@ func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T)
 
 	// Verify that SendTransactionUnknown was called with the correct parameters
 	assert.True(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to be called")
-	txID, coordinator, requestID := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
+	txID, coordinator := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
 	assert.Equal(t, unknownTxID, txID, "TransactionUnknown should be sent for the correct transaction ID")
 	assert.Equal(t, coordinatorLocator, coordinator, "TransactionUnknown should be sent to the correct coordinator")
-	assert.Equal(t, assembleRequestIdempotencyKey, requestID, "TransactionUnknown should include the assemble request ID")
 }
 func TestOriginator_PropagateEventToTransaction_UnknownTransaction_NoResponse(t *testing.T) {
 	// Test that propagateEventToTransaction does NOT send a TransactionUnknown response

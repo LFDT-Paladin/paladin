@@ -1863,7 +1863,6 @@ func TestSendDispatched_Loopback(t *testing.T) {
 func TestSendTransactionUnknown_Success(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	assembleRequestID := uuid.New()
 	coordinatorNode := "coordinator-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
@@ -1891,9 +1890,6 @@ func TestSendTransactionUnknown_Success(t *testing.T) {
 		if txUnknown.ContractAddress != contractAddress.HexString() {
 			return false
 		}
-		if txUnknown.AssembleRequestId != assembleRequestID.String() {
-			return false
-		}
 		if txUnknown.Id == "" {
 			return false
 		}
@@ -1907,7 +1903,7 @@ func TestSendTransactionUnknown_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1915,7 +1911,6 @@ func TestSendTransactionUnknown_Success(t *testing.T) {
 func TestSendTransactionUnknown_NilContractAddress(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	assembleRequestID := uuid.New()
 	coordinatorNode := "coordinator-node"
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
@@ -1929,7 +1924,7 @@ func TestSendTransactionUnknown_NilContractAddress(t *testing.T) {
 		contractAddress:   nil, // No contract address
 	}
 
-	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "attempt to send transaction unknown without specifying contract address")
 }
@@ -1937,7 +1932,6 @@ func TestSendTransactionUnknown_NilContractAddress(t *testing.T) {
 func TestSendTransactionUnknown_SendError(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	assembleRequestID := uuid.New()
 	coordinatorNode := "coordinator-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
@@ -1953,7 +1947,7 @@ func TestSendTransactionUnknown_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "send failed")
 	mockTransportManager.AssertExpectations(t)
@@ -1962,7 +1956,6 @@ func TestSendTransactionUnknown_SendError(t *testing.T) {
 func TestSendTransactionUnknown_Loopback(t *testing.T) {
 	ctx := context.Background()
 	txID := uuid.New()
-	assembleRequestID := uuid.New()
 	coordinatorNode := "local-node" // Same as local node
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 
@@ -1980,7 +1973,7 @@ func TestSendTransactionUnknown_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID, assembleRequestID)
+	err := tw.SendTransactionUnknown(ctx, coordinatorNode, txID)
 	require.NoError(t, err)
 
 	select {
@@ -1993,7 +1986,6 @@ func TestSendTransactionUnknown_Loopback(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, txID.String(), txUnknown.TransactionId)
 		assert.Equal(t, contractAddress.HexString(), txUnknown.ContractAddress)
-		assert.Equal(t, assembleRequestID.String(), txUnknown.AssembleRequestId)
 	default:
 		t.Fatal("Expected message in loopback queue")
 	}

@@ -504,22 +504,6 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	return matchingTxns
 }
 
-func (c *coordinator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
-	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
-	// deferring until we have a comprehensive test suite to catch errors
-	nonMatchingStates := make(map[transaction.State]bool)
-	for _, state := range states {
-		nonMatchingStates[state] = true
-	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
-	for _, txn := range c.transactionsByID {
-		if !nonMatchingStates[txn.GetState()] {
-			matchingTxns = append(matchingTxns, txn)
-		}
-	}
-	return matchingTxns
-}
-
 // MRW TODO - is there a reason we need to find by nonce and not by TX ID?
 func (c *coordinator) findTransactionBySignerNonce(ctx context.Context, signer *pldtypes.EthAddress, nonce uint64) *transaction.Transaction {
 	//TODO this would be more efficient by maintaining a separate index but that is error prone so

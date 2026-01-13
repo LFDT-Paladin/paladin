@@ -92,7 +92,6 @@ func init() {
 		State_Idle: {
 			OnTransitionTo: action_Idle,
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
 				Event_TransactionsDelegated: {
 					Transitions: []Transition{{
 						To: State_Active,
@@ -111,9 +110,7 @@ func init() {
 			},
 		},
 		State_Observing: {
-			OnTransitionTo: action_StopHeartbeating,
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
 				Event_TransactionsDelegated: {
 					Transitions: []Transition{
 						{
@@ -130,8 +127,7 @@ func init() {
 		},
 		State_Standby: {
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
-				Event_TransactionsDelegated:    {},
+				Event_TransactionsDelegated: {},
 				Event_NewBlock: {
 					Transitions: []Transition{{
 						To: State_Elect,
@@ -143,8 +139,7 @@ func init() {
 		State_Elect: {
 			OnTransitionTo: action_SendHandoverRequest,
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
-				Event_TransactionsDelegated:    {},
+				Event_TransactionsDelegated: {},
 				Event_HandoverReceived: {
 					Transitions: []Transition{{
 						To: State_Prepared,
@@ -154,8 +149,7 @@ func init() {
 		},
 		State_Prepared: {
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
-				Event_TransactionsDelegated:    {},
+				Event_TransactionsDelegated: {},
 				Event_TransactionConfirmed: {
 					Transitions: []Transition{{
 						To: State_Active,
@@ -171,6 +165,10 @@ func init() {
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
+					Transitions: []Transition{{
+						To: State_Idle,
+						If: guard_Not(guard_HasTransactionsInflight),
+					}},
 				},
 				Event_TransactionsDelegated: {
 					Actions: []ActionRule{{
@@ -178,12 +176,7 @@ func init() {
 						If:     guard_Not(guard_HasTransactionAssembling),
 					}},
 				},
-				Event_TransactionConfirmed: {
-					Transitions: []Transition{{
-						To: State_Idle,
-						If: guard_Not(guard_HasTransactionsInflight),
-					}},
-				},
+				Event_TransactionConfirmed: {},
 				Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 					Transitions: []Transition{{
 						To: State_Flush,
@@ -193,9 +186,12 @@ func init() {
 		},
 		State_Flush: {
 			//TODO should we move to active if we get delegated transactions while in flush?
-			OnTransitionTo: action_StopHeartbeating,
 			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {},
+				common.Event_HeartbeatInterval: {
+					Actions: []ActionRule{{
+						Action: action_SendHeartbeat,
+					}},
+				},
 				Event_TransactionConfirmed: {
 					Transitions: []Transition{{
 						To: State_Closing,
@@ -206,9 +202,11 @@ func init() {
 		},
 		State_Closing: {
 			//TODO should we move to active if we get delegated transactions while in closing?
-			OnTransitionTo: action_StopHeartbeating,
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					Actions: []ActionRule{{
+						Action: action_SendHeartbeat,
+					}},
 					Transitions: []Transition{{
 						To: State_Idle,
 						If: guard_ClosingGracePeriodExpired,
@@ -346,8 +344,6 @@ func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error 
 		}
 	case *common.HeartbeatIntervalEvent:
 		c.heartbeatIntervalsSinceStateChange++
-		//TODO is this the right place to do this vs more generically in the handleEvent function?
-		err = c.propagateEventToAllTransactions(ctx, event)
 	}
 	if err != nil {
 		log.L(ctx).Errorf("error applying event %v: %v", event.Type(), err)
@@ -409,13 +405,6 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {
 	return nil
 }
 
-func action_StopHeartbeating(ctx context.Context, c *coordinator) error {
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
-	}
-	return nil
-}
-
 func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
@@ -434,6 +423,9 @@ func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 
 func action_Idle(ctx context.Context, c *coordinator) error {
 	c.coordinatorIdle(c.contractAddress)
+	if c.heartbeatCancel != nil {
+		c.heartbeatCancel()
+	}
 	return nil
 }
 
@@ -444,10 +436,11 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
 
-		// Send an initial heartbeat
-		err := c.sendHeartbeat(c.heartbeatCtx, c.contractAddress)
+		// Send an initial heartbeat interval event to be handled immediately
+		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
 		if err != nil {
-			log.L(ctx).Errorf("error sending heartbeat: %v", err)
+			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
 		}
 
 		// Then every N seconds
@@ -456,18 +449,17 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 		for {
 			select {
 			case <-ticker.C:
-				err := c.sendHeartbeat(c.heartbeatCtx, c.contractAddress)
-				if err != nil {
-					log.L(ctx).Errorf("error sending heartbeat: %v", err)
-				}
-				// Queue heartbeat interval event to self so transactions can track grace periods
 				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+				if err != nil {
+					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+				}
 			case <-c.heartbeatCtx.Done():
 				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
 				c.heartbeatCtx = nil
 				c.heartbeatCancel = nil
 				return
-			case <-ctx.Done():
+			case <-ctx.Done(): // TODO AM: don't think this is needed?
 				log.L(ctx).Infof("Cancelled heartbeat loop for %s", c.contractAddress.String())
 				c.heartbeatCtx = nil
 				c.heartbeatCancel = nil

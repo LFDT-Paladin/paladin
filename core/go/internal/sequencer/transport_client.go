@@ -884,19 +884,12 @@ func (sMgr *sequencerManager) handleTransactionUnknown(ctx context.Context, mess
 		return
 	}
 
-	assembleRequestID, err := uuid.Parse(transactionUnknown.AssembleRequestId)
-	if err != nil {
-		log.L(ctx).Errorf("handleTransactionUnknown failed to parse assemble request ID: %v", err)
-		return
-	}
-
 	log.L(ctx).Warnf("received transaction unknown response for tx %s from originator, queuing cleanup event", txID)
 
 	unknownEvent := &coordTransaction.TransactionUnknownByOriginatorEvent{
 		BaseCoordinatorEvent: coordTransaction.BaseCoordinatorEvent{
 			TransactionID: txID,
 		},
-		AssembleRequestID: assembleRequestID,
 	}
 	seq.GetCoordinator().QueueEvent(ctx, unknownEvent)
 }

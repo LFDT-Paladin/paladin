@@ -313,7 +313,6 @@ func (*StateTransitionEvent) TypeString() string {
 // has since been removed from memory on the originator after cleanup.
 type TransactionUnknownByOriginatorEvent struct {
 	BaseCoordinatorEvent
-	AssembleRequestID uuid.UUID
 }
 
 func (*TransactionUnknownByOriginatorEvent) Type() EventType {
