@@ -459,11 +459,6 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 				c.heartbeatCtx = nil
 				c.heartbeatCancel = nil
 				return
-			case <-ctx.Done(): // TODO AM: don't think this is needed?
-				log.L(ctx).Infof("Cancelled heartbeat loop for %s", c.contractAddress.String())
-				c.heartbeatCtx = nil
-				c.heartbeatCancel = nil
-				return
 			}
 		}
 	}
