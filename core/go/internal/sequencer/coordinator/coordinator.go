@@ -169,7 +169,7 @@ func NewCoordinator(
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
 	c.transactionSelector = NewTransactionSelector(ctx, c)
-	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
 	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
