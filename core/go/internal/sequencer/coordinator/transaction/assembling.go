@@ -177,7 +177,7 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	//this function is called when the transaction is successfully assembled
 	// and we have a duty to inform all the transactions that are ordered behind us
 	if t.nextTransaction != nil {
-		err := t.nextTransaction.HandleEvent(ctx, &DependencyAssembledEvent{
+		err := t.nextTransaction.ProcessEvent(ctx, &DependencyAssembledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.nextTransaction.ID,
 			},
@@ -196,7 +196,7 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
-		err := dependent.HandleEvent(ctx, &DependencyAssembledEvent{
+		err := dependent.ProcessEvent(ctx, &DependencyAssembledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.nextTransaction.ID,
 			},
@@ -222,7 +222,7 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 	for _, dependentID := range dependents {
 		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
 		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyRevertedEvent{
+			err := dependentTxn.ProcessEvent(ctx, &DependencyRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},

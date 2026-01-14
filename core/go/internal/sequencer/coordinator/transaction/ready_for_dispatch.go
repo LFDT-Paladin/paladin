@@ -95,7 +95,7 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
-		err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+		err := dependent.ProcessEvent(ctx, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependent.ID,
 			},

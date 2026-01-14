@@ -26,30 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGuard_Not(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a guard that always returns true
-	alwaysTrue := func(ctx context.Context, c *coordinator) bool {
-		return true
-	}
-
-	// Create a guard that always returns false
-	alwaysFalse := func(ctx context.Context, c *coordinator) bool {
-		return false
-	}
-
-	// Test that guard_Not negates true to false
-	notTrue := guard_Not(alwaysTrue)
-	assert.False(t, notTrue(ctx, c))
-
-	// Test that guard_Not negates false to true
-	notFalse := guard_Not(alwaysFalse)
-	assert.True(t, notFalse(ctx, c))
-}
-
 func TestGuard_Behind_BehindByMoreThanTolerance(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)

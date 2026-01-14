@@ -101,10 +101,8 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 	// Create a transaction with nil PrivateTransaction by manually constructing it
 	txn := &Transaction{
 		PrivateTransaction: nil,
-		stateMachine: &StateMachine{
-			currentState: State_Initial,
-		},
 	}
+	txn.InitializeStateMachine(State_Initial)
 
 	hash, err := txn.Hash(ctx)
 
@@ -173,15 +171,18 @@ func TestTransaction_GetLatestEvent_ReturnsEmptyStringInitially(t *testing.T) {
 }
 
 func TestTransaction_GetLatestEvent_ReturnsSetEvent(t *testing.T) {
-	// Test that GetLatestEvent returns the event that was set on the state machine
+	// Test that GetLatestEvent returns the event type string after a state transition
 	builder := NewTransactionBuilderForTesting(t, State_Initial)
 	txn, _ := builder.BuildWithMocks()
 
-	expectedEvent := "test-event"
-	txn.stateMachine.latestEvent = expectedEvent
+	// Trigger a transition that will set the latest event
+	createdEvent := &CreatedEvent{}
+	createdEvent.TransactionID = txn.ID
+	err := txn.ProcessEvent(context.Background(), createdEvent)
+	assert.NoError(t, err)
 
 	event := txn.GetLatestEvent()
-	assert.Equal(t, expectedEvent, event, "GetLatestEvent should return the event that was set")
+	assert.Equal(t, "Event_Created", event, "GetLatestEvent should return the event that triggered the last transition")
 }
 
 func TestTransaction_GetSignerAddress_ReturnsNilInitially(t *testing.T) {

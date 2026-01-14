@@ -21,13 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 )
 
-type Guard func(ctx context.Context, c *coordinator) bool
-
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, c *coordinator) bool {
-		return !guard(ctx, c)
-	}
-}
+// Guard type is defined in state_machine.go as a type alias to statemachine.Guard[*coordinator]
 
 func guard_Behind(ctx context.Context, c *coordinator) bool {
 	//Return true if the current block height that our indexer has reached is behind the current coordinator

@@ -423,18 +423,20 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	}
 
 	//enter the current state
-	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
-	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn)
-		if err != nil {
-			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
+	config := buildStateDefinitions()
+	if stateDef, exists := config.Definitions[b.state]; exists {
+		if stateDef.OnTransitionTo != nil {
+			err := stateDef.OnTransitionTo(ctx, b.txn)
+			if err != nil {
+				panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
+			}
 		}
 	}
 
 	b.txn.signerAddress = b.signerAddress
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
-	b.txn.stateMachine.currentState = b.state
+	b.txn.stateMachine.SetState(b.state)
 	return b.txn
 
 }

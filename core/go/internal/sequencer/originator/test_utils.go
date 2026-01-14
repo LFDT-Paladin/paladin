@@ -176,7 +176,7 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		panic(err)
 	}
 
-	originator.stateMachine.currentState = b.state
+	originator.stateMachine.SetState(b.state)
 	switch b.state {
 	// Any state specific setup can be done here
 	}

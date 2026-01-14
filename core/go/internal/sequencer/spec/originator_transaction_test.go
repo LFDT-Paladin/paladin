@@ -41,7 +41,7 @@ func TestOriginatorTransaction_Initial_ToPending_OnCreated(t *testing.T) {
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).Build()
 	assert.Equal(t, transaction.State_Initial, txn.GetCurrentState())
 
-	err := txn.HandleEvent(ctx, &transaction.CreatedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CreatedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -55,7 +55,7 @@ func TestOriginatorTransaction_Pending_ToDelegated_OnDelegated(t *testing.T) {
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
 	txn := builder.Build()
 
-	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.DelegatedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -73,7 +73,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	mocks.MockForAssembleAndSignRequestOK().Once()
 	requestID := uuid.New()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -99,7 +99,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	mocks.MockForAssembleAndSignRequestRevert().Once()
 	requestID := uuid.New()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -124,7 +124,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	mocks.MockForAssembleAndSignRequestPark().Once()
 	requestID := uuid.New()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -146,7 +146,7 @@ func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleAndS
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleAndSignSuccessEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleAndSignSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -166,7 +166,7 @@ func TestOriginatorTransaction_Assembling_ToReverted_OnAssembleRevert(t *testing
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRevertEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRevertEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -186,7 +186,7 @@ func TestOriginatorTransaction_Assembling_ToParked_OnAssemblePark(t *testing.T) 
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleParkEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleParkEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -207,7 +207,7 @@ func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_Af
 
 	mocks.MockForAssembleAndSignRequestRevert().Once()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -218,7 +218,7 @@ func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_Af
 
 	require.Len(t, mocks.GetEmittedEvents(), 1)
 	require.IsType(t, &transaction.AssembleRevertEvent{}, mocks.GetEmittedEvents()[0])
-	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
+	err = txn.ProcessEvent(ctx, mocks.GetEmittedEvents()[0])
 	assert.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleRevertResponse(), "assemble revert response was not sent back to coordinator")
@@ -233,7 +233,7 @@ func TestOriginatorTransaction_Delegated_ToParked_OnAssembleRequestReceived_Afte
 
 	mocks.MockForAssembleAndSignRequestPark().Once()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -244,7 +244,7 @@ func TestOriginatorTransaction_Delegated_ToParked_OnAssembleRequestReceived_Afte
 
 	require.Len(t, mocks.GetEmittedEvents(), 1)
 	require.IsType(t, &transaction.AssembleParkEvent{}, mocks.GetEmittedEvents()[0])
-	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
+	err = txn.ProcessEvent(ctx, mocks.GetEmittedEvents()[0])
 	assert.NoError(t, err)
 
 	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleParkResponse(), "assemble park response was not sent back to coordinator")
@@ -259,7 +259,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnAssembleRequ
 
 	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -279,7 +279,7 @@ func TestOriginatorTransaction_Reverted_DoResendAssembleResponse_OnAssembleReque
 
 	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -297,7 +297,7 @@ func TestOriginatorTransaction_Reverted_Ignore_OnAssembleRequest_IfNotMatchesPre
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -317,7 +317,7 @@ func TestOriginatorTransaction_Parked_DoResendAssembleResponse_OnAssembleRequest
 
 	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -336,7 +336,7 @@ func TestOriginatorTransaction_Parked_Ignore_OnAssembleRequest_IfNotMatchesPrevi
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Parked)
 	txn, mocks := builder.BuildWithMocks()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -357,7 +357,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 	// This should trigger a re-assembly
 	mocks.MockForAssembleAndSignRequestOK().Once()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -384,7 +384,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToPrepared_OnDispatchConfir
 	hash, err := txn.Hash(ctx)
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -407,7 +407,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 	hash, err := txn.Hash(ctx)
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -428,7 +428,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 
-	err := txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -445,7 +445,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToDelegated_OnCoordinatorCh
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -463,7 +463,7 @@ func TestOriginatorTransaction_Prepared_ToDispatched_OnDispatched(t *testing.T) 
 
 	signerAddress := pldtypes.EthAddress(pldtypes.RandBytes(20))
 
-	err := txn.HandleEvent(ctx, &transaction.DispatchedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.DispatchedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -482,7 +482,7 @@ func TestOriginatorTransaction_Prepared_NoTransition_Do_Resend_OnDispatchConfirm
 	hash, err := txn.Hash(ctx)
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -504,7 +504,7 @@ func TestOriginatorTransaction_Prepared_Ignore_OnDispatchConfirmationRequestRece
 	hash, err := txn.Hash(ctx)
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -525,7 +525,7 @@ func TestOriginatorTransaction_Prepared_Ignore_OnDispatchConfirmationRequestRece
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 
-	err := txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -542,7 +542,7 @@ func TestOriginatorTransaction_Prepared_ToDelegated_OnCoordinatorChanged(t *test
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Prepared).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -558,7 +558,7 @@ func TestOriginatorTransaction_Dispatched_ToConfirmed_OnConfirmedSuccess(t *test
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -572,7 +572,7 @@ func TestOriginatorTransaction_Dispatched_ToSequenced_OnNonceAssigned(t *testing
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.NonceAssignedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -588,7 +588,7 @@ func TestOriginatorTransaction_Dispatched_ToSubmitted_OnSubmitted(t *testing.T) 
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -605,7 +605,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnConfirmedReverted(t *tes
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -619,7 +619,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnCoordinatorChanged(t *te
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -635,7 +635,7 @@ func TestOriginatorTransaction_Sequenced_ToConfirmed_OnConfirmedSuccess(t *testi
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Sequenced).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -649,7 +649,7 @@ func TestOriginatorTransaction_Sequenced_ToSubmitted_OnSubmitted(t *testing.T) {
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Sequenced).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -666,7 +666,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnConfirmedReverted(t *test
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Sequenced).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -680,7 +680,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnCoordinatorChanged(t *tes
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Sequenced).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -696,7 +696,7 @@ func TestOriginatorTransaction_Submitted_ToConfirmed_OnConfirmedSuccess(t *testi
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -710,7 +710,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnConfirmedReverted(t *test
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -724,7 +724,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnCoordinatorChanged(t *tes
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},
@@ -739,7 +739,7 @@ func TestOriginatorTransaction_Parked_ToPending_OnResumed(t *testing.T) {
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Parked).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ResumedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.ResumedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.ID,
 		},

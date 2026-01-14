@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -54,7 +55,7 @@ type Transaction struct {
 	signerAddress        *pldtypes.EthAddress
 	latestSubmissionHash *pldtypes.Bytes32
 	nonce                *uint64
-	stateMachine         *StateMachine
+	stateMachine         *statemachine.StateMachine[State, *Transaction]
 	revertReason         pldtypes.HexBytes
 	revertTime           *pldtypes.Timestamp
 
@@ -164,7 +165,7 @@ func (t *Transaction) GetNonce() *uint64 {
 }
 
 func (t *Transaction) GetState() State {
-	return t.stateMachine.currentState
+	return t.stateMachine.GetCurrentState()
 }
 
 func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
@@ -257,7 +258,7 @@ func (d *Transaction) Txn() *components.PrivateTransaction {
 // We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
 
 func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.currentState
+	return t.stateMachine.GetCurrentState()
 }
 
 func (t *Transaction) GetErrorCount() int {

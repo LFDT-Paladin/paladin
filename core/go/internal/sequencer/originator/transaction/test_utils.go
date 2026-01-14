@@ -263,7 +263,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	}
 	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.eventHandler, b.fakeEngineIntegration, b.metrics, func(ctx context.Context) {})
 
-	txn.stateMachine.currentState = b.state
+	txn.stateMachine.SetState(b.state)
 
 	// Update the private transaction struct to the accumulation that resulted from what ever events that we expect to have happened leading up to the current state
 	// We don't attempt to emulate any other history of those past events but rather assert that the state machine's behavior is determined purely by its current finite state
@@ -317,7 +317,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	}
 	b.txn = txn
 
-	b.txn.stateMachine.currentState = b.state
+	b.txn.stateMachine.SetState(b.state)
 	return b.txn
 
 }

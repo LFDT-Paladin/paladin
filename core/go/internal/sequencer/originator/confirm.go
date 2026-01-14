@@ -69,7 +69,7 @@ func (o *originator) confirmTransaction(
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 	}
 	if revertReason.String() == "" {
-		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+		err := txn.ProcessEvent(ctx, &transaction.ConfirmedSuccessEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.ID,
 			},
@@ -80,7 +80,7 @@ func (o *originator) confirmTransaction(
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	} else {
-		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+		err := txn.ProcessEvent(ctx, &transaction.ConfirmedRevertedEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.ID,
 			},

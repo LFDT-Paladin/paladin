@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
@@ -39,8 +40,30 @@ const (
 	State_Closing                // Have flushed and am continuing to sent closing status for `x` heartbeats.
 )
 
+func (s State) String() string {
+	switch s {
+	case State_Idle:
+		return "Idle"
+	case State_Observing:
+		return "Observing"
+	case State_Elect:
+		return "Elect"
+	case State_Standby:
+		return "Standby"
+	case State_Prepared:
+		return "Prepared"
+	case State_Active:
+		return "Active"
+	case State_Flush:
+		return "Flush"
+	case State_Closing:
+		return "Closing"
+	}
+	return "Unknown"
+}
+
 const (
-	Event_Activated EventType = iota + common.Event_HeartbeatInterval + 1 //
+	Event_Activated EventType = iota + common.Event_HeartbeatInterval + 1
 	Event_Nominated
 	Event_Flushed
 	Event_Closed
@@ -55,40 +78,19 @@ const (
 	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
 )
 
-type StateMachine struct {
-	currentState State
-}
+// Type aliases for cleaner code - these reference the generic statemachine types specialized for coordinator
+type (
+	Action          = statemachine.Action[*coordinator]
+	Guard           = statemachine.Guard[*coordinator]
+	ActionRule      = statemachine.ActionRule[*coordinator]
+	Transition      = statemachine.Transition[State, *coordinator]
+	EventHandler    = statemachine.EventHandler[State, *coordinator]
+	StateDefinition = statemachine.StateDefinition[State, *coordinator]
+)
 
-// Actions can be specified for transition to a state either as the OnTransitionTo function that will run for all transitions to that state or as the On field in the Transition struct if the action applies
-// for a specific transition
-type Action func(ctx context.Context, c *coordinator) error
-type ActionRule struct {
-	Action Action
-	If     Guard
-}
-
-type Transition struct {
-	To State // State to transition to if the guard condition is met
-	If Guard // Condition to evaluate the transaction against to determine if this transition should be taken
-	On Action
-}
-
-type EventHandler struct {
-	Validator   func(ctx context.Context, c *coordinator, event common.Event) (bool, error) // function to validate whether the event is valid for the current state of the coordinator.  This is optional.  If not defined, the event is always considered valid.
-	Actions     []ActionRule                                                                // list of actions to be taken when this event is received.  These actions are run before any transition specific actions
-	Transitions []Transition                                                                // list of transitions that this event could trigger.  The list is ordered so the first matching transition is the one that will be taken.
-}
-
-type StateDefinition struct {
-	OnTransitionTo Action                     // function to be invoked when transitioning into this state.  This is invoked after any transition specific actions have been invoked
-	Events         map[EventType]EventHandler // rules to define what events apply to this state and what transitions they trigger.  Any events not in this list are ignored while in this state.
-}
-
-var stateDefinitionsMap map[State]StateDefinition
-
-func init() {
-	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = map[State]StateDefinition{
+// buildStateDefinitions creates the state machine configuration for the coordinator
+func buildStateDefinitions() map[State]StateDefinition {
+	return map[State]StateDefinition{
 		State_Idle: {
 			OnTransitionTo: action_Idle,
 			Events: map[EventType]EventHandler{
@@ -119,7 +121,7 @@ func init() {
 						},
 						{
 							To: State_Elect,
-							If: guard_Not(guard_Behind),
+							If: statemachine.Not(guard_Behind),
 						},
 					},
 				},
@@ -131,7 +133,7 @@ func init() {
 				Event_NewBlock: {
 					Transitions: []Transition{{
 						To: State_Elect,
-						If: guard_Not(guard_Behind),
+						If: statemachine.Not(guard_Behind),
 					}},
 				},
 			},
@@ -167,13 +169,13 @@ func init() {
 					}},
 					Transitions: []Transition{{
 						To: State_Idle,
-						If: guard_Not(guard_HasTransactionsInflight),
+						If: statemachine.Not(guard_HasTransactionsInflight),
 					}},
 				},
 				Event_TransactionsDelegated: {
 					Actions: []ActionRule{{
 						Action: action_SelectTransaction,
-						If:     guard_Not(guard_HasTransactionAssembling),
+						If:     statemachine.Not(guard_HasTransactionAssembling),
 					}},
 				},
 				Event_TransactionConfirmed: {},
@@ -218,44 +220,34 @@ func init() {
 }
 
 func (c *coordinator) InitializeStateMachine(initialState State) {
-	c.stateMachine = &StateMachine{
-		currentState: initialState,
+	config := statemachine.StateMachineConfig[State, *coordinator]{
+		Definitions: buildStateDefinitions(),
+		OnTransition: func(ctx context.Context, c *coordinator, from, to State, event common.Event) {
+			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, from.String(), to.String())
+			c.heartbeatIntervalsSinceStateChange = 0
+		},
 	}
+	c.stateMachine = statemachine.NewStateMachine(config, initialState)
 }
 
 // Process a state machine event immediately. Should only be called on the sequencer loop, or in tests to avoid timing conditions
 func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
 
+	// Transaction events are propagated to the transaction state machines
 	if transactionEvent, ok := event.(transaction.Event); ok {
 		log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
 		return c.propagateEventToTransaction(ctx, transactionEvent)
 	}
 
-	//determine whether this event is valid for the current state
-	eventHandler, err := c.evaluateEvent(ctx, event)
-	if err != nil || eventHandler == nil {
-		return err
-	}
-
-	// If we get here, the state machine has defined a rule for handling this event. Apply the event to the coordinator to
-	// update the internal state so that the guards and actions defined in the state machine can reference the new internal
-	// state of the coordinator
-	err = c.applyEvent(ctx, event)
+	// Process the event through the generic state machine
+	err := c.stateMachine.ProcessEvent(ctx, c, event, c.applyEvent)
 	if err != nil {
 		return err
 	}
 
-	err = c.performActions(ctx, *eventHandler)
-	if err != nil {
-		return err
-	}
-
-	//Determine whether this event triggers a state transition
-	err = c.evaluateTransitions(ctx, event, *eventHandler)
 	log.L(ctx).Debugf("coordinator handled new event %s (contract address %s)", event.TypeString(), c.contractAddress)
-
-	return err
+	return nil
 }
 
 // Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
@@ -266,39 +258,11 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("coordinator pushed event onto event queue: %s", event.TypeString())
 }
 
-// Function evaluateEvent evaluates whether the event is relevant given the current state of the coordinator
-func (c *coordinator) evaluateEvent(ctx context.Context, event common.Event) (*EventHandler, error) {
-	sm := c.stateMachine
-
-	//Determine if and how this event applies in the current state and which, if any, transition it triggers
-	eventHandlers := stateDefinitionsMap[sm.currentState].Events
-	eventHandler, isHandlerDefined := eventHandlers[event.Type()]
-	if isHandlerDefined {
-		//By default all events in the list are applied unless there is a validator function and it returns false
-		if eventHandler.Validator != nil {
-			valid, err := eventHandler.Validator(ctx, c, event)
-			if err != nil {
-				//This is an unexpected error.  If the event is invalid, the validator should return false and not an error
-				log.L(ctx).Errorf("error validating event %s: %v", event.TypeString(), err)
-				return nil, err
-			}
-			if !valid {
-				// This is perfectly normal sometimes an event happens and is no longer relevant to the transaction so we just ignore it and move on.
-				// We log a warning in case it's not a late-delivered message but something that needs looking in to
-				log.L(ctx).Warnf("coordinator event %s is not valid for current state %s: %t", event.TypeString(), sm.currentState.String(), valid)
-				return nil, nil
-			}
-		}
-		return &eventHandler, nil
-	}
-
-	return nil, nil
-}
-
-// Function applyEvent updates the internal state of the coordinator with information from the event
+// applyEvent updates the internal state of the coordinator with information from the event
 // this happens before the state machine is evaluated for transitions that may be triggered by the event
 // so that any guards on the transition rules can take into account the new internal state of the coordinator after this event has been applied
-func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error {
+// Note: the subject parameter is the same as 'c' but is required to match the ApplyEventFunc signature
+func (c *coordinator) applyEvent(ctx context.Context, _ *coordinator, event common.Event) error {
 	var err error
 	// First apply the event to the update the internal fine grained state of the coordinator if there is any handler registered for the current state
 	switch event := event.(type) {
@@ -349,55 +313,6 @@ func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error 
 		log.L(ctx).Errorf("error applying event %v: %v", event.Type(), err)
 	}
 	return err
-}
-
-func (c *coordinator) performActions(ctx context.Context, eventHandler EventHandler) error {
-	for _, rule := range eventHandler.Actions {
-		if rule.If == nil || rule.If(ctx, c) {
-			err := rule.Action(ctx, c)
-			if err != nil {
-				//any recoverable errors should have been handled by the action function
-				log.L(ctx).Errorf("error applying action: %v", err)
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (c *coordinator) evaluateTransitions(ctx context.Context, event common.Event, eventHandler EventHandler) error {
-	sm := c.stateMachine
-
-	for _, rule := range eventHandler.Transitions {
-		if rule.If == nil || rule.If(ctx, c) { //if there is no guard defined, or the guard returns true
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, sm.currentState.String(), rule.To.String())
-			sm.currentState = rule.To
-			newStateDefinition := stateDefinitionsMap[sm.currentState]
-			//run any actions specific to the transition first
-			if rule.On != nil {
-				err := rule.On(ctx, c)
-				if err != nil {
-					//any recoverable errors should have been handled by the action function
-					log.L(ctx).Errorf("error transitioning coordinator to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
-
-			// then run any actions for the state entry
-			if newStateDefinition.OnTransitionTo != nil {
-				err := newStateDefinition.OnTransitionTo(ctx, c)
-				if err != nil {
-					// any recoverable errors should have been handled by the OnTransitionTo function
-					log.L(ctx).Errorf("error transitioning coordinator to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
-			c.heartbeatIntervalsSinceStateChange = 0
-			break
-		}
-	}
-	return nil
-
 }
 
 func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {
@@ -462,26 +377,4 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 			}
 		}
 	}
-}
-
-func (s State) String() string {
-	switch s {
-	case State_Idle:
-		return "Idle"
-	case State_Observing:
-		return "Observing"
-	case State_Elect:
-		return "Elect"
-	case State_Standby:
-		return "Standby"
-	case State_Prepared:
-		return "Prepared"
-	case State_Active:
-		return "Active"
-	case State_Flush:
-		return "Flush"
-	case State_Closing:
-		return "Closing"
-	}
-	return "Unknown"
 }

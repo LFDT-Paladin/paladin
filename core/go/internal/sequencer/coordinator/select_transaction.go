@@ -40,7 +40,7 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context, event
 
 	transactionSelectedEvent := &transaction.SelectedEvent{}
 	transactionSelectedEvent.TransactionID = txn.ID
-	err = txn.HandleEvent(ctx, transactionSelectedEvent)
+	err = txn.ProcessEvent(ctx, transactionSelectedEvent)
 	return err
 
 }

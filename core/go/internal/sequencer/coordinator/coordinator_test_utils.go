@@ -221,7 +221,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		coordinator.transactionsByID[tx.ID] = tx
 	}
 
-	coordinator.stateMachine.currentState = b.state
+	coordinator.stateMachine.SetState(b.state)
 	switch b.state {
 	case State_Observing:
 		fallthrough

@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/google/uuid"
 
@@ -48,7 +49,7 @@ type SeqOriginator interface {
 
 type originator struct {
 	/* State */
-	stateMachine                *StateMachine
+	stateMachine                *statemachine.StateMachine[State, *originator]
 	activeCoordinatorNode       string
 	timeOfMostRecentHeartbeat   common.Time
 	transactionsByID            map[uuid.UUID]*transaction.Transaction
@@ -163,7 +164,7 @@ func (o *originator) delegateLoop(ctx context.Context) {
 
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
 	if txn := o.transactionsByID[event.GetTransactionID()]; txn != nil {
-		return txn.HandleEvent(ctx, event)
+		return txn.ProcessEvent(ctx, event)
 	}
 
 	// Transaction not known to this originator.
@@ -203,7 +204,7 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 	o.transactionsOrdered = append(o.transactionsOrdered, &txn.ID)
 	createdEvent := &transaction.CreatedEvent{}
 	createdEvent.TransactionID = txn.ID
-	err = newTxn.HandleEvent(ctx, createdEvent)
+	err = newTxn.ProcessEvent(ctx, createdEvent)
 	if err != nil {
 		log.L(ctx).Errorf("error handling CreatedEvent for transaction %s: %v", txn.ID.String(), err)
 		return err
@@ -296,5 +297,5 @@ func (o *originator) Stop() {
 // We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
 
 func (o *originator) GetCurrentState() State {
-	return o.stateMachine.currentState
+	return o.stateMachine.GetCurrentState()
 }

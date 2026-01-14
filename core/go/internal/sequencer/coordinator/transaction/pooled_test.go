@@ -234,7 +234,7 @@ func TestSetNextTransaction(t *testing.T) {
 	txnToAssemble := txnBuilder.Build()
 
 	// Assemble without setting nextTransaction - should not error
-	err := txnToAssemble.HandleEvent(ctx, &AssembleSuccessEvent{
+	err := txnToAssemble.ProcessEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txnToAssemble.ID,
 		},
@@ -257,7 +257,7 @@ func TestSetNextTransaction(t *testing.T) {
 	txnToAssemble2 := txnBuilder.Build()
 	txnToAssemble2.SetNextTransaction(ctx, nextTxn)
 
-	err = txnToAssemble2.HandleEvent(ctx, &AssembleSuccessEvent{
+	err = txnToAssemble2.ProcessEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txnToAssemble2.ID,
 		},
@@ -274,7 +274,7 @@ func TestSetNextTransaction(t *testing.T) {
 	txnToAssemble3 := txnBuilder.Build()
 	txnToAssemble3.SetNextTransaction(ctx, nil)
 
-	err = txnToAssemble3.HandleEvent(ctx, &AssembleSuccessEvent{
+	err = txnToAssemble3.ProcessEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txnToAssemble3.ID,
 		},
@@ -366,7 +366,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 		InputStateIDs(dep1.PostAssembly.OutputStates[0].ID)
 	txn2 := txn2Builder.Build()
 
-	err := txn2.HandleEvent(ctx, &AssembleSuccessEvent{
+	err := txn2.ProcessEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txn2.ID,
 		},
@@ -391,7 +391,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 		InputStateIDs(dep3.PostAssembly.OutputStates[0].ID)
 	txn3 := txn3Builder.Build()
 
-	err = txn3.HandleEvent(ctx, &AssembleSuccessEvent{
+	err = txn3.ProcessEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txn3.ID,
 		},

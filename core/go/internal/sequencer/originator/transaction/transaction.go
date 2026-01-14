@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -39,7 +40,7 @@ type assembleRequestFromCoordinator struct {
 
 // Transaction tracks the state of a transaction that is being sent by the local node in originator state.
 type Transaction struct {
-	stateMachine *StateMachine
+	stateMachine *statemachine.StateMachine[State, *Transaction]
 	*components.PrivateTransaction
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
@@ -141,11 +142,11 @@ func ptrTo[T any](v T) *T {
 // We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
 
 func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.currentState
+	return t.stateMachine.GetCurrentState()
 }
 
 func (t *Transaction) GetLatestEvent() string {
-	return t.stateMachine.latestEvent
+	return t.stateMachine.GetLatestEvent()
 }
 
 func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {

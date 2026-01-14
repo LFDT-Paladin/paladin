@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -68,7 +69,7 @@ type coordinator struct {
 	cancelCtx context.CancelFunc
 
 	/* State */
-	stateMachine                               *StateMachine
+	stateMachine                               *statemachine.StateMachine[State, *coordinator]
 	activeCoordinatorNode                      string
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
@@ -383,7 +384,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			func(ctx context.Context, t *transaction.Transaction, to, from transaction.State) {
 				// TX state changed, check if we need to be selecting the next transaction for this sequencer
 				//TODO the following logic should be moved to the state machine so that all the rules are in one place
-				if c.stateMachine.currentState == State_Active {
+				if c.stateMachine.GetCurrentState() == State_Active {
 					if from == transaction.State_Assembling || to == transaction.State_Pooled {
 						err := c.selectNextTransactionToAssemble(ctx, &TransactionStateTransitionEvent{
 							TransactionID: t.ID,
@@ -450,7 +451,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
 			newTransaction.SetChainedTxInProgress()
 		}
-		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
+		err = c.transactionsByID[txn.ID].ProcessEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
 			return err
@@ -465,7 +466,7 @@ func (c *coordinator) queueForDispatch(ctx context.Context, txn *transaction.Tra
 
 func (c *coordinator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
 	if txn := c.transactionsByID[event.GetTransactionID()]; txn != nil {
-		return txn.HandleEvent(ctx, event)
+		return txn.ProcessEvent(ctx, event)
 	} else {
 		log.L(ctx).Debugf("ignoring event because transaction not known to this coordinator %s", event.GetTransactionID().String())
 	}
@@ -474,7 +475,7 @@ func (c *coordinator) propagateEventToTransaction(ctx context.Context, event tra
 
 func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event common.Event) error {
 	for _, txn := range c.transactionsByID {
-		err := txn.HandleEvent(ctx, event)
+		err := txn.ProcessEvent(ctx, event)
 		if err != nil {
 			log.L(ctx).Errorf("error handling event %v for transaction %s: %v", event.Type(), txn.ID.String(), err)
 			return err
@@ -542,7 +543,7 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 			}
 			event.TransactionID = dispatchedTransaction.ID
 			event.EventTime = time.Now()
-			err := dispatchedTransaction.HandleEvent(ctx, event)
+			err := dispatchedTransaction.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.ID.String(), err)
 				return false, err
@@ -571,7 +572,7 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 			event.EventTime = time.Now()
 
 			log.L(ctx).Debugf("Confirming dispatched TX %s", txId.String())
-			err := dispatchedTransaction.HandleEvent(ctx, event)
+			err := dispatchedTransaction.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.ID.String(), err)
 				return false, err
@@ -626,5 +627,5 @@ func (c *coordinator) Stop() {
 // We should consider making them safe to call from any goroutine by maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
 
 func (c *coordinator) GetCurrentState() State {
-	return c.stateMachine.currentState
+	return c.stateMachine.GetCurrentState()
 }

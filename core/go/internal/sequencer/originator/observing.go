@@ -48,7 +48,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 					txnSubmittedEvent.Nonce = *dispatchedTransaction.Nonce
 				}
 
-				err := txn.HandleEvent(ctx, txnSubmittedEvent)
+				err := txn.ProcessEvent(ctx, txnSubmittedEvent)
 				if err != nil {
 					msg := fmt.Sprintf("error handling transaction submitted event for transaction %s: %v", txn.ID, err)
 					log.L(ctx).Error(msg)
@@ -57,7 +57,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 				o.submittedTransactionsByHash[*dispatchedTransaction.LatestSubmissionHash] = &dispatchedTransaction.ID
 			} else if dispatchedTransaction.Nonce != nil {
 				//if the dispatched transaction has a nonce but no hash, then it is sequenced
-				err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
+				err := txn.ProcessEvent(ctx, &transaction.NonceAssignedEvent{
 					BaseEvent: transaction.BaseEvent{
 						TransactionID: dispatchedTransaction.ID,
 					},

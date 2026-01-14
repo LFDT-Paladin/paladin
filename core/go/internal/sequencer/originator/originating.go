@@ -53,7 +53,7 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
 	for _, txn := range transactions {
-		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
+		err := txn.ProcessEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.ID,
 			},

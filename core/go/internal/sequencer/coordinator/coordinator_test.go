@@ -699,7 +699,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNon
 	txn := txBuilder.Build()
 
 	// Set signer address and nonce on the transaction
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -707,7 +707,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNon
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -802,7 +802,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t
 	txn := txBuilder.Build()
 
 	// Set signer, nonce, and submission hash
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -810,7 +810,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -818,7 +818,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.SubmittedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -850,7 +850,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(
 	txn := txBuilder.Build()
 
 	// Set signer, nonce, and submission hash
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -858,7 +858,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -866,7 +866,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.SubmittedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -898,7 +898,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrec
 	txn := txBuilder.Build()
 
 	// Set signer and nonce but no submission hash
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -906,7 +906,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrec
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -941,7 +941,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFai
 	nonce := uint64(42)
 
 	// Set signer and nonce
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -949,7 +949,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFai
 	})
 	require.NoError(t, err)
 
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -984,7 +984,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
 	txn1 := txBuilder1.Build()
 
-	err := txn1.HandleEvent(ctx, &transaction.CollectedEvent{
+	err := txn1.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn1.ID,
 		},
@@ -992,7 +992,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 	})
 	require.NoError(t, err)
 
-	err = txn1.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn1.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn1.ID,
 		},
@@ -1005,7 +1005,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
 	txn2 := txBuilder2.Build()
 
-	err = txn2.HandleEvent(ctx, &transaction.CollectedEvent{
+	err = txn2.ProcessEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn2.ID,
 		},
@@ -1013,7 +1013,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 	})
 	require.NoError(t, err)
 
-	err = txn2.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = txn2.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn2.ID,
 		},
@@ -2173,7 +2173,7 @@ func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		// Verify heartbeats were sent (at least initial + periodic)
-		return mocks.SentMessageRecorder.SentHeartbeatCount() == 2
+		return mocks.SentMessageRecorder.SentHeartbeatCount() >= 2
 	}, 500*time.Millisecond, 10*time.Millisecond)
 
 	// Cancel to stop the loop

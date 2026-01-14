@@ -49,7 +49,7 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 		InputStateIDs(transaction1.PostAssembly.OutputStates[0].ID)
 	transaction2 := transaction2Builder.Build()
 
-	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction2.ProcessEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction2.ID,
 		},
@@ -78,7 +78,7 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 		ReadStateIDs(transaction1.PostAssembly.OutputStates[0].ID)
 	transaction2 := transaction2Builder.Build()
 
-	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction2.ProcessEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction2.ID,
 		},
@@ -115,7 +115,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		InputStateIDs(transaction1.PostAssembly.OutputStates[0].ID, transaction2.PostAssembly.OutputStates[0].ID)
 	transaction3 := transaction3Builder.Build()
 
-	err := transaction3.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction3.ProcessEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction3.ID,
 		},
@@ -127,22 +127,22 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
-	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.GetCurrentState())
 
 	//move both dependencies forward
-	err = transaction1.HandleEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
+	err = transaction1.ProcessEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
 	assert.NoError(t, err)
-	err = transaction2.HandleEvent(ctx, transaction2Builder.BuildEndorsedEvent(2))
+	err = transaction2.ProcessEvent(ctx, transaction2Builder.BuildEndorsedEvent(2))
 	assert.NoError(t, err)
 
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
-	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//move one dependency to ready to dispatch
-	err = transaction1.HandleEvent(ctx, &DispatchRequestApprovedEvent{
+	err = transaction1.ProcessEvent(ctx, &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction1.ID,
 		},
@@ -151,12 +151,12 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//finally move the last dependency to ready to dispatch
-	err = transaction2.HandleEvent(ctx, &DispatchRequestApprovedEvent{
+	err = transaction2.ProcessEvent(ctx, &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction2.ID,
 		},
@@ -165,8 +165,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.GetCurrentState())
 	assert.False(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 }
