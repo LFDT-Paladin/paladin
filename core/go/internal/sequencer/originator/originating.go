@@ -28,16 +28,10 @@ import (
 )
 
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
-	transactions, err := o.transactionsOrderedByCreatedTime(ctx)
-	if err != nil {
-		log.L(ctx).Errorf("failed to get transactions ordered by created time: %v", err)
-		return err
-	}
-
 	// Find pending transactions only and (optionally) already delegated transactions
 	// TODO - this is another place where we are checking state outside the state machine
 	privateTransactions := make([]*components.PrivateTransaction, 0)
-	for _, txn := range transactions {
+	for _, txn := range o.transactionsOrdered {
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
 			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
@@ -52,7 +46,7 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	}
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
-	for _, txn := range transactions {
+	for _, txn := range o.transactionsOrdered {
 		err := txn.ProcessEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.ID,

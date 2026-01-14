@@ -54,7 +54,7 @@ type originator struct {
 	timeOfMostRecentHeartbeat   common.Time
 	transactionsByID            map[uuid.UUID]*transaction.Transaction
 	submittedTransactionsByHash map[pldtypes.Bytes32]*uuid.UUID
-	transactionsOrdered         []*uuid.UUID
+	transactionsOrdered         []*transaction.Transaction
 	currentBlockHeight          uint64
 	latestCoordinatorSnapshot   *common.CoordinatorSnapshot
 
@@ -207,7 +207,7 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 		return err
 	}
 	o.transactionsByID[txn.ID] = newTxn
-	o.transactionsOrdered = append(o.transactionsOrdered, &txn.ID)
+	o.transactionsOrdered = append(o.transactionsOrdered, newTxn)
 	createdEvent := &transaction.CreatedEvent{}
 	createdEvent.TransactionID = txn.ID
 	err = newTxn.ProcessEvent(ctx, createdEvent)
@@ -225,23 +225,14 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 	delete(o.transactionsByID, txnID)
 
 	// Remove from transactionsOrdered
-	for i, id := range o.transactionsOrdered {
-		if *id == txnID {
+	for i, txn := range o.transactionsOrdered {
+		if txn.ID == txnID {
 			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
 			break
 		}
 	}
 
 	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
-}
-
-func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {
-	//TODO are we actually saving anything by transactionsOrdered being an array of IDs rather than an array of *transaction.Transaction
-	ordered := make([]*transaction.Transaction, len(o.transactionsOrdered))
-	for i, id := range o.transactionsOrdered {
-		ordered[i] = o.transactionsByID[*id]
-	}
-	return ordered, nil
 }
 
 func (o *originator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
