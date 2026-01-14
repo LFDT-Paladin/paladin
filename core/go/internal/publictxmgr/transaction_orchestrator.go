@@ -459,7 +459,6 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		log.L(ctx).Debugf("Orchestrator poll and process: polled %d items, space: %d", len(additional), spaces)
 		for _, ptx := range additional {
 			queueUpdated = true
-			// Binding sender is empty here...
 			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
 			txStage := it.stateManager.GetStage(ctx)

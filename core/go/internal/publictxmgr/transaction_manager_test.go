@@ -942,6 +942,7 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 		Completed: &DBPublicTxnCompletion{
 			TransactionHash: testTxHash,
 		},
+		Dispatcher: "dispatcher-node",
 	}).Error
 	require.NoError(t, err)
 
