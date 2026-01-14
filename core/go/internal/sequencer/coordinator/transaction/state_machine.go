@@ -19,9 +19,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
@@ -76,6 +74,7 @@ type (
 	Action          = statemachine.Action[*Transaction]
 	Guard           = statemachine.Guard[*Transaction]
 	Validator       = statemachine.Validator[*Transaction]
+	StateUpdate     = statemachine.StateUpdate[*Transaction]
 	Transition      = statemachine.Transition[State, *Transaction]
 	ActionRule      = statemachine.ActionRule[*Transaction]
 	EventHandler    = statemachine.EventHandler[State, *Transaction]
@@ -136,7 +135,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_SendAssembleRequest,
 				Events: map[EventType]EventHandler{
 					Event_Assemble_Success: {
-						Validator: validator_MatchesPendingAssembleRequest,
+						OnHandleEvent: stateupdate_AssembleSuccess,
+						Validator:     validator_MatchesPendingAssembleRequest,
 						Transitions: []Transition{
 							{
 								To: State_Endorsement_Gathering,
@@ -160,7 +160,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_Assemble_Revert_Response: {
-						Validator: validator_MatchesPendingAssembleRequest,
+						OnHandleEvent: stateupdate_AssembleRevert,
+						Validator:     validator_MatchesPendingAssembleRequest,
 						Transitions: []Transition{{
 							To: State_Reverted,
 						}},
@@ -181,6 +182,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_SendEndorsementRequests,
 				Events: map[EventType]EventHandler{
 					Event_Endorsed: {
+						OnHandleEvent: stateupdate_Endorsed,
 						Transitions: []Transition{
 							{
 								To: State_Confirming_Dispatchable,
@@ -193,6 +195,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_EndorsedRejected: {
+						OnHandleEvent: stateupdate_EndorsedRejected,
 						Transitions: []Transition{
 							{
 								To: State_Pooled,
@@ -221,7 +224,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_SendPreDispatchRequest,
 				Events: map[EventType]EventHandler{
 					Event_DispatchRequestApproved: {
-						Validator: validator_MatchesPendingPreDispatchRequest,
+						OnHandleEvent: stateupdate_DispatchApproved,
+						Validator:     validator_MatchesPendingPreDispatchRequest,
 						Transitions: []Transition{
 							{
 								To: State_Ready_For_Dispatch,
@@ -248,6 +252,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Dispatched: {
 				Events: map[EventType]EventHandler{
 					Event_Collected: {
+						OnHandleEvent: stateupdate_Collected,
 						Transitions: []Transition{
 							{
 								To: State_SubmissionPrepared,
@@ -258,17 +263,21 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_SubmissionPrepared: {
 				Events: map[EventType]EventHandler{
 					Event_Submitted: {
+						OnHandleEvent: stateupdate_Submitted,
 						Transitions: []Transition{
 							{
 								To: State_Submitted,
 							}},
 					},
-					Event_NonceAllocated: {},
+					Event_NonceAllocated: {
+						OnHandleEvent: stateupdate_NonceAllocated,
+					},
 				},
 			},
 			State_Submitted: {
 				Events: map[EventType]EventHandler{
 					Event_Confirmed: {
+						OnHandleEvent: stateupdate_Confirmed,
 						Transitions: []Transition{
 							{
 								If: statemachine.Not(guard_HasRevertReason),
@@ -289,6 +298,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_NotifyDependentsOfRevert,
 				Events: map[EventType]EventHandler{
 					common.Event_HeartbeatInterval: {
+						OnHandleEvent: stateupdate_HeartbeatInterval,
 						Transitions: []Transition{
 							{
 								If: guard_HasGracePeriodPassedSinceStateChange,
@@ -301,6 +311,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_NotifyOfConfirmation,
 				Events: map[EventType]EventHandler{
 					common.Event_HeartbeatInterval: {
+						OnHandleEvent: stateupdate_HeartbeatInterval,
 						Transitions: []Transition{
 							{
 								If: guard_HasGracePeriodPassedSinceStateChange,
@@ -339,60 +350,6 @@ func (t *Transaction) InitializeStateMachine(initialState State) {
 func (t *Transaction) ProcessEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event %s (TX ID %s, TX originator %s, TX address %+v)", event.TypeString(), t.ID.String(), t.originator, t.Address.HexString())
 	return t.stateMachine.ProcessEvent(ctx, t, event)
-}
-
-// applyEvent updates the internal state of the Transaction with information from the event
-// This is called before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the Transaction
-func (t *Transaction) applyEvent(ctx context.Context, _ *Transaction, event common.Event) error {
-	var err error
-	switch event := event.(type) {
-	case *AssembleSuccessEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
-		if err == nil {
-			err = t.writeLockStates(ctx)
-			if err != nil {
-				// Internal error. Only option is to revert the transaction
-				seqRevertEvent := &AssembleRevertResponseEvent{}
-				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
-				seqRevertEvent.TransactionID = t.ID
-				err = t.eventHandler(ctx, seqRevertEvent)
-				if err != nil {
-					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
-					log.L(ctx).Error(handlerErr)
-				}
-				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
-				// Return the original error
-				return err
-			}
-		}
-		// Assembling resolves the required verifiers which will need passing on for the endorse step
-		t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
-	case *AssembleRevertResponseEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
-	case *EndorsedEvent:
-		err = t.applyEndorsement(ctx, event.Endorsement, event.RequestID)
-	case *EndorsedRejectedEvent:
-		err = t.applyEndorsementRejection(ctx, event.RevertReason, event.Party, event.AttestationRequestName)
-	case *DispatchRequestApprovedEvent:
-		err = t.applyDispatchConfirmation(ctx, event.RequestID)
-	case *CollectedEvent:
-		t.signerAddress = &event.SignerAddress
-	case *NonceAllocatedEvent:
-		t.nonce = &event.Nonce
-	case *SubmittedEvent:
-		log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.ID.String(), event.SubmissionHash.HexString())
-		t.latestSubmissionHash = &event.SubmissionHash
-	case *ConfirmedEvent:
-		t.revertReason = event.RevertReason
-	case *common.HeartbeatIntervalEvent:
-		log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.ID.String(), t.GetCurrentState().String(), t.heartbeatIntervalsSinceStateChange+1)
-		t.heartbeatIntervalsSinceStateChange++
-	default:
-		//other events may trigger actions and/or state transitions but not require any internal state to be updated
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Tracef("no internal state to apply for event type %T", event)
-	}
-	return err
 }
 
 func (s State) String() string {

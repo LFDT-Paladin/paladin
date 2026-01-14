@@ -95,3 +95,9 @@ func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction) error 
 func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction) error {
 	return txn.nudgePreDispatchRequest(ctx)
 }
+
+// stateupdate_DispatchApproved applies dispatch confirmation to the transaction
+func stateupdate_DispatchApproved(ctx context.Context, txn *Transaction, event common.Event) error {
+	dispatchApprovedEvent := event.(*DispatchRequestApprovedEvent)
+	return txn.applyDispatchConfirmation(ctx, dispatchApprovedEvent.RequestID)
+}

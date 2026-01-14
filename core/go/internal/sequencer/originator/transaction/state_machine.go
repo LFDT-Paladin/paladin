@@ -78,6 +78,7 @@ type (
 	Action          = statemachine.Action[*Transaction]
 	Guard           = statemachine.Guard[*Transaction]
 	Validator       = statemachine.Validator[*Transaction]
+	StateUpdate     = statemachine.StateUpdate[*Transaction]
 	Transition      = statemachine.Transition[State, *Transaction]
 	ActionRule      = statemachine.ActionRule[*Transaction]
 	EventHandler    = statemachine.EventHandler[State, *Transaction]
@@ -102,6 +103,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Pending: {
 				Events: map[EventType]EventHandler{
 					Event_Delegated: {
+						OnHandleEvent: stateupdate_Delegated,
 						Transitions: []Transition{
 							{
 								To: State_Delegated,
@@ -113,18 +115,22 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Delegated: {
 				Events: map[EventType]EventHandler{
 					Event_AssembleRequestReceived: {
-						Validator: validator_AssembleRequestMatches,
+						Validator:     validator_AssembleRequestMatches,
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
 						Transitions: []Transition{
 							{
 								To: State_Assembling,
 							},
 						},
 					},
-					Event_CoordinatorChanged: {},
+					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
+					},
 					// If we previously delegated i.e. before a node restart, and the result was a chained transaction, the coordinator doesn't need
 					// to go through re-assembly and endorsement if it knows the result is a chained TX. We jump straight back to where we would be
 					// if the chained TX had just been created and we had received an Event_Dispatched from the coordinator.
 					Event_Dispatched: {
+						OnHandleEvent: stateupdate_Dispatched,
 						Transitions: []Transition{
 							{
 								To: State_Dispatched,
@@ -137,6 +143,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				OnTransitionTo: action_AssembleAndSign,
 				Events: map[EventType]EventHandler{
 					Event_AssembleAndSignSuccess: {
+						OnHandleEvent: stateupdate_AssembleAndSignSuccess,
 						Transitions: []Transition{
 							{
 								To: State_Endorsement_Gathering,
@@ -145,6 +152,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_AssembleRevert: {
+						OnHandleEvent: stateupdate_AssembleRevert,
 						Transitions: []Transition{
 							{
 								To: State_Reverted,
@@ -153,6 +161,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_AssemblePark: {
+						OnHandleEvent: stateupdate_AssemblePark,
 						Transitions: []Transition{
 							{
 								To: State_Parked,
@@ -161,6 +170,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						//would be very strange to have missed a bunch of heartbeats and switched coordinators if we recently received an assemble request but it is possible so we need to handle it
 						Transitions: []Transition{
 							{
@@ -169,6 +179,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_AssembleRequestReceived: {
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
 						// For some reason we've been asked to assemble again. We must not have moved to endorsement gathering,
 						// reverted, or parked. This could be because of a temporary issue preventing assembly (e.g. we couldn't
 						// resolve a remote verifier while it was offline). Assuming this is a new request, action it.
@@ -190,7 +201,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Endorsement_Gathering: {
 				Events: map[EventType]EventHandler{
 					Event_AssembleRequestReceived: {
-						Validator: validator_AssembleRequestMatches,
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
+						Validator:     validator_AssembleRequestMatches,
 						Actions: []ActionRule{
 							{
 								//We thought we had got as far as endorsement but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -204,6 +216,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						Transitions: []Transition{
 							{
 								To: State_Delegated,
@@ -224,6 +237,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Prepared: {
 				Events: map[EventType]EventHandler{
 					Event_Dispatched: {
+						OnHandleEvent: stateupdate_Dispatched,
 						//Note: no validator here although this event may or may not match the most recent dispatch confirmation response.
 						// It is possible that we timed out  on Prepared state, delegated to another coordinator, got as far as prepared again and now just learning that
 						// the original coordinator has dispatched the transaction.
@@ -248,6 +262,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						Transitions: []Transition{
 							{
 								To: State_Delegated,
@@ -278,6 +293,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						// coordinator has changed after we have seen the transaction dispatched.
 						// we will either see the dispatched transaction confirmed or reverted by the blockchain but that might not be for a long long time
 						// the fact that the coordinator has been changed on us means that we have lost contact with the original coordinator.
@@ -298,6 +314,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_NonceAssigned: {
+						OnHandleEvent: stateupdate_NonceAssigned,
 						Transitions: []Transition{
 							{
 								To: State_Sequenced,
@@ -305,6 +322,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_Submitted: {
+						OnHandleEvent: stateupdate_Submitted,
 						//we can skip past sequenced and go straight to submitted.
 						Transitions: []Transition{
 							{
@@ -327,6 +345,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						Transitions: []Transition{
 							{
 								To: State_Delegated,
@@ -334,6 +353,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_Submitted: {
+						OnHandleEvent: stateupdate_Submitted,
 						Transitions: []Transition{
 							{
 								To: State_Submitted,
@@ -344,7 +364,9 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			},
 			State_Submitted: {
 				Events: map[EventType]EventHandler{
-					Event_Submitted: {}, // continue to handle submitted events in this state in case the submission hash changes
+					Event_Submitted: {
+						OnHandleEvent: stateupdate_Submitted,
+					}, // continue to handle submitted events in this state in case the submission hash changes
 					Event_ConfirmedSuccess: {
 						Transitions: []Transition{{
 							To: State_Confirmed,
@@ -356,6 +378,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_CoordinatorChanged: {
+						OnHandleEvent: stateupdate_CoordinatorChanged,
 						Transitions: []Transition{
 							{
 								To: State_Delegated,
@@ -366,7 +389,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 					// reverted. We need to accomodate the coordinator getting there first and sending a new assemble request
 					// before we receive the revert and moved back to delegated.
 					Event_AssembleRequestReceived: {
-						Validator: validator_AssembleRequestMatches,
+						Validator:     validator_AssembleRequestMatches,
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
 						Transitions: []Transition{
 							{
 								To: State_Assembling,
@@ -379,6 +403,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 			State_Parked: {
 				Events: map[EventType]EventHandler{
 					Event_AssembleRequestReceived: {
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
 						Actions: []ActionRule{
 							{
 								//it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -412,6 +437,7 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						}},
 					},
 					Event_AssembleRequestReceived: {
+						OnHandleEvent: stateupdate_AssembleRequestReceived,
 						Actions: []ActionRule{
 							{
 								// It seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -442,22 +468,6 @@ func (t *Transaction) InitializeStateMachine(initialState State) {
 
 func (t *Transaction) ProcessEvent(ctx context.Context, event common.Event) error {
 	return t.stateMachine.ProcessEvent(ctx, t, event)
-}
-
-// applyEvent updates the internal state of the Transaction with information from the event
-// This is called before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the Transaction
-func (t *Transaction) applyEvent(ctx context.Context, _ *Transaction, event common.Event) error {
-	var err error
-	switch event := event.(type) {
-	case Event:
-		err = event.ApplyToTransaction(ctx, t)
-
-	default:
-		//other events may trigger actions and/or state transitions but not require any internal state to be updated
-		log.L(ctx).Debugf("no internal state to apply for event type %T", event)
-	}
-	return err
 }
 
 func (s State) String() string {

@@ -17,9 +17,28 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
+
+// stateupdate_Delegated sets the current delegate from a DelegatedEvent
+func stateupdate_Delegated(ctx context.Context, txn *Transaction, event common.Event) error {
+	delegatedEvent := event.(*DelegatedEvent)
+	if delegatedEvent.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
+	}
+	txn.currentDelegate = delegatedEvent.Coordinator
+	return nil
+}
+
+// stateupdate_CoordinatorChanged sets the current delegate from a CoordinatorChangedEvent
+func stateupdate_CoordinatorChanged(_ context.Context, txn *Transaction, event common.Event) error {
+	coordinatorChangedEvent := event.(*CoordinatorChangedEvent)
+	txn.currentDelegate = coordinatorChangedEvent.Coordinator
+	return nil
+}
 
 func action_SendPreDispatchResponse(ctx context.Context, txn *Transaction) error {
 	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator

@@ -18,8 +18,16 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
+
+// stateupdate_HeartbeatInterval increments the heartbeat counter
+func stateupdate_HeartbeatInterval(ctx context.Context, txn *Transaction, _ common.Event) error {
+	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", txn.ID.String(), txn.GetCurrentState().String(), txn.heartbeatIntervalsSinceStateChange+1)
+	txn.heartbeatIntervalsSinceStateChange++
+	return nil
+}
 
 func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?

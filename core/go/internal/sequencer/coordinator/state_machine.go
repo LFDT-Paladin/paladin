@@ -82,6 +82,7 @@ const (
 type (
 	Action          = statemachine.Action[*coordinator]
 	Guard           = statemachine.Guard[*coordinator]
+	StateUpdate     = statemachine.StateUpdate[*coordinator]
 	ActionRule      = statemachine.ActionRule[*coordinator]
 	Transition      = statemachine.Transition[State, *coordinator]
 	EventHandler    = statemachine.EventHandler[State, *coordinator]
@@ -95,16 +96,19 @@ func buildStateDefinitions() map[State]StateDefinition {
 			OnTransitionTo: action_Idle,
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
 					Transitions: []Transition{{
 						To: State_Active,
 					}},
 				},
 				Event_HeartbeatReceived: {
+					OnHandleEvent: stateupdate_HeartbeatReceived,
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
 				},
 				Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
+					OnHandleEvent: stateupdate_EndorsementRequested,
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
@@ -114,6 +118,7 @@ func buildStateDefinitions() map[State]StateDefinition {
 		State_Observing: {
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
 					Transitions: []Transition{
 						{
 							To: State_Standby,
@@ -129,8 +134,11 @@ func buildStateDefinitions() map[State]StateDefinition {
 		},
 		State_Standby: {
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
+				},
 				Event_NewBlock: {
+					OnHandleEvent: stateupdate_NewBlock,
 					Transitions: []Transition{{
 						To: State_Elect,
 						If: statemachine.Not(guard_Behind),
@@ -141,7 +149,9 @@ func buildStateDefinitions() map[State]StateDefinition {
 		State_Elect: {
 			OnTransitionTo: action_SendHandoverRequest,
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
+				},
 				Event_HandoverReceived: {
 					Transitions: []Transition{{
 						To: State_Prepared,
@@ -151,8 +161,11 @@ func buildStateDefinitions() map[State]StateDefinition {
 		},
 		State_Prepared: {
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
+				},
 				Event_TransactionConfirmed: {
+					OnHandleEvent: stateupdate_TransactionConfirmed,
 					Transitions: []Transition{{
 						To: State_Active,
 						If: guard_ActiveCoordinatorFlushComplete,
@@ -164,6 +177,7 @@ func buildStateDefinitions() map[State]StateDefinition {
 			OnTransitionTo: action_SelectTransaction,
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnHandleEvent: stateupdate_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
@@ -173,12 +187,15 @@ func buildStateDefinitions() map[State]StateDefinition {
 					}},
 				},
 				Event_TransactionsDelegated: {
+					OnHandleEvent: stateupdate_TransactionsDelegated,
 					Actions: []ActionRule{{
 						Action: action_SelectTransaction,
 						If:     statemachine.Not(guard_HasTransactionAssembling),
 					}},
 				},
-				Event_TransactionConfirmed: {},
+				Event_TransactionConfirmed: {
+					OnHandleEvent: stateupdate_TransactionConfirmed,
+				},
 				Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 					Transitions: []Transition{{
 						To: State_Flush,
@@ -190,11 +207,13 @@ func buildStateDefinitions() map[State]StateDefinition {
 			//TODO should we move to active if we get delegated transactions while in flush?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnHandleEvent: stateupdate_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
 				},
 				Event_TransactionConfirmed: {
+					OnHandleEvent: stateupdate_TransactionConfirmed,
 					Transitions: []Transition{{
 						To: State_Closing,
 						If: guard_FlushComplete,
@@ -206,6 +225,7 @@ func buildStateDefinitions() map[State]StateDefinition {
 			//TODO should we move to active if we get delegated transactions while in closing?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnHandleEvent: stateupdate_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
@@ -256,63 +276,6 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("coordinator pushing event onto event queue: %s", event.TypeString())
 	c.coordinatorEvents <- event
 	log.L(ctx).Tracef("coordinator pushed event onto event queue: %s", event.TypeString())
-}
-
-// applyEvent updates the internal state of the coordinator with information from the event
-// this happens before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the coordinator after this event has been applied
-// Note: the subject parameter is the same as 'c' but is required to match the ApplyEventFunc signature
-func (c *coordinator) applyEvent(ctx context.Context, _ *coordinator, event common.Event) error {
-	var err error
-	// First apply the event to the update the internal fine grained state of the coordinator if there is any handler registered for the current state
-	switch event := event.(type) {
-	case *TransactionsDelegatedEvent:
-		err = c.addToDelegatedTransactions(ctx, event.Originator, event.Transactions)
-	case *TransactionConfirmedEvent:
-		//This may be a confirmation of a transaction that we have have been coordinating or it may be one that another coordinator has been coordinating
-		//if the latter, then we may or may not know about it depending on whether we have seen a heartbeat from that coordinator since last time
-		// we were loaded into memory
-		//TODO - we can't actually guarantee that we have all transactions we dispatched in memory.
-		//Even assuming that the public txmgr is in the same process (may not be true forever)  and assuming that we haven't been swapped out ( likely not to be true very soon) there is still a chance that the transaction was submitted to the base ledger, then the process restarted then we get the confirmation.
-		// //When the process starts, we need to make sure that the coordinator is pre loaded with knowledge of all transactions that it has dispatched
-		// MRW TODO ^^
-		isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, event.TxID, event.From, event.Nonce, event.Hash, event.RevertReason)
-		if err != nil {
-			log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %d, Hash: %v: %v", event.From, event.Nonce, event.Hash, err)
-			return err
-		}
-		if !isDispatchedTransaction {
-			c.confirmMonitoredTransaction(ctx, event.From, event.Nonce)
-		}
-	case *transaction.AssembleSuccessEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *transaction.AssembleRevertResponseEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *transaction.TransactionUnknownByOriginatorEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *TransactionDispatchConfirmedEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *NewBlockEvent:
-		c.currentBlockHeight = event.BlockHeight
-	case *EndorsementRequestedEvent:
-		c.activeCoordinatorNode = event.From
-		c.coordinatorActive(c.contractAddress, event.From)
-		c.UpdateOriginatorNodePool(ctx, event.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	case *HeartbeatReceivedEvent:
-		c.activeCoordinatorNode = event.From
-		c.activeCoordinatorBlockHeight = event.BlockHeight
-		c.coordinatorActive(c.contractAddress, event.From)
-		c.UpdateOriginatorNodePool(ctx, event.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-		for _, flushPoint := range event.FlushPoints {
-			c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-		}
-	case *common.HeartbeatIntervalEvent:
-		c.heartbeatIntervalsSinceStateChange++
-	}
-	if err != nil {
-		log.L(ctx).Errorf("error applying event %v: %v", event.Type(), err)
-	}
-	return err
 }
 
 func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {

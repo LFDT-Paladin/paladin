@@ -52,6 +52,7 @@ type (
 	Action          = statemachine.Action[*originator]
 	Guard           = statemachine.Guard[*originator]
 	Validator       = statemachine.Validator[*originator]
+	StateUpdate     = statemachine.StateUpdate[*originator]
 	Transition      = statemachine.Transition[State, *originator]
 	ActionRule      = statemachine.ActionRule[*originator]
 	EventHandler    = statemachine.EventHandler[State, *originator]
@@ -65,12 +66,14 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 			State_Idle: {
 				Events: map[EventType]EventHandler{
 					Event_HeartbeatReceived: {
+						OnHandleEvent: stateupdate_HeartbeatReceived,
 						Transitions: []Transition{{
 							To: State_Observing,
 						}},
 					},
 					Event_TransactionCreated: {
-						Validator: validator_TransactionDoesNotExist,
+						OnHandleEvent: stateupdate_TransactionCreated,
+						Validator:     validator_TransactionDoesNotExist,
 						Transitions: []Transition{{
 							To: State_Sending,
 							On: action_SendDelegationRequest,
@@ -87,32 +90,38 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 						}},
 					},
 					Event_TransactionCreated: {
-						Validator: validator_TransactionDoesNotExist,
+						OnHandleEvent: stateupdate_TransactionCreated,
+						Validator:     validator_TransactionDoesNotExist,
 						Transitions: []Transition{{
 							To: State_Sending,
 							On: action_SendDelegationRequest,
 						}},
 					},
-					Event_NewBlock:          {},
-					Event_HeartbeatReceived: {},
+					Event_NewBlock: {},
+					Event_HeartbeatReceived: {
+						OnHandleEvent: stateupdate_HeartbeatReceived,
+					},
 				},
 			},
 			State_Sending: {
 				Events: map[EventType]EventHandler{
 					Event_TransactionConfirmed: {
+						OnHandleEvent: stateupdate_TransactionConfirmed,
 						Transitions: []Transition{{
 							To: State_Observing,
 							If: statemachine.Not(guard_HasUnconfirmedTransactions),
 						}},
 					},
 					Event_TransactionCreated: {
-						Validator: validator_TransactionDoesNotExist,
+						OnHandleEvent: stateupdate_TransactionCreated,
+						Validator:     validator_TransactionDoesNotExist,
 						Actions: []ActionRule{{
 							Action: action_SendDelegationRequest,
 						}},
 					},
 					Event_NewBlock: {},
 					Event_HeartbeatReceived: {
+						OnHandleEvent: stateupdate_HeartbeatReceived,
 						Actions: []ActionRule{{
 							If:     guard_HasDroppedTransactions,
 							Action: action_SendDroppedTXDelegationRequest,
@@ -190,29 +199,6 @@ func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status co
 		TxID:   txID.String(),
 		Status: "unknown",
 	}, nil
-}
-
-// applyEvent updates the internal state of the originator with information from the event
-// This is called before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the originator
-func (o *originator) applyEvent(ctx context.Context, _ *originator, event common.Event) error {
-	var err error
-	// First apply the event to the update the internal fine grained state of the coordinator if there is any handler registered for the current state
-	switch event := event.(type) {
-	case *HeartbeatReceivedEvent:
-		err = o.applyHeartbeatReceived(ctx, event)
-	case *TransactionCreatedEvent:
-		err = o.createTransaction(ctx, event.Transaction)
-	case *TransactionConfirmedEvent:
-		err = o.confirmTransaction(ctx, event.From, event.Nonce, event.Hash, event.RevertReason)
-	default:
-		log.L(ctx).Debugf("no action defined for event %T", event)
-
-	}
-	if err != nil {
-		log.L(ctx).Errorf("error applying event %v: %v", event.Type(), err)
-	}
-	return err
 }
 
 func (s State) String() string {

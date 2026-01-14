@@ -352,6 +352,68 @@ func (c *coordinator) UpdateOriginatorNodePool(ctx context.Context, originatorNo
 	slices.Sort(c.originatorNodePool)
 }
 
+// stateupdate_TransactionsDelegated adds delegated transactions to tracking
+func stateupdate_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
+	delegatedEvent := event.(*TransactionsDelegatedEvent)
+	return c.addToDelegatedTransactions(ctx, delegatedEvent.Originator, delegatedEvent.Transactions)
+}
+
+// stateupdate_TransactionConfirmed confirms a dispatched transaction and updates tracking maps
+func stateupdate_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
+	confirmedEvent := event.(*TransactionConfirmedEvent)
+	//This may be a confirmation of a transaction that we have have been coordinating or it may be one that another coordinator has been coordinating
+	//if the latter, then we may or may not know about it depending on whether we have seen a heartbeat from that coordinator since last time
+	// we were loaded into memory
+	//TODO - we can't actually guarantee that we have all transactions we dispatched in memory.
+	//Even assuming that the public txmgr is in the same process (may not be true forever)  and assuming that we haven't been swapped out ( likely not to be true very soon) there is still a chance that the transaction was submitted to the base ledger, then the process restarted then we get the confirmation.
+	// //When the process starts, we need to make sure that the coordinator is pre loaded with knowledge of all transactions that it has dispatched
+	// MRW TODO ^^
+	isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, confirmedEvent.TxID, confirmedEvent.From, confirmedEvent.Nonce, confirmedEvent.Hash, confirmedEvent.RevertReason)
+	if err != nil {
+		log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %d, Hash: %v: %v", confirmedEvent.From, confirmedEvent.Nonce, confirmedEvent.Hash, err)
+		return err
+	}
+	if !isDispatchedTransaction {
+		c.confirmMonitoredTransaction(ctx, confirmedEvent.From, confirmedEvent.Nonce)
+	}
+	return nil
+}
+
+// stateupdate_NewBlock updates the current block height
+func stateupdate_NewBlock(_ context.Context, c *coordinator, event common.Event) error {
+	newBlockEvent := event.(*NewBlockEvent)
+	c.currentBlockHeight = newBlockEvent.BlockHeight
+	return nil
+}
+
+// stateupdate_EndorsementRequested updates the active coordinator and originator pool
+func stateupdate_EndorsementRequested(ctx context.Context, c *coordinator, event common.Event) error {
+	endorsementRequestedEvent := event.(*EndorsementRequestedEvent)
+	c.activeCoordinatorNode = endorsementRequestedEvent.From
+	c.coordinatorActive(c.contractAddress, endorsementRequestedEvent.From)
+	c.UpdateOriginatorNodePool(ctx, endorsementRequestedEvent.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	return nil
+}
+
+// stateupdate_HeartbeatReceived updates the active coordinator, block height, and stores flush points
+func stateupdate_HeartbeatReceived(ctx context.Context, c *coordinator, event common.Event) error {
+	heartbeatEvent := event.(*HeartbeatReceivedEvent)
+	c.activeCoordinatorNode = heartbeatEvent.From
+	c.activeCoordinatorBlockHeight = heartbeatEvent.BlockHeight
+	c.coordinatorActive(c.contractAddress, heartbeatEvent.From)
+	c.UpdateOriginatorNodePool(ctx, heartbeatEvent.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	for _, flushPoint := range heartbeatEvent.FlushPoints {
+		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
+	}
+	return nil
+}
+
+// stateupdate_HeartbeatInterval increments the heartbeat intervals counter
+func stateupdate_HeartbeatInterval(_ context.Context, c *coordinator, _ common.Event) error {
+	c.heartbeatIntervalsSinceStateChange++
+	return nil
+}
+
 // TODO consider renaming to setDelegatedTransactionsForOriginator to make it clear that we expect originators to include all inflight transactions in every delegation request and therefore this is
 // a replace, not an add.  Need to finalize the decision about whether we expect the originator to include all inflight delegated transactions in every delegation request. Currently the code assumes we do so need to make the spec clear on that point and
 // record a decision record to explain why.  Every  time we come back to this point, we will be tempted to reverse that decision so we need to make sure we have a record of the known consequences.

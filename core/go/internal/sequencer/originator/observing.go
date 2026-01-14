@@ -22,8 +22,15 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
+
+// stateupdate_HeartbeatReceived updates originator state from a heartbeat and propagates events to transactions
+func stateupdate_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
+	heartbeatEvent := event.(*HeartbeatReceivedEvent)
+	return o.applyHeartbeatReceived(ctx, heartbeatEvent)
+}
 
 func (o *originator) applyHeartbeatReceived(ctx context.Context, event *HeartbeatReceivedEvent) error {
 	o.timeOfMostRecentHeartbeat = o.clock.Now()

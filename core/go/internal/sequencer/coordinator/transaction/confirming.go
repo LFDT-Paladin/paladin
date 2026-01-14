@@ -14,8 +14,19 @@
  */
 package transaction
 
-import "context"
+import (
+	"context"
+
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+)
 
 func guard_HasRevertReason(ctx context.Context, txn *Transaction) bool {
 	return txn.revertReason.String() != ""
+}
+
+// stateupdate_Confirmed sets the revert reason from a ConfirmedEvent
+func stateupdate_Confirmed(_ context.Context, txn *Transaction, event common.Event) error {
+	confirmedEvent := event.(*ConfirmedEvent)
+	txn.revertReason = confirmedEvent.RevertReason
+	return nil
 }

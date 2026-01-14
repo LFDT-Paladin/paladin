@@ -20,8 +20,46 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
+
+// stateupdate_AssembleRequestReceived sets the current delegate and latest assemble request
+func stateupdate_AssembleRequestReceived(_ context.Context, txn *Transaction, event common.Event) error {
+	assembleRequestEvent := event.(*AssembleRequestReceivedEvent)
+	txn.currentDelegate = assembleRequestEvent.Coordinator
+	txn.latestAssembleRequest = &assembleRequestFromCoordinator{
+		coordinatorsBlockHeight: assembleRequestEvent.CoordinatorsBlockHeight,
+		stateLocksJSON:          assembleRequestEvent.StateLocksJSON,
+		requestID:               assembleRequestEvent.RequestID,
+		preAssembly:             assembleRequestEvent.PreAssembly,
+	}
+	return nil
+}
+
+// stateupdate_AssembleAndSignSuccess sets the post-assembly data and request ID
+func stateupdate_AssembleAndSignSuccess(_ context.Context, txn *Transaction, event common.Event) error {
+	assembleSuccessEvent := event.(*AssembleAndSignSuccessEvent)
+	txn.PostAssembly = assembleSuccessEvent.PostAssembly
+	txn.latestFulfilledAssembleRequestID = assembleSuccessEvent.RequestID
+	return nil
+}
+
+// stateupdate_AssembleRevert sets the post-assembly data and request ID for a reverted assembly
+func stateupdate_AssembleRevert(_ context.Context, txn *Transaction, event common.Event) error {
+	assembleRevertEvent := event.(*AssembleRevertEvent)
+	txn.PostAssembly = assembleRevertEvent.PostAssembly
+	txn.latestFulfilledAssembleRequestID = assembleRevertEvent.RequestID
+	return nil
+}
+
+// stateupdate_AssemblePark sets the post-assembly data and request ID for a parked assembly
+func stateupdate_AssemblePark(_ context.Context, txn *Transaction, event common.Event) error {
+	assembleParkEvent := event.(*AssembleParkEvent)
+	txn.PostAssembly = assembleParkEvent.PostAssembly
+	txn.latestFulfilledAssembleRequestID = assembleParkEvent.RequestID
+	return nil
+}
 
 func action_AssembleAndSign(ctx context.Context, txn *Transaction) error {
 	if txn.latestAssembleRequest == nil {

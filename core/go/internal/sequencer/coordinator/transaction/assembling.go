@@ -303,6 +303,38 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Transacti
 	return false, nil
 }
 
+// stateupdate_AssembleSuccess applies post-assembly data, writes lock states, and updates verifiers
+func stateupdate_AssembleSuccess(ctx context.Context, txn *Transaction, event common.Event) error {
+	assembleSuccessEvent := event.(*AssembleSuccessEvent)
+	err := txn.applyPostAssembly(ctx, assembleSuccessEvent.PostAssembly)
+	if err == nil {
+		err = txn.writeLockStates(ctx)
+		if err != nil {
+			// Internal error. Only option is to revert the transaction
+			seqRevertEvent := &AssembleRevertResponseEvent{}
+			seqRevertEvent.RequestID = assembleSuccessEvent.RequestID // Must match what the state machine thinks the current assemble request ID is
+			seqRevertEvent.TransactionID = txn.ID
+			handlerErr := txn.eventHandler(ctx, seqRevertEvent)
+			if handlerErr != nil {
+				wrappedErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", handlerErr)
+				log.L(ctx).Error(wrappedErr)
+			}
+			txn.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+			// Return the original error
+			return err
+		}
+	}
+	// Assembling resolves the required verifiers which will need passing on for the endorse step
+	txn.PreAssembly.Verifiers = assembleSuccessEvent.PreAssembly.Verifiers
+	return err
+}
+
+// stateupdate_AssembleRevert applies post-assembly data for a reverted assembly
+func stateupdate_AssembleRevert(ctx context.Context, txn *Transaction, event common.Event) error {
+	assembleRevertEvent := event.(*AssembleRevertResponseEvent)
+	return txn.applyPostAssembly(ctx, assembleRevertEvent.PostAssembly)
+}
+
 func action_SendAssembleRequest(ctx context.Context, txn *Transaction) error {
 	return txn.sendAssembleRequest(ctx)
 }

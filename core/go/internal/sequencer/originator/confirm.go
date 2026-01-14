@@ -22,9 +22,16 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
+
+// stateupdate_TransactionConfirmed confirms a transaction and propagates events to the transaction
+func stateupdate_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
+	confirmedEvent := event.(*TransactionConfirmedEvent)
+	return o.confirmTransaction(ctx, confirmedEvent.From, confirmedEvent.Nonce, confirmedEvent.Hash, confirmedEvent.RevertReason)
+}
 
 func (o *originator) confirmTransaction(
 	ctx context.Context,

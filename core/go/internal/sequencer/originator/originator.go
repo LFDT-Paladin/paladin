@@ -190,6 +190,12 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
+// stateupdate_TransactionCreated creates a transaction and adds it to tracking maps
+func stateupdate_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
+	transactionCreatedEvent := event.(*TransactionCreatedEvent)
+	return o.createTransaction(ctx, transactionCreatedEvent.Transaction)
+}
+
 func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 	// Cleanup callback to remove transaction from originator's tracking maps
 	onCleanup := func(ctx context.Context) {

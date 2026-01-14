@@ -223,3 +223,15 @@ func action_NudgeEndorsementRequests(ctx context.Context, txn *Transaction) erro
 func guard_AttestationPlanFulfilled(ctx context.Context, txn *Transaction) bool {
 	return !txn.hasUnfulfilledEndorsementRequirements(ctx)
 }
+
+// stateupdate_Endorsed applies an endorsement to the transaction
+func stateupdate_Endorsed(ctx context.Context, txn *Transaction, event common.Event) error {
+	endorsedEvent := event.(*EndorsedEvent)
+	return txn.applyEndorsement(ctx, endorsedEvent.Endorsement, endorsedEvent.RequestID)
+}
+
+// stateupdate_EndorsedRejected applies an endorsement rejection to the transaction
+func stateupdate_EndorsedRejected(ctx context.Context, txn *Transaction, event common.Event) error {
+	endorsedRejectedEvent := event.(*EndorsedRejectedEvent)
+	return txn.applyEndorsementRejection(ctx, endorsedRejectedEvent.RevertReason, endorsedRejectedEvent.Party, endorsedRejectedEvent.AttestationRequestName)
+}
