@@ -58,11 +58,21 @@ type ActionRule[T any] struct {
 	If     Guard[T]  // Optional guard - if nil, action always executes
 }
 
+// StateUpdate is a function that updates the subject's internal state based on event data
+// This is called after event validation but before actions and transitions are processed
+type StateUpdate[T any] func(ctx context.Context, subject T, event common.Event) error
+
 // EventHandler defines how a specific event type is handled in a particular state
 type EventHandler[S State, T any] struct {
 	// Validator optionally validates whether this event instance is applicable
 	// If nil, the event is always considered valid when received in the appropriate state
 	Validator Validator[T]
+
+	// OnHandleEvent optionally applies event-specific state updates to the subject
+	// This is called after validation but before actions and transitions are evaluated,
+	// allowing guards to reference the updated state
+	// If nil, no state update is performed for this event handler
+	OnHandleEvent StateUpdate[T]
 
 	// Actions are executed (in order) when this event is received, before transitions are evaluated
 	// Each action may have its own guard condition
@@ -103,8 +113,3 @@ type StateMachineState[S State] struct {
 	LastStateChange time.Time
 	LatestEvent     string
 }
-
-// ApplyEventFunc is a callback that applies event-specific state changes to the subject
-// This is called after event validation but before actions and transitions are processed
-// The implementation is specific to each state machine type
-type ApplyEventFunc[T any] func(ctx context.Context, subject T, event common.Event) error

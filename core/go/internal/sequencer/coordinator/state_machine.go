@@ -241,7 +241,7 @@ func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) erro
 	}
 
 	// Process the event through the generic state machine
-	err := c.stateMachine.ProcessEvent(ctx, c, event, c.applyEvent)
+	err := c.stateMachine.ProcessEvent(ctx, c, event)
 	if err != nil {
 		return err
 	}

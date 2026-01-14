@@ -338,7 +338,7 @@ func (t *Transaction) InitializeStateMachine(initialState State) {
 
 func (t *Transaction) ProcessEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event %s (TX ID %s, TX originator %s, TX address %+v)", event.TypeString(), t.ID.String(), t.originator, t.Address.HexString())
-	return t.stateMachine.ProcessEvent(ctx, t, event, t.applyEvent)
+	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
 // applyEvent updates the internal state of the Transaction with information from the event

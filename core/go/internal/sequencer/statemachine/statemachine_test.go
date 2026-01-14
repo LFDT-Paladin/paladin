@@ -144,7 +144,7 @@ func TestBasicTransition(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, sm.GetCurrentState())
 	assert.Equal(t, "Event_Start", sm.GetLatestEvent())
@@ -180,7 +180,7 @@ func TestTransitionWithGuard(t *testing.T) {
 
 	// First attempt - guard fails (ProcessedCount < 3)
 	event := NewTestEvent(Event_Complete, "")
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Processing, sm.GetCurrentState()) // No transition
 
@@ -188,7 +188,7 @@ func TestTransitionWithGuard(t *testing.T) {
 	subject.ProcessedCount = 3
 
 	// Second attempt - guard passes
-	err = sm.ProcessEvent(ctx, subject, event, nil)
+	err = sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Complete, sm.GetCurrentState())
 }
@@ -223,7 +223,7 @@ func TestTransitionWithOnAction(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, sm.GetCurrentState())
 	assert.Contains(t, subject.ActionsCalled, "transition_action")
@@ -258,7 +258,7 @@ func TestOnTransitionToAction(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Contains(t, subject.ActionsCalled, "entry_action")
 }
@@ -295,7 +295,7 @@ func TestEventActions(t *testing.T) {
 	sm := NewStateMachine(config, State_Active)
 	event := NewTestEvent(Event_Heartbeat, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"action1", "action2"}, subject.ActionsCalled)
 }
@@ -337,7 +337,7 @@ func TestEventActionsWithGuards(t *testing.T) {
 	event := NewTestEvent(Event_Heartbeat, "")
 
 	// First call - guard fails for action2
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"action1"}, subject.ActionsCalled)
 
@@ -346,7 +346,7 @@ func TestEventActionsWithGuards(t *testing.T) {
 	subject.ActionsCalled = nil
 
 	// Second call - both actions run
-	err = sm.ProcessEvent(ctx, subject, event, nil)
+	err = sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"action1", "action2"}, subject.ActionsCalled)
 }
@@ -380,22 +380,22 @@ func TestEventValidator(t *testing.T) {
 
 	// Invalid event - should be ignored
 	invalidEvent := NewTestEvent(Event_Start, "invalid")
-	err := sm.ProcessEvent(ctx, subject, invalidEvent, nil)
+	err := sm.ProcessEvent(ctx, subject, invalidEvent)
 	require.NoError(t, err)
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
 
 	// Valid event - should trigger transition
 	validEvent := NewTestEvent(Event_Start, "valid")
-	err = sm.ProcessEvent(ctx, subject, validEvent, nil)
+	err = sm.ProcessEvent(ctx, subject, validEvent)
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, sm.GetCurrentState())
 }
 
-func TestApplyEventCallback(t *testing.T) {
+func TestOnHandleEventUpdatesState(t *testing.T) {
 	ctx := context.Background()
 	subject := &TestSubject{Name: "test"}
 
-	applyEvent := func(ctx context.Context, s *TestSubject, event common.Event) error {
+	stateupdate_Start := func(ctx context.Context, s *TestSubject, event common.Event) error {
 		testEvent := event.(*TestEvent)
 		s.LastData = testEvent.data
 		return nil
@@ -406,6 +406,7 @@ func TestApplyEventCallback(t *testing.T) {
 			State_Idle: {
 				Events: map[EventType]EventHandler[TestState, *TestSubject]{
 					Event_Start: {
+						OnHandleEvent: stateupdate_Start,
 						Transitions: []Transition[TestState, *TestSubject]{
 							{To: State_Active},
 						},
@@ -419,7 +420,7 @@ func TestApplyEventCallback(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "applied_data")
 
-	err := sm.ProcessEvent(ctx, subject, event, applyEvent)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, "applied_data", subject.LastData)
 }
@@ -454,7 +455,7 @@ func TestTransitionCallback(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.True(t, callbackCalled)
 	assert.Equal(t, State_Idle, callbackFrom)
@@ -483,7 +484,7 @@ func TestIgnoredEvent(t *testing.T) {
 
 	// Event_Complete is not handled in State_Idle - should be ignored
 	event := NewTestEvent(Event_Complete, "")
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
 }
@@ -517,7 +518,7 @@ func TestActionError(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	assert.ErrorIs(t, err, expectedErr)
 	// State should not change on error
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
@@ -561,7 +562,7 @@ func TestMultipleTransitionsFirstWins(t *testing.T) {
 	sm := NewStateMachine(config, State_Processing)
 	event := NewTestEvent(Event_Complete, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, sm.GetCurrentState())
 }
@@ -697,12 +698,12 @@ func TestTimeSinceStateChange(t *testing.T) {
 	assert.True(t, duration >= 5*time.Millisecond)
 }
 
-func TestApplyEventError(t *testing.T) {
+func TestOnHandleEventErrorPreventsTransition(t *testing.T) {
 	ctx := context.Background()
 	subject := &TestSubject{Name: "test"}
 
-	expectedErr := errors.New("apply event failed")
-	applyEvent := func(ctx context.Context, s *TestSubject, event common.Event) error {
+	expectedErr := errors.New("state update failed")
+	stateupdate_Failing := func(ctx context.Context, s *TestSubject, event common.Event) error {
 		return expectedErr
 	}
 
@@ -711,6 +712,7 @@ func TestApplyEventError(t *testing.T) {
 			State_Idle: {
 				Events: map[EventType]EventHandler[TestState, *TestSubject]{
 					Event_Start: {
+						OnHandleEvent: stateupdate_Failing,
 						Transitions: []Transition[TestState, *TestSubject]{
 							{To: State_Active},
 						},
@@ -723,9 +725,9 @@ func TestApplyEventError(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, applyEvent)
+	err := sm.ProcessEvent(ctx, subject, event)
 	assert.ErrorIs(t, err, expectedErr)
-	// State should not change on applyEvent error
+	// State should not change on OnHandleEvent error
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
 }
 
@@ -756,7 +758,7 @@ func TestValidatorError(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	assert.ErrorIs(t, err, expectedErr)
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
 }
@@ -776,7 +778,7 @@ func TestNoStateDefinition(t *testing.T) {
 	event := NewTestEvent(Event_Start, "")
 
 	// Event should be ignored since State_Idle has no definition
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
 }
@@ -810,7 +812,7 @@ func TestTransitionOnActionError(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	assert.ErrorIs(t, err, expectedErr)
 	// State should not change on transition action error
 	assert.Equal(t, State_Idle, sm.GetCurrentState())
@@ -845,7 +847,7 @@ func TestOnTransitionToError(t *testing.T) {
 	sm := NewStateMachine(config, State_Idle)
 	event := NewTestEvent(Event_Start, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	assert.ErrorIs(t, err, expectedErr)
 	// Note: state has already changed to Active before OnTransitionTo runs
 	assert.Equal(t, State_Active, sm.GetCurrentState())
@@ -874,7 +876,7 @@ func TestTransitionToStateWithNoDefinition(t *testing.T) {
 	event := NewTestEvent(Event_Start, "")
 
 	// Should succeed even if target state has no definition
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, sm.GetCurrentState())
 }
@@ -907,7 +909,7 @@ func TestEventWithNoTransitions(t *testing.T) {
 	sm := NewStateMachine(config, State_Active)
 	event := NewTestEvent(Event_Heartbeat, "")
 
-	err := sm.ProcessEvent(ctx, subject, event, nil)
+	err := sm.ProcessEvent(ctx, subject, event)
 	require.NoError(t, err)
 	assert.True(t, actionCalled)
 	assert.Equal(t, State_Active, sm.GetCurrentState()) // No state change
@@ -929,4 +931,470 @@ func TestGuardOrEmptyList(t *testing.T) {
 	// Or with no guards should return false
 	emptyOr := Or[*TestSubject]()
 	assert.False(t, emptyOr(ctx, subject))
+}
+
+// Tests for OnHandleEvent functionality
+
+func TestOnHandleEventBasic(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	stateupdate_Start := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		testEvent := event.(*TestEvent)
+		s.LastData = testEvent.data
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Start,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+			State_Active: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+	event := NewTestEvent(Event_Start, "event_data")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+	assert.Equal(t, "event_data", subject.LastData)
+}
+
+func TestOnHandleEventCalledBeforeGuards(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test", ProcessedCount: 0}
+
+	// OnHandleEvent sets ProcessedCount, guard checks it
+	stateupdate_Process := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		s.ProcessedCount = 10
+		return nil
+	}
+
+	guardProcessedEnough := func(ctx context.Context, s *TestSubject) bool {
+		return s.ProcessedCount >= 5
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Processing: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Process: {
+						OnHandleEvent: stateupdate_Process,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{
+								To: State_Complete,
+								If: guardProcessedEnough,
+							},
+						},
+					},
+				},
+			},
+			State_Complete: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Processing)
+	event := NewTestEvent(Event_Process, "")
+
+	// Before processing, ProcessedCount is 0, but OnHandleEvent will set it to 10
+	// The guard should see the updated value and allow the transition
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	assert.Equal(t, State_Complete, sm.GetCurrentState())
+	assert.Equal(t, 10, subject.ProcessedCount)
+}
+
+func TestOnHandleEventError(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	expectedErr := errors.New("state update failed")
+	stateupdate_Failing := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		return expectedErr
+	}
+
+	actionCalled := false
+	action := func(ctx context.Context, s *TestSubject) error {
+		actionCalled = true
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Failing,
+						Actions: []ActionRule[*TestSubject]{
+							{Action: action},
+						},
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+	event := NewTestEvent(Event_Start, "")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	assert.ErrorIs(t, err, expectedErr)
+	// State should not change on OnHandleEvent error
+	assert.Equal(t, State_Idle, sm.GetCurrentState())
+	// Actions should not be called when OnHandleEvent fails
+	assert.False(t, actionCalled)
+}
+
+func TestOnHandleEventWithActions(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	callOrder := []string{}
+
+	stateupdate_Track := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		callOrder = append(callOrder, "onhandle")
+		return nil
+	}
+
+	action := func(ctx context.Context, s *TestSubject) error {
+		callOrder = append(callOrder, "action")
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Track,
+						Actions: []ActionRule[*TestSubject]{
+							{Action: action},
+						},
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+			State_Active: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+	event := NewTestEvent(Event_Start, "")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	// Verify order: OnHandleEvent called before actions
+	assert.Equal(t, []string{"onhandle", "action"}, callOrder)
+}
+
+func TestOnHandleEventReceivesCorrectEvent(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	var receivedEventType EventType
+	var receivedEventData string
+
+	stateupdate_Capture := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		testEvent := event.(*TestEvent)
+		receivedEventType = testEvent.Type()
+		receivedEventData = testEvent.data
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Capture,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+			State_Active: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+	event := NewTestEvent(Event_Start, "test_payload")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	assert.Equal(t, Event_Start, receivedEventType)
+	assert.Equal(t, "test_payload", receivedEventData)
+}
+
+func TestOnHandleEventWithValidator(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	validatorCalled := false
+	onHandleEventCalled := false
+
+	validator := func(ctx context.Context, s *TestSubject, event common.Event) (bool, error) {
+		validatorCalled = true
+		testEvent := event.(*TestEvent)
+		return testEvent.data == "valid", nil
+	}
+
+	stateupdate_Track := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		onHandleEventCalled = true
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						Validator:     validator,
+						OnHandleEvent: stateupdate_Track,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+			State_Active: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+
+	// Test with invalid event - validator fails, OnHandleEvent should NOT be called
+	invalidEvent := NewTestEvent(Event_Start, "invalid")
+	err := sm.ProcessEvent(ctx, subject, invalidEvent)
+	require.NoError(t, err)
+	assert.True(t, validatorCalled)
+	assert.False(t, onHandleEventCalled)
+	assert.Equal(t, State_Idle, sm.GetCurrentState())
+
+	// Reset for next test
+	validatorCalled = false
+	onHandleEventCalled = false
+
+	// Test with valid event - validator passes, OnHandleEvent should be called
+	validEvent := NewTestEvent(Event_Start, "valid")
+	err = sm.ProcessEvent(ctx, subject, validEvent)
+	require.NoError(t, err)
+	assert.True(t, validatorCalled)
+	assert.True(t, onHandleEventCalled)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+}
+
+func TestOnHandleEventWithTransitionOnAction(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	callOrder := []string{}
+
+	stateupdate_Track := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		callOrder = append(callOrder, "onhandle")
+		return nil
+	}
+
+	transitionAction := func(ctx context.Context, s *TestSubject) error {
+		callOrder = append(callOrder, "transition_on")
+		return nil
+	}
+
+	entryAction := func(ctx context.Context, s *TestSubject) error {
+		callOrder = append(callOrder, "entry")
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Track,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{
+								To: State_Active,
+								On: transitionAction,
+							},
+						},
+					},
+				},
+			},
+			State_Active: {
+				OnTransitionTo: entryAction,
+			},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+	event := NewTestEvent(Event_Start, "")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	// Verify order: OnHandleEvent -> transition On action -> OnTransitionTo
+	assert.Equal(t, []string{"onhandle", "transition_on", "entry"}, callOrder)
+}
+
+func TestOnHandleEventNoTransition(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	onHandleEventCalled := false
+	stateupdate_NoTransition := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		onHandleEventCalled = true
+		s.ProcessedCount++
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Active: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Heartbeat: {
+						OnHandleEvent: stateupdate_NoTransition,
+						// No transitions defined - event only triggers state update
+					},
+				},
+			},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Active)
+	event := NewTestEvent(Event_Heartbeat, "")
+
+	err := sm.ProcessEvent(ctx, subject, event)
+	require.NoError(t, err)
+	assert.True(t, onHandleEventCalled)
+	assert.Equal(t, 1, subject.ProcessedCount)
+	assert.Equal(t, State_Active, sm.GetCurrentState()) // No state change
+}
+
+func TestMultipleEventsWithDifferentOnHandleEvents(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test"}
+
+	stateupdate_Start := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		s.ActionsCalled = append(s.ActionsCalled, "stateupdate_start")
+		return nil
+	}
+
+	stateupdate_Process := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		s.ActionsCalled = append(s.ActionsCalled, "stateupdate_process")
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Idle: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Start: {
+						OnHandleEvent: stateupdate_Start,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Active},
+						},
+					},
+				},
+			},
+			State_Active: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Process: {
+						OnHandleEvent: stateupdate_Process,
+						Transitions: []Transition[TestState, *TestSubject]{
+							{To: State_Processing},
+						},
+					},
+				},
+			},
+			State_Processing: {},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Idle)
+
+	// First event
+	err := sm.ProcessEvent(ctx, subject, NewTestEvent(Event_Start, ""))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+	assert.Equal(t, []string{"stateupdate_start"}, subject.ActionsCalled)
+
+	// Second event - different OnHandleEvent
+	err = sm.ProcessEvent(ctx, subject, NewTestEvent(Event_Process, ""))
+	require.NoError(t, err)
+	assert.Equal(t, State_Processing, sm.GetCurrentState())
+	assert.Equal(t, []string{"stateupdate_start", "stateupdate_process"}, subject.ActionsCalled)
+}
+
+func TestOnHandleEventWithGuardedActions(t *testing.T) {
+	ctx := context.Background()
+	subject := &TestSubject{Name: "test", ProcessedCount: 0}
+
+	// OnHandleEvent sets the state that guards will check
+	stateupdate_SetCount := func(ctx context.Context, s *TestSubject, event common.Event) error {
+		testEvent := event.(*TestEvent)
+		if testEvent.data == "high" {
+			s.ProcessedCount = 10
+		}
+		return nil
+	}
+
+	guardHigh := func(ctx context.Context, s *TestSubject) bool {
+		return s.ProcessedCount >= 5
+	}
+
+	highAction := func(ctx context.Context, s *TestSubject) error {
+		s.ActionsCalled = append(s.ActionsCalled, "high_action")
+		return nil
+	}
+
+	lowAction := func(ctx context.Context, s *TestSubject) error {
+		s.ActionsCalled = append(s.ActionsCalled, "low_action")
+		return nil
+	}
+
+	config := StateMachineConfig[TestState, *TestSubject]{
+		Definitions: map[TestState]StateDefinition[TestState, *TestSubject]{
+			State_Active: {
+				Events: map[EventType]EventHandler[TestState, *TestSubject]{
+					Event_Process: {
+						OnHandleEvent: stateupdate_SetCount,
+						Actions: []ActionRule[*TestSubject]{
+							{Action: highAction, If: guardHigh},
+							{Action: lowAction, If: Not(guardHigh)},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	sm := NewStateMachine(config, State_Active)
+
+	// Low event - guard should fail, lowAction should be called
+	err := sm.ProcessEvent(ctx, subject, NewTestEvent(Event_Process, "low"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"low_action"}, subject.ActionsCalled)
+
+	// Reset
+	subject.ActionsCalled = nil
+	subject.ProcessedCount = 0
+
+	// High event - OnHandleEvent sets count, guard should pass, highAction should be called
+	err = sm.ProcessEvent(ctx, subject, NewTestEvent(Event_Process, "high"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"high_action"}, subject.ActionsCalled)
 }

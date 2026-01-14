@@ -66,14 +66,12 @@ func (sm *StateMachine[S, T]) SetState(state S) {
 //   - ctx: context for logging and cancellation
 //   - subject: the entity that owns this state machine
 //   - event: the event to process
-//   - applyEvent: callback to apply event-specific changes to the subject's internal state
 //
 // Returns an error if event processing fails (validation errors, action errors, or transition errors)
 func (sm *StateMachine[S, T]) ProcessEvent(
 	ctx context.Context,
 	subject T,
 	event common.Event,
-	applyEvent ApplyEventFunc[T],
 ) error {
 	// Step 1: Evaluate whether this event is relevant to the current state
 	eventHandler, err := sm.evaluateEvent(ctx, subject, event)
@@ -83,9 +81,9 @@ func (sm *StateMachine[S, T]) ProcessEvent(
 
 	// Step 2: Apply the event to update the subject's internal state
 	// This happens before guards are evaluated so guards can reference the updated state
-	if applyEvent != nil {
-		if err := applyEvent(ctx, subject, event); err != nil {
-			log.L(ctx).Errorf("error applying event %s: %v", event.TypeString(), err)
+	if eventHandler.OnHandleEvent != nil {
+		if err := eventHandler.OnHandleEvent(ctx, subject, event); err != nil {
+			log.L(ctx).Errorf("error in OnHandleEvent for %s: %v", event.TypeString(), err)
 			return err
 		}
 	}

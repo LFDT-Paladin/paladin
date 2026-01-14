@@ -441,7 +441,7 @@ func (t *Transaction) InitializeStateMachine(initialState State) {
 }
 
 func (t *Transaction) ProcessEvent(ctx context.Context, event common.Event) error {
-	return t.stateMachine.ProcessEvent(ctx, t, event, t.applyEvent)
+	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
 // applyEvent updates the internal state of the Transaction with information from the event

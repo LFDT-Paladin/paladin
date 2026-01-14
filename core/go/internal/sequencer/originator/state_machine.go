@@ -150,7 +150,7 @@ func (o *originator) ProcessEvent(ctx context.Context, event common.Event) error
 		return o.propagateEventToTransaction(ctx, transactionEvent)
 	}
 
-	return o.stateMachine.ProcessEvent(ctx, o, event, o.applyEvent)
+	return o.stateMachine.ProcessEvent(ctx, o, event)
 }
 
 // Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
