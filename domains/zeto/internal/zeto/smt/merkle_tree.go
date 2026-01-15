@@ -16,6 +16,8 @@
 package smt
 
 import (
+	"context"
+
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	pldsmt "github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
@@ -46,8 +48,8 @@ func init() {
 	}
 }
 
-func NewSmt(storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
-	mt, err := smt.NewMerkleTree(storage, levels)
+func NewSmt(ctx context.Context, storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
+	mt, err := smt.NewMerkleTree(ctx, storage, levels)
 	return mt, err
 }
 

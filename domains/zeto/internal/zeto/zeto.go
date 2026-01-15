@@ -41,6 +41,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
@@ -130,7 +131,7 @@ var factoryDeployABI = &abi.Entry{
 func New(callbacks plugintk.DomainCallbacks) *Zeto {
 	return &Zeto{
 		Callbacks: callbacks,
-		hasher:    &smt.PoseidonHasher{},
+		hasher:    utxo.NewPoseidonHasher(),
 	}
 }
 

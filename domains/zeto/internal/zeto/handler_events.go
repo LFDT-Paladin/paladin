@@ -212,7 +212,7 @@ func (z *Zeto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkle
 	if err != nil {
 		return i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 	}
-	err = tree.AddLeaf(leaf)
+	err = tree.AddLeaf(ctx, leaf)
 	if err != nil {
 		return i18n.NewError(ctx, pldmsgs.MsgErrorAddLeafNode, err)
 	}

@@ -18,7 +18,7 @@ package common
 import (
 	"math/big"
 
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
@@ -32,5 +32,5 @@ func CalculateNullifier(value, salt *big.Int, privateKeyForZkp *big.Int) (*big.I
 }
 
 func GetHasher() core.Hasher {
-	return &smt.PoseidonHasher{}
+	return utxo.NewPoseidonHasher()
 }

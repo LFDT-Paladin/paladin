@@ -130,7 +130,7 @@ func generateMerkleProofs(ctx context.Context, smtSpec *common.MerkleTreeSpec, i
 	// verify that the input UTXOs have been indexed by the Merkle tree DB
 	// and generate a merkle proof for each
 	mtRoot := smtSpec.Tree.Root()
-	proofs, _, err := smtSpec.Tree.GenerateProofs(indexes, mtRoot)
+	proofs, _, err := smtSpec.Tree.GenerateProofs(ctx, indexes, mtRoot)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorGenerateMTP, err)
 	}
@@ -182,7 +182,7 @@ func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin,
 			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 		}
 		// Check if the leaf exists in the Merkle tree
-		n, err := mt.GetNode(leaf.Ref())
+		n, err := mt.GetNode(ctx, leaf.Ref())
 		if err != nil {
 			// TODO: deal with when the node is not found in the DB tables for the tree
 			// e.g because the transaction event hasn't been processed yet
