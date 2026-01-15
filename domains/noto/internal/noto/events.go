@@ -18,7 +18,6 @@ package noto
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -85,8 +84,6 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			n.recordTransactionInfo(ev, transfer.TxId, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(transfer.TxId, transfer.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(transfer.TxId, transfer.Outputs)...)
-			fmt.Printf("spent states: %+v\n", res.SpentStates)
-			fmt.Printf("confirmed states: %+v\n", res.ConfirmedStates)
 			if useNullifier {
 				n.updateMerkleTree(ctx, smtForStates.Tree, smtForStates.Storage, transfer.TxId, convertToUint256(transfer.Outputs))
 			}

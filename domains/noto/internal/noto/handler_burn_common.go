@@ -17,18 +17,22 @@ package noto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type burnCommon struct {
@@ -95,6 +99,18 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), []string{notary, tx.Transaction.From, from})
 		if err != nil {
 			return nil, err
+		}
+		if useNullifiers {
+			for _, newState := range returnedStates.states {
+				newState.NullifierSpecs = []*prototk.NullifierSpec{
+					{
+						Party:        from,
+						Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+						VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+						PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+					},
+				}
+			}
 		}
 		outputCoins = append(outputCoins, returnedStates.coins...)
 		outputStates = append(outputStates, returnedStates.states...)
@@ -182,11 +198,41 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	if err != nil {
 		return nil, err
 	}
+	payload := sender.Payload
+	if useNullifier {
+		// for nullifier variants, the "signature" parameter includes both the signature and the root
+		smtName := notosmt.MerkleTreeName(tx.ContractAddress.String())
+		smtType := smt.StatesTree
+		hasher := &smt.Keccak256Hasher{}
+		mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, h.noto.Callbacks, h.noto.merkleTreeRootSchema.Id, h.noto.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		root := mt.Tree.Root()
+		jsonObj := map[string]interface{}{
+			"root":      "0x" + root.BigInt().Text(16),
+			"signature": "0x" + hex.EncodeToString(payload),
+		}
+		jsonBytes, err := json.Marshal(jsonObj)
+		if err != nil {
+			return nil, err
+		}
+		args := abi.ParameterArray{
+			{Name: "root", Type: "uint256"},
+			{Name: "signature", Type: "bytes"},
+		}
+		encoded, err := args.EncodeABIDataJSON(jsonBytes)
+		if err != nil {
+			return nil, err
+		}
+		payload = encoded
+	}
+
 	params := &NotoBurnParams{
 		TxId:      req.Transaction.TransactionId,
 		Inputs:    endorsableStateIDs(req.InputStates, useNullifier),
 		Outputs:   endorsableStateIDs(req.OutputStates, false),
-		Signature: sender.Payload,
+		Signature: payload,
 		Data:      data,
 	}
 	paramsJSON, err := json.Marshal(params)

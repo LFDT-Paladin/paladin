@@ -18,7 +18,6 @@ package noto
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"slices"
 
@@ -402,7 +401,6 @@ func (n *Noto) findAvailableStates(ctx context.Context, stateQueryContext, schem
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("findAvailableStates: %v\n", res.States)
 	return res.States, nil
 }
 
