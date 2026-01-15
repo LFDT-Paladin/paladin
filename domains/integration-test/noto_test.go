@@ -70,6 +70,14 @@ func (s *notoTestSuite) SetupSuite() {
 		"SmtLib":          helpers.SmtLibJSON,
 		"noto_nullifiers": helpers.NotoNullifiersJSON,
 	}
+	deployOrder := []string{
+		"factory",
+		"noto_v0",
+		"PoseidonUnit2L",
+		"PoseidonUnit3L",
+		"SmtLib",
+		"noto_nullifiers",
+	}
 	configureV0 := func(deployed map[string]string, rpc rpcclient.Client) {
 		result1 := pldclient.Wrap(rpc).ReceiptPollingInterval(200*time.Millisecond).
 			ForABI(ctx, helpers.NotoFactoryABI).
@@ -95,7 +103,7 @@ func (s *notoTestSuite) SetupSuite() {
 			Wait(5 * time.Second)
 		require.NoError(s.T(), result2.Error())
 	}
-	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notaryName, contractSource, configureV0)
+	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notaryName, deployOrder, contractSource, configureV0)
 	for name, address := range contracts {
 		log.L(ctx).Infof("%s deployed to %s", name, address)
 	}
@@ -248,10 +256,6 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 
 	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.NoError(t, err)
-	log.L(ctx).Infof("Coins after transfer:")
-	for _, c := range coins {
-		log.L(ctx).Infof("  Coin ID: %s, Owner: %s, Amount: %s", c.ID.String(), c.Data.Owner.String(), c.Data.Amount.Int().String())
-	}
 	require.Len(t, coins, 2)
 
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: notaryName}).SignAndCall(notaryName).Wait()

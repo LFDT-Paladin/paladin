@@ -73,7 +73,11 @@ func (s *pvpTestSuite) SetupSuite() {
 		"noto": helpers.NotoFactoryJSON,
 		"atom": helpers.AtomFactoryJSON,
 	}
-	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notary, contractSource)
+	deployOrder := []string{
+		"noto",
+		"atom",
+	}
+	contracts := deployContracts(ctx, s.T(), s.hdWalletSeed, notary, deployOrder, contractSource)
 	for name, address := range contracts {
 		log.L(ctx).Infof("%s deployed to %s", name, address)
 	}
