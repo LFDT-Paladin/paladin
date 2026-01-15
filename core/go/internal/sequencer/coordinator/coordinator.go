@@ -359,6 +359,11 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	var previousTransaction *transaction.Transaction
 	for _, txn := range transactions {
 
+		if c.transactionsByID[txn.ID] != nil {
+			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			continue
+		}
+
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
 			// We'll rely on the fact that originators retry incomplete transactions periodically
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
