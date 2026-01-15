@@ -66,7 +66,7 @@ type coordinator struct {
 	cancelCtx context.CancelFunc
 
 	/* State */
-	stateMachine                               *statemachine.StateMachine[State, *coordinator]
+	stateMachine                               *statemachine.EventLoopStateMachine[State, *coordinator]
 	activeCoordinatorNode                      string
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
@@ -108,10 +108,6 @@ type coordinator struct {
 	/*Algorithms*/
 	transactionSelector TransactionSelector
 
-	/* Event loop */
-	coordinatorEvents chan common.Event
-	stopEventLoop     chan struct{}
-	eventLoopStopped  chan struct{}
 	/* Dispatch loop */
 	dispatchQueue       chan *transaction.Transaction
 	stopDispatchLoop    chan struct{}
@@ -158,19 +154,10 @@ func NewCoordinator(
 		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
-		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		stopEventLoop:                      make(chan struct{}),
-		eventLoopStopped:                   make(chan struct{}),
 		stopDispatchLoop:                   make(chan struct{}),
 		dispatchLoopStopped:                make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
-	c.InitializeStateMachine(State_Idle)
-	c.transactionSelector = NewTransactionSelector(ctx, c)
-	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
-	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
-	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
 
 	// Configuration
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
@@ -181,8 +168,16 @@ func NewCoordinator(
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
+	// Initialize state machine (creates event loop)
+	c.InitializeStateMachine(ctx, State_Idle)
+	c.transactionSelector = NewTransactionSelector(ctx, c)
+	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
+	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
+	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
+
 	// Start event processing loop
-	go c.eventLoop(ctx)
+	c.stateMachine.Start()
 
 	// Start dispatch queue loop
 	go c.dispatchLoop(ctx)
@@ -191,42 +186,6 @@ func NewCoordinator(
 	transportWriter.StartLoopbackWriter(ctx)
 
 	return c, nil
-}
-
-// testSyncHook is implemented by test-only events that need to signal when they've been
-// dequeued by the event loop. This enables deterministic testing without time.Sleep.
-type testSyncHook interface {
-	NotifyProcessed()
-}
-
-func (c *coordinator) eventLoop(ctx context.Context) {
-	defer close(c.eventLoopStopped)
-	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
-	for {
-		select {
-		case event := <-c.coordinatorEvents:
-			// Test sync events are used to synchronize tests with the event loop
-			if syncHook, ok := event.(testSyncHook); ok {
-				syncHook.NotifyProcessed()
-				continue
-			}
-			log.L(ctx).Debugf("coordinator for contract %s pulled event from the queue: %s", c.contractAddress.String(), event.TypeString())
-			err := c.processEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error processing event: %v", err)
-			}
-		case <-c.stopEventLoop:
-			// Synchronously move the state machine to closed
-			err := c.processEvent(ctx, &CoordinatorClosedEvent{})
-			if err != nil {
-				// Log internal error
-				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error processing coordinator closed event for contract %s: %v", c.contractAddress.String(), err)
-				log.L(ctx).Error(err)
-			}
-			log.L(ctx).Debugf("coordinator event loop stopped for contract %s", c.contractAddress.String())
-			return
-		}
-	}
 }
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
@@ -441,7 +400,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			txn,
 			c.transportWriter,
 			c.clock,
-			c.processEvent,
+			c.QueueEvent,
 			c.engineIntegration,
 			c.syncPoints,
 			c.requestTimeout,
@@ -675,15 +634,16 @@ func (c *coordinator) Stop() {
 
 	// Make Stop() idempotent - make sure we've not already been stopped
 	select {
-	case <-c.eventLoopStopped:
+	case <-c.stateMachine.Done():
 		return
 	default:
 	}
 
-	// Stop the event and dispatch loops
-	c.stopEventLoop <- struct{}{}
+	// Stop the event loop (this triggers OnStop which processes CoordinatorClosedEvent)
+	c.stateMachine.Stop()
+
+	// Stop the dispatch loop
 	c.stopDispatchLoop <- struct{}{}
-	<-c.eventLoopStopped
 	<-c.dispatchLoopStopped
 
 	// Stop the loopback goroutine

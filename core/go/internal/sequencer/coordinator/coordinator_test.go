@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -41,8 +42,26 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestTransactionStateTransition(t *testing.T) {
+// Event loop integration test helpers and constants
+const (
+	eventLoopTestTimeout  = 100 * time.Millisecond
+	eventLoopTestInterval = 1 * time.Millisecond
+)
 
+// queueAndSync queues an event and waits for it to be processed by the event loop.
+// This is useful for testing that state does NOT change after an event.
+func queueAndSync(ctx context.Context, c SeqCoordinator, event common.Event) {
+	c.QueueEvent(ctx, event)
+	sync := statemachine.NewSyncEvent()
+	c.QueueEvent(ctx, sync)
+	sync.Wait()
+}
+
+// assertEventualStateEventLoop waits for the coordinator to reach the expected state
+func assertEventualStateEventLoop(t *testing.T, c SeqCoordinator, expected State, msgAndArgs ...interface{}) {
+	assert.Eventually(t, func() bool {
+		return c.GetCurrentState() == expected
+	}, eventLoopTestTimeout, eventLoopTestInterval, msgAndArgs...)
 }
 
 func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIdentityPool []string) (*coordinator, *coordinatorDependencyMocks) {
@@ -53,7 +72,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		clock:             &common.FakeClockForTesting{},
 		engineIntegration: common.NewMockEngineIntegration(t),
 		syncPoints:        &syncpoints.MockSyncPoints{},
-		emit:              func(event common.Event) {},
+		emit:              func(ctx context.Context, event common.Event) {},
 	}
 	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
 	mockTXManager := componentsmocks.NewTXManager(t)
@@ -109,7 +128,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 	builder.OverrideSequencerConfig(config)
@@ -118,11 +137,10 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	err := c.processEvent(ctx, &TransactionsDelegatedEvent{
+	queueAndSync(ctx, c, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: []*components.PrivateTransaction{txn},
 	})
-	assert.NoError(t, err)
 
 	// Assert that snapshot contains a transaction with matching ID
 	snapshot := c.getSnapshot(ctx)
@@ -132,7 +150,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that a request has been sent to the originator and respond with an assembled transaction
 	require.True(t, mocks.SentMessageRecorder.HasSentAssembleRequest())
-	err = c.processEvent(ctx, &transaction.AssembleSuccessEvent{
+	queueAndSync(ctx, c, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -140,7 +158,6 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		PostAssembly: transactionBuilder.BuildPostAssembly(),
 		PreAssembly:  transactionBuilder.BuildPreAssembly(),
 	})
-	assert.NoError(t, err)
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
 	snapshot = c.getSnapshot(ctx)
@@ -150,14 +167,13 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the coordinator has sent an endorsement request to the endorser and respond with an endorsement
 	require.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-	err = c.processEvent(ctx, &transaction.EndorsedEvent{
+	queueAndSync(ctx, c, &transaction.EndorsedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		RequestID:   mocks.SentMessageRecorder.SentEndorsementRequestsForPartyIdempotencyKey(transactionBuilder.GetEndorserIdentityLocator(0)),
 		Endorsement: transactionBuilder.BuildEndorsement(0),
 	})
-	assert.NoError(t, err)
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
 	snapshot = c.getSnapshot(ctx)
@@ -167,13 +183,12 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the coordinator has sent a dispatch confirmation request to the transaction sender and respond with a dispatch confirmation
 	require.True(t, mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest())
-	err = c.processEvent(ctx, &transaction.DispatchRequestApprovedEvent{
+	queueAndSync(ctx, c, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		RequestID: mocks.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
 	})
-	assert.NoError(t, err)
 
 	// Assert that snapshot no longer contains that transaction in the pooled transactions but does contain it in the dispatched transactions
 	//NOTE: This is a key design point.  When a transaction is ready to be dispatched, we communicate to other nodes, via the heartbeat snapshot, that the transaction is dispatched.
@@ -191,22 +206,20 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	assert.Equal(t, txn.ID.String(), readyTransactions[0].ID.String(), "The transaction ready to dispatch should match the delegated transaction ID")
 
 	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
-	err = c.processEvent(ctx, &transaction.DispatchedEvent{
+	queueAndSync(ctx, c, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 	})
-	assert.NoError(t, err)
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
-	err = c.processEvent(ctx, &transaction.CollectedEvent{
+	queueAndSync(ctx, c, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		SignerAddress: *signerAddress,
 	})
-	assert.NoError(t, err)
 
 	// Assert that we now have a signer address in the snapshot
 	snapshot = c.getSnapshot(ctx)
@@ -217,13 +230,12 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	assert.Equal(t, signerAddress.String(), snapshot.DispatchedTransactions[0].Signer.String(), "Snapshot should contain the dispatched transaction with signer address %s", signerAddress.String())
 
 	// Simulate the dispatcher thread allocating a nonce for the transaction
-	err = c.processEvent(ctx, &transaction.NonceAllocatedEvent{
+	queueAndSync(ctx, c, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		Nonce: 42,
 	})
-	assert.NoError(t, err)
 
 	// Assert that the nonce is now included in the snapshot
 	snapshot = c.getSnapshot(ctx)
@@ -237,13 +249,12 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Simulate the public transaction manager submitting the transaction
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err = c.processEvent(ctx, &transaction.SubmittedEvent{
+	queueAndSync(ctx, c, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		SubmissionHash: submissionHash,
 	})
-	assert.NoError(t, err)
 
 	// Assert that the hash is now included in the snapshot
 	snapshot = c.getSnapshot(ctx)
@@ -257,14 +268,13 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	require.NotNil(t, snapshot.DispatchedTransactions[0].LatestSubmissionHash, "Snapshot should contain the dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
-	err = c.processEvent(ctx, &transaction.ConfirmedEvent{
+	queueAndSync(ctx, c, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		Nonce: 42,
 		Hash:  submissionHash,
 	})
-	assert.NoError(t, err)
 
 	// Assert that snapshot contains a transaction with matching ID
 	snapshot = c.getSnapshot(ctx)
@@ -582,7 +592,7 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 
 	// Verify loops are running by checking channels are not closed
 	select {
-	case <-c.eventLoopStopped:
+	case <-c.stateMachine.Done():
 		t.Fatal("event loop should not be stopped initially")
 	default:
 	}
@@ -597,7 +607,7 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 
 	// Verify both loops have stopped (reading from closed channel returns immediately with ok=false)
 	select {
-	case _, ok := <-c.eventLoopStopped:
+	case _, ok := <-c.stateMachine.Done():
 		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
@@ -645,7 +655,7 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 
 	// Verify both loops have stopped
 	select {
-	case _, ok := <-c.eventLoopStopped:
+	case _, ok := <-c.stateMachine.Done():
 		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
@@ -673,7 +683,7 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 
 	// Verify both loops have stopped
 	select {
-	case _, ok := <-c.eventLoopStopped:
+	case _, ok := <-c.stateMachine.Done():
 		require.False(t, ok, "event loop stopped channel should be closed")
 	case <-time.After(10 * time.Millisecond):
 		t.Fatal("event loop did not stop within timeout")
@@ -689,34 +699,19 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 
 func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNonce(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
-	// Create a transaction with signer address and nonce
+	// Create a transaction with signer address and nonce using builder
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).
+		SignerAddress(signerAddress).
+		Nonce(nonce)
 	txn := txBuilder.Build()
 
-	// Set signer address and nonce on the transaction
-	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction already added
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Confirm the transaction
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -729,15 +724,14 @@ func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNon
 
 func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
 	// Create a transaction
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Confirm the transaction with nil from address (chained transaction scenario)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -751,15 +745,14 @@ func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionByTxIdWhenFrom
 
 func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
 	// Create a transaction without signer/nonce (chained transaction)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Try to confirm with a signer+nonce that doesn't match
 	nonMatchingSigner := pldtypes.RandAddress()
@@ -791,43 +784,21 @@ func TestCoordinator_ConfirmDispatchedTransaction_ReturnsFalseWhenTransactionNot
 
 func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
-	// Create a transaction with a submission hash
+	// Create a transaction with signer, nonce, and submission hash using builder
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).
+		SignerAddress(signerAddress).
+		Nonce(nonce).
+		LatestSubmissionHash(&submissionHash).
+		Build()
 
-	// Set signer, nonce, and submission hash
-	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SubmissionHash: submissionHash,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Confirm with matching hash
 	revertReason := pldtypes.HexBytes{}
@@ -839,43 +810,21 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t
 
 func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
-	// Create a transaction with a submission hash
+	// Create a transaction with signer, nonce, and submission hash using builder
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).
+		SignerAddress(signerAddress).
+		Nonce(nonce).
+		LatestSubmissionHash(&submissionHash).
+		Build()
 
-	// Set signer, nonce, and submission hash
-	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.SubmittedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SubmissionHash: submissionHash,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Confirm with different hash (should still work, just logs a warning)
 	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -888,34 +837,19 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(
 
 func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrectly(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
-	// Create a transaction without a submission hash (chained transaction)
+	// Create a transaction with signer and nonce but no submission hash using builder
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		SignerAddress(signerAddress).
+		Nonce(nonce).
+		Build()
 
-	// Set signer and nonce but no submission hash
-	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Confirm with a hash (chained transaction scenario)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -929,36 +863,20 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrec
 
 func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFails(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
 	// Create a transaction in a state that cannot handle ConfirmedEvent
 	// We'll use State_Pooled which should not accept ConfirmedEvent
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
-	txn := txBuilder.Build()
-
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
+		SignerAddress(signerAddress).
+		Nonce(nonce).
+		Build()
 
-	// Set signer and nonce
-	err := txn.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.ID] = txn
+	// Create coordinator with the transaction
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn).
+		Build(ctx)
 
 	// Try to confirm - this should fail because the transaction is in State_Pooled
 	// which may not accept ConfirmedEvent depending on state machine rules
@@ -975,55 +893,26 @@ func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFai
 
 func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCorrectly(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
 
-	// Create multiple transactions
+	// Create multiple transactions using builder
 	signerAddress1 := pldtypes.RandAddress()
 	nonce1 := uint64(42)
-	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn1 := txBuilder1.Build()
-
-	err := txn1.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.ID,
-		},
-		SignerAddress: *signerAddress1,
-	})
-	require.NoError(t, err)
-
-	err = txn1.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.ID,
-		},
-		Nonce: nonce1,
-	})
-	require.NoError(t, err)
+	txn1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		SignerAddress(signerAddress1).
+		Nonce(nonce1).
+		Build()
 
 	signerAddress2 := pldtypes.RandAddress()
 	nonce2 := uint64(43)
-	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn2 := txBuilder2.Build()
+	txn2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		SignerAddress(signerAddress2).
+		Nonce(nonce2).
+		Build()
 
-	err = txn2.ProcessEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn2.ID,
-		},
-		SignerAddress: *signerAddress2,
-	})
-	require.NoError(t, err)
-
-	err = txn2.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn2.ID,
-		},
-		Nonce: nonce2,
-	})
-	require.NoError(t, err)
-
-	// Add both transactions to coordinator
-	c.transactionsByID[txn1.ID] = txn1
-	c.transactionsByID[txn2.ID] = txn2
+	// Create coordinator with both transactions
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).
+		Transactions(txn1, txn2).
+		Build(ctx)
 
 	// Confirm first transaction
 	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -1870,9 +1759,11 @@ func TestCoordinator_PropagateEventToTransaction_IgnoresUnknownTransaction(t *te
 		},
 	}
 
-	// Should not error - just ignores the event
-	err := c.propagateEventToTransaction(ctx, event)
-	assert.NoError(t, err, "should not error when transaction is unknown")
+	// Should not error - just ignores the event (no crash, no state change)
+	queueAndSync(ctx, c, event)
+
+	// Verify transactionsByID is still empty (no transaction was created)
+	assert.Equal(t, 0, len(c.transactionsByID), "transactionsByID should remain empty")
 }
 
 func TestCoordinator_PropagateEventToTransaction_ProcessesKnownTransaction(t *testing.T) {
@@ -1894,9 +1785,8 @@ func TestCoordinator_PropagateEventToTransaction_ProcessesKnownTransaction(t *te
 		},
 	}
 
-	// Should successfully process the event
-	err := c.propagateEventToTransaction(ctx, event)
-	assert.NoError(t, err, "should successfully process event for known transaction")
+	// Queue the event and wait for processing
+	queueAndSync(ctx, c, event)
 
 	// Transaction should have moved to Assembling state after being selected
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(),
@@ -2485,4 +2375,376 @@ func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T)
 	// Cancel to stop the loop
 	c.heartbeatCancel()
 	<-done2
+}
+
+// Event loop integration tests for coordinator state machine through the public QueueEvent interface.
+// These tests verify the coordinator behavior through the full event loop path.
+
+func TestEventLoop_Coordinator_InitializeOK(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	defer c.Stop()
+
+	assert.Equal(t, State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
+}
+
+func TestEventLoop_Coordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder.OriginatorIdentityPool(originator)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
+	// Use mock.Anything for context since event loop uses internal cancelCtx
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	require.Equal(t, State_Idle, c.GetCurrentState())
+
+	// Queue event through public interface
+	c.QueueEvent(ctx, &TransactionsDelegatedEvent{
+		Originator:   originator,
+		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Active,
+		"expected transition from Idle to Active")
+}
+
+func TestEventLoop_Coordinator_Idle_ToObserving_OnHeartbeatReceived(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	defer c.Stop()
+
+	require.Equal(t, State_Idle, c.GetCurrentState())
+
+	c.QueueEvent(ctx, &HeartbeatReceivedEvent{})
+
+	assertEventualStateEventLoop(t, c, State_Observing,
+		"expected transition from Idle to Observing")
+}
+
+func TestEventLoop_Coordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing).
+		OriginatorIdentityPool(originator).
+		ActiveCoordinatorBlockHeight(200).
+		CurrentBlockHeight(194) // default tolerance is 5 so this is behind
+	// Use mock.Anything for context since event loop uses internal cancelCtx
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &TransactionsDelegatedEvent{
+		Originator:   originator,
+		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Standby,
+		"expected transition from Observing to Standby when behind")
+}
+
+func TestEventLoop_Coordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing).
+		OriginatorIdentityPool(originator).
+		ActiveCoordinatorBlockHeight(200).
+		CurrentBlockHeight(195) // default tolerance is 5 so this is not behind
+	// Use mock.Anything for context since event loop uses internal cancelCtx
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	c, mocks := builder.Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &TransactionsDelegatedEvent{
+		Originator:   originator,
+		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Elect,
+		"expected transition from Observing to Elect when not behind")
+
+	// Verify side effect: handover request was sent
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentHandoverRequest()
+	}, eventLoopTestTimeout, eventLoopTestInterval,
+		"expected handover request to be sent")
+}
+
+func TestEventLoop_Coordinator_Standby_ToElect_OnNewBlock_IfNotBehind(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Standby).
+		OriginatorIdentityPool(originator).
+		ActiveCoordinatorBlockHeight(200).
+		CurrentBlockHeight(194)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &NewBlockEvent{
+		BlockHeight: 195, // default tolerance is 5 so we are not behind
+	})
+
+	assertEventualStateEventLoop(t, c, State_Elect,
+		"expected transition from Standby to Elect when caught up")
+}
+
+func TestEventLoop_Coordinator_Standby_StaysInStandby_OnNewBlock_IfStillBehind(t *testing.T) {
+	ctx := context.Background()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Standby).
+		ActiveCoordinatorBlockHeight(200).
+		CurrentBlockHeight(193)
+	c, mocks := builder.Build(ctx)
+	defer c.Stop()
+
+	queueAndSync(ctx, c, &NewBlockEvent{
+		BlockHeight: 194, // still behind
+	})
+
+	assert.Equal(t, State_Standby, c.GetCurrentState(),
+		"expected to stay in Standby when still behind")
+	assert.False(t, mocks.SentMessageRecorder.HasSentHandoverRequest(),
+		"handover request should not be sent")
+}
+
+func TestEventLoop_Coordinator_Elect_ToPrepared_OnHandover(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Elect).Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &HandoverReceivedEvent{})
+
+	assertEventualStateEventLoop(t, c, State_Prepared,
+		"expected transition from Elect to Prepared")
+}
+
+func TestEventLoop_Coordinator_Prepared_ToActive_OnTransactionConfirmed_IfFlushCompleted(t *testing.T) {
+	ctx := context.Background()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	domainAPI := builder.GetDomainAPI()
+	domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
+
+	c.QueueEvent(ctx, &TransactionConfirmedEvent{
+		From:  builder.GetFlushPointSignerAddress(),
+		Nonce: builder.GetFlushPointNonce(),
+		Hash:  builder.GetFlushPointHash(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Active,
+		"expected transition from Prepared to Active when flush completed")
+}
+
+func TestEventLoop_Coordinator_Prepared_StaysInPrepared_OnTransactionConfirmed_IfNotFlushCompleted(t *testing.T) {
+	ctx := context.Background()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Prepared)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	otherHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	otherNonce := builder.GetFlushPointNonce() - 1
+
+	queueAndSync(ctx, c, &TransactionConfirmedEvent{
+		From:  builder.GetFlushPointSignerAddress(),
+		Nonce: otherNonce,
+		Hash:  otherHash,
+	})
+
+	assert.Equal(t, State_Prepared, c.GetCurrentState(),
+		"expected to stay in Prepared when flush not completed")
+}
+
+func TestEventLoop_Coordinator_Active_ToIdle_NoTransactionsInFlight(t *testing.T) {
+	ctx := context.Background()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+
+	assertEventualStateEventLoop(t, c, State_Idle,
+		"expected transition from Active to Idle when no transactions in flight")
+}
+
+func TestEventLoop_Coordinator_Active_StaysActive_OnTransactionConfirmed_IfTransactionsRemain(t *testing.T) {
+	ctx := context.Background()
+
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
+		Transactions(delegation1, delegation2).
+		Build(ctx)
+	defer c.Stop()
+
+	queueAndSync(ctx, c, &TransactionConfirmedEvent{
+		From:  delegation1.GetSignerAddress(),
+		Nonce: *delegation1.GetNonce(),
+		Hash:  *delegation1.GetLatestSubmissionHash(),
+	})
+
+	assert.Equal(t, State_Active, c.GetCurrentState(),
+		"expected to stay Active when transactions remain")
+}
+
+func TestEventLoop_Coordinator_Active_ToFlush_OnHandoverRequest(t *testing.T) {
+	ctx := context.Background()
+
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
+		Transactions(delegation1, delegation2).
+		Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &HandoverRequestEvent{
+		Requester: "newCoordinator",
+	})
+
+	assertEventualStateEventLoop(t, c, State_Flush,
+		"expected transition from Active to Flush on handover request")
+}
+
+func TestEventLoop_Coordinator_Flush_ToClosing_OnTransactionConfirmed_IfFlushComplete(t *testing.T) {
+	ctx := context.Background()
+
+	// One transaction past point of no return, one not
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Flush).
+		Transactions(delegation1, delegation2).
+		Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &TransactionConfirmedEvent{
+		From:  delegation1.GetSignerAddress(),
+		Nonce: *delegation1.GetNonce(),
+		Hash:  *delegation1.GetLatestSubmissionHash(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Closing,
+		"expected transition from Flush to Closing when flush complete")
+}
+
+func TestEventLoop_Coordinator_Flush_StaysInFlush_OnTransactionConfirmed_IfNotFlushComplete(t *testing.T) {
+	ctx := context.Background()
+
+	// Both transactions past point of no return
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	c, _ := NewCoordinatorBuilderForTesting(t, State_Flush).
+		Transactions(delegation1, delegation2).
+		Build(ctx)
+	defer c.Stop()
+
+	queueAndSync(ctx, c, &TransactionConfirmedEvent{
+		From:  delegation1.GetSignerAddress(),
+		Nonce: *delegation1.GetNonce(),
+		Hash:  *delegation1.GetLatestSubmissionHash(),
+	})
+
+	assert.Equal(t, State_Flush, c.GetCurrentState(),
+		"expected to stay in Flush when flush not complete")
+}
+
+func TestEventLoop_Coordinator_Closing_ToIdle_OnHeartbeatInterval_IfClosingGracePeriodExpired(t *testing.T) {
+	ctx := context.Background()
+
+	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Closing).
+		HeartbeatsUntilClosingGracePeriodExpires(1).
+		Transactions(d)
+
+	config := builder.GetSequencerConfig()
+	config.ClosingGracePeriod = confutil.P(5)
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+
+	assertEventualStateEventLoop(t, c, State_Idle,
+		"expected transition from Closing to Idle when grace period expired")
+}
+
+func TestEventLoop_Coordinator_Closing_StaysInClosing_OnHeartbeatInterval_IfGracePeriodNotExpired(t *testing.T) {
+	ctx := context.Background()
+
+	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Closing).
+		HeartbeatsUntilClosingGracePeriodExpires(2).
+		Transactions(d)
+	config := builder.GetSequencerConfig()
+	config.ClosingGracePeriod = confutil.P(5)
+	builder.OverrideSequencerConfig(config)
+
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	queueAndSync(ctx, c, &common.HeartbeatIntervalEvent{})
+
+	assert.Equal(t, State_Closing, c.GetCurrentState(),
+		"expected to stay in Closing when grace period not expired")
+}
+
+func TestEventLoop_Coordinator_GracefulShutdownSequence(t *testing.T) {
+	// Tests the complete shutdown sequence: Active -> Flush -> Closing -> Idle
+	ctx := context.Background()
+
+	delegation := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+
+	builder := NewCoordinatorBuilderForTesting(t, State_Active).
+		Transactions(delegation)
+	config := builder.GetSequencerConfig()
+	config.ClosingGracePeriod = confutil.P(1) // Short grace period for test
+	builder.OverrideSequencerConfig(config)
+
+	c, _ := builder.Build(ctx)
+	defer c.Stop()
+
+	// Step 1: Handover request -> Active to Flush
+	c.QueueEvent(ctx, &HandoverRequestEvent{
+		Requester: "newCoordinator",
+	})
+
+	assertEventualStateEventLoop(t, c, State_Flush,
+		"Step 1: expected transition to Flush")
+
+	// Step 2: Transaction confirmed -> Flush to Closing
+	c.QueueEvent(ctx, &TransactionConfirmedEvent{
+		From:  delegation.GetSignerAddress(),
+		Nonce: *delegation.GetNonce(),
+		Hash:  *delegation.GetLatestSubmissionHash(),
+	})
+
+	assertEventualStateEventLoop(t, c, State_Closing,
+		"Step 2: expected transition to Closing")
+
+	// Step 3: Grace period expires -> Closing to Idle
+	c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+
+	assertEventualStateEventLoop(t, c, State_Idle,
+		"Step 3: expected transition to Idle")
 }

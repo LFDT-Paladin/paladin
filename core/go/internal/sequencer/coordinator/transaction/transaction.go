@@ -85,14 +85,14 @@ type Transaction struct {
 	finalizingGracePeriod int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 
 	// Dependencies
-	clock              common.Clock
-	transportWriter    transport.TransportWriter
-	grapher            Grapher
-	engineIntegration  common.EngineIntegration
-	syncPoints         syncpoints.SyncPoints
-	notifyOfTransition OnStateTransition
-	eventHandler       func(context.Context, common.Event) error
-	metrics            metrics.DistributedSequencerMetrics
+	clock                    common.Clock
+	transportWriter          transport.TransportWriter
+	grapher                  Grapher
+	engineIntegration        common.EngineIntegration
+	syncPoints               syncpoints.SyncPoints
+	notifyOfTransition       OnStateTransition
+	queueEventForCoordinator func(context.Context, common.Event)
+	metrics                  metrics.DistributedSequencerMetrics
 }
 
 // TODO think about naming of this compared to the OnTransitionTo func in the state machine
@@ -104,7 +104,7 @@ func NewTransaction(
 	pt *components.PrivateTransaction,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
-	eventHandler func(context.Context, common.Event) error,
+	queueEventForCoordinator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	requestTimeout,
@@ -123,25 +123,25 @@ func NewTransaction(
 		return nil, err
 	}
 	txn := &Transaction{
-		originator:            originator,
-		originatorIdentity:    originatorIdentity,
-		originatorNode:        originatorNode,
-		PrivateTransaction:    pt,
-		transportWriter:       transportWriter,
-		clock:                 clock,
-		eventHandler:          eventHandler,
-		engineIntegration:     engineIntegration,
-		syncPoints:            syncPoints,
-		requestTimeout:        requestTimeout,
-		assembleTimeout:       assembleTimeout,
-		finalizingGracePeriod: finalizingGracePeriod,
-		dependencies:          &pldapi.TransactionDependencies{},
-		grapher:               grapher,
-		metrics:               metrics,
-		addToPool:             addToPool,
-		notifyOfTransition:    onStateTransition,
-		onReadyForDispatch:    onReadyForDispatch,
-		onCleanup:             onCleanup,
+		originator:               originator,
+		originatorIdentity:       originatorIdentity,
+		originatorNode:           originatorNode,
+		PrivateTransaction:       pt,
+		transportWriter:          transportWriter,
+		clock:                    clock,
+		queueEventForCoordinator: queueEventForCoordinator,
+		engineIntegration:        engineIntegration,
+		syncPoints:               syncPoints,
+		requestTimeout:           requestTimeout,
+		assembleTimeout:          assembleTimeout,
+		finalizingGracePeriod:    finalizingGracePeriod,
+		dependencies:             &pldapi.TransactionDependencies{},
+		grapher:                  grapher,
+		metrics:                  metrics,
+		addToPool:                addToPool,
+		notifyOfTransition:       onStateTransition,
+		onReadyForDispatch:       onReadyForDispatch,
+		onCleanup:                onCleanup,
 	}
 	txn.InitializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)

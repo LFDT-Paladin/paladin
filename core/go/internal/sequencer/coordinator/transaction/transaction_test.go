@@ -229,9 +229,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		},
 		mocks.transportWriter,
 		mocks.clock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		mocks.engineIntegration,
 		mocks.syncPoints,
 		mocks.clock.Duration(1000),

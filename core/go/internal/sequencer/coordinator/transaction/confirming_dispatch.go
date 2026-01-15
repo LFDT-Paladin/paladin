@@ -47,15 +47,11 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 			)
 		})
 		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-			err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+			t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: t.ID,
 				},
 			})
-			if err != nil {
-				log.L(ctx).Errorf("error handling RequestTimeoutIntervalEvent: %s", err)
-				return
-			}
 		})
 	}
 

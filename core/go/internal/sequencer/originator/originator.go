@@ -38,9 +38,6 @@ type SeqOriginator interface {
 	// callers should use this interface.
 	QueueEvent(ctx context.Context, event common.Event)
 
-	// Synchronously update the state machine by processing this event. Primarily used for testing the state machine.
-	ProcessEvent(ctx context.Context, event common.Event) error
-
 	SetActiveCoordinator(ctx context.Context, coordinator string) error
 	GetCurrentCoordinator() string
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
@@ -49,7 +46,7 @@ type SeqOriginator interface {
 
 type originator struct {
 	/* State */
-	stateMachine                *statemachine.StateMachine[State, *originator]
+	stateMachine                *statemachine.EventLoopStateMachine[State, *originator]
 	activeCoordinatorNode       string
 	timeOfMostRecentHeartbeat   common.Time
 	transactionsByID            map[uuid.UUID]*transaction.Transaction
@@ -71,10 +68,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 
-	/* Event loop and delegate loop*/
-	originatorEvents    chan common.Event
-	stopEventLoop       chan struct{}
-	eventLoopStopped    chan struct{}
+	/* Delegate loop */
 	stopDelegateLoop    chan struct{}
 	delegateLoopStopped chan struct{}
 }
@@ -103,38 +97,20 @@ func NewOriginator(
 		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
 		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:                     metrics,
-		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		stopEventLoop:               make(chan struct{}),
-		eventLoopStopped:            make(chan struct{}),
 		stopDelegateLoop:            make(chan struct{}),
 		delegateLoopStopped:         make(chan struct{}),
 	}
-	o.InitializeStateMachine(State_Idle)
 
-	go o.eventLoop(ctx)
+	// Initialize state machine (creates event loop)
+	o.InitializeStateMachine(ctx, State_Idle)
 
+	// Start event processing loop
+	o.stateMachine.Start()
+
+	// Start delegate loop
 	go o.delegateLoop(ctx)
 
 	return o, nil
-}
-
-func (o *originator) eventLoop(ctx context.Context) {
-	defer close(o.eventLoopStopped)
-	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
-	for {
-		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
-		select {
-		case event := <-o.originatorEvents:
-			log.L(ctx).Debugf("originator for contract %s pulled event from the queue: %s", o.contractAddress.String(), event.TypeString())
-			err := o.ProcessEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error processing event: %v", err)
-			}
-		case <-o.stopEventLoop:
-			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
-			return
-		}
-	}
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {
@@ -201,7 +177,7 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 	onCleanup := func(ctx context.Context) {
 		o.removeTransaction(ctx, txn.ID)
 	}
-	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics, onCleanup)
+	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.QueueEvent, o.engineIntegration, o.metrics, onCleanup)
 	if err != nil {
 		log.L(ctx).Errorf("error creating transaction: %v", err)
 		return err
@@ -278,15 +254,16 @@ func (o *originator) Stop() {
 
 	// Make Stop() idempotent - make sure we've not already been stopped
 	select {
-	case <-o.eventLoopStopped:
+	case <-o.stateMachine.Done():
 		return
 	default:
 	}
 
-	// Stop the event and delegate loops
-	o.stopEventLoop <- struct{}{}
+	// Stop the event loop
+	o.stateMachine.Stop()
+
+	// Stop the delegate loop
 	o.stopDelegateLoop <- struct{}{}
-	<-o.eventLoopStopped
 	<-o.delegateLoopStopped
 }
 

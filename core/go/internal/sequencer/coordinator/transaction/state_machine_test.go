@@ -41,10 +41,9 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		},
 		transportWriter,
 		clock,
-		func(ctx context.Context, event common.Event) error {
+		func(ctx context.Context, event common.Event) {
 			//don't expect any events during initialize
 			assert.Failf(t, "unexpected event", "%T", event)
-			return nil
 		},
 		engineIntegration,
 		syncPoints,

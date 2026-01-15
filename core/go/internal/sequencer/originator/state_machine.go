@@ -146,28 +146,34 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 	}
 }
 
-func (o *originator) InitializeStateMachine(initialState State) {
-	o.stateMachine = statemachine.NewStateMachine(buildStateDefinitions(), initialState)
-}
+func (o *originator) InitializeStateMachine(ctx context.Context, initialState State) {
+	smConfig := buildStateDefinitions()
 
-// Process a state machine event immediately. Should only be called on the sequencer loop, or in tests to avoid timing conditions
-func (o *originator) ProcessEvent(ctx context.Context, event common.Event) error {
-	log.L(ctx).Debugf("Distributed originator handling new event %s (contract address %s, node name %s)", event.TypeString(), o.contractAddress, o.nodeName)
+	elConfig := statemachine.EventLoopConfig[State, *originator]{
+		BufferSize: 50, // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		OnEventReceived: func(ctx context.Context, o *originator, event common.Event) (bool, error) {
+			log.L(ctx).Debugf("originator handling new event %s (contract address %s, node name %s)", event.TypeString(), o.contractAddress, o.nodeName)
 
-	if transactionEvent, ok := event.(transaction.Event); ok {
-		log.L(ctx).Debugf("Originator propagating transaction event %s to transaction: %s", transactionEvent.TypeString(), transactionEvent.GetTransactionID().String())
-		return o.propagateEventToTransaction(ctx, transactionEvent)
+			// Transaction events are propagated to the transaction state machines
+			if transactionEvent, ok := event.(transaction.Event); ok {
+				log.L(ctx).Debugf("originator propagating transaction event %s to transaction: %s", transactionEvent.TypeString(), transactionEvent.GetTransactionID().String())
+				return true, o.propagateEventToTransaction(ctx, transactionEvent)
+			}
+
+			// Return false to let the state machine process originator-level events
+			return false, nil
+		},
 	}
 
-	return o.stateMachine.ProcessEvent(ctx, o, event)
+	name := "originator[" + o.contractAddress.String()[0:8] + "]"
+	o.stateMachine = statemachine.NewEventLoopStateMachine(ctx, name, smConfig, elConfig, initialState, o)
 }
 
-// Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
+// QueueEvent queues a state machine event for the event loop to process.
+// Should be called by most Paladin components to ensure memory integrity of
 // sequencer state machine and transactions.
 func (o *originator) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("Pushing originator event onto event queue: %s", event.TypeString())
-	o.originatorEvents <- event
-	log.L(ctx).Tracef("Pushed originator event onto event queue: %s", event.TypeString())
+	o.stateMachine.QueueEvent(ctx, event)
 }
 
 func (o *originator) SetActiveCoordinator(ctx context.Context, coordinator string) error {

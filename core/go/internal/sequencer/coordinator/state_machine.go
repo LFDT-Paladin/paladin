@@ -239,45 +239,44 @@ func buildStateDefinitions() map[State]StateDefinition {
 	}
 }
 
-func (c *coordinator) InitializeStateMachine(initialState State) {
-	config := statemachine.StateMachineConfig[State, *coordinator]{
+func (c *coordinator) InitializeStateMachine(ctx context.Context, initialState State) {
+	smConfig := statemachine.StateMachineConfig[State, *coordinator]{
 		Definitions: buildStateDefinitions(),
 		OnTransition: func(ctx context.Context, c *coordinator, from, to State, event common.Event) {
 			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, from.String(), to.String())
 			c.heartbeatIntervalsSinceStateChange = 0
 		},
 	}
-	c.stateMachine = statemachine.NewStateMachine(config, initialState)
-}
 
-// processEvent processes a state machine event immediately.
-// This is private to ensure state machine integrity - events should be queued via QueueEvent.
-// Direct calls should only be made from the event loop or from tests within this package.
-func (c *coordinator) processEvent(ctx context.Context, event common.Event) error {
-	log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
+	elConfig := statemachine.EventLoopConfig[State, *coordinator]{
+		BufferSize: 50, // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		OnEventReceived: func(ctx context.Context, c *coordinator, event common.Event) (bool, error) {
+			log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
 
-	// Transaction events are propagated to the transaction state machines
-	if transactionEvent, ok := event.(transaction.Event); ok {
-		log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
-		return c.propagateEventToTransaction(ctx, transactionEvent)
+			// Transaction events are propagated to the transaction state machines
+			if transactionEvent, ok := event.(transaction.Event); ok {
+				log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
+				return true, c.propagateEventToTransaction(ctx, transactionEvent)
+			}
+
+			// Return false to let the state machine process coordinator-level events
+			return false, nil
+		},
+		OnStop: func(ctx context.Context, c *coordinator) error {
+			// Synchronously move the state machine to closed
+			return c.stateMachine.ProcessEvent(ctx, c, &CoordinatorClosedEvent{})
+		},
 	}
 
-	// Process the event through the generic state machine
-	err := c.stateMachine.ProcessEvent(ctx, c, event)
-	if err != nil {
-		return err
-	}
-
-	log.L(ctx).Debugf("coordinator handled new event %s (contract address %s)", event.TypeString(), c.contractAddress)
-	return nil
+	name := "coordinator[" + c.contractAddress.String()[0:8] + "]"
+	c.stateMachine = statemachine.NewEventLoopStateMachine(ctx, name, smConfig, elConfig, initialState, c)
 }
 
-// Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
+// QueueEvent queues a state machine event for the event loop to process.
+// Should be called by most Paladin components to ensure memory integrity of
 // sequencer state machine and transactions.
 func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("coordinator pushing event onto event queue: %s", event.TypeString())
-	c.coordinatorEvents <- event
-	log.L(ctx).Tracef("coordinator pushed event onto event queue: %s", event.TypeString())
+	c.stateMachine.QueueEvent(ctx, event)
 }
 
 func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {

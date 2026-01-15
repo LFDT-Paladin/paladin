@@ -16,7 +16,7 @@
 package coordinator
 
 // State transition unit tests for the coordinator state machine.
-// These tests directly call processEvent() to test state machine logic in isolation.
+// These tests directly call stateMachine.ProcessEvent() to test state machine logic in isolation.
 // For black-box integration tests that use the event loop, see spec/coordinator_integration_test.go
 
 import (
@@ -55,7 +55,7 @@ func TestStateMachine_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 
 	assert.Equal(t, State_Idle, c.GetCurrentState())
 
-	err := c.processEvent(ctx, &TransactionsDelegatedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -70,7 +70,7 @@ func TestStateMachine_Idle_ToObserving_OnHeartbeatReceived(t *testing.T) {
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
 	assert.Equal(t, State_Idle, c.GetCurrentState())
 
-	err := c.processEvent(ctx, &HeartbeatReceivedEvent{})
+	err := c.stateMachine.ProcessEvent(ctx, c, &HeartbeatReceivedEvent{})
 	assert.NoError(t, err)
 	assert.Equal(t, State_Observing, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
 
@@ -87,7 +87,7 @@ func TestStateMachine_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &TransactionsDelegatedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -107,7 +107,7 @@ func TestStateMachine_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, mocks := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &TransactionsDelegatedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -127,7 +127,7 @@ func TestStateMachine_Standby_ToElect_OnNewBlock_IfNotBehind(t *testing.T) {
 		CurrentBlockHeight(194)
 	c, _ := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &NewBlockEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &NewBlockEvent{
 		BlockHeight: 195, // default tolerance is 5 in the test setup so we are not behind
 	})
 	assert.NoError(t, err)
@@ -143,7 +143,7 @@ func TestStateMachine_Standby_NoTransition_OnNewBlock_IfStillBehind(t *testing.T
 		CurrentBlockHeight(193)
 	c, mocks := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &NewBlockEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &NewBlockEvent{
 		BlockHeight: 194, // default tolerance is 5 in the test setup so this is still behind
 	})
 	assert.NoError(t, err)
@@ -156,7 +156,7 @@ func TestStateMachine_Elect_ToPrepared_OnHandover(t *testing.T) {
 	ctx := context.Background()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Elect).Build(ctx)
 
-	err := c.processEvent(ctx, &HandoverReceivedEvent{})
+	err := c.stateMachine.ProcessEvent(ctx, c, &HandoverReceivedEvent{})
 	assert.NoError(t, err)
 
 	assert.Equal(t, State_Prepared, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
@@ -172,7 +172,7 @@ func TestStateMachine_Prepared_ToActive_OnTransactionConfirmed_IfFlushCompleted(
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 
-	err := c.processEvent(ctx, &TransactionConfirmedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionConfirmedEvent{
 		From:  builder.GetFlushPointSignerAddress(),
 		Nonce: builder.GetFlushPointNonce(),
 		Hash:  builder.GetFlushPointHash(),
@@ -195,7 +195,7 @@ func TestStateMachine_PreparedNoTransition_OnTransactionConfirmed_IfNotFlushComp
 	otherHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	otherNonce := builder.GetFlushPointNonce() - 1
 
-	err := c.processEvent(ctx, &TransactionConfirmedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionConfirmedEvent{
 		From:  builder.GetFlushPointSignerAddress(),
 		Nonce: otherNonce,
 		Hash:  otherHash,
@@ -212,7 +212,7 @@ func TestStateMachine_Active_ToIdle_NoTransactionsInFlight(t *testing.T) {
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Active).
 		Build(ctx)
 
-	err := c.processEvent(ctx, &common.HeartbeatIntervalEvent{})
+	err := c.stateMachine.ProcessEvent(ctx, c, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
 
 	assert.Equal(t, State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
@@ -228,7 +228,7 @@ func TestStateMachine_ActiveNoTransition_OnTransactionConfirmed_IfNotTransaction
 		Transactions(delegation1, delegation2).
 		Build(ctx)
 
-	err := c.processEvent(ctx, &TransactionConfirmedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
 		Nonce: *delegation1.GetNonce(),
 		Hash:  *delegation1.GetLatestSubmissionHash(),
@@ -248,7 +248,7 @@ func TestStateMachine_Active_ToFlush_OnHandoverRequest(t *testing.T) {
 		Transactions(delegation1, delegation2).
 		Build(ctx)
 
-	err := c.processEvent(ctx, &HandoverRequestEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &HandoverRequestEvent{
 		Requester: "newCoordinator",
 	})
 	assert.NoError(t, err)
@@ -269,7 +269,7 @@ func TestStateMachine_Flush_ToClosing_OnTransactionConfirmed_IfFlushComplete(t *
 		Transactions(delegation1, delegation2).
 		Build(ctx)
 
-	err := c.processEvent(ctx, &TransactionConfirmedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
 		Nonce: *delegation1.GetNonce(),
 		Hash:  *delegation1.GetLatestSubmissionHash(),
@@ -293,7 +293,7 @@ func TestStateMachine_FlushNoTransition_OnTransactionConfirmed_IfNotFlushComplet
 		Transactions(delegation1, delegation2).
 		Build(ctx)
 
-	err := c.processEvent(ctx, &TransactionConfirmedEvent{
+	err := c.stateMachine.ProcessEvent(ctx, c, &TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
 		Nonce: *delegation1.GetNonce(),
 		Hash:  *delegation1.GetLatestSubmissionHash(),
@@ -318,7 +318,7 @@ func TestStateMachine_Closing_ToIdle_OnHeartbeatInterval_IfClosingGracePeriodExp
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &common.HeartbeatIntervalEvent{})
+	err := c.stateMachine.ProcessEvent(ctx, c, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
 
 	assert.Equal(t, State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
@@ -339,7 +339,7 @@ func TestStateMachine_ClosingNoTransition_OnHeartbeatInterval_IfNotClosingGraceP
 
 	c, _ := builder.Build(ctx)
 
-	err := c.processEvent(ctx, &common.HeartbeatIntervalEvent{})
+	err := c.stateMachine.ProcessEvent(ctx, c, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
 
 	assert.Equal(t, State_Closing, c.GetCurrentState(), "current state is %s", c.GetCurrentState())

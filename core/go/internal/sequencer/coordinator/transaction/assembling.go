@@ -107,28 +107,20 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 
 	// Schedule a short retry timeout for e.g. network blip
 	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+		t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.ID,
 			},
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling assemble request timeout interval: %s", err)
-			return
-		}
 	})
 
 	// Schedule a longer retry timeout for assembly to complete. If this timeout fires we start assembly from scratch after other transactions have had a turn to be assembled.
 	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.assembleTimeout, func() {
-		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+		t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.ID,
 			},
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling assemble timeout interval: %s", err)
-			return
-		}
 	})
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
@@ -314,11 +306,7 @@ func stateupdate_AssembleSuccess(ctx context.Context, txn *Transaction, event co
 			seqRevertEvent := &AssembleRevertResponseEvent{}
 			seqRevertEvent.RequestID = assembleSuccessEvent.RequestID // Must match what the state machine thinks the current assemble request ID is
 			seqRevertEvent.TransactionID = txn.ID
-			handlerErr := txn.eventHandler(ctx, seqRevertEvent)
-			if handlerErr != nil {
-				wrappedErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", handlerErr)
-				log.L(ctx).Error(wrappedErr)
-			}
+			txn.queueEventForCoordinator(ctx, seqRevertEvent)
 			txn.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
 			// Return the original error
 			return err

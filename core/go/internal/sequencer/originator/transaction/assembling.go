@@ -84,43 +84,31 @@ func action_AssembleAndSign(ctx context.Context, txn *Transaction) error {
 	switch postAssembly.AssemblyResult {
 	case prototk.AssembleTransactionResponse_OK:
 		log.L(ctx).Debugf("emitting AssembleAndSignSuccessEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleAndSignSuccessEvent{
+		txn.queueEventForOriginator(ctx, &AssembleAndSignSuccessEvent{
 			BaseEvent: BaseEvent{
 				TransactionID: txn.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleAndSignSuccessEvent: %s", err)
-			return err
-		}
 	case prototk.AssembleTransactionResponse_REVERT:
 		log.L(ctx).Debugf("emitting AssembleRevertEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleRevertEvent{
+		txn.queueEventForOriginator(ctx, &AssembleRevertEvent{
 			BaseEvent: BaseEvent{
 				TransactionID: txn.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleRevertEvent: %s", err)
-			return err
-		}
 	case prototk.AssembleTransactionResponse_PARK:
 		log.L(ctx).Debugf("emitting AssembleParkEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleParkEvent{
+		txn.queueEventForOriginator(ctx, &AssembleParkEvent{
 			BaseEvent: BaseEvent{
 				TransactionID: txn.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleParkEvent: %s", err)
-			return err
-		}
 	}
 	return nil
 }

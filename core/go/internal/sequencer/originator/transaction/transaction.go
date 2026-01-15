@@ -44,7 +44,7 @@ type Transaction struct {
 	*components.PrivateTransaction
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
-	eventHandler                     func(context.Context, common.Event) error
+	queueEventForOriginator          func(context.Context, common.Event)
 	onCleanup                        func(context.Context)
 	currentDelegate                  string
 	lastDelegatedTime                *common.Time
@@ -61,7 +61,7 @@ func NewTransaction(
 	ctx context.Context,
 	pt *components.PrivateTransaction,
 	transportWriter transport.TransportWriter,
-	eventHandler func(context.Context, common.Event) error,
+	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
 	onCleanup func(context.Context),
@@ -71,12 +71,12 @@ func NewTransaction(
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
 	}
 	txn := &Transaction{
-		PrivateTransaction: pt,
-		engineIntegration:  engineIntegration,
-		transportWriter:    transportWriter,
-		eventHandler:       eventHandler,
-		onCleanup:          onCleanup,
-		metrics:            metrics,
+		PrivateTransaction:      pt,
+		engineIntegration:       engineIntegration,
+		transportWriter:         transportWriter,
+		queueEventForOriginator: queueEventForOriginator,
+		onCleanup:               onCleanup,
+		metrics:                 metrics,
 	}
 
 	txn.InitializeStateMachine(State_Initial)

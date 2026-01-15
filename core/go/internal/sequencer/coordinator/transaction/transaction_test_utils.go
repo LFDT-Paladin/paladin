@@ -330,6 +330,33 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
+func (b *TransactionBuilderForTesting) SignerAddress(signerAddress *pldtypes.EthAddress) *TransactionBuilderForTesting {
+	b.signerAddress = signerAddress
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Nonce(nonce uint64) *TransactionBuilderForTesting {
+	b.nonce = &nonce
+	return b
+}
+
+func (b *TransactionBuilderForTesting) LatestSubmissionHash(hash *pldtypes.Bytes32) *TransactionBuilderForTesting {
+	b.latestSubmissionHash = hash
+	return b
+}
+
+func (b *TransactionBuilderForTesting) GetSignerAddress() *pldtypes.EthAddress {
+	return b.signerAddress
+}
+
+func (b *TransactionBuilderForTesting) GetNonce() *uint64 {
+	return b.nonce
+}
+
+func (b *TransactionBuilderForTesting) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+	return b.latestSubmissionHash
+}
+
 func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }
@@ -382,9 +409,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		privateTransaction,
 		b.sentMessageRecorder,
 		b.fakeClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		b.fakeEngineIntegration,
 		b.syncPoints,
 		b.fakeClock.Duration(b.requestTimeout),

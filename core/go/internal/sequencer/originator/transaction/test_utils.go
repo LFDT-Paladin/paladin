@@ -166,7 +166,7 @@ type TransactionBuilderForTesting struct {
 	sentMessageRecorder       *SentMessageRecorder
 	fakeClock                 *common.FakeClockForTesting
 	fakeEngineIntegration     *common.FakeEngineIntegrationForTesting
-	eventHandler              func(ctx context.Context, event common.Event) error
+	queueEventForOriginator   func(context.Context, common.Event)
 
 	/* Assembling State*/
 	assembleRequestID uuid.UUID
@@ -245,9 +245,8 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *Transact
 		EngineIntegration:   b.fakeEngineIntegration,
 		transactionBuilder:  b,
 	}
-	b.eventHandler = func(ctx context.Context, event common.Event) error {
+	b.queueEventForOriginator = func(ctx context.Context, event common.Event) {
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
-		return nil
 	}
 	return b.Build(), mocks
 }
@@ -256,12 +255,10 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	ctx := context.Background()
 
 	privateTransaction := b.privateTransactionBuilder.Build()
-	if b.eventHandler == nil {
-		b.eventHandler = func(ctx context.Context, event common.Event) error {
-			return nil
-		}
+	if b.queueEventForOriginator == nil {
+		b.queueEventForOriginator = func(ctx context.Context, event common.Event) {}
 	}
-	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.eventHandler, b.fakeEngineIntegration, b.metrics, func(ctx context.Context) {})
+	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.queueEventForOriginator, b.fakeEngineIntegration, b.metrics, func(ctx context.Context) {})
 
 	txn.stateMachine.SetState(b.state)
 

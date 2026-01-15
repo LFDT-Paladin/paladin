@@ -54,7 +54,8 @@ func action_QueueFinalizeEvent(ctx context.Context, txn *Transaction) error {
 	event := &FinalizeEvent{
 		TransactionID: txn.ID,
 	}
-	return txn.eventHandler(ctx, event)
+	txn.queueEventForOriginator(ctx, event)
+	return nil
 }
 
 // action_Cleanup removes the transaction from memory.

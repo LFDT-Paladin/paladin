@@ -89,7 +89,7 @@ type CoordinatorBuilderForTesting struct {
 	flushPointHash                           *pldtypes.Bytes32
 	flushPointNonce                          *uint64
 	flushPointSignerAddress                  *pldtypes.EthAddress
-	emitFunction                             func(event common.Event)
+	queueEventForCoordinator                 func(context.Context, common.Event)
 	transactions                             []*transaction.Transaction
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
@@ -191,7 +191,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		SyncPoints:          &syncpoints.MockSyncPoints{},
 	}
 
-	b.emitFunction = func(event common.Event) {
+	b.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
 	}
 
