@@ -1,5 +1,5 @@
-github.com/LFDT-Paladin/smt v0.1.1-0.20260115173332-0f6f5a082185 h1:bjK44wnZyA0FOwh9pr4w+htDZHVDLG0RzlZL4qcLl1c=
-github.com/LFDT-Paladin/smt v0.1.1-0.20260115173332-0f6f5a082185/go.mod h1:L0Fza44kVlSA+BOdveRekRRYS0Tdg+Kqs6D1rvckNnA=
+github.com/LFDT-Paladin/smt v0.2.0 h1:xnM9CCGe3DDETXjV5y+Qt8NwNX8iATCWCHGVS8fAXxs=
+github.com/LFDT-Paladin/smt v0.2.0/go.mod h1:L0Fza44kVlSA+BOdveRekRRYS0Tdg+Kqs6D1rvckNnA=
 github.com/aidarkhanov/nanoid v1.0.8 h1:yxyJkgsEDFXP7+97vc6JevMcjyb03Zw+/9fqhlVXBXA=
 github.com/aidarkhanov/nanoid v1.0.8/go.mod h1:vadfZHT+m4uDhttg0yY4wW3GKtl2T6i4d2Age+45pYk=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

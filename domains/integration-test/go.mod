@@ -19,7 +19,7 @@ require (
 
 require (
 	github.com/Code-Hex/go-generics-cache v1.5.1 // indirect
-	github.com/LFDT-Paladin/smt v0.1.1-0.20260115173332-0f6f5a082185 // indirect
+	github.com/LFDT-Paladin/smt v0.2.0 // indirect
 	github.com/aidarkhanov/nanoid v1.0.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd v0.24.2 // indirect

@@ -7,7 +7,7 @@ require (
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/config v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-00010101000000-000000000000
-	github.com/LFDT-Paladin/smt v0.1.1-0.20260115173332-0f6f5a082185
+	github.com/LFDT-Paladin/smt v0.2.0
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/go-resty/resty/v2 v2.14.0

@@ -6,7 +6,7 @@ require (
 	github.com/LFDT-Paladin/paladin/common/go v0.0.0-00010101000000-000000000000
 	github.com/LFDT-Paladin/paladin/sdk/go v0.0.0-20250828150332-fbc1c1bc663b
 	github.com/LFDT-Paladin/paladin/toolkit v0.0.0-00010101000000-00000000000
-	github.com/LFDT-Paladin/smt v0.1.1-0.20260115173332-0f6f5a082185
+	github.com/LFDT-Paladin/smt v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/hyperledger/firefly-signer v1.1.22
 	github.com/stretchr/testify v1.11.1
