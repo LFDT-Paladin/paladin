@@ -2208,7 +2208,7 @@ func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		// Verify heartbeats were sent (at least initial + periodic)
-		return mocks.SentMessageRecorder.SentHeartbeatCount() == 2
+		return mocks.SentMessageRecorder.SentHeartbeatCount() >= 2
 	}, 500*time.Millisecond, 10*time.Millisecond)
 
 	// Cancel to stop the loop
