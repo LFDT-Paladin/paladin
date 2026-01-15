@@ -400,6 +400,41 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked}, coordinatedTxn.GetState(), "transaction should be in Pooled or PreAssembly_Blocked state when chained transaction is not found")
 }
 
+func TestCoordinator_AddToDelegatedTransactions_DuplicateTransaction(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+
+	// First call - add the transaction
+	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn})
+	require.NoError(t, err, "should not return error on first add")
+
+	// Verify that the transaction was added to transactionsByID
+	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
+	firstCoordinatedTxn := c.transactionsByID[txn.ID]
+	require.NotNil(t, firstCoordinatedTxn, "transaction should exist in transactionsByID")
+
+	// Second call - try to add the same transaction again (duplicate)
+	err = c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn})
+	require.NoError(t, err, "should not return error when adding duplicate transaction")
+
+	// Verify that the transaction count is still 1 (duplicate was skipped)
+	assert.Equal(t, 1, len(c.transactionsByID), "duplicate transaction should be skipped, count should remain 1")
+
+	// Verify that the same transaction object is still in the map (not replaced)
+	secondCoordinatedTxn := c.transactionsByID[txn.ID]
+	require.NotNil(t, secondCoordinatedTxn, "transaction should still exist in transactionsByID")
+	assert.Equal(t, firstCoordinatedTxn, secondCoordinatedTxn, "duplicate transaction should not replace existing transaction")
+}
+
 func TestCoordinator_SelectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithFullyQualifiedIdentity(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)

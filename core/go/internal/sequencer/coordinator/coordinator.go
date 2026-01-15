@@ -364,6 +364,11 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
+		if c.transactionsByID[txn.ID] != nil {
+			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			continue
+		}
+
 		newTransaction, err := transaction.NewTransaction(
 			ctx,
 			originator,
