@@ -32,6 +32,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
@@ -203,7 +204,7 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 		// for nullifier variants, the "signature" parameter includes both the signature and the root
 		smtName := notosmt.MerkleTreeName(tx.ContractAddress.String())
 		smtType := smt.StatesTree
-		hasher := &smt.Keccak256Hasher{}
+		hasher := utxo.NewKeccak256Hasher()
 		mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, h.noto.Callbacks, h.noto.merkleTreeRootSchema.Id, h.noto.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err

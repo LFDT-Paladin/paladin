@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 )
 
 func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
@@ -65,7 +66,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 	var err error
 	if useNullifier {
 		smtName := notosmt.MerkleTreeName(req.ContractInfo.ContractAddress)
-		hasher := &smt.Keccak256Hasher{}
+		hasher := utxo.NewKeccak256Hasher()
 		smtForStates, err = smt.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, notosmt.SMT_HEIGHT_UTXO, hasher, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return err
@@ -305,7 +306,7 @@ func (n *Noto) addOutputToMerkleTree(ctx context.Context, tree core.SparseMerkle
 	if err != nil {
 		return i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 	}
-	err = tree.AddLeaf(leaf)
+	err = tree.AddLeaf(ctx, leaf)
 	if err != nil {
 		return i18n.NewError(ctx, pldmsgs.MsgErrorAddLeafNode, err)
 	}

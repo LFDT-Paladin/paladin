@@ -16,16 +16,19 @@
 package smt
 
 import (
+	"context"
+
 	pldsmt "github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
 	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	utxocore "github.com/LFDT-Paladin/smt/pkg/utxo/core"
 )
 
 const SMT_HEIGHT_UTXO = 64
 
-func NewSmt(storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
-	mt, err := smt.NewMerkleTree(storage, levels)
+func NewSmt(ctx context.Context, storage pldsmt.StatesStorage, levels int) (core.SparseMerkleTree, error) {
+	mt, err := smt.NewMerkleTree(ctx, storage, levels)
 	return mt, err
 }
 
@@ -34,5 +37,5 @@ func MerkleTreeName(domainInstanceContract string) string {
 }
 
 func GetHasher() utxocore.Hasher {
-	return &pldsmt.Keccak256Hasher{}
+	return utxo.NewKeccak256Hasher()
 }
