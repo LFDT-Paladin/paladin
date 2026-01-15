@@ -123,7 +123,6 @@ task test(type: Exec, dependsOn: [":core:go:makeMocks"]) {
     args '-covermode=atomic'
     args '-timeout=480s'
     args "-test.gocoverdir=${projectDir}/coverage"
-    args "-run=TestNotoSuite"
 
     dependsOn ':testinfra:startTestInfra'
     helpers.dumpLogsOnFailure(it, ':testinfra:startTestInfra')

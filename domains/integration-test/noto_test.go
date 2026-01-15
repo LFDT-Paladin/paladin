@@ -109,12 +109,12 @@ func toJSON(t *testing.T, v any) []byte {
 }
 
 func (s *notoTestSuite) TestNotoV1Nullifiers() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNoto("v1", "noto_nullifiers")
 }
 
 func (s *notoTestSuite) TestNotoV1() {
-	// s.T().Skip()
+	s.T().Skip()
 	s.testNoto("v1", "")
 }
 
@@ -175,7 +175,11 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, notaryKey, mintReceipt.Transfers[0].To.String())
 
-	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	method := "pstate_queryContractStates"
+	if variant == "noto_nullifiers" {
+		method = "pstate_queryContractNullifiers"
+	}
+	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(100), coins[0].Data.Amount.Int().Int64())
 	assert.Equal(t, notaryKey, coins[0].Data.Owner.String())
@@ -200,7 +204,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	require.NotNil(t, rpcerr)
 	assert.ErrorContains(t, rpcerr, "PD200009")
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.Len(t, coins, 1)
 
 	log.L(ctx).Infof("Transfer 150 from notary (should fail)")
@@ -219,7 +223,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	require.NotNil(t, false)
 	assert.ErrorContains(t, rpcerr, "assemble result was REVERT")
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.Len(t, coins, 1)
 
 	log.L(ctx).Infof("Transfer 50 from notary to recipient1")
@@ -242,8 +246,12 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, transferReceipt.Transfers[0].To.String())
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.NoError(t, err)
+	log.L(ctx).Infof("Coins after transfer:")
+	for _, c := range coins {
+		log.L(ctx).Infof("  Coin ID: %s, Owner: %s, Amount: %s", c.ID.String(), c.Data.Owner.String(), c.Data.Amount.Int().String())
+	}
 	require.Len(t, coins, 2)
 
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: notaryName}).SignAndCall(notaryName).Wait()
@@ -277,7 +285,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, transferReceipt.Transfers[0].To.String())
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.NoError(t, err)
 	require.Len(t, coins, 2)
 
@@ -312,7 +320,7 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 	assert.Equal(t, recipient2Key, burnReceipt.Transfers[0].From.String())
 	assert.Nil(t, burnReceipt.Transfers[0].To)
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), method, noto.Address, nil)
 	require.NoError(t, err)
 	require.Len(t, coins, 2)
 
