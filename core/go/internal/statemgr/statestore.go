@@ -135,12 +135,24 @@ func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persisten
 		WithContext(ctx).
 		// This query joins across three tables in a single query - pushing the complexity to the DB.
 		// The reason we have three tables is to make the queries for available states simpler.
-		Raw(`SELECT * from "states" RIGHT JOIN ( `+
+		Raw(`SELECT "states".*, "records"."transaction", "records"."record_type" from "states" RIGHT JOIN ( `+
 			`SELECT "transaction", "state", 'spent'     AS "record_type" FROM "state_spend_records"   WHERE "transaction" = ? UNION ALL `+
 			`SELECT "transaction", "state", 'read'      AS "record_type" FROM "state_read_records"    WHERE "transaction" = ? UNION ALL `+
 			`SELECT "transaction", "state", 'confirmed' AS "record_type" FROM "state_confirm_records" WHERE "transaction" = ? UNION ALL `+
-			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? ) "records" `+
-			`ON "states"."id" = "records"."state"`,
+			`SELECT "transaction", "state", 'info'      AS "record_type" FROM "state_info_records"    WHERE "transaction" = ? ) AS "records" `+
+			// Resolve state references:
+			//   1) direct state ID match
+			//   2) OR nullifier ID → state ID (only for spent records)
+			`ON ("states"."id" = "records"."state"
+			    OR ("records"."record_type" = 'spent'
+				    AND EXISTS (
+					    SELECT 1
+						  FROM "state_nullifiers"
+					    WHERE "state_nullifiers"."id" = "records"."state"
+              AND "state_nullifiers"."state" = "states"."id"
+					  )
+					)
+				)`,
 			txID, txID, txID, txID).
 		Scan(&records).
 		Error
