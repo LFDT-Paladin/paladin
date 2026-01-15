@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -30,7 +29,6 @@ import (
 
 func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (res *prototk.BuildReceiptResponse, err error) {
 	receipt := &types.NotoDomainReceipt{}
-	log.L(ctx).Debugf("Building Noto receipt from endorsable states: %+v", req)
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id})
 	var variant pldtypes.HexUint64
 	if len(infoStates) == 1 {
@@ -139,7 +137,6 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		return nil, err
 	}
 
-	log.L(ctx).Debugf("Built Noto receipt: %s", string(receiptJSON))
 	return &prototk.BuildReceiptResponse{
 		ReceiptJson: string(receiptJSON),
 	}, nil

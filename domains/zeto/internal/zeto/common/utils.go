@@ -48,6 +48,9 @@ type StateSchemas struct {
 
 type MerkleTreeSpec struct {
 	smt.MerkleTreeSpec
+	// Precomputed empty proof for this tree type, used to fill
+	// in proof entries when there are empty inputs, because Zeto
+	// tokens require fixed sized inputs
 	EmptyProof *corepb.MerkleProof
 }
 

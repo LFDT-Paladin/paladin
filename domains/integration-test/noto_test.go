@@ -122,12 +122,12 @@ func (s *notoTestSuite) TestNotoV1Nullifiers() {
 }
 
 func (s *notoTestSuite) TestNotoV1() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNoto("v1", "")
 }
 
 func (s *notoTestSuite) TestNotoV0() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNoto("v0", "")
 }
 
