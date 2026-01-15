@@ -117,7 +117,7 @@ func (s *statesStorage) GetNewStates(ctx context.Context) ([]*prototk.NewConfirm
 	return newStates, nil
 }
 
-func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
+func (s *statesStorage) GetRootNodeRef(ctx context.Context) (core.NodeRef, error) {
 	if s.pendingNodesTx != nil && s.pendingNodesTx.inflightRoot != nil {
 		return s.pendingNodesTx.inflightRoot, nil
 	}
@@ -131,7 +131,6 @@ func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
 		Sort(".created DESC").
 		Equal("smtName", s.smtName)
 
-	ctx := context.Background()
 	res, err := s.CoreInterface.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: s.stateQueryContext,
 		SchemaId:          s.rootSchemaId,
@@ -155,7 +154,7 @@ func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
 	return idx, err
 }
 
-func (s *statesStorage) UpsertRootNodeRef(root core.NodeRef) error {
+func (s *statesStorage) UpsertRootNodeRef(ctx context.Context, root core.NodeRef) error {
 	if s.pendingNodesTx == nil {
 		s.pendingNodesTx = &nodesTx{
 			inflightNodes: make(map[core.NodeRef]core.Node),
@@ -165,7 +164,7 @@ func (s *statesStorage) UpsertRootNodeRef(root core.NodeRef) error {
 	return nil
 }
 
-func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
+func (s *statesStorage) GetNode(ctx context.Context, ref core.NodeRef) (core.Node, error) {
 	// the node's reference key (not the index) is used as the key to
 	// store the node in the DB
 	refKey := ref.Hex()
@@ -186,7 +185,6 @@ func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
 		Sort(".created").
 		Equal("refKey", refKey)
 
-	ctx := context.Background()
 	res, err := s.CoreInterface.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: s.stateQueryContext,
 		SchemaId:          s.nodeSchemaId,
@@ -208,33 +206,24 @@ func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
 	nodeType := core.NodeTypeFromByte(n.Type[:][0])
 	switch nodeType {
 	case core.NodeTypeLeaf:
-		idx, err1 := node.NewNodeIndexFromHex(n.Index.HexString(), s.hasher)
-		if err1 != nil {
-			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err1)
-		}
+		idx, _ := node.NewNodeIndexFromHex(n.Index.HexString(), s.hasher)
 		v := node.NewIndexOnly(idx)
 		newNode, err = node.NewLeafNode(v, nil)
 	case core.NodeTypeBranch:
-		leftChild, err1 := node.NewNodeIndexFromHex(n.LeftChild.HexString(), s.hasher)
-		if err1 != nil {
-			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err1)
-		}
-		rightChild, err2 := node.NewNodeIndexFromHex(n.RightChild.HexString(), s.hasher)
-		if err2 != nil {
-			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err2)
-		}
+		leftChild, _ := node.NewNodeIndexFromHex(n.LeftChild.HexString(), s.hasher)
+		rightChild, _ := node.NewNodeIndexFromHex(n.RightChild.HexString(), s.hasher)
 		newNode, err = node.NewBranchNode(leftChild, rightChild, s.hasher)
 	}
 	return newNode, err
 }
 
-func (s *statesStorage) InsertNode(n core.Node) error {
+func (s *statesStorage) InsertNode(ctx context.Context, n core.Node) error {
 	s.pendingNodesTx.inflightNodes[n.Ref()] = n
 
 	return nil
 }
 
-func (s *statesStorage) BeginTx() (core.Transaction, error) {
+func (s *statesStorage) BeginTx(ctx context.Context) (core.Transaction, error) {
 	// reset the inflight nodes cache
 	if s.pendingNodesTx != nil {
 		s.pendingNodesTx.inflightNodes = make(map[core.NodeRef]core.Node)
@@ -246,7 +235,7 @@ func (s *statesStorage) BeginTx() (core.Transaction, error) {
 	return s, nil
 }
 
-func (s *statesStorage) Commit() error {
+func (s *statesStorage) Commit(ctx context.Context) error {
 	// here we merge the inflight nodes in the pending Tx with the committed new nodes
 	s.rootNode = &smtRootNode{
 		root: s.pendingNodesTx.inflightRoot,
@@ -264,7 +253,7 @@ func (s *statesStorage) Commit() error {
 	return nil
 }
 
-func (s *statesStorage) Rollback() error {
+func (s *statesStorage) Rollback(ctx context.Context) error {
 	// reset the inflight nodes cache
 	s.pendingNodesTx = &nodesTx{
 		inflightNodes: make(map[core.NodeRef]core.Node),
@@ -315,10 +304,7 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	if err != nil {
 		return nil, err
 	}
-	hash, err := newNode.Hash_EIP712(ctx)
-	if err != nil {
-		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
-	}
+	hash, _ := newNode.Hash_EIP712(ctx)
 	newNodeState := &prototk.NewConfirmedState{
 		Id:            &hash,
 		SchemaId:      s.nodeSchemaId,
