@@ -250,8 +250,10 @@ func (c *coordinator) InitializeStateMachine(initialState State) {
 	c.stateMachine = statemachine.NewStateMachine(config, initialState)
 }
 
-// Process a state machine event immediately. Should only be called on the sequencer loop, or in tests to avoid timing conditions
-func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) error {
+// processEvent processes a state machine event immediately.
+// This is private to ensure state machine integrity - events should be queued via QueueEvent.
+// Direct calls should only be made from the event loop or from tests within this package.
+func (c *coordinator) processEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
 
 	// Transaction events are propagated to the transaction state machines

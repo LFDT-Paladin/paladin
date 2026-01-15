@@ -118,7 +118,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	err := c.ProcessEvent(ctx, &TransactionsDelegatedEvent{
+	err := c.processEvent(ctx, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: []*components.PrivateTransaction{txn},
 	})
@@ -132,7 +132,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that a request has been sent to the originator and respond with an assembled transaction
 	require.True(t, mocks.SentMessageRecorder.HasSentAssembleRequest())
-	err = c.ProcessEvent(ctx, &transaction.AssembleSuccessEvent{
+	err = c.processEvent(ctx, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -150,7 +150,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the coordinator has sent an endorsement request to the endorser and respond with an endorsement
 	require.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-	err = c.ProcessEvent(ctx, &transaction.EndorsedEvent{
+	err = c.processEvent(ctx, &transaction.EndorsedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -167,7 +167,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Assert that the coordinator has sent a dispatch confirmation request to the transaction sender and respond with a dispatch confirmation
 	require.True(t, mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest())
-	err = c.ProcessEvent(ctx, &transaction.DispatchRequestApprovedEvent{
+	err = c.processEvent(ctx, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -191,7 +191,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	assert.Equal(t, txn.ID.String(), readyTransactions[0].ID.String(), "The transaction ready to dispatch should match the delegated transaction ID")
 
 	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
-	err = c.ProcessEvent(ctx, &transaction.DispatchedEvent{
+	err = c.processEvent(ctx, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -200,7 +200,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
-	err = c.ProcessEvent(ctx, &transaction.CollectedEvent{
+	err = c.processEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -217,7 +217,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	assert.Equal(t, signerAddress.String(), snapshot.DispatchedTransactions[0].Signer.String(), "Snapshot should contain the dispatched transaction with signer address %s", signerAddress.String())
 
 	// Simulate the dispatcher thread allocating a nonce for the transaction
-	err = c.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
+	err = c.processEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -237,7 +237,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 
 	// Simulate the public transaction manager submitting the transaction
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err = c.ProcessEvent(ctx, &transaction.SubmittedEvent{
+	err = c.processEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -257,7 +257,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	require.NotNil(t, snapshot.DispatchedTransactions[0].LatestSubmissionHash, "Snapshot should contain the dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
-	err = c.ProcessEvent(ctx, &transaction.ConfirmedEvent{
+	err = c.processEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -1852,6 +1852,55 @@ func TestCoordinator_GetActiveCoordinatorNode_HandlesContextCancellationGraceful
 	result := c.GetActiveCoordinatorNode(cancelledCtx, true)
 	// The function should still work even with cancelled context
 	assert.NotNil(t, result, "should handle cancelled context without panicking")
+}
+
+func TestCoordinator_PropagateEventToTransaction_IgnoresUnknownTransaction(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Ensure transactionsByID is empty
+	c.transactionsByID = make(map[uuid.UUID]*transaction.Transaction)
+
+	// Create an event for a transaction that doesn't exist in the coordinator
+	unknownTxID := uuid.New()
+	event := &transaction.AssembleSuccessEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: unknownTxID,
+		},
+	}
+
+	// Should not error - just ignores the event
+	err := c.propagateEventToTransaction(ctx, event)
+	assert.NoError(t, err, "should not error when transaction is unknown")
+}
+
+func TestCoordinator_PropagateEventToTransaction_ProcessesKnownTransaction(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create and add a transaction in Pooled state
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
+	txn := txBuilder.Build()
+	c.transactionsByID[txn.ID] = txn
+
+	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState())
+
+	// Send a SelectedEvent to move it to Assembling
+	event := &transaction.SelectedEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.ID,
+		},
+	}
+
+	// Should successfully process the event
+	err := c.propagateEventToTransaction(ctx, event)
+	assert.NoError(t, err, "should successfully process event for known transaction")
+
+	// Transaction should have moved to Assembling state after being selected
+	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(),
+		"transaction should have transitioned to Assembling state")
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransactionsExist(t *testing.T) {

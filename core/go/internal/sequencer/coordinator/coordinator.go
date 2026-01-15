@@ -43,12 +43,9 @@ import (
 )
 
 type SeqCoordinator interface {
-	// Asynchronously update the state machine by queueing an event to be processed. Most
-	// callers should use this interface.
+	// Asynchronously update the state machine by queueing an event to be processed.
+	// This is the primary way to send events to the coordinator.
 	QueueEvent(ctx context.Context, event common.Event)
-
-	// Synchronously update the state machine by processing this event. Primarily used for testing the state machine.
-	ProcessEvent(ctx context.Context, event common.Event) error
 
 	// Manage the state of the coordinator
 	GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string
@@ -196,20 +193,31 @@ func NewCoordinator(
 	return c, nil
 }
 
+// testSyncHook is implemented by test-only events that need to signal when they've been
+// dequeued by the event loop. This enables deterministic testing without time.Sleep.
+type testSyncHook interface {
+	NotifyProcessed()
+}
+
 func (c *coordinator) eventLoop(ctx context.Context) {
 	defer close(c.eventLoopStopped)
 	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
 	for {
 		select {
 		case event := <-c.coordinatorEvents:
+			// Test sync events are used to synchronize tests with the event loop
+			if syncHook, ok := event.(testSyncHook); ok {
+				syncHook.NotifyProcessed()
+				continue
+			}
 			log.L(ctx).Debugf("coordinator for contract %s pulled event from the queue: %s", c.contractAddress.String(), event.TypeString())
-			err := c.ProcessEvent(ctx, event)
+			err := c.processEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
 		case <-c.stopEventLoop:
 			// Synchronously move the state machine to closed
-			err := c.ProcessEvent(ctx, &CoordinatorClosedEvent{})
+			err := c.processEvent(ctx, &CoordinatorClosedEvent{})
 			if err != nil {
 				// Log internal error
 				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error processing coordinator closed event for contract %s: %v", c.contractAddress.String(), err)
@@ -433,7 +441,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			txn,
 			c.transportWriter,
 			c.clock,
-			c.ProcessEvent,
+			c.processEvent,
 			c.engineIntegration,
 			c.syncPoints,
 			c.requestTimeout,
