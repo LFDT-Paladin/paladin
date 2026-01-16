@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"slices"
@@ -24,11 +25,14 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/eip712"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
@@ -582,6 +586,35 @@ func (n *Noto) getAccountBalance(ctx context.Context, stateQueryContext string, 
 	}
 
 	return len(states), totalBalance, false, false, nil
+}
+
+func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, stateQueryContext string, payload []byte) ([]byte, error) {
+	// for nullifier variants, the "signature" parameter includes both the signature and the root
+	smtName := notosmt.MerkleTreeName(txContractAddress)
+	smtType := smt.StatesTree
+	hasher := utxo.NewKeccak256Hasher()
+	mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+	root := mt.Tree.Root()
+	jsonObj := map[string]interface{}{
+		"root":      "0x" + root.BigInt().Text(16),
+		"signature": "0x" + hex.EncodeToString(payload),
+	}
+	jsonBytes, err := json.Marshal(jsonObj)
+	if err != nil {
+		return nil, err
+	}
+	args := abi.ParameterArray{
+		{Name: "root", Type: "uint256"},
+		{Name: "signature", Type: "bytes"},
+	}
+	encoded, err := args.EncodeABIDataJSON(jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
 }
 
 func calculateNullifier(coin *types.NotoCoin) (*pldtypes.Bytes32, error) {

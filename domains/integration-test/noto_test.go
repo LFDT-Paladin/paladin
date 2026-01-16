@@ -338,12 +338,12 @@ func (s *notoTestSuite) testNoto(version string, variant string) {
 }
 
 func (s *notoTestSuite) TestNotoLockV1() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNotoLock("v1", "")
 }
 
 func (s *notoTestSuite) TestNotoLockV0() {
-	s.T().Skip()
+	// s.T().Skip()
 	s.testNotoLock("v0", "")
 }
 
@@ -623,7 +623,7 @@ func subscribeAndSendNotoReceiptsToChannel(t *testing.T, wsClient pldclient.Pala
 
 // TODO: move the new tests to use websockets with assertions on domain receipts
 func (s *notoTestSuite) TestNotoCreateMintLock() {
-	s.T().Skip()
+	// s.T().Skip()
 	ctx := context.Background()
 	t := s.T()
 	log.L(ctx).Infof("TestNotoCreateMintLock")
@@ -742,7 +742,7 @@ func (s *notoTestSuite) TestNotoCreateMintLock() {
 }
 
 func (s *notoTestSuite) TestNotoPrepareBurnUnlock() {
-	s.T().Skip()
+	// s.T().Skip()
 	ctx := context.Background()
 	t := s.T()
 	log.L(ctx).Infof("TestNotoPrepareBurnUnlock")

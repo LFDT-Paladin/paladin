@@ -17,23 +17,18 @@ package noto
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
-	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/LFDT-Paladin/smt/pkg/utxo"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type transferCommon struct {
@@ -52,24 +47,8 @@ func (h *transferCommon) validateTransferParams(ctx context.Context, to string, 
 
 func (h *transferCommon) initTransfer(ctx context.Context, tx *types.ParsedTransaction, from, to string) (*prototk.InitTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
-	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	requests := h.noto.ethAddressVerifiers(notary, tx.Transaction.From, from, to)
-	if useNullifiers {
-		requests = append(requests,
-			&prototk.ResolveVerifierRequest{
-				Lookup:       from,
-				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-			},
-			&prototk.ResolveVerifierRequest{
-				Lookup:       notary,
-				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
-				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
-			},
-		)
-	}
-
 	return &prototk.InitTransactionResponse{
 		RequiredVerifiers: requests,
 	}, nil
@@ -110,10 +89,6 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		return nil, err
 	}
 	if useNullifiers {
-		// for our own states, while we create them, we add the corresponding nullifier to the new state,
-		// which will be persisted in the state DB. This allows us to track which states have been spent,
-		// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
-		// the receipt
 		for _, newState := range outputStates.states {
 			newState.NullifierSpecs = []*prototk.NullifierSpec{
 				{
@@ -146,10 +121,6 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 			return nil, err
 		}
 		if useNullifiers {
-			// for our own states, while we create them, we add the corresponding nullifier to the new state,
-			// which will be persisted in the state DB. This allows us to track which states have been spent,
-			// because the spending transactions will include the nullifier IDs, rather than the state IDs, in
-			// the receipt
 			for _, newState := range returnedStates.states {
 				newState.NullifierSpecs = []*prototk.NullifierSpec{
 					{
@@ -246,28 +217,7 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	}
 	payload := signature.Payload
 	if useNullifier {
-		// for nullifier variants, the "signature" parameter includes both the signature and the root
-		smtName := notosmt.MerkleTreeName(tx.ContractAddress.String())
-		smtType := smt.StatesTree
-		hasher := utxo.NewKeccak256Hasher()
-		mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, h.noto.Callbacks, h.noto.merkleTreeRootSchema.Id, h.noto.merkleTreeNodeSchema.Id, req.StateQueryContext)
-		if err != nil {
-			return nil, err
-		}
-		root := mt.Tree.Root()
-		jsonObj := map[string]interface{}{
-			"root":      "0x" + root.BigInt().Text(16),
-			"signature": "0x" + hex.EncodeToString(payload),
-		}
-		jsonBytes, err := json.Marshal(jsonObj)
-		if err != nil {
-			return nil, err
-		}
-		args := abi.ParameterArray{
-			{Name: "root", Type: "uint256"},
-			{Name: "signature", Type: "bytes"},
-		}
-		encoded, err := args.EncodeABIDataJSON(jsonBytes)
+		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
 		if err != nil {
 			return nil, err
 		}

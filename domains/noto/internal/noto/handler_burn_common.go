@@ -17,23 +17,18 @@ package noto
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
-	notosmt "github.com/LFDT-Paladin/paladin/domains/noto/internal/noto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/LFDT-Paladin/smt/pkg/utxo"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type burnCommon struct {
@@ -102,6 +97,7 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 			return nil, err
 		}
 		if useNullifiers {
+			// add nullifier spec to each returned state (they are new states)
 			for _, newState := range returnedStates.states {
 				newState.NullifierSpecs = []*prototk.NullifierSpec{
 					{
@@ -201,28 +197,7 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	}
 	payload := sender.Payload
 	if useNullifier {
-		// for nullifier variants, the "signature" parameter includes both the signature and the root
-		smtName := notosmt.MerkleTreeName(tx.ContractAddress.String())
-		smtType := smt.StatesTree
-		hasher := utxo.NewKeccak256Hasher()
-		mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, h.noto.Callbacks, h.noto.merkleTreeRootSchema.Id, h.noto.merkleTreeNodeSchema.Id, req.StateQueryContext)
-		if err != nil {
-			return nil, err
-		}
-		root := mt.Tree.Root()
-		jsonObj := map[string]interface{}{
-			"root":      "0x" + root.BigInt().Text(16),
-			"signature": "0x" + hex.EncodeToString(payload),
-		}
-		jsonBytes, err := json.Marshal(jsonObj)
-		if err != nil {
-			return nil, err
-		}
-		args := abi.ParameterArray{
-			{Name: "root", Type: "uint256"},
-			{Name: "signature", Type: "bytes"},
-		}
-		encoded, err := args.EncodeABIDataJSON(jsonBytes)
+		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
 		if err != nil {
 			return nil, err
 		}

@@ -58,18 +58,42 @@ func (h *lockHandler) checkAllowed(ctx context.Context, tx *types.ParsedTransact
 
 func (h *lockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
 	notary := tx.DomainConfig.NotaryLookup
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	if err := h.checkAllowed(ctx, tx); err != nil {
 		return nil, err
 	}
 
+	requests := h.noto.ethAddressVerifiers(notary, tx.Transaction.From)
+
+	if useNullifiers {
+		requests = append(requests,
+			&prototk.ResolveVerifierRequest{
+				Lookup:       tx.Transaction.From,
+				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+			},
+			&prototk.ResolveVerifierRequest{
+				Lookup:       notary,
+				VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+				Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+			},
+		)
+	}
+
 	return &prototk.InitTransactionResponse{
-		RequiredVerifiers: h.noto.ethAddressVerifiers(notary, tx.Transaction.From),
+		RequiredVerifiers: requests,
 	}, nil
 }
 
 func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
 	params := tx.Params.(*types.LockParams)
 	notary := tx.DomainConfig.NotaryLookup
+
+	// there are special handling in terms of using nullifiers in transactions involving locks.
+	// when locking assets, the input states will have nullifier specs, but the locked output states
+	// will NOT have nullifier specs. This is because the locked outputs are spent by UTXO ID rather
+	// than nullifiers. This is by design to allow easier tracking of locked outputs on-chain throughout
+	// their short life cycle.
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
 	notaryAddress, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
@@ -81,6 +105,7 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		return nil, err
 	}
 
+	// the inputs will be prepared as nullifiers
 	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, params.Amount, useNullifiers)
 	if err != nil {
 		if revert {
@@ -112,6 +137,8 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 	if err != nil {
 		return nil, err
 	}
+	// Note that for the locked outputs, we do not include nullifier specs
+	// because they will be later spent by the UTXO ID rather than nullifiers.
 
 	unlockedOutputStates := &preparedOutputs{}
 	if inputStates.total.Cmp(params.Amount.Int()) == 1 {
@@ -122,6 +149,20 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		}
 		unlockedOutputStates.coins = append(unlockedOutputStates.coins, returnedStates.coins...)
 		unlockedOutputStates.states = append(unlockedOutputStates.states, returnedStates.states...)
+	}
+
+	// for the unlocked outputs, we include nullifier specs as normal
+	if useNullifiers {
+		for _, newState := range unlockedOutputStates.states {
+			newState.NullifierSpecs = []*prototk.NullifierSpec{
+				{
+					Party:        tx.Transaction.From,
+					Algorithm:    types.AlgoDomainNullifier(h.noto.name),
+					VerifierType: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+					PayloadType:  types.PAYLOAD_DOMAIN_NOTO_NULLIFIER,
+				},
+			}
+		}
 	}
 
 	infoStates, err := h.noto.prepareInfo(params.Data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From})
