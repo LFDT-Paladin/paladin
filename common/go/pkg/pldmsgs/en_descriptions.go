@@ -106,7 +106,7 @@ var (
 	PublicTxRevertData                     = pdm("PublicTx.revertData", "The revert data (optional)")
 	PublicTxSubmissions                    = pdm("PublicTx.submissions", "The submission data (optional)")
 	PublicTxActivity                       = pdm("PublicTx.activity", "The transaction activity records (optional)")
-	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher that submitted this public transaction")
+	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher is the node name that submitted this public transaction")
 	PublicTxBindingTransaction             = pdm("PublicTxBinding.transaction", "The transaction ID")
 	PublicTxBindingTransactionType         = pdm("PublicTxBinding.transactionType", "The transaction type")
 )
