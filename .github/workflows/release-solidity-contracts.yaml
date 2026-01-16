@@ -66,6 +66,13 @@ jobs:
         repository: kaleido-io/js-merkletree
         path: solidity
 
+    - name: Build js-merkletree
+      working-directory: solidity/js-merkletree
+      shell: bash
+      run: |
+        npm install
+        npm run build:node
+
     - name: Build Solidity Contracts
       working-directory: solidity
       run: ../gradlew build 
