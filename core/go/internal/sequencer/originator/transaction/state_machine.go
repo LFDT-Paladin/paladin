@@ -48,6 +48,7 @@ const (
 	State_Confirmed             // the public transaction has been confirmed by the blockchain as successful
 	State_Reverted              // upon attempting to assemble the transaction, the domain code has determined that the intent is not valid and the transaction is finalized as reverted
 	State_Parked                // upon attempting to assemble the transaction, the domain code has determined that the transaction is not ready to be assembled and it is parked for later processing.  All remaining transactions for the current originator can continue - unless they have an explicit dependency on this transaction
+	State_Final                 // final state for the transaction. Transactions are removed from memory as soon as they enter this state
 
 )
 
@@ -69,6 +70,7 @@ const (
 	Event_NonceAssigned                               // the public transaction manager has assigned a nonce to the transaction
 	Event_Submitted                                   // the transaction has been submitted to the blockchain
 	Event_CoordinatorChanged                          // the coordinator has changed
+	Event_Finalize                                    // internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup
 )
 
 type StateMachine struct {
@@ -415,17 +417,38 @@ func init() {
 				},
 			},
 		},
-		State_Reverted: {
+		State_Confirmed: {
+			OnTransitionTo: action_QueueFinalizeEvent,
 			Events: map[EventType]EventHandler{
+				Event_Finalize: {
+					Transitions: []Transition{{
+						To: State_Final,
+					}},
+				},
+			},
+		},
+		State_Reverted: {
+			OnTransitionTo: action_QueueFinalizeEvent,
+			Events: map[EventType]EventHandler{
+				Event_Finalize: {
+					Transitions: []Transition{{
+						To: State_Final,
+					}},
+				},
 				Event_AssembleRequestReceived: {
 					Actions: []ActionRule{
 						{
-							//it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
+							// It seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
+							// There is only a narrow window of time that this can occur before the transaction is cleaned up from memory. If this request is received again,
+							// the coordinator will receive a transaction unknown response which will tell it that it can remove the transaction from its memory also.
 							If:     guard_AssembleRequestMatchesPreviousResponse,
 							Action: action_ResendAssembleRevertResponse,
 						}},
 				},
 			},
+		},
+		State_Final: {
+			OnTransitionTo: action_Cleanup,
 		},
 	}
 }
@@ -591,6 +614,8 @@ func (s State) String() string {
 		return "State_Reverted"
 	case State_Parked:
 		return "State_Parked"
+	case State_Final:
+		return "State_Final"
 	}
 	return "Unknown"
 }
