@@ -96,7 +96,7 @@ jobs:
         # Unzip zeto contracts
         # TODO: remove hardcoded version from name (should be available after zeto release v0.3.0)
         # issue: https://github.com/hyperledger-labs/zeto/issues/158
-        tar -xzf tools/zeto-contracts-v0.2.0.tar.gz -C tools/contracts
+        tar -xzf tools/zeto-contracts-v0.2.2.tar.gz -C tools/contracts
 
     - name: Copy Zeto Solidity artifacts to zeto-contracts directory
       shell: bash
