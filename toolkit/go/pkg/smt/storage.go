@@ -301,9 +301,6 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	}
 
 	data, _ := json.Marshal(newNode)
-	if err != nil {
-		return nil, err
-	}
 	hash, _ := newNode.Hash_EIP712(ctx)
 	newNodeState := &prototk.NewConfirmedState{
 		Id:            &hash,
@@ -324,14 +321,8 @@ func (s *statesStorage) makeNewStateFromRootNode(ctx context.Context, rootNode *
 		SmtName:   s.smtName,
 		RootIndex: bytes,
 	}
-	data, err := json.Marshal(newRoot)
-	if err != nil {
-		return nil, err
-	}
-	hash, err := newRoot.Hash_EIP712(ctx)
-	if err != nil {
-		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorHashSMTNode, err)
-	}
+	data, _ := json.Marshal(newRoot)
+	hash, _ := newRoot.Hash_EIP712(ctx)
 	newRootState := &prototk.NewConfirmedState{
 		Id:            &hash,
 		SchemaId:      s.rootSchemaId,
