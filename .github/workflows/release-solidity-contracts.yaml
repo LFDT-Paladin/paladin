@@ -64,7 +64,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: kaleido-io/js-merkletree
-        path: ../
+        path: solidity
 
     - name: Build Solidity Contracts
       working-directory: solidity
