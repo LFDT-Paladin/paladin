@@ -62,7 +62,6 @@ jobs:
 
     - name: Install js-merkletree dependency by checking out from github.com/kaleido-io/js-merkletree
       uses: actions/checkout@v4
-      working-directory: ../
       with:
         fetch-depth: 0
         repository: kaleido-io/js-merkletree
