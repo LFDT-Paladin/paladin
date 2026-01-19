@@ -580,6 +580,7 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 		}
 		if common.IsKycToken(domainConfig.TokenName) {
 			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates(ctx)
+			log.L(ctx).Debugf("New KYC states from SMT %s: %+v", smtForKyc.Name, newStatesForSMTForKyc)
 			if err != nil {
 				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
 			}

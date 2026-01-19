@@ -25,9 +25,9 @@ type MerkleTreeSpec struct {
 	Tree    core.SparseMerkleTree
 }
 
-func NewMerkleTreeSpec(ctx context.Context, name string, treeType MerkleTreeType, levels int, hasher utxocore.Hasher, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
+func NewMerkleTreeSpec(ctx context.Context, name string, treeType MerkleTreeType, levels int, hasher utxocore.Hasher, useEIP712 bool, callbacks plugintk.DomainCallbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId string, stateQueryContext string) (*MerkleTreeSpec, error) {
 	var tree core.SparseMerkleTree
-	storage := NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, hasher)
+	storage := NewStatesStorage(callbacks, name, stateQueryContext, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, hasher, useEIP712)
 	tree, err := zetosmt.NewMerkleTree(ctx, storage, levels)
 	if err != nil {
 		return nil, err

@@ -593,7 +593,7 @@ func (n *Noto) encodeRootAndSignature(ctx context.Context, txContractAddress, st
 	smtName := notosmt.MerkleTreeName(txContractAddress)
 	smtType := smt.StatesTree
 	hasher := utxo.NewKeccak256Hasher()
-	mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, stateQueryContext)
+	mt, err := smt.NewMerkleTreeSpec(ctx, smtName, smtType, notosmt.SMT_HEIGHT_UTXO, hasher, true, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, stateQueryContext)
 	if err != nil {
 		return nil, err
 	}

@@ -67,7 +67,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 	if useNullifier {
 		smtName := notosmt.MerkleTreeName(req.ContractInfo.ContractAddress)
 		hasher := utxo.NewKeccak256Hasher()
-		smtForStates, err = smt.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, notosmt.SMT_HEIGHT_UTXO, hasher, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtForStates, err = smt.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, notosmt.SMT_HEIGHT_UTXO, hasher, true, n.Callbacks, n.merkleTreeRootSchema.Id, n.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return err
 		}

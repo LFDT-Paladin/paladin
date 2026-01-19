@@ -50,6 +50,7 @@ type statesStorage struct {
 	rootNode          *smtRootNode
 	committedNewNodes map[core.NodeRef]*smtNode
 	hasher            utxocore.Hasher
+	useEIP712         bool
 }
 
 // this corresponds to the new nodes resulted from the execution of
@@ -77,7 +78,7 @@ func (n *nodesTx) getNode(ref core.NodeRef) (core.Node, error) {
 	return nil, core.ErrNotFound
 }
 
-func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher utxocore.Hasher) StatesStorage {
+func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher utxocore.Hasher, useEIP712 bool) StatesStorage {
 	return &statesStorage{
 		CoreInterface:     c,
 		smtName:           smtName,
@@ -86,6 +87,7 @@ func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, ro
 		nodeSchemaId:      nodeSchemaId,
 		committedNewNodes: make(map[core.NodeRef]*smtNode),
 		hasher:            hasher,
+		useEIP712:         useEIP712,
 	}
 }
 
@@ -301,7 +303,10 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	}
 
 	data, _ := json.Marshal(newNode)
-	hash, _ := newNode.Hash_EIP712(ctx)
+	hash, _ := newNode.Hash(s.smtName)
+	if s.useEIP712 {
+		hash, _ = newNode.Hash_EIP712(ctx)
+	}
 	newNodeState := &prototk.NewConfirmedState{
 		Id:            &hash,
 		SchemaId:      s.nodeSchemaId,
@@ -322,7 +327,10 @@ func (s *statesStorage) makeNewStateFromRootNode(ctx context.Context, rootNode *
 		RootIndex: bytes,
 	}
 	data, _ := json.Marshal(newRoot)
-	hash, _ := newRoot.Hash_EIP712(ctx)
+	hash, _ := newRoot.Hash()
+	if s.useEIP712 {
+		hash, _ = newRoot.Hash_EIP712(ctx)
+	}
 	newRootState := &prototk.NewConfirmedState{
 		Id:            &hash,
 		SchemaId:      s.rootSchemaId,

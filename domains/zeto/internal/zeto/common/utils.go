@@ -71,7 +71,8 @@ func NewMerkleTreeSpec(ctx context.Context, name string, treeType smt.MerkleTree
 	if treeType == smt.KycStatesTree {
 		emptyProof = &zetosmt.Empty_Proof_kyc
 	}
-	mtSpec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
+	useEIP712 := false
+	mtSpec, err := smt.NewMerkleTreeSpec(ctx, name, treeType, levels, hasher, useEIP712, callbacks, merkleTreeRootSchemaId, merkleTreeNodeSchemaId, stateQueryContext)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorNewSmtSpec, name, err)
 	}

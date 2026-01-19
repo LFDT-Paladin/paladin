@@ -113,15 +113,17 @@ func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
 
 func TestStorage(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
+	// for Zeto, use Poseidon hasher and not EIP712 hashing
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	mt, err := smt.NewMerkleTree(t.Context(), storage, 64)
 	assert.EqualError(t, err, "test error")
 	assert.NotNil(t, storage)
 	assert.Nil(t, mt)
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	mt, err = smt.NewMerkleTree(t.Context(), storage, 64)
 	assert.NoError(t, err)
 	assert.NotNil(t, storage)
@@ -135,13 +137,13 @@ func TestStorage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000000", idx.Hex())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnBadData}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnBadData}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	mt, err = smt.NewMerkleTree(t.Context(), storage, 64)
 	assert.EqualError(t, err, "PD021203: Failed to unmarshal root node index. invalid character 'b' looking for beginning of value")
 	assert.NotNil(t, storage)
 	assert.Nil(t, mt)
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(0)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(0)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	mt, err = smt.NewMerkleTree(t.Context(), storage, 64)
 	assert.NoError(t, err)
 	assert.NotNil(t, storage)
@@ -171,8 +173,9 @@ func TestStorage(t *testing.T) {
 func TestUpsertRootNodeIndex(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, _ = smt.NewMerkleTree(t.Context(), storage, 64)
 	assert.NotNil(t, storage)
 	tx, err := storage.BeginTx(t.Context())
@@ -194,49 +197,50 @@ func TestUpsertRootNodeIndex(t *testing.T) {
 func TestGetNode(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
 	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnCustomError}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err := storage.GetNode(t.Context(), idx)
 	assert.EqualError(t, err, "test error")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err = storage.GetNode(t.Context(), idx)
 	assert.EqualError(t, err, core.ErrNotFound.Error())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(1)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(1)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	n, err := storage.GetNode(t.Context(), idx)
 	assert.NoError(t, err)
 	assert.NotNil(t, n)
 	assert.Equal(t, "197b0dc3f167041e03d3eafacec1aa3ab12a0d7a606581af01447c269935e521", n.Index().Hex())
 	assert.Equal(t, core.NodeTypeLeaf, n.Type())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(2)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(2)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	n, err = storage.GetNode(t.Context(), idx)
 	assert.NoError(t, err)
 	assert.NotNil(t, n)
 	assert.Empty(t, n.Index())
 	assert.Equal(t, "197b0dc3f167041e03d3eafacec1aa3ab12a0d7a606581af01447c269935e521", n.LeftChild().Hex())
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(3)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(3)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err = storage.GetNode(t.Context(), idx)
 	assert.EqualError(t, err, "inputs values not inside Finite Field")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(4)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(4)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err = storage.GetNode(t.Context(), idx)
 	assert.EqualError(t, err, "inputs values not inside Finite Field")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(5)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(5)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err = storage.GetNode(t.Context(), idx)
 	assert.ErrorContains(t, err, "PD021204: Failed to unmarshal Merkle Tree Node from state json. PD020007: Invalid hex")
 
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(6)}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnNode(6)}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	_, err = storage.GetNode(t.Context(), idx)
 	assert.ErrorContains(t, err, "PD021204: Failed to unmarshal Merkle Tree Node from state json. PD020008: Failed to parse value as 32 byte hex string")
 
 	// test with committed nodes
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	tx1, err := storage.BeginTx(t.Context())
 	assert.NoError(t, err)
 	n1, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
@@ -248,7 +252,7 @@ func TestGetNode(t *testing.T) {
 	assert.Equal(t, n1, n2)
 
 	// test with pending nodes (called when we are still updating a leaf node path up to the root)
-	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage = NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	tx2, err := storage.BeginTx(t.Context())
 	assert.NoError(t, err)
 	n3, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
@@ -262,8 +266,9 @@ func TestGetNode(t *testing.T) {
 func TestInsertNode(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	assert.NotNil(t, storage)
 	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	n, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
@@ -305,8 +310,9 @@ func TestInsertNode(t *testing.T) {
 func TestUnimplementedMethods(t *testing.T) {
 	stateQueryConext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryConext, "root-schema", "node-schema", hasher, useEIP712)
 	assert.NotNil(t, storage)
 	storage.(*statesStorage).Close()
 }
@@ -330,16 +336,18 @@ func TestNodesTxGetNode(t *testing.T) {
 
 func TestSetTransactionId(t *testing.T) {
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher, useEIP712)
 	storage.SetTransactionId("txid")
 	assert.Equal(t, "txid", storage.(*statesStorage).pendingNodesTx.transactionId)
 }
 
 func TestGetNewStates(t *testing.T) {
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher)
+	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher, useEIP712)
 	storage := s.(*statesStorage)
 	states, err := storage.GetNewStates(t.Context())
 	assert.NoError(t, err)
@@ -369,8 +377,9 @@ func TestGetNewStates(t *testing.T) {
 func TestClose(t *testing.T) {
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 	// Close should not panic or return error
 	storage.Close()
 	assert.NotNil(t, storage)
@@ -379,8 +388,9 @@ func TestClose(t *testing.T) {
 func TestGetHasher(t *testing.T) {
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 	retrievedHasher := storage.(*statesStorage).GetHasher()
 	assert.Equal(t, hasher, retrievedHasher)
 }
@@ -388,8 +398,9 @@ func TestGetHasher(t *testing.T) {
 func TestMakeNewStateFromTreeNodeWithBranchNode(t *testing.T) {
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 
 	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
 	idx2, _ := node.NewNodeIndexFromBigInt(big.NewInt(5678), hasher)
@@ -410,8 +421,9 @@ func TestMakeNewStateFromTreeNodeWithBranchNode(t *testing.T) {
 func TestMakeNewStateFromTreeNodeWithLeafNode(t *testing.T) {
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 
 	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(9999), hasher)
 	leafNode, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
@@ -430,8 +442,9 @@ func TestMakeNewStateFromTreeNodeWithLeafNode(t *testing.T) {
 func TestMakeNewStateFromRootNode(t *testing.T) {
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 
 	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1111), hasher)
 	rootRef := idx
@@ -480,8 +493,9 @@ func TestMakeNewStateFromTreeNodeErrorPath(t *testing.T) {
 	// Test with a valid node to ensure no panics occur in error handling
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 
 	// Create a branch node with valid structure
 	leftChild, _ := node.NewNodeIndexFromBigInt(big.NewInt(100), hasher)
@@ -504,8 +518,9 @@ func TestMakeNewStateFromRootNodeErrorPath(t *testing.T) {
 	// Test with a valid root node to ensure proper handling
 	stateQueryContext := pldtypes.ShortID()
 	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
 
-	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher)
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
 
 	// Create a root node with valid structure
 	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(2222), hasher)
