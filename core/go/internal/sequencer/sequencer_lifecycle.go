@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -265,27 +264,6 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		log.L(ctx).Errorf("error getting domain API for contract %s: %s", t.Address.String(), err)
 		return
 	}
-
-	submitterSelection := domainAPI.ContractConfig().GetSubmitterSelection()
-
-	if submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.PostAssembly.Endorsements {
-			for _, constraint := range endorsement.Constraints {
-				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
-					t.Signer = endorsement.Verifier.Lookup
-					break
-				}
-			}
-		}
-	}
-	if t.Signer == "" {
-		if domainAPI.Domain().FixedSigningIdentity() != "" {
-			t.Signer = domainAPI.Domain().FixedSigningIdentity()
-		} else {
-			t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
-		}
-	}
-	log.L(ctx).Debugf("Transaction %s signer %s", t.ID.String(), t.Signer)
 
 	// Prepare the public or private transaction
 	readTX := sMgr.components.Persistence().NOTX() // no DB transaction required here

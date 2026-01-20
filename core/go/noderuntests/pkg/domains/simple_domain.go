@@ -250,6 +250,10 @@ const simpleTokenSelfEndorsementConstructorABI = `{
     {
       "name": "hookAddress",
       "type": "string"
+    },
+    {
+      "name": "amountVisible",
+      "type": "bool"
     }
   ],
   "outputs": null
@@ -277,6 +281,10 @@ const simpleTokenNotaryEndorsementConstructorABI = `{
       {
         "name": "hookAddress",
         "type": "string"
+      },
+      {
+        "name": "amountVisible",
+        "type": "bool"
       }
 	],
 	"outputs": null
@@ -304,6 +312,10 @@ const simpleTokenPrivacyGroupEndorsementConstructorABI = `{
       {
         "name": "hookAddress",
         "type": "string"
+      },
+      {
+        "name": "amountVisible",
+        "type": "bool"
       }
 	],
 	"outputs": null
@@ -333,6 +345,7 @@ type ConstructorParameters struct {
 	Symbol          string   `json:"symbol"`
 	EndorsementMode string   `json:"endorsementMode"`
 	HookAddress     string   `json:"hookAddress"`
+	AmountVisible   bool     `json:"amountVisible"`
 }
 
 // Go struct used in test (test + domain) to work with JSON structure for `params` on the base ledger factory function
@@ -343,6 +356,7 @@ type FactoryParameters struct {
 	NotaryLocator          string   `json:"notaryLocator"`
 	EndorsementSetLocators []string `json:"endorsementSetLocators"`
 	HookAddress            string   `json:"hookAddress"`
+	AmountVisible          bool     `json:"amountVisible"`
 }
 
 // JSON structure passed into the paladin transaction for the transfer
@@ -371,6 +385,7 @@ var contractDataABI = &abi.ParameterArray{
 	{Name: "notaryLocator", Type: "string"},
 	{Name: "endorsementSetLocators", Type: "string[]"},
 	{Name: "hookAddress", Type: "string"},
+	{Name: "amountVisible", Type: "bool"},
 }
 
 // golang struct to parse and serialize the data received from the block indexer when the base ledger factor contract
@@ -381,6 +396,7 @@ type simpleTokenConfigParser struct {
 	NotaryLocator   string   `json:"notaryLocator"`
 	EndorsementSet  []string `json:"endorsementSetLocators"`
 	HookAddress     string   `json:"hookAddress"`
+	AmountVisible   bool     `json:"amountVisible"`
 }
 
 func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
@@ -696,6 +712,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					EndorsementMode:        constructorParameters.EndorsementMode,
 					NotaryLocator:          constructorParameters.Notary,
 					HookAddress:            constructorParameters.HookAddress,
+					AmountVisible:          constructorParameters.AmountVisible,
 				}
 				return &prototk.PrepareDeployResponse{
 					Signer: confutil.P(fmt.Sprintf("domain1.transactions.%s", req.Transaction.TransactionId)),
@@ -1112,7 +1129,6 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				// Either prepare a public call to `executeNotarized` on the chain or a private chained call to `transfer` on another contract
 				// The simple domain doesn't actually honour the original transaction but it succeeds and should allow the original transaction
 				// to return a receipt
-
 				if config.HookAddress == "" {
 					smartContractFunction := "executeNotarized"
 					args := map[string]interface{}{
@@ -1120,6 +1136,11 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						"inputs":    spentStateIds,
 						"outputs":   newStateIds,
 						"signature": signerSignature,
+					}
+
+					if config.AmountVisible {
+						smartContractFunction = "executeNotarizedAmountExposed"
+						args["amount"] = 1
 					}
 
 					// We have a very basic hook capability whereby if transfer() is called with an origin TX ID (i.e.
