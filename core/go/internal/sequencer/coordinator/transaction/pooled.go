@@ -83,7 +83,7 @@ func (t *Transaction) hasUnknownDependencies(ctx context.Context) bool {
 	return false
 }
 
-// TODO rename this function because it is not clear that its main purpose is to attach this transaction to the dependency as a dependent
+// Initializes (or re-initializes) the transaction as it arrives in the pool
 func (t *Transaction) initializeDependencies(ctx context.Context) error {
 	if t.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.ID)
@@ -112,11 +112,42 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	// Reset anything that might have been updated during an initial attempt to assembly, endorse and dispatch this TX. This is a no-op if this is the first
+	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
+	// dependencies from a previous version of the grapher.
+	t.PostAssembly = nil
+	t.dependencies = &pldapi.TransactionDependencies{}
+	t.grapher.Forget(t.ID)
+	t.cancelAssembleTimeoutSchedules()
+	t.resetEndorsementRequests(ctx)
 
+	return nil
 }
 
-func action_recordRevert(_ context.Context, txn *Transaction) error {
+func (t *Transaction) rePoolDependents(ctx context.Context) error {
+	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
+	for _, dependencyID := range t.dependencies.PrereqOf {
+		dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
+		if dependencyTxn != nil {
+			dependencyTxn.HandleEvent(ctx, &DependencyRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependencyID,
+				},
+				DependencyID: t.ID,
+			})
+		}
+	}
+
+	return nil
+}
+
+func action_recordRevert(ctx context.Context, txn *Transaction) error {
+	err := txn.rePoolDependents(ctx)
+	if err != nil {
+		// log error but continue
+		errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error re-pooling dependents of transaction")
+		log.L(ctx).Error(errMsg)
+	}
 	now := pldtypes.TimestampNow()
 	txn.revertTime = &now
 	return nil
