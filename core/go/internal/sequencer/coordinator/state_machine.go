@@ -254,17 +254,23 @@ func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) erro
 
 	//Determine whether this event triggers a state transition
 	err = c.evaluateTransitions(ctx, event, *eventHandler)
+	if err != nil {
+		return err
+	}
 	log.L(ctx).Debugf("coordinator handled new event %s (contract address %s)", event.TypeString(), c.contractAddress)
-
-	return err
+	return nil
 }
 
 // Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
 // sequencer state machine and transactions.
 func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("coordinator pushing event onto event queue: %s", event.TypeString())
 	c.coordinatorEvents <- event
-	log.L(ctx).Tracef("coordinator pushed event onto event queue: %s", event.TypeString())
+}
+
+// Queue a state machine event generated internally for the sequencer loop to process. Is prioritized above
+// external event sources
+func (c *coordinator) queueEventInternal(ctx context.Context, event common.Event) {
+	c.coordinatorEventsInternal <- event
 }
 
 // Function evaluateEvent evaluates whether the event is relevant given the current state of the coordinator
@@ -417,6 +423,7 @@ func action_StopHeartbeating(ctx context.Context, c *coordinator) error {
 func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
+	c.activeCoordinatorNode = c.nodeName
 	c.coordinatorActive(c.contractAddress, c.nodeName)
 
 	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating

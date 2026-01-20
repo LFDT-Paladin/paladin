@@ -386,6 +386,8 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.fakeClock.Duration(b.requestTimeout),
 		b.fakeClock.Duration(b.assembleTimeout),
 		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
 		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
