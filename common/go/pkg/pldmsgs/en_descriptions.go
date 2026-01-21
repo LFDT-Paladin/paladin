@@ -492,7 +492,7 @@ var (
 	KeyManagerInlineConfigWallets         = pdm("KeyManagerInlineConfig.wallets", "List of wallet configurations")
 	KeyManagerInlineConfigIdentifierCache = pdm("KeyManagerInlineConfig.identifierCache", "Identifier cache configuration")
 	KeyManagerInlineConfigVerifierCache   = pdm("KeyManagerInlineConfig.verifierCache", "Verifier cache configuration")
-	KeyManagerInlineConfigDisableSignRPC  = pdm("KeyManagerInlineConfig.disableSignRPC", "True to disable the signing RPC")
+KeyManagerInlineConfigDisableSignRPC  = pdm("KeyManagerInlineConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
 
 	// KeyManagerConfig field descriptions
 	KeyManagerConfigIdentifierCache = pdm("KeyManagerConfig.identifierCache", "Identifier cache configuration")
