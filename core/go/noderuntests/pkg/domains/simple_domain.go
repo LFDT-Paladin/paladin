@@ -1140,7 +1140,10 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 
 					if config.AmountVisible {
 						smartContractFunction = "executeNotarizedAmountExposed"
-						args["amount"] = 1
+						var fakeTransferParser fakeTransferParser
+						err := json.Unmarshal([]byte(req.Transaction.FunctionParamsJson), &fakeTransferParser)
+						require.NoError(t, err)
+						args["amount"] = fakeTransferParser.Amount.BigInt()
 					}
 
 					// We have a very basic hook capability whereby if transfer() is called with an origin TX ID (i.e.

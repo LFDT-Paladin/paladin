@@ -55,9 +55,8 @@ func (t *Transaction) cancelAssembleTimeoutSchedules() {
 	}
 }
 
-func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
+func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
 
-	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
 	t.PostAssembly = postAssembly
 
 	t.cancelAssembleTimeoutSchedules()
@@ -70,7 +69,40 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.ID.String())
 		return nil
 	}
+
+	err := t.writeLockStates(ctx)
+	if err != nil {
+		// Internal error. Only option is to revert the transaction
+		seqRevertEvent := &AssembleRevertResponseEvent{}
+		seqRevertEvent.RequestID = requestID // Must match what the state machine thinks the current assemble request ID is
+		seqRevertEvent.TransactionID = t.ID
+		err = t.eventHandler(ctx, seqRevertEvent)
+		if err != nil {
+			handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
+			log.L(ctx).Error(handlerErr)
+		}
+		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+		// Return the original error
+		return err
+	}
+
+	// Once we've written the lock states we have output states which must be added to the grapher
 	for _, state := range postAssembly.OutputStates {
+		err := t.grapher.AddMinter(ctx, state.ID, t)
+		if err != nil {
+			// Log internal error and return i
+			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", state.ID, err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+	}
+	return t.calculatePostAssembleDependencies(ctx)
+}
+
+func (t *Transaction) applyPostAssembly2(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
+
+	for _, state := range postAssembly.OutputStates {
+		log.L(ctx).Debugf("applyPostAssembly2 - adding minter for state %s", state.ID.String())
 		err := t.grapher.AddMinter(ctx, state.ID, t)
 		if err != nil {
 			msg := fmt.Sprintf("error adding minter for state %s: %s while applying postAssembly", state.ID, err)
@@ -245,7 +277,7 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 }
 
 func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) error {
-	//Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
+	// Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
 	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
 	// this function calculates the dependencies relating to states and sets up the reverse association
 	// it is assumed that the other dependencies have already been set up when the transaction was first received by the coordinator TODO correct this comment line with more accurate description of when we expect the static dependencies to have been calculated.  Or make it more vague.
@@ -256,6 +288,7 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 	}
 
 	found := make(map[uuid.UUID]bool)
+
 	t.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
 		PrereqOf:  make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
@@ -272,11 +305,16 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 			//assume the state was produced by a confirmed transaction
 			//TODO should we validate this by checking the domain context? If not, explain why this is safe in the architecture doc
 			continue
+		} else {
+			log.L(ctx).Debugf("calculatePostAssembleDependencies - dependency for state %s is %s", state.ID.String(), dependency.ID.String())
 		}
 		if found[dependency.ID] {
+			log.L(ctx).Debugf("calculatePostAssembleDependencies - found duplicate dependency for state %s is %s", state.ID.String(), dependency.ID.String())
 			continue
 		}
 		found[dependency.ID] = true
+
+		log.L(ctx).Debugf("calculatePostAssembleDependencies - adding dependency for transaction %s on transaction %s", t.ID.String(), dependency.ID.String())
 		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.ID)
 		//also set up the reverse association
 		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.ID)
@@ -323,7 +361,8 @@ func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) erro
 func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
 	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
 	txn.engineIntegration.ResetTransactions(ctx, txn.ID)
-	return nil
+	log.L(ctx).Infof("action_NotifyOfConfirmation - issuing DependencyReadyEvent for all dependents of TXN %s", txn.ID.String())
+	return txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
 }
 
 func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction) error {
