@@ -52,7 +52,6 @@ func (s *fungibleTestSuiteHelper) TestZeto_Anon() {
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonBatch() {
-	s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON, true, false)
 }
 
@@ -87,6 +86,13 @@ func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKycBatch() {
 }
 
 func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBatch bool, isNullifiersToken bool, isKycToken ...bool) {
+	receiptsChan := make(chan zetoReceiptWithTXID)
+	receiptsSub := subscribeAndSendZetoReceiptsToChannel(s.T(), s.pldClient, s.domainName, receiptsChan)
+
+	defer func() {
+		receiptsSub.Unsubscribe(s.T().Context())
+	}()
+
 	ctx := context.Background()
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Deploying an instance of the %s token", tokenName)
@@ -147,8 +153,10 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Infof("Mint two UTXOs (10, 20) from controller to controller")
 	log.L(ctx).Info("*************************************")
 	zeto.Mint(ctx, controllerName, []uint64{10, 20}).SignAndSend(controllerName, true).Wait()
-	mintReceipt := <-s.receiptsChan
+	mintReceipt := <-receiptsChan
 	log.L(ctx).Infof("Mint transaction committed in TX %s", mintReceipt.txID.String())
+	require.Equal(t, 0, len(mintReceipt.States.Inputs))
+	require.Equal(t, 2, len(mintReceipt.States.Outputs))
 
 	jq := query.NewQueryBuilder().Limit(100).Equal("locked", false).Query()
 	methodName := "pstate_queryContractStates"
@@ -173,7 +181,7 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 		log.L(ctx).Infof("Mint 30 from controller to controller")
 		log.L(ctx).Info("*************************************")
 		zeto.Mint(ctx, controllerName, []uint64{30}).SignAndSend(controllerName, true).Wait()
-		mintReceipt = <-s.receiptsChan
+		mintReceipt = <-receiptsChan
 		log.L(ctx).Infof("Batch mint transaction committed in TX %s", mintReceipt.txID.String())
 
 		balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
@@ -195,8 +203,10 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 		log.L(ctx).Info("*************************************")
 		zeto.Transfer(ctx, []string{recipient1Name}, []uint64{uint64(amount)}).SignAndSend(controllerName, true).Wait()
 	}
-	transferReceipt := <-s.receiptsChan
+	transferReceipt := <-receiptsChan
 	log.L(ctx).Infof("Transfer transaction committed in TX %s", transferReceipt.txID.String())
+	require.Equal(t, 2, len(transferReceipt.States.Inputs))
+	require.Equal(t, 2, len(transferReceipt.States.Outputs))
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
@@ -248,6 +258,10 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Infof("Deposit from ERC20 balance to Zeto")
 	log.L(ctx).Info("*************************************")
 	zeto.Deposit(ctx, 100).SignAndSend(controllerName, true).Wait()
+	// depositReceipt := <-s.receiptsChan
+	// log.L(ctx).Infof("Deposit transaction committed in TX %s", depositReceipt.txID.String())
+	// require.Equal(t, 0, len(depositReceipt.States.Inputs))
+	// require.Equal(t, 2, len(depositReceipt.States.Outputs))
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "105", balanceOfResult["totalBalance"].(string), "Balance of controller should be 105")
@@ -262,6 +276,9 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Infof("Withdraw back to ERC20 balance from Zeto")
 	log.L(ctx).Info("*************************************")
 	zeto.Withdraw(ctx, 100).SignAndSend(controllerName, true).Wait()
+	// withdrawReceipt := <-s.receiptsChan
+	// log.L(ctx).Infof("Withdraw transaction committed in TX %s", withdrawReceipt.txID.String())
+	// require.Equal(t, 2, len(withdrawReceipt.States.Inputs))
 
 	if tokenName != constants.TOKEN_ANON {
 		// for now the lock and transferLocked only works properly for the ANON token
@@ -282,10 +299,6 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	recipient1EthAddr := pldtypes.MustEthAddress(recipient1EthAddrStr)
 	zeto.Lock(ctx, recipient1EthAddr, 1).SignAndSend(controllerName, true).Wait()
 	zeto.Lock(ctx, recipient1EthAddr, 1).SignAndSend(controllerName, true).Wait()
-	lockReceipt1 := <-s.receiptsChan
-	log.L(ctx).Infof("First lock transaction committed in TX %s", lockReceipt1.txID.String())
-	lockReceipt2 := <-s.receiptsChan
-	log.L(ctx).Infof("Second lock transaction committed in TX %s", lockReceipt2.txID.String())
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
 	assert.Equal(t, "3", balanceOfResult["totalBalance"].(string), "Balance of controller should be 3")
@@ -303,8 +316,6 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	// unlocking by calling transferlocked()
 	zeto.TransferLocked(ctx, locked2, recipient1Name, controllerName, 1).SignAndSend(controllerName, true).Wait()
-	unlockReceipt := <-s.receiptsChan
-	log.L(ctx).Infof("Unlock transaction committed in TX %s", unlockReceipt.txID.String())
 
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Recipient1 delegates the lock to recipient2")

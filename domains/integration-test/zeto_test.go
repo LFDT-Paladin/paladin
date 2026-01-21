@@ -56,8 +56,6 @@ type zetoDomainTestSuite struct {
 	rpc               rpcclient.Client
 	pldClient         pldclient.PaladinWSClient
 	tb                testbed.Testbed
-	receiptsSub       rpcclient.Subscription
-	receiptsChan      chan zetoReceiptWithTXID
 	done              func()
 }
 
@@ -96,9 +94,6 @@ func (s *zetoDomainTestSuite) BeforeTest(suiteName, testName string) {
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Beginning test %s.%s", suiteName, testName)
 	log.L(ctx).Info("*************************************")
-
-	s.receiptsChan = make(chan zetoReceiptWithTXID)
-	s.receiptsSub = subscribeAndSendZetoReceiptsToChannel(s.T(), s.pldClient, s.domainName, s.receiptsChan)
 }
 
 func (s *zetoDomainTestSuite) AfterTest(suiteName, testName string) {
@@ -106,9 +101,6 @@ func (s *zetoDomainTestSuite) AfterTest(suiteName, testName string) {
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Completed test %s.%s", suiteName, testName)
 	log.L(ctx).Info("*************************************")
-
-	s.receiptsSub.Unsubscribe(s.T().Context())
-	close(s.receiptsChan)
 }
 
 func subscribeAndSendZetoReceiptsToChannel(t *testing.T, wsClient pldclient.PaladinWSClient, domainName string, receipts chan zetoReceiptWithTXID) rpcclient.Subscription {
@@ -150,6 +142,8 @@ func subscribeAndSendZetoReceiptsToChannel(t *testing.T, wsClient pldclient.Pala
 								ZetoDomainReceipt: zetoReceipt,
 								txID:              r.ID,
 							})
+						} else {
+							log.L(ctx).Errorf("Failed to unmarshal Zeto receipt in TX %s: %s", r.ID.String(), err.Error())
 						}
 					}
 					_ = subNotification.Ack(ctx)
