@@ -21,6 +21,7 @@ package coordinationtest
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1426,4 +1427,77 @@ func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, bobsChainedTransaction, 1)
 	require.True(t, bobsChainedTransaction[0].Receipt.Success == false)
+}
+
+func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.T) {
+	// This test exercises the re-assembly and re-dispatch of transactions who's base ledger
+	// transactions revert. The simple storage domain base ledger contract has an option to
+	// ensure the value stored is prev+1. For out-of-sequence delivery where new signing addresses
+	// are used for each Paladin public TX it is possible (likely) for the base ledger transactions to
+	// revert. This test drops 30 transactions in and expects every one to be successful, knowing that
+	// several of them are likely to have at least 1 base ledger revert before being successful.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+	numberOfIterations := 30
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+		AmountVisible:   true,
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	// Submit a number of transactions that are likely to hit on-chain reverts but must all be eventually successful.
+	aliceTxns := make([]*uuid.UUID, numberOfIterations)
+	go func() {
+		for i := 0; i < numberOfIterations; i++ {
+			aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+				Private().
+				Domain("domain1").
+				IdempotencyKey("tx1-alice-" + uuid.New().String()).
+				From(alice.GetIdentity()).
+				To(contractAddress).
+				Function("transfer").
+				Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "` + strconv.Itoa(i+1) + `"
+		}`)).
+				Send()
+			require.NoError(t, aliceTx.Error())
+			aliceTxns[i] = aliceTx.ID()
+
+		}
+	}()
+
+	// Check all transactions are eventually successful
+	for i := 0; i < numberOfIterations; i++ {
+		fmt.Printf("Time: %s - Alice TX ID: %s (%d)\n", time.Now().Format(time.RFC3339), aliceTxns[i], i)
+		assert.Eventually(t,
+			transactionReceiptCondition(t, ctx, *aliceTxns[i], alice.GetClient(), false),
+			transactionLatencyThreshold(t),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt for Alice TX %s", aliceTxns[i])
+	}
 }

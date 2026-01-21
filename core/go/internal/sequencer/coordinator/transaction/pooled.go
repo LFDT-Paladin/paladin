@@ -117,7 +117,7 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 	// dependencies from a previous version of the grapher.
 	t.PostAssembly = nil
 	t.dependencies = &pldapi.TransactionDependencies{}
-	t.grapher.Forget(t.ID)
+	t.grapher.ForgetMints(t.ID)
 	t.cancelAssembleTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
 
