@@ -413,7 +413,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.state == State_Confirming_Dispatchable ||
 		b.state == State_Ready_For_Dispatch {
 
-		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly())
+		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly(), uuid.New())
 		if err != nil {
 			panic("error from applyPostAssembly")
 		}

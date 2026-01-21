@@ -129,12 +129,16 @@ func (t *Transaction) rePoolDependents(ctx context.Context) error {
 	for _, dependencyID := range t.dependencies.PrereqOf {
 		dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependencyTxn != nil {
-			dependencyTxn.HandleEvent(ctx, &DependencyRevertedEvent{
+			err := dependencyTxn.HandleEvent(ctx, &DependencyRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependencyID,
 				},
 				DependencyID: t.ID,
 			})
+			if err != nil {
+				errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error notifying dependent transaction of revert", err)
+				log.L(ctx).Error(errMsg)
+			}
 		}
 	}
 

@@ -137,16 +137,18 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.ID.String(), dependentId.String())
-		}
-		err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependent.ID,
-			},
-			DependencyID: t.ID,
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
-			return err
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.ID,
+				},
+				DependencyID: t.ID,
+			})
+
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
+				return err
+			}
 		}
 	}
 	return nil
@@ -164,16 +166,17 @@ func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx cont
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.ID.String(), dependentId.String())
-		}
-		err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependent.ID,
-			},
-			DependencyID: t.ID,
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
-			return err
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.ID,
+				},
+				DependencyID: t.ID,
+			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
+				return err
+			}
 		}
 	}
 	return nil

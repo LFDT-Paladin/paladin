@@ -91,21 +91,7 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 		err := t.grapher.AddMinter(ctx, state.ID, t)
 		if err != nil {
 			// Log internal error and return i
-			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", state.ID, err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	}
-	return t.calculatePostAssembleDependencies(ctx)
-}
-
-func (t *Transaction) applyPostAssembly2(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
-
-	for _, state := range postAssembly.OutputStates {
-		log.L(ctx).Debugf("applyPostAssembly2 - adding minter for state %s", state.ID.String())
-		err := t.grapher.AddMinter(ctx, state.ID, t)
-		if err != nil {
-			msg := fmt.Sprintf("error adding minter for state %s: %s while applying postAssembly", state.ID, err)
+			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", t.ID.String(), state.ID.String(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
