@@ -106,6 +106,9 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
@@ -287,6 +290,12 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	config := builder.GetSequencerConfig()
 	config.MaxInflightTransactions = confutil.P(5)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
@@ -308,6 +317,12 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 func TestCoordinator_AddToDelegatedTransactions_NewTransactionError(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	c, _ := builder.Build(ctx)
 
 	// Use a valid originator for the transaction builder (it validates immediately)
@@ -328,6 +343,12 @@ func TestCoordinator_AddToDelegatedTransactions_HasChainedTransactionError(t *te
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	expectedError := fmt.Errorf("database error checking chained transaction")
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, expectedError)
 	c, _ := builder.Build(ctx)
@@ -347,6 +368,12 @@ func TestCoordinator_AddToDelegatedTransactions_WithChainedTransaction(t *testin
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(true, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
@@ -375,6 +402,12 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
@@ -2471,4 +2504,63 @@ func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T)
 	// Cancel to stop the loop
 	c.heartbeatCancel()
 	<-done2
+}
+
+func TestCoordinator_GetTransactionsReadyToDispatch_NoTransactionsReady(t *testing.T) {
+	// Test that GetTransactionsReadyToDispatch returns nil, nil when there are no transactions
+	// in the State_Ready_For_Dispatch state (covers line 32)
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create a transaction in a different state (not Ready_For_Dispatch)
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
+		tx.ID: tx,
+	}
+
+	readyTransactions, err := c.GetTransactionsReadyToDispatch(ctx)
+	require.NoError(t, err)
+	assert.Nil(t, readyTransactions, "Should return nil when no transactions are ready")
+}
+
+func TestCoordinator_GetTransactionsReadyToDispatch_SortTransactionsFails(t *testing.T) {
+	// Test that GetTransactionsReadyToDispatch returns an error when SortTransactions fails
+	// This covers lines 37-38 where the error is logged and returned
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create transactions with dependencies that are not in the input list
+	// This will cause SortTransactions to fail
+	grapher := transaction.NewGrapher(ctx)
+
+	txnBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1)
+	txn1 := txnBuilder1.Build()
+
+	// Create txn2 that depends on txn1's output state
+	txnBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Grapher(grapher).
+		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+	txn2 := txnBuilder2.Build()
+
+	// Create txn3 that also depends on txn1's output state
+	txnBuilder3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Grapher(grapher).
+		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+	txn3 := txnBuilder3.Build()
+
+	// Add only txn2 and txn3 to the coordinator (not txn1)
+	// This creates a scenario where SortTransactions will fail because
+	// txn2 and txn3 depend on txn1, but txn1 is not in the list
+	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
+		txn2.ID: txn2,
+		txn3.ID: txn3,
+	}
+
+	readyTransactions, err := c.GetTransactionsReadyToDispatch(ctx)
+	require.Error(t, err, "Should return error when SortTransactions fails")
+	assert.Nil(t, readyTransactions, "Should return nil transactions when error occurs")
 }

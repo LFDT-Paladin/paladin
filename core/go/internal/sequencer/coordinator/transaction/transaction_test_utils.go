@@ -437,6 +437,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.currentState = b.state
+	b.txn.dynamicSigningIdentity = false
 	return b.txn
 
 }

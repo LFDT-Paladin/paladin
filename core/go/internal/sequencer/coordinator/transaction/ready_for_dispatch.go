@@ -27,7 +27,7 @@ import (
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
 func (t *Transaction) updateSigningIdentity() {
-	if t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
+	if t.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
 		for _, endorsement := range t.PostAssembly.Endorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
@@ -59,7 +59,7 @@ func (t *Transaction) isNotReady() bool {
 			t.GetState() != State_Dispatched &&
 			t.GetState() != State_Ready_For_Dispatch
 		if notReady {
-			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.ID.String(), notReady)
+			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.ID.String())
 		}
 		return notReady
 	}
@@ -68,7 +68,7 @@ func (t *Transaction) isNotReady() bool {
 	// Dynamic signing address - we must want for the dependency to be confirmed before we can dispatch
 	notReady := t.GetState() != State_Confirmed
 	if notReady {
-		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.ID.String(), notReady)
+		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.ID.String())
 	}
 	return notReady
 }

@@ -125,6 +125,7 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 }
 
 func (t *Transaction) rePoolDependents(ctx context.Context) error {
+	var rePoolError error
 	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
 	for _, dependencyID := range t.dependencies.PrereqOf {
 		dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
@@ -138,11 +139,15 @@ func (t *Transaction) rePoolDependents(ctx context.Context) error {
 			if err != nil {
 				errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error notifying dependent transaction of revert", err)
 				log.L(ctx).Error(errMsg)
+				// Return the first error
+				if rePoolError == nil {
+					rePoolError = err
+				}
 			}
 		}
 	}
 
-	return nil
+	return rePoolError
 }
 
 func action_recordRevert(ctx context.Context, txn *Transaction) error {

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr/metrics"
 	"github.com/LFDT-Paladin/paladin/core/mocks/publictxmgrmocks"
@@ -334,4 +335,291 @@ func TestStateManagerTxPersistenceManagementUpdateErrors(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Regexp(t, "pop", err)
 
+}
+
+func TestStateVersionCancelAndIsCancelled(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Initially not cancelled
+	assert.False(t, version.IsCancelled(ctx))
+
+	// Cancel it
+	version.Cancel(ctx)
+	assert.True(t, version.IsCancelled(ctx))
+
+	// IsCancelled consumes the cancel signal, so calling it again should return false
+	assert.False(t, version.IsCancelled(ctx))
+
+	// Cancel again (this should hit the default case when channel is full)
+	version.Cancel(ctx)
+	version.Cancel(ctx) // Second cancel should hit default case
+	assert.True(t, version.IsCancelled(ctx))
+}
+
+func TestStateVersionSetCurrentAndIsCurrent(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Initially should be current
+	assert.True(t, version.IsCurrent(ctx))
+
+	// Set to not current
+	version.SetCurrent(ctx, false)
+	assert.False(t, version.IsCurrent(ctx))
+
+	// Set back to current
+	version.SetCurrent(ctx, true)
+	assert.True(t, version.IsCurrent(ctx))
+}
+
+func TestStateVersionStartNewStageContext_EmptyStage(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+	mockActionTriggers := testStateVersionWithMocks.mAT
+	defer mockActionTriggers.AssertExpectations(t)
+
+	// Start with empty stage (first stage transition)
+	// This should not record metrics since v.stage is ""
+	mockActionTriggers.On("TriggerRetrieveGasPrice", mock.Anything).Return(nil).Once()
+	version.StartNewStageContext(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusReceived)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, version.GetStage(ctx))
+	assert.Nil(t, version.GetStageTriggerError(ctx))
+}
+
+func TestStateVersionStartNewStageContext_SameStage(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+	mockActionTriggers := testStateVersionWithMocks.mAT
+	defer mockActionTriggers.AssertExpectations(t)
+
+	// Start a stage
+	mockActionTriggers.On("TriggerRetrieveGasPrice", mock.Anything).Return(nil).Once()
+	version.StartNewStageContext(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusReceived)
+	stageStartTime1 := version.GetStageStartTime(ctx)
+
+	// Start the same stage again (should hit the else branch at line 150)
+	// Note: Even when the stage is the same, the action is still triggered
+	mockActionTriggers.On("TriggerRetrieveGasPrice", mock.Anything).Return(nil).Once()
+	version.StartNewStageContext(ctx, InFlightTxStageRetrieveGasPrice, BaseTxSubStatusReceived)
+	stageStartTime2 := version.GetStageStartTime(ctx)
+	// Stage start time should not change when staying on same stage
+	assert.Equal(t, stageStartTime1, stageStartTime2)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, version.GetStage(ctx))
+}
+
+func TestStateVersionStartNewStageContext_DefaultCase(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Test default case with an unknown stage (like InFlightTxStageComplete or InFlightTxStageQueued)
+	version.StartNewStageContext(ctx, InFlightTxStageComplete, BaseTxSubStatusReceived)
+	assert.Equal(t, InFlightTxStageComplete, version.GetStage(ctx))
+	assert.Nil(t, version.GetStageTriggerError(ctx)) // No error, just no action triggered
+}
+
+func TestStateVersionStartNewStageContext_SubmittingWithoutTransientOutputs(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+	mockActionTriggers := testStateVersionWithMocks.mAT
+	defer mockActionTriggers.AssertExpectations(t)
+
+	// Test submitting without TransientPreviousStageOutputs (nil case at line 166)
+	var nilBytes []byte
+	var nilHash *pldtypes.Bytes32
+	mockActionTriggers.On("TriggerSubmitTx", mock.Anything, nilBytes, nilHash, mock.Anything).Return(nil).Once()
+	version.StartNewStageContext(ctx, InFlightTxStageSubmitting, BaseTxSubStatusReceived)
+	assert.Nil(t, version.GetStageTriggerError(ctx))
+}
+
+func TestStateVersionStartNewStageContext_SubmittingWithToAddress(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+	mockActionTriggers := testStateVersionWithMocks.mAT
+	defer mockActionTriggers.AssertExpectations(t)
+
+	// Set up transient outputs
+	testSignedData := []byte("test signed data")
+	testHash := confutil.P(pldtypes.RandBytes32())
+	version.SetTransientPreviousStageOutputs(&TransientPreviousStageOutputs{
+		SignedMessage:   testSignedData,
+		TransactionHash: testHash,
+	})
+
+	// Test submitting with To address (line 172-174)
+	// The test setup has a To address set, so we need to match it
+	// Get the actual To address from the in-memory tx through the InMemoryTxStateManager interface
+	toAddress := version.(InMemoryTxStateManager).GetTo()
+	var toAddressStr string
+	if toAddress != nil {
+		toAddressStr = toAddress.String()
+	}
+	mockActionTriggers.On("TriggerSubmitTx", mock.Anything, testSignedData, testHash, toAddressStr).Return(nil).Once()
+	version.StartNewStageContext(ctx, InFlightTxStageSubmitting, BaseTxSubStatusReceived)
+	assert.Nil(t, version.GetStageTriggerError(ctx))
+}
+
+func TestStateVersionClearRunningStageContext_NoContext(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Clear when there's no running context (should hit else branch at line 188)
+	version.ClearRunningStageContext(ctx)
+	assert.Nil(t, version.GetRunningStageContext(ctx))
+}
+
+func TestStateVersionAddStageOutputs_NoEventMode(t *testing.T) {
+	ctx := context.Background()
+	_, balanceManager, ptm, _, done := newTestBalanceManager(t)
+	defer done()
+
+	metrics := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
+	mockInMemoryState := NewTestInMemoryTxState(t)
+	mockActionTriggers := publictxmgrmocks.NewInFlightStageActionTriggers(t)
+
+	// Create version with testOnlyNoEventMode = true
+	v := NewInFlightTransactionStateGeneration(metrics, balanceManager, mockActionTriggers, mockInMemoryState, ptm, ptm.submissionWriter, true)
+	version := v.(*inFlightTransactionStateGeneration)
+
+	// Add stage output - should return early due to testOnlyNoEventMode (line 230)
+	version.AddStageOutputs(ctx, &StageOutput{
+		Stage: InFlightTxStageQueued,
+	})
+
+	// Process outputs - should be empty since nothing was added
+	version.ProcessStageOutputs(ctx, func(stageOutputs []*StageOutput) (unprocessedStageOutputs []*StageOutput) {
+		assert.Empty(t, stageOutputs, "Should be empty in no event mode")
+		return stageOutputs
+	})
+}
+
+func TestStateVersionPersistTxState_StatusUpdateError(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, _, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Set up a running context with status updates that will error
+	version.StartNewStageContext(ctx, InFlightTxStageQueued, BaseTxSubStatusTracking)
+	rsc := version.GetRunningStageContext(ctx)
+	rsc.SetNewPersistenceUpdateOutput()
+
+	// Add a status update that will return an error
+	rsc.StageOutputsToBePersisted.StatusUpdates = []func(StatusUpdater) error{
+		func(StatusUpdater) error {
+			return fmt.Errorf("status update error")
+		},
+	}
+
+	_, _, err := version.PersistTxState(ctx)
+	assert.NotNil(t, err)
+	assert.Regexp(t, "status update error", err)
+}
+
+func TestStateVersionPersistTxState_NewSubmissionWithBindingAlreadySet(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, m, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Set up a running context
+	version.StartNewStageContext(ctx, InFlightTxStageQueued, BaseTxSubStatusTracking)
+	rsc := version.GetRunningStageContext(ctx)
+	rsc.SetNewPersistenceUpdateOutput()
+
+	// Create a new submission with binding already set (should skip building binding at line 303)
+	existingTxHash := pldtypes.RandBytes32()
+	existingBinding := &pldapi.PublicTx{
+		TransactionHash: &existingTxHash,
+	}
+	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
+		NewValues: BaseTXUpdateNewValues{
+			NewSubmission: &DBPubTxnSubmission{
+				from:            "0x12345",
+				TransactionHash: pldtypes.RandBytes32(),
+				Binding:         existingBinding,
+			},
+		},
+	}
+
+	m.db.ExpectBegin()
+	m.db.ExpectExec("INSERT.*public_submissions").WillReturnResult(sqlmock.NewResult(1, 1))
+	m.db.ExpectCommit()
+
+	_, _, err := version.PersistTxState(ctx)
+	assert.Nil(t, err)
+}
+
+func TestStateVersionPersistTxState_ConfirmReceivedStatus(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, m, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Set up a running context
+	version.StartNewStageContext(ctx, InFlightTxStageQueued, BaseTxSubStatusTracking)
+	rsc := version.GetRunningStageContext(ctx)
+	rsc.SetNewPersistenceUpdateOutput()
+
+	// Set InFlightStatus to ConfirmReceived (line 351-353)
+	confirmReceived := InFlightStatusConfirmReceived
+	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
+		NewValues: BaseTXUpdateNewValues{
+			InFlightStatus: &confirmReceived,
+		},
+	}
+
+	m.db.ExpectBegin()
+	m.db.ExpectCommit()
+
+	_, _, err := version.PersistTxState(ctx)
+	assert.Nil(t, err)
+}
+
+func TestStateVersionPersistTxState_WithFixedGasPrice(t *testing.T) {
+	ctx := context.Background()
+	testStateVersionWithMocks, m, done := newTestInFlightTransactionStateVersion(t)
+	defer done()
+	version := testStateVersionWithMocks.version
+
+	// Set up a running context
+	version.StartNewStageContext(ctx, InFlightTxStageQueued, BaseTxSubStatusTracking)
+	rsc := version.GetRunningStageContext(ctx)
+	rsc.SetNewPersistenceUpdateOutput()
+
+	// Create a new submission without binding, but with fixed gas price (line 327-333)
+	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
+		NewValues: BaseTXUpdateNewValues{
+			NewSubmission: &DBPubTxnSubmission{
+				from:            "0x12345",
+				TransactionHash: pldtypes.RandBytes32(),
+				Binding:         nil, // Will be built
+			},
+		},
+	}
+
+	// The binding will be built from the in-memory tx
+	// If the in-memory tx has a fixed gas price, it will be used (line 327-333)
+	m.db.ExpectBegin()
+	m.db.ExpectExec("INSERT.*public_submissions").WillReturnResult(sqlmock.NewResult(1, 1))
+	m.db.ExpectCommit()
+
+	_, _, err := version.PersistTxState(ctx)
+	assert.Nil(t, err)
 }
