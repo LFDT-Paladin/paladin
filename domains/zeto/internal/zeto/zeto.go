@@ -715,8 +715,7 @@ func (z *Zeto) ExecCall(ctx context.Context, req *prototk.ExecCallRequest) (*pro
 }
 
 func (z *Zeto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-	// TODO: Event logs for transfers would be great for Noto
-	return nil, i18n.NewError(ctx, msgs.MsgNoDomainReceipt)
+	return z.buildReceipt(ctx, req)
 }
 
 func (z *Zeto) ConfigurePrivacyGroup(ctx context.Context, req *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error) {

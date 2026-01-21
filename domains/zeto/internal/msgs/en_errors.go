@@ -181,4 +181,7 @@ var (
 	MsgUnknownSmtType                        = pde("PD210140", "Unknown states merkle tree type: %d")
 	MsgErrorDecodePublicKeyFromHex           = pde("PD210141", "Failed to decode public key from compressed hex. %s")
 	MsgErrorDecodePrivateKey                 = pde("PD210142", "Failed to decode private key. %s")
+	MsgDuplicateStateInList                  = pde("PD210143", "Duplicate state in list %s[%d] (%s)")
+	MsgInvalidListInput                      = pde("PD210144", "Invalid item in list %s[%d] (%s): %s")
+	MsgUnexpectedSchema                      = pde("PD210145", "Unexpected schema: %s")
 )
