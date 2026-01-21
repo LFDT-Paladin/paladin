@@ -78,6 +78,7 @@
     "zeto_impl_anon_nullifier": {
         "filename": "test/e2e/abis/zeto/Zeto_AnonNullifier.json",
         "linkedContracts": {
+            "PoseidonUnit2L": "zeto_poseidon_unit2l",
             "PoseidonUnit3L": "zeto_poseidon_unit3l",
             "SmtLib": "zeto_smt_lib"
         }
