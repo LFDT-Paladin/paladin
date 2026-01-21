@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
 func (t *Transaction) isNotReady() bool {
@@ -77,14 +78,11 @@ func (t *Transaction) traceDispatch(ctx context.Context) {
 	}
 }
 
-func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context.Context) error {
+func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
 
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}
-
-	// Nudge the sequencer to process this TX
-	t.onReadyForDispatch(ctx, t)
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
@@ -95,6 +93,7 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
+		// TODO AM: I think this is ok but give it a bit of thought vs queuing the event into the state machine??
 		err := dependent.ProcessEvent(ctx, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependent.ID,
@@ -109,8 +108,8 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 	return nil
 }
 
-func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction) error {
-	return txn.notifyDependentsOfReadinessAndQueueForDispatch(ctx)
+func action_NotifyDependentsOfReadiness(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.notifyDependentsOfReadiness(ctx)
 }
 
 // Function HasDependenciesNotIn checks if the transaction has any that are not in the provided ignoreList array.

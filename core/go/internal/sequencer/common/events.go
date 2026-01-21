@@ -18,6 +18,8 @@ package common
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type EventType int
@@ -25,8 +27,10 @@ type EventType int
 // function that can be used to emit events from the internals of the sequencer to feed back into the state machine
 type EmitEvent func(ctx context.Context, event Event)
 
+// TODO AM: this is getting a lot of coordinator specific events
 const (
-	Event_HeartbeatInterval EventType = iota // emitted on a regular basis, interval defined by the sequencer config a
+	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config a
+	Event_TransactionStateTransition                  // emitted by a transaction when it transitions between states
 )
 
 type BaseEvent struct {
@@ -53,4 +57,20 @@ func (*HeartbeatIntervalEvent) Type() EventType {
 
 func (*HeartbeatIntervalEvent) TypeString() string {
 	return "Event_HeartbeatInterval"
+}
+
+// TransactionStateTransitionEvent is emitted by a transaction when it transitions between states.
+type TransactionStateTransitionEvent struct {
+	BaseEvent
+	TxID uuid.UUID
+	From int // transaction.State as int to avoid circular dependency
+	To   int // transaction.State as int to avoid circular dependency
+}
+
+func (*TransactionStateTransitionEvent) Type() EventType {
+	return Event_TransactionStateTransition
+}
+
+func (*TransactionStateTransitionEvent) TypeString() string {
+	return "Event_TransactionStateTransition"
 }

@@ -17,16 +17,25 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func guard_HasRevertReason(ctx context.Context, txn *Transaction) bool {
-	return txn.revertReason.String() != ""
+func guard_HasRevertReason(_ context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.revertReason.String() != ""
 }
 
 // stateupdate_Confirmed sets the revert reason from a ConfirmedEvent
-func stateupdate_Confirmed(_ context.Context, txn *Transaction, event common.Event) error {
+// and records the revert time if there's a revert reason
+func stateupdate_Confirmed(_ context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	confirmedEvent := event.(*ConfirmedEvent)
-	txn.revertReason = confirmedEvent.RevertReason
+	state.revertReason = confirmedEvent.RevertReason
+	// Record revert time if this is a revert (non-empty revert reason)
+	// Note: HexBytes{}.String() returns "0x" not "", so we check length
+	if len(confirmedEvent.RevertReason) > 0 {
+		now := pldtypes.TimestampNow()
+		state.revertTime = &now
+	}
 	return nil
 }

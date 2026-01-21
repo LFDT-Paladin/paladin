@@ -127,8 +127,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
-	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.GetCurrentState())
-	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Endorsement_Gathering, transaction1.GetCurrentState())
+	assert.Equal(t, State_Endorsement_Gathering, transaction2.GetCurrentState())
 
 	//move both dependencies forward
 	err = transaction1.ProcessEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
@@ -137,8 +137,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
-	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.GetCurrentState())
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction1.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//move one dependency to ready to dispatch
@@ -151,8 +151,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//finally move the last dependency to ready to dispatch
@@ -165,8 +165,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
-	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.GetCurrentState())
+	assert.Equal(t, State_Ready_For_Dispatch, transaction2.GetCurrentState())
 	assert.False(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 }
@@ -191,18 +191,19 @@ func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 	assert.NotNil(t, txn)
 }
 
-func TestTransaction_RemovesItselfFromGrapher(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+// TODO AM: should something else be tested- does this test need to move into the coordinator?
+// func TestTransaction_RemovesItselfFromGrapher(t *testing.T) {
+// 	ctx := context.Background()
+// 	grapher := NewGrapher(ctx)
 
-	transaction, _ := newTransactionForUnitTesting(t, grapher)
+// 	transaction, _ := newTransactionForUnitTesting(t, grapher)
 
-	err := transaction.cleanup(ctx)
-	assert.NoError(t, err)
+// 	err := transaction.cleanup(ctx)
+// 	assert.NoError(t, err)
 
-	txn := grapher.TransactionByID(ctx, transaction.ID)
-	assert.Nil(t, txn)
-}
+// 	txn := grapher.TransactionByID(ctx, transaction.ID)
+// 	assert.Nil(t, txn)
+// }
 
 type transactionDependencyMocks struct {
 	transportWriter   *transport.MockTransportWriter
@@ -237,11 +238,6 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		5,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		func(ctx context.Context, txn *Transaction, from, to State) {
-		},
-		func(context.Context) {}, // onCleanup function, not used in tests
 	)
 	require.NoError(t, err)
 

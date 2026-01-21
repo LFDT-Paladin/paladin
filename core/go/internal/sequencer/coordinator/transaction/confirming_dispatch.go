@@ -76,24 +76,25 @@ func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
 	return t.pendingPreDispatchRequest.Nudge(ctx)
 }
 
-func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+// TODO AM: validators shouldn't have the mutable state
+func validator_MatchesPendingPreDispatchRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *DispatchRequestApprovedEvent:
-		return txn.pendingPreDispatchRequest != nil && txn.pendingPreDispatchRequest.IdempotencyKey() == event.RequestID, nil
+		return reader.pendingPreDispatchRequest != nil && reader.pendingPreDispatchRequest.IdempotencyKey() == event.RequestID, nil
 	}
 	return false, nil
 }
 
-func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction) error {
-	return txn.sendPreDispatchRequest(ctx)
+func action_SendPreDispatchRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.sendPreDispatchRequest(ctx)
 }
 
-func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction) error {
-	return txn.nudgePreDispatchRequest(ctx)
+func action_NudgePreDispatchRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.nudgePreDispatchRequest(ctx)
 }
 
 // stateupdate_DispatchApproved applies dispatch confirmation to the transaction
-func stateupdate_DispatchApproved(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_DispatchApproved(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	dispatchApprovedEvent := event.(*DispatchRequestApprovedEvent)
-	return txn.applyDispatchConfirmation(ctx, dispatchApprovedEvent.RequestID)
+	return state.applyDispatchConfirmation(ctx, dispatchApprovedEvent.RequestID)
 }

@@ -21,7 +21,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -321,32 +320,6 @@ func TestHandoverReceivedEvent_GetEventTime(t *testing.T) {
 	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
 }
 
-func TestTransactionStateTransitionEvent_Type(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
-}
-
-func TestTransactionStateTransitionEvent_TypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
-}
-
-func TestTransactionStateTransitionEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-	fromState := transaction.State_Pooled
-	toState := transaction.State_Ready_For_Dispatch
-
-	event := &TransactionStateTransitionEvent{
-		TransactionID: txID,
-		From:          fromState,
-		To:            toState,
-	}
-
-	assert.Equal(t, txID, event.TransactionID)
-	assert.Equal(t, fromState, event.From)
-	assert.Equal(t, toState, event.To)
-}
-
 func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseEvent implement the Event interface
 	events := []Event{
@@ -385,10 +358,4 @@ func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
 	event := &CoordinatorFlushedEvent{}
 	assert.Equal(t, Event_Flushed, event.Type())
 	assert.Equal(t, "Event_Flushed", event.TypeString())
-}
-
-func TestTransactionStateTransitionEvent_TypeAndTypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
-	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
 }

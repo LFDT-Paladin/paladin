@@ -17,13 +17,11 @@ package coordinator
 
 import (
 	"context"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type State int
@@ -63,7 +61,7 @@ func (s State) String() string {
 }
 
 const (
-	Event_Activated EventType = iota + common.Event_HeartbeatInterval + 1
+	Event_Activated EventType = iota + common.Event_TransactionStateTransition + 1
 	Event_Nominated
 	Event_Flushed
 	Event_Closed
@@ -74,41 +72,53 @@ const (
 	Event_NewBlock
 	Event_HandoverRequestReceived
 	Event_HandoverReceived
-	Event_TransactionStateTransition
 	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
 )
 
 // Type aliases for cleaner code - these reference the generic statemachine types specialized for coordinator
+// M = *coordinatorState (mutable)
+// R = coordinatorStateReader (read-only)
+// Cfg = *config (config)
+// Cb = *callbacks (callbacks)
 type (
-	Action          = statemachine.Action[*coordinator]
-	Guard           = statemachine.Guard[*coordinator]
-	StateUpdate     = statemachine.StateUpdate[*coordinator]
-	ActionRule      = statemachine.ActionRule[*coordinator]
-	Transition      = statemachine.Transition[State, *coordinator]
-	EventHandler    = statemachine.EventHandler[State, *coordinator]
-	StateDefinition = statemachine.StateDefinition[State, *coordinator]
+	Action              = statemachine.Action[State, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	Guard               = statemachine.Guard[State, coordinatorStateReader, *stateMachineConfig]
+	Validator           = statemachine.Validator[State, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	StateUpdate         = statemachine.StateUpdate[State, *coordinatorState, *stateMachineConfig, *stateMachineCallbacks]
+	StateUpdateRule     = statemachine.StateUpdateRule[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	ActionRule          = statemachine.ActionRule[State, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	Transition          = statemachine.Transition[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	EventHandler        = statemachine.EventHandler[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	StateDefinition     = statemachine.StateDefinition[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	TransitionToHandler = statemachine.TransitionToHandler[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	StateMachineConfig  = statemachine.StateMachineConfig[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks]
+	EventLoopConfig     = statemachine.EventLoopConfig[State, *coordinatorState, coordinatorStateReader, *stateMachineConfig, *stateMachineCallbacks, *coordinator]
 )
 
 // buildStateDefinitions creates the state machine configuration for the coordinator
 func buildStateDefinitions() map[State]StateDefinition {
 	return map[State]StateDefinition{
 		State_Idle: {
-			OnTransitionTo: action_Idle,
+			OnTransitionTo: TransitionToHandler{
+				Actions: []ActionRule{{Action: action_Idle}},
+			},
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
 					Transitions: []Transition{{
 						To: State_Active,
 					}},
 				},
 				Event_HeartbeatReceived: {
-					OnHandleEvent: stateupdate_HeartbeatReceived,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatReceived}},
+					Actions:      []ActionRule{{Action: action_NotifyCoordinatorActive}},
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
 				},
 				Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
-					OnHandleEvent: stateupdate_EndorsementRequested,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_EndorsementRequested}},
+					Actions:      []ActionRule{{Action: action_NotifyCoordinatorActive}},
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
@@ -118,7 +128,7 @@ func buildStateDefinitions() map[State]StateDefinition {
 		State_Observing: {
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
 					Transitions: []Transition{
 						{
 							To: State_Standby,
@@ -135,10 +145,10 @@ func buildStateDefinitions() map[State]StateDefinition {
 		State_Standby: {
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
 				},
 				Event_NewBlock: {
-					OnHandleEvent: stateupdate_NewBlock,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_NewBlock}},
 					Transitions: []Transition{{
 						To: State_Elect,
 						If: statemachine.Not(guard_Behind),
@@ -147,10 +157,12 @@ func buildStateDefinitions() map[State]StateDefinition {
 			},
 		},
 		State_Elect: {
-			OnTransitionTo: action_SendHandoverRequest,
+			OnTransitionTo: TransitionToHandler{
+				Actions: []ActionRule{{Action: action_SendHandoverRequest}},
+			},
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
 				},
 				Event_HandoverReceived: {
 					Transitions: []Transition{{
@@ -162,10 +174,10 @@ func buildStateDefinitions() map[State]StateDefinition {
 		State_Prepared: {
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
 				},
 				Event_TransactionConfirmed: {
-					OnHandleEvent: stateupdate_TransactionConfirmed,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionConfirmed}},
 					Transitions: []Transition{{
 						To: State_Active,
 						If: guard_ActiveCoordinatorFlushComplete,
@@ -174,64 +186,126 @@ func buildStateDefinitions() map[State]StateDefinition {
 			},
 		},
 		State_Active: {
-			OnTransitionTo: action_SelectTransaction,
+			OnTransitionTo: TransitionToHandler{
+				StateUpdates: []StateUpdateRule{
+					{StateUpdate: stateupdate_ResetHeartbeatIntervalsSinceStateChange},
+					{StateUpdate: stateupdate_SelectTransaction},
+				},
+				Actions: []ActionRule{{
+					Action: action_CoordinatorActive,
+				}, {
+					Action: action_StartHeartbeatLoop,
+					If:     guard_ShouldHeartbeat,
+				}, {
+					Action: action_NotifiyTransactionSelected,
+					If:     guard_HasTransactionAssembling,
+				}},
+			},
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
-					OnHandleEvent: stateupdate_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatInterval}},
+					Actions: []ActionRule{
+						{Action: action_PropagateEventToAllTransactions},
+						{Action: action_SendHeartbeat},
+					},
 					Transitions: []Transition{{
 						To: State_Idle,
 						If: statemachine.Not(guard_HasTransactionsInflight),
 					}},
 				},
 				Event_TransactionsDelegated: {
-					OnHandleEvent: stateupdate_TransactionsDelegated,
-					Actions: []ActionRule{{
-						Action: action_SelectTransaction,
-						If:     statemachine.Not(guard_HasTransactionAssembling),
-					}},
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionsDelegated}},
+					// We don't look to see if we should select a new transaction here
+					// because the new transaction won't be added to the pool until we
+					// have processed it's state transition from initial to pooled.
 				},
 				Event_TransactionConfirmed: {
-					OnHandleEvent: stateupdate_TransactionConfirmed,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionConfirmed}},
 				},
 				Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 					Transitions: []Transition{{
 						To: State_Flush,
 					}},
 				},
+				common.Event_TransactionStateTransition: {
+					StateUpdates: []StateUpdateRule{
+						{
+							StateUpdate: stateupdate_CalculateInflightTransactions,
+						}, {
+							EventValidator: validator_IsTransitionToPooled,
+							StateUpdate:    stateupdate_AddTransactionToPool,
+						}, {
+							EventValidator: validator_IsTransitionToFinal,
+							StateUpdate:    stateupdate_CleanupFinalTransaction,
+						}, {
+							EventValidator: validator_IsTransitionFromAssembling,
+							StateUpdate:    stateupdate_ClearAssemblingTransaction,
+						},
+						{
+							If:          statemachine.Not(guard_HasTransactionAssembling),
+							StateUpdate: stateupdate_SelectTransaction,
+						},
+					},
+					Actions: []ActionRule{{
+						EventValidator: validator_IsTransitionToReadyToDispatch,
+						Action:         action_QueueTransactionForDispatch,
+					}, {
+						EventValidator: validator_IsTransitionFromAssembling,
+						If:             guard_HasTransactionAssembling,
+						Action:         action_NotifiyTransactionSelected,
+					}},
+				},
 			},
 		},
 		State_Flush: {
+			OnTransitionTo: TransitionToHandler{
+				StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatIntervalsSinceStateChange}},
+			},
 			//TODO should we move to active if we get delegated transactions while in flush?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
-					OnHandleEvent: stateupdate_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatInterval}},
+					Actions: []ActionRule{
+						{Action: action_PropagateEventToAllTransactions},
+						{Action: action_SendHeartbeat},
+					},
 				},
 				Event_TransactionConfirmed: {
-					OnHandleEvent: stateupdate_TransactionConfirmed,
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_TransactionConfirmed}},
 					Transitions: []Transition{{
 						To: State_Closing,
 						If: guard_FlushComplete,
 					}},
 				},
+				common.Event_TransactionStateTransition: {
+					StateUpdates: []StateUpdateRule{{
+						EventValidator: validator_IsTransitionToFinal,
+						StateUpdate:    stateupdate_CleanupFinalTransaction,
+					}},
+				},
 			},
 		},
 		State_Closing: {
+			OnTransitionTo: TransitionToHandler{
+				StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatIntervalsSinceStateChange}},
+			},
 			//TODO should we move to active if we get delegated transactions while in closing?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
-					OnHandleEvent: stateupdate_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatInterval}},
+					Actions: []ActionRule{
+						{Action: action_PropagateEventToAllTransactions},
+						{Action: action_SendHeartbeat},
+					},
 					Transitions: []Transition{{
 						To: State_Idle,
 						If: guard_ClosingGracePeriodExpired,
+					}},
+				},
+				common.Event_TransactionStateTransition: {
+					StateUpdates: []StateUpdateRule{{
+						EventValidator: validator_IsTransitionToFinal,
+						StateUpdate:    stateupdate_CleanupFinalTransaction,
 					}},
 				},
 			},
@@ -240,35 +314,37 @@ func buildStateDefinitions() map[State]StateDefinition {
 }
 
 func (c *coordinator) InitializeStateMachine(ctx context.Context, initialState State) {
-	smConfig := statemachine.StateMachineConfig[State, *coordinator]{
+	smConfig := StateMachineConfig{
 		Definitions: buildStateDefinitions(),
-		OnTransition: func(ctx context.Context, c *coordinator, from, to State, event common.Event) {
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, from.String(), to.String())
-			c.heartbeatIntervalsSinceStateChange = 0
+		OnTransition: func(ctx context.Context, reader coordinatorStateReader, config *stateMachineConfig, _ *stateMachineCallbacks, from, to State, event common.Event) {
+			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", config.contractAddress.String()[0:8], event, from.String(), to.String())
 		},
 	}
 
-	elConfig := statemachine.EventLoopConfig[State, *coordinator]{
+	elConfig := EventLoopConfig{
 		BufferSize: 50, // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		OnEventReceived: func(ctx context.Context, c *coordinator, event common.Event) (bool, error) {
-			log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
-
+		OnEventReceived: func(ctx context.Context, reader coordinatorStateReader, config *stateMachineConfig, _ *stateMachineCallbacks, event common.Event) (bool, error) {
+			log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), config.contractAddress, reader.GetActiveCoordinatorNode(), reader.GetOriginatorNodePool())
 			// Transaction events are propagated to the transaction state machines
 			if transactionEvent, ok := event.(transaction.Event); ok {
 				log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
-				return true, c.propagateEventToTransaction(ctx, transactionEvent)
+				if txn := reader.GetTransactionByID(transactionEvent.GetTransactionID()); txn != nil {
+					return true, txn.ProcessEvent(ctx, transactionEvent)
+				} else {
+					log.L(ctx).Debugf("ignoring event because transaction not known to this coordinator %s", transactionEvent.GetTransactionID().String())
+				}
+				return true, nil
 			}
-
 			// Return false to let the state machine process coordinator-level events
 			return false, nil
 		},
 		OnStop: func(ctx context.Context, c *coordinator) error {
 			// Synchronously move the state machine to closed
-			return c.stateMachine.ProcessEvent(ctx, c, &CoordinatorClosedEvent{})
+			return c.stateMachine.ProcessEvent(ctx, &CoordinatorClosedEvent{})
 		},
 	}
 
-	name := "coordinator[" + c.contractAddress.String()[0:8] + "]"
+	name := "coordinator[" + c.smConfig.contractAddress.String()[0:8] + "]"
 	c.stateMachine = statemachine.NewEventLoopStateMachine(ctx, name, smConfig, elConfig, initialState, c)
 }
 
@@ -279,66 +355,37 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	c.stateMachine.QueueEvent(ctx, event)
 }
 
-func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {
-	c.sendHandoverRequest(ctx)
-	return nil
-}
+// func (c *coordinator) heartbeatLoop(ctx context.Context) {
+// 	if c.heartbeatCtx == nil {
+// 		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+// 		defer c.heartbeatCancel()
 
-func action_SelectTransaction(ctx context.Context, c *coordinator) error {
-	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
-	// casued us to reach the node's limit on active coordinators.
-	c.coordinatorActive(c.contractAddress, c.nodeName)
+// 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
 
-	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
-	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required
-	// because other nodes cannot take over coordination.
-	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_SENDER {
-		go c.heartbeatLoop(ctx)
-	}
+// 		// Send an initial heartbeat interval event to be handled immediately
+// 		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+// 		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+// 		if err != nil {
+// 			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+// 		}
 
-	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
-	return c.selectNextTransactionToAssemble(ctx, nil)
-}
-
-func action_Idle(ctx context.Context, c *coordinator) error {
-	c.coordinatorIdle(c.contractAddress)
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
-	}
-	return nil
-}
-
-func (c *coordinator) heartbeatLoop(ctx context.Context) {
-	if c.heartbeatCtx == nil {
-		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
-		defer c.heartbeatCancel()
-
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
-
-		// Send an initial heartbeat interval event to be handled immediately
-		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-		if err != nil {
-			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
-		}
-
-		// Then every N seconds
-		ticker := time.NewTicker(c.heartbeatInterval.(time.Duration))
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-				if err != nil {
-					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
-				}
-			case <-c.heartbeatCtx.Done():
-				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
-				c.heartbeatCtx = nil
-				c.heartbeatCancel = nil
-				return
-			}
-		}
-	}
-}
+// 		// Then every N seconds
+// 		ticker := time.NewTicker(c.heartbeatInterval.(time.Duration))
+// 		defer ticker.Stop()
+// 		for {
+// 			select {
+// 			case <-ticker.C:
+// 				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+// 				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+// 				if err != nil {
+// 					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+// 				}
+// 			case <-c.heartbeatCtx.Done():
+// 				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
+// 				c.heartbeatCtx = nil
+// 				c.heartbeatCancel = nil
+// 				return
+// 			}
+// 		}
+// 	}
+// }

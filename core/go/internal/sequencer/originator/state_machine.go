@@ -49,14 +49,15 @@ const (
 
 // Type aliases for the generic state machine types
 type (
-	Action          = statemachine.Action[*originator]
-	Guard           = statemachine.Guard[*originator]
-	Validator       = statemachine.Validator[*originator]
-	StateUpdate     = statemachine.StateUpdate[*originator]
-	Transition      = statemachine.Transition[State, *originator]
-	ActionRule      = statemachine.ActionRule[*originator]
-	EventHandler    = statemachine.EventHandler[State, *originator]
-	StateDefinition = statemachine.StateDefinition[State, *originator]
+	Action              = statemachine.Action[*originator]
+	Guard               = statemachine.Guard[*originator]
+	Validator           = statemachine.Validator[*originator]
+	StateUpdate         = statemachine.StateUpdate[*originator]
+	Transition          = statemachine.Transition[State, *originator]
+	ActionRule          = statemachine.ActionRule[*originator]
+	EventHandler        = statemachine.EventHandler[State, *originator]
+	StateDefinition     = statemachine.StateDefinition[State, *originator]
+	TransitionToHandler = statemachine.TransitionToHandler[*originator]
 )
 
 // buildStateDefinitions returns the state machine configuration for the originator
@@ -66,14 +67,14 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 			State_Idle: {
 				Events: map[EventType]EventHandler{
 					Event_HeartbeatReceived: {
-						OnHandleEvent: stateupdate_HeartbeatReceived,
+						StateUpdates: []StateUpdate{stateupdate_HeartbeatReceived},
 						Transitions: []Transition{{
 							To: State_Observing,
 						}},
 					},
 					Event_TransactionCreated: {
-						OnHandleEvent: stateupdate_TransactionCreated,
-						Validator:     validator_TransactionDoesNotExist,
+						StateUpdates: []StateUpdate{stateupdate_TransactionCreated},
+						Validator:    validator_TransactionDoesNotExist,
 						Transitions: []Transition{{
 							To: State_Sending,
 							On: action_SendDelegationRequest,
@@ -90,8 +91,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 						}},
 					},
 					Event_TransactionCreated: {
-						OnHandleEvent: stateupdate_TransactionCreated,
-						Validator:     validator_TransactionDoesNotExist,
+						StateUpdates: []StateUpdate{stateupdate_TransactionCreated},
+						Validator:    validator_TransactionDoesNotExist,
 						Transitions: []Transition{{
 							To: State_Sending,
 							On: action_SendDelegationRequest,
@@ -99,29 +100,29 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *originator]
 					},
 					Event_NewBlock: {},
 					Event_HeartbeatReceived: {
-						OnHandleEvent: stateupdate_HeartbeatReceived,
+						StateUpdates: []StateUpdate{stateupdate_HeartbeatReceived},
 					},
 				},
 			},
 			State_Sending: {
 				Events: map[EventType]EventHandler{
 					Event_TransactionConfirmed: {
-						OnHandleEvent: stateupdate_TransactionConfirmed,
+						StateUpdates: []StateUpdate{stateupdate_TransactionConfirmed},
 						Transitions: []Transition{{
 							To: State_Observing,
 							If: statemachine.Not(guard_HasUnconfirmedTransactions),
 						}},
 					},
 					Event_TransactionCreated: {
-						OnHandleEvent: stateupdate_TransactionCreated,
-						Validator:     validator_TransactionDoesNotExist,
+						StateUpdates: []StateUpdate{stateupdate_TransactionCreated},
+						Validator:    validator_TransactionDoesNotExist,
 						Actions: []ActionRule{{
 							Action: action_SendDelegationRequest,
 						}},
 					},
 					Event_NewBlock: {},
 					Event_HeartbeatReceived: {
-						OnHandleEvent: stateupdate_HeartbeatReceived,
+						StateUpdates: []StateUpdate{stateupdate_HeartbeatReceived},
 						Actions: []ActionRule{{
 							If:     guard_HasDroppedTransactions,
 							Action: action_SendDroppedTXDelegationRequest,

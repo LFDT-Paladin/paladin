@@ -21,44 +21,22 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func action_SendHeartbeat(ctx context.Context, c *coordinator) error {
-	return c.sendHeartbeat(ctx, c.contractAddress)
-}
-
-func (c *coordinator) sendHeartbeat(ctx context.Context, contractAddress *pldtypes.EthAddress) error {
-	snapshot := c.getSnapshot(ctx)
-	log.L(ctx).Debugf("sending heartbeats for sequencer %s", contractAddress.String())
-	var err error
-	c.originatorNodePoolMutex.RLock()
-	defer c.originatorNodePoolMutex.RUnlock()
-	for _, node := range c.originatorNodePool {
-		if node != c.nodeName {
-			log.L(ctx).Debugf("sending heartbeat to %s", node)
-			err = c.transportWriter.SendHeartbeat(ctx, node, contractAddress, snapshot)
-			if err != nil {
-				log.L(ctx).Errorf("error sending heartbeat to %s: %v", node, err)
-			}
-		}
-	}
-	return err
-}
-
-func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapshot {
-	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
+func getSnapshot(ctx context.Context, reader coordinatorStateReader, config *stateMachineConfig) *common.CoordinatorSnapshot {
+	log.L(ctx).Debugf("creating snapshot for sequencer %s", config.contractAddress.String())
 	// This function is called from the sequencer loop so is safe to read internal state
-	pooledTransactions := make([]*common.Transaction, 0, len(c.transactionsByID))
-	dispatchedTransactions := make([]*common.DispatchedTransaction, 0, len(c.transactionsByID))
-	confirmedTransactions := make([]*common.ConfirmedTransaction, 0, len(c.transactionsByID))
+	allTxns := reader.GetAllTransactions()
+	pooledTransactions := make([]*common.Transaction, 0, len(allTxns))
+	dispatchedTransactions := make([]*common.DispatchedTransaction, 0, len(allTxns))
+	confirmedTransactions := make([]*common.ConfirmedTransaction, 0, len(allTxns))
 
 	//Snapshot contains a coarse grained view of transactions state.
 	// All known transactions fall into one of 3 categories
 	// 1. Pooled transactions - these are transactions that have been delegated but not yet dispatched
 	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
 	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
-	for _, txn := range c.transactionsByID {
+	for _, txn := range allTxns {
 		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.ID.String(), txn.GetCurrentState().String())
 		switch txn.GetCurrentState() {
 		// pooled transactions are those that have been delegated but not yet dispatched, this includes the various states from being delegated up to being ready for dispatch
@@ -119,16 +97,18 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		}
 
 	}
-	flushPoints := make([]*common.FlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
-	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
+	allFlushPoints := reader.GetAllFlushPoints()
+	flushPoints := make([]*common.FlushPoint, 0, len(allFlushPoints))
+	for _, flushPoint := range allFlushPoints {
 		flushPoints = append(flushPoints, flushPoint)
 	}
+
 	return &common.CoordinatorSnapshot{
 		FlushPoints:            flushPoints,
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
-		CoordinatorState:       c.GetCurrentState().String(),
-		BlockHeight:            c.currentBlockHeight,
+		CoordinatorState:       reader.GetCurrentState().String(),
+		BlockHeight:            reader.GetCurrentBlockHeight(),
 	}
 }

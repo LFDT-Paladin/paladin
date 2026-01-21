@@ -247,6 +247,7 @@ func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *com
 			sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, node)
 		}
 
+		// TODO AM: this needs to be done differently
 		// Get the best candidate for an initial coordinator, and use as the delegate for any originated transactions
 		err := sequencer.GetOriginator().SetActiveCoordinator(sMgr.ctx, sequencer.GetCoordinator().GetActiveCoordinatorNode(sMgr.ctx, true))
 		if err != nil {

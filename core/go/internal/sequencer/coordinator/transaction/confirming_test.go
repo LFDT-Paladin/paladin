@@ -28,7 +28,7 @@ func TestGuard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 
 	// Initially revertReason should be nil (zero value for HexBytes)
 	// When nil, String() returns "", so guard returns false
-	assert.False(t, guard_HasRevertReason(ctx, txn))
+	assert.False(t, guard_HasRevertReason(ctx, txn, txn))
 
 	// Note: An empty slice HexBytes{} would return "0x" from String(),
 	// which is not empty, so the guard would return true. Only nil returns false.
@@ -40,10 +40,9 @@ func TestGuard_HasRevertReason_TrueWhenSet(t *testing.T) {
 
 	// Set revertReason to a non-empty value
 	txn.revertReason = pldtypes.MustParseHexBytes("0x1234567890abcdef")
-	assert.True(t, guard_HasRevertReason(ctx, txn))
+	assert.True(t, guard_HasRevertReason(ctx, txn, txn))
 
 	// Test with another value
 	txn.revertReason = pldtypes.MustParseHexBytes("0xdeadbeef")
-	assert.True(t, guard_HasRevertReason(ctx, txn))
+	assert.True(t, guard_HasRevertReason(ctx, txn, txn))
 }
-

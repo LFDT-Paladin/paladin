@@ -16,7 +16,6 @@ package transaction
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -35,7 +34,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing
 	txn.heartbeatIntervalsSinceStateChange = 3
 
 	// Should return false when heartbeat intervals is less than grace period
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn, txn))
 }
 
 func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
@@ -47,7 +46,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) 
 	txn.heartbeatIntervalsSinceStateChange = 5
 
 	// Should return true when heartbeat intervals equals grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn, txn))
 }
 
 func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
@@ -59,7 +58,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testi
 	txn.heartbeatIntervalsSinceStateChange = 7
 
 	// Should return true when heartbeat intervals is greater than grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn, txn))
 }
 
 func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
@@ -71,7 +70,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T
 	txn.heartbeatIntervalsSinceStateChange = 0
 
 	// Should return true when both are zero (0 >= 0)
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn, txn))
 }
 
 func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
@@ -83,62 +82,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *te
 	txn.heartbeatIntervalsSinceStateChange = 0
 
 	// Should return false when heartbeat intervals is 0 and grace period is positive
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
-}
-
-func TestAction_Cleanup_Success(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-
-	// Add transaction to grapher so we can verify it's removed
-	grapher.Add(ctx, txn)
-
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
-
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
-	require.NoError(t, err)
-
-	// Verify onCleanup was called
-	assert.True(t, cleanupCalled, "onCleanup should have been called")
-
-	// Verify transaction was removed from grapher
-	assert.Nil(t, grapher.TransactionByID(ctx, txn.ID), "Transaction should be removed from grapher")
-}
-
-func TestAction_Cleanup_ForgetError(t *testing.T) {
-	ctx := context.Background()
-	// Create a transaction first to get its ID
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Create a mock grapher that returns an error
-	mockGrapher := NewMockGrapher(t)
-	expectedError := errors.New("forget error")
-	mockGrapher.EXPECT().Forget(txn.ID).Return(expectedError)
-
-	// Set the mock grapher on the transaction
-	txn.grapher = mockGrapher
-
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
-
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
-
-	// Verify error is returned
-	assert.Error(t, err)
-	assert.Equal(t, expectedError, err)
-
-	// Verify onCleanup was still called (cleanup should call onCleanup before grapher.Forget)
-	assert.True(t, cleanupCalled, "onCleanup should have been called even if Forget returns error")
+	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn, txn))
 }
 
 func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
@@ -159,7 +103,7 @@ func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *t
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, txn, txn, nil)
 	require.NoError(t, err)
 
 	// Verify QueueTransactionFinalize was called
@@ -183,7 +127,7 @@ func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t 
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, txn, txn, nil)
 	require.NoError(t, err)
 
 	// Verify the cancel function was called

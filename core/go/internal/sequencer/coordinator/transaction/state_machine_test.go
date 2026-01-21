@@ -52,10 +52,6 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		5,
 		NewGrapher(ctx),
 		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, txn)

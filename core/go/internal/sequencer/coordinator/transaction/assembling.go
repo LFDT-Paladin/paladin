@@ -81,7 +81,10 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 	return t.calculatePostAssembleDependencies(ctx)
 }
 
-func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
+// initializeAssembleRequest sets up the pending assemble request and timeout schedules
+// This modifies state by creating tracking objects for the request
+// TODO AM: this wants proper review
+func (t *Transaction) initializeAssembleRequest(ctx context.Context) {
 	//assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
@@ -122,6 +125,10 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 			},
 		})
 	})
+}
+
+// sendAssembleRequest nudges the pending assemble request to send it
+func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
@@ -285,72 +292,80 @@ func (t *Transaction) incrementAssembleErrors() error {
 	return nil
 }
 
-func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_MatchesPendingAssembleRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		return reader.pendingAssembleRequest != nil && reader.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	case *AssembleRevertResponseEvent:
-		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+		return reader.pendingAssembleRequest != nil && reader.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	}
 	return false, nil
 }
 
 // stateupdate_AssembleSuccess applies post-assembly data, writes lock states, and updates verifiers
-func stateupdate_AssembleSuccess(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_AssembleSuccess(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	assembleSuccessEvent := event.(*AssembleSuccessEvent)
-	err := txn.applyPostAssembly(ctx, assembleSuccessEvent.PostAssembly)
+	err := state.applyPostAssembly(ctx, assembleSuccessEvent.PostAssembly)
 	if err == nil {
-		err = txn.writeLockStates(ctx)
+		err = state.writeLockStates(ctx)
 		if err != nil {
 			// Internal error. Only option is to revert the transaction
 			seqRevertEvent := &AssembleRevertResponseEvent{}
 			seqRevertEvent.RequestID = assembleSuccessEvent.RequestID // Must match what the state machine thinks the current assemble request ID is
-			seqRevertEvent.TransactionID = txn.ID
-			txn.queueEventForCoordinator(ctx, seqRevertEvent)
-			txn.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+			seqRevertEvent.TransactionID = state.ID
+			state.queueEventForCoordinator(ctx, seqRevertEvent)
+			state.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
 			// Return the original error
 			return err
 		}
 	}
 	// Assembling resolves the required verifiers which will need passing on for the endorse step
-	txn.PreAssembly.Verifiers = assembleSuccessEvent.PreAssembly.Verifiers
+	state.PreAssembly.Verifiers = assembleSuccessEvent.PreAssembly.Verifiers
 	return err
 }
 
 // stateupdate_AssembleRevert applies post-assembly data for a reverted assembly
-func stateupdate_AssembleRevert(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_AssembleRevert(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	assembleRevertEvent := event.(*AssembleRevertResponseEvent)
-	return txn.applyPostAssembly(ctx, assembleRevertEvent.PostAssembly)
+	return state.applyPostAssembly(ctx, assembleRevertEvent.PostAssembly)
 }
 
-func action_SendAssembleRequest(ctx context.Context, txn *Transaction) error {
-	return txn.sendAssembleRequest(ctx)
-}
-
-func action_NudgeAssembleRequest(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.ID.String())
-	return txn.nudgeAssembleRequest(ctx)
-}
-
-func action_NotifyDependentsOfAssembled(ctx context.Context, txn *Transaction) error {
-	return txn.notifyDependentsOfAssembled(ctx)
-}
-
-func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) error {
-	return txn.notifyDependentsOfRevert(ctx)
-}
-
-func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
-	txn.engineIntegration.ResetTransactions(ctx, txn.ID)
+// stateupdate_InitializeAssembleRequest sets up the pending assemble request tracking
+func stateupdate_InitializeAssembleRequest(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	state.initializeAssembleRequest(ctx)
 	return nil
 }
 
-func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction) error {
-	txn.resetEndorsementRequests(ctx)
-	return txn.incrementAssembleErrors()
+func action_SendAssembleRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.sendAssembleRequest(ctx)
 }
 
-func guard_AssembleTimeoutExceeded(ctx context.Context, txn *Transaction) bool {
-	return txn.assembleTimeoutExceeded(ctx)
+func action_NudgeAssembleRequest(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	log.L(ctx).Debugf("Nudging assemble request for transaction %s", reader.ID.String())
+	return reader.nudgeAssembleRequest(ctx)
+}
+
+func action_NotifyDependentsOfAssembled(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.notifyDependentsOfAssembled(ctx)
+}
+
+func action_NotifyDependentsOfRevert(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.notifyDependentsOfRevert(ctx)
+}
+
+func action_NotifyOfConfirmation(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", reader.ID.String())
+	reader.engineIntegration.ResetTransactions(ctx, reader.ID)
+	return nil
+}
+
+// stateupdate_IncrementAssembleErrors resets endorsement requests and increments the error counter
+// Called when returning to pool due to assembly timeout or endorsement rejection
+func stateupdate_IncrementAssembleErrors(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	state.resetEndorsementRequests(ctx)
+	return state.incrementAssembleErrors()
+}
+
+func guard_AssembleTimeoutExceeded(ctx context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.assembleTimeoutExceeded(ctx)
 }

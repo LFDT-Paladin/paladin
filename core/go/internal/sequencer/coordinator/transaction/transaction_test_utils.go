@@ -417,10 +417,6 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		5,
 		b.grapher,
 		metrics,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))
@@ -442,26 +438,28 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		}
 	}
 
-	if b.state == State_Confirmed ||
-		b.state == State_Reverted {
-		b.txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
-	}
-
 	//enter the current state
 	config := buildStateDefinitions()
 	if stateDef, exists := config.Definitions[b.state]; exists {
-		if stateDef.OnTransitionTo != nil {
-			err := stateDef.OnTransitionTo(ctx, b.txn)
-			if err != nil {
-				panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
+		// Execute OnTransitionTo state updates
+		for _, rule := range stateDef.OnTransitionTo.StateUpdates {
+			if err := rule.StateUpdate(ctx, b.txn, b.txn, b.txn, nil); err != nil {
+				panic(fmt.Sprintf("Error from OnTransitionTo StateUpdate: %v", err))
+			}
+		}
+		// Execute OnTransitionTo actions
+		for _, rule := range stateDef.OnTransitionTo.Actions {
+			if err := rule.Action(ctx, b.txn, b.txn, b.txn, nil); err != nil {
+				panic(fmt.Sprintf("Error from OnTransitionTo Action: %v", err))
 			}
 		}
 	}
 
+	b.txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
 	b.txn.signerAddress = b.signerAddress
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
-	b.txn.stateMachine.SetState(b.state)
+	b.txn.SetCurrentState(State(b.state))
 	return b.txn
 
 }

@@ -26,11 +26,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test subject for event loop tests
+// Test subject for event loop tests - implements Subject[*testSubject, *testSubject, *testSubject]
 type testSubject struct {
+	StateMachineState[testState]
 	eventsProcessed []common.Event
 	errorOnEvent    bool
 }
+
+// Implement Subject interface
+// TODO AM: this shouldbn't be reusing the struct across all three types
+func (s *testSubject) GetStateMutator() *testSubject { return s }
+func (s *testSubject) GetStateReader() *testSubject  { return s }
+func (s *testSubject) GetConfig() *testSubject       { return s }
+func (s *testSubject) GetCallbacks() *testSubject    { return s }
+func (s *testSubject) Lock()                         {}
+func (s *testSubject) Unlock()                       {}
+func (s *testSubject) RLock()                        {}
+func (s *testSubject) RUnlock()                      {}
 
 // Test event types
 type testEvent struct {
@@ -67,56 +79,66 @@ func (s testState) String() string {
 	}
 }
 
-func newTestEventLoopStateMachine(ctx context.Context, subject *testSubject, errorOnEvent bool) *EventLoopStateMachine[testState, *testSubject] {
+// Type aliases for eventloop tests - subject IS the mutable state, reader, config, and callbacks
+// TODO AM: this would be better if broken up as a reference example
+type elTestStateMachineConfig = StateMachineConfig[testState, *testSubject, *testSubject, *testSubject, *testSubject]
+type elTestEventLoopConfig = EventLoopConfig[testState, *testSubject, *testSubject, *testSubject, *testSubject, *testSubject]
+type elTestStateDefinition = StateDefinition[testState, *testSubject, *testSubject, *testSubject, *testSubject]
+type elTestEventHandler = EventHandler[testState, *testSubject, *testSubject, *testSubject, *testSubject]
+type elTestTransition = Transition[testState, *testSubject, *testSubject, *testSubject, *testSubject]
+type elTestStateUpdate = StateUpdate[testState, *testSubject, *testSubject, *testSubject]
+type elTestStateUpdateRule = StateUpdateRule[testState, *testSubject, *testSubject, *testSubject, *testSubject]
+
+func newTestEventLoopStateMachine(ctx context.Context, subject *testSubject, errorOnEvent bool) *EventLoopStateMachine[testState, *testSubject, *testSubject, *testSubject, *testSubject, *testSubject] {
 	subject.errorOnEvent = errorOnEvent
 
-	smConfig := StateMachineConfig[testState, *testSubject]{
-		Definitions: map[testState]StateDefinition[testState, *testSubject]{
+	smConfig := elTestStateMachineConfig{
+		Definitions: map[testState]elTestStateDefinition{
 			testState_Initial: {
-				Events: map[EventType]EventHandler[testState, *testSubject]{
+				Events: map[EventType]elTestEventHandler{
 					1: {
-						OnHandleEvent: func(ctx context.Context, s *testSubject, event common.Event) error {
+						StateUpdates: []elTestStateUpdateRule{{StateUpdate: func(ctx context.Context, s *testSubject, config *testSubject, callbacks *testSubject, event common.Event) error {
 							s.eventsProcessed = append(s.eventsProcessed, event)
 							return nil
-						},
-						Transitions: []Transition[testState, *testSubject]{
+						}}},
+						Transitions: []elTestTransition{
 							{To: testState_Running},
 						},
 					},
 					2: {
-						OnHandleEvent: func(ctx context.Context, s *testSubject, event common.Event) error {
+						StateUpdates: []elTestStateUpdateRule{{StateUpdate: func(ctx context.Context, s *testSubject, config *testSubject, callbacks *testSubject, event common.Event) error {
 							if s.errorOnEvent {
 								return fmt.Errorf("simulated error")
 							}
 							s.eventsProcessed = append(s.eventsProcessed, event)
 							return nil
-						},
+						}}},
 					},
 				},
 			},
 			testState_Running: {
-				Events: map[EventType]EventHandler[testState, *testSubject]{
+				Events: map[EventType]elTestEventHandler{
 					1: {
-						OnHandleEvent: func(ctx context.Context, s *testSubject, event common.Event) error {
+						StateUpdates: []elTestStateUpdateRule{{StateUpdate: func(ctx context.Context, s *testSubject, config *testSubject, callbacks *testSubject, event common.Event) error {
 							s.eventsProcessed = append(s.eventsProcessed, event)
 							return nil
-						},
+						}}},
 					},
 					2: {
-						OnHandleEvent: func(ctx context.Context, s *testSubject, event common.Event) error {
+						StateUpdates: []elTestStateUpdateRule{{StateUpdate: func(ctx context.Context, s *testSubject, config *testSubject, callbacks *testSubject, event common.Event) error {
 							if s.errorOnEvent {
 								return fmt.Errorf("simulated error")
 							}
 							s.eventsProcessed = append(s.eventsProcessed, event)
 							return nil
-						},
+						}}},
 					},
 				},
 			},
 		},
 	}
 
-	elConfig := EventLoopConfig[testState, *testSubject]{
+	elConfig := elTestEventLoopConfig{
 		BufferSize: 10,
 	}
 
@@ -274,15 +296,15 @@ func TestEventLoop_OnStopCallbackCalled(t *testing.T) {
 
 	onStopCalled := false
 
-	smConfig := StateMachineConfig[testState, *testSubject]{
-		Definitions: map[testState]StateDefinition[testState, *testSubject]{
+	smConfig := elTestStateMachineConfig{
+		Definitions: map[testState]elTestStateDefinition{
 			testState_Initial: {},
 		},
 	}
 
-	elConfig := EventLoopConfig[testState, *testSubject]{
+	elConfig := elTestEventLoopConfig{
 		BufferSize: 10,
-		OnStop: func(ctx context.Context, s *testSubject) error {
+		OnStop: func(ctx context.Context, subject *testSubject) error {
 			onStopCalled = true
 			return nil
 		},
@@ -302,23 +324,23 @@ func TestEventLoop_OnErrorCallbackCalled(t *testing.T) {
 	var capturedError error
 	var capturedEvent common.Event
 
-	smConfig := StateMachineConfig[testState, *testSubject]{
-		Definitions: map[testState]StateDefinition[testState, *testSubject]{
+	smConfig := elTestStateMachineConfig{
+		Definitions: map[testState]elTestStateDefinition{
 			testState_Initial: {
-				Events: map[EventType]EventHandler[testState, *testSubject]{
+				Events: map[EventType]elTestEventHandler{
 					2: {
-						OnHandleEvent: func(ctx context.Context, s *testSubject, event common.Event) error {
+						StateUpdates: []elTestStateUpdateRule{{StateUpdate: func(ctx context.Context, state *testSubject, config *testSubject, callbacks *testSubject, event common.Event) error {
 							return fmt.Errorf("test error")
-						},
+						}}},
 					},
 				},
 			},
 		},
 	}
 
-	elConfig := EventLoopConfig[testState, *testSubject]{
+	elConfig := elTestEventLoopConfig{
 		BufferSize: 10,
-		OnError: func(ctx context.Context, s *testSubject, event common.Event, err error) {
+		OnError: func(ctx context.Context, subject *testSubject, event common.Event, err error) {
 			capturedError = err
 			capturedEvent = event
 		},

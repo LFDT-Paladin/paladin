@@ -22,23 +22,23 @@ import (
 )
 
 // stateupdate_Collected sets the signer address from a CollectedEvent
-func stateupdate_Collected(_ context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_Collected(_ context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	collectedEvent := event.(*CollectedEvent)
-	txn.signerAddress = &collectedEvent.SignerAddress
+	state.signerAddress = &collectedEvent.SignerAddress
 	return nil
 }
 
 // stateupdate_NonceAllocated sets the nonce from a NonceAllocatedEvent
-func stateupdate_NonceAllocated(_ context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_NonceAllocated(_ context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	nonceAllocatedEvent := event.(*NonceAllocatedEvent)
-	txn.nonce = &nonceAllocatedEvent.Nonce
+	state.nonce = &nonceAllocatedEvent.Nonce
 	return nil
 }
 
 // stateupdate_Submitted sets the latest submission hash from a SubmittedEvent
-func stateupdate_Submitted(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_Submitted(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	submittedEvent := event.(*SubmittedEvent)
-	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", txn.ID.String(), submittedEvent.SubmissionHash.HexString())
-	txn.latestSubmissionHash = &submittedEvent.SubmissionHash
+	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", state.ID.String(), submittedEvent.SubmissionHash.HexString())
+	state.latestSubmissionHash = &submittedEvent.SubmissionHash
 	return nil
 }

@@ -48,6 +48,7 @@ const (
 
 // Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 type Transaction struct {
+	statemachine.StateMachineState[State]
 	*components.PrivateTransaction
 	originator           string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode       string // The node the originator is running on e.g. "node1"
@@ -55,7 +56,8 @@ type Transaction struct {
 	signerAddress        *pldtypes.EthAddress
 	latestSubmissionHash *pldtypes.Bytes32
 	nonce                *uint64
-	stateMachine         *statemachine.StateMachine[State, *Transaction]
+	stateMachine         *statemachine.StateMachine[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	stateMutex           sync.RWMutex // Mutex for state modifications TODO AM: this is not the right pattern
 	revertReason         pldtypes.HexBytes
 	revertTime           *pldtypes.Timestamp
 
@@ -66,7 +68,6 @@ type Transaction struct {
 	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
 	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
 	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
-	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex
 	pendingPreDispatchRequest                        *common.IdempotentRequest
@@ -75,8 +76,6 @@ type Transaction struct {
 	dependencies                                     *pldapi.TransactionDependencies
 	previousTransaction                              *Transaction
 	nextTransaction                                  *Transaction
-	addToPool                                        func(context.Context, *Transaction) // To put ourselves to the back of the pooled transactions queue
-	onReadyForDispatch                               func(context.Context, *Transaction)
 
 	//Configuration
 	requestTimeout        common.Duration
@@ -90,13 +89,9 @@ type Transaction struct {
 	grapher                  Grapher
 	engineIntegration        common.EngineIntegration
 	syncPoints               syncpoints.SyncPoints
-	notifyOfTransition       OnStateTransition
 	queueEventForCoordinator func(context.Context, common.Event)
 	metrics                  metrics.DistributedSequencerMetrics
 }
-
-// TODO think about naming of this compared to the OnTransitionTo func in the state machine
-type OnStateTransition func(ctx context.Context, t *Transaction, to, from State) // function to be invoked when transitioning into this state.  Called after transitioning event has been applied and any actions have fired
 
 func NewTransaction(
 	ctx context.Context,
@@ -112,10 +107,6 @@ func NewTransaction(
 	finalizingGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-	addToPool func(context.Context, *Transaction),
-	onReadyForDispatch func(context.Context, *Transaction),
-	onStateTransition OnStateTransition,
-	onCleanup func(context.Context),
 ) (*Transaction, error) {
 	originatorIdentity, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
@@ -138,22 +129,10 @@ func NewTransaction(
 		dependencies:             &pldapi.TransactionDependencies{},
 		grapher:                  grapher,
 		metrics:                  metrics,
-		addToPool:                addToPool,
-		notifyOfTransition:       onStateTransition,
-		onReadyForDispatch:       onReadyForDispatch,
-		onCleanup:                onCleanup,
 	}
 	txn.InitializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)
 	return txn, nil
-}
-
-func (t *Transaction) cleanup(ctx context.Context) error {
-	// Call any cleanup function passed in by the sequencer
-	t.onCleanup(ctx)
-
-	// Then clean ourselves up
-	return t.grapher.Forget(t.ID)
 }
 
 func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {
@@ -164,8 +143,9 @@ func (t *Transaction) GetNonce() *uint64 {
 	return t.nonce
 }
 
+// TODO: duped with GetCurrentState()
 func (t *Transaction) GetState() State {
-	return t.stateMachine.GetCurrentState()
+	return t.GetCurrentState()
 }
 
 func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
@@ -257,10 +237,46 @@ func (d *Transaction) Txn() *components.PrivateTransaction {
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
 // We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
 
-func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.GetCurrentState()
-}
+// TODO AM
+// func (t *Transaction) GetCurrentState() State {
+// 	return t.GetCurrentState()
+// }
 
 func (t *Transaction) GetErrorCount() int {
 	return t.errorCount
+}
+
+// Implement statemachine.Subject interface
+// For Transaction, the state, reader, config, and callbacks are all the same object
+
+func (t *Transaction) GetStateMutator() *Transaction {
+	return t
+}
+
+func (t *Transaction) GetStateReader() *Transaction {
+	return t
+}
+
+func (t *Transaction) GetConfig() *Transaction {
+	return t
+}
+
+func (t *Transaction) GetCallbacks() *Transaction {
+	return t
+}
+
+func (t *Transaction) Lock() {
+	t.stateMutex.Lock()
+}
+
+func (t *Transaction) Unlock() {
+	t.stateMutex.Unlock()
+}
+
+func (t *Transaction) RLock() {
+	t.stateMutex.RLock()
+}
+
+func (t *Transaction) RUnlock() {
+	t.stateMutex.RUnlock()
 }

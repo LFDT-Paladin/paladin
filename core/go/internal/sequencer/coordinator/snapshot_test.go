@@ -27,7 +27,7 @@ import (
 func TestGetSnapshot_OK(t *testing.T) {
 	ctx := context.Background()
 	c, _ := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
-	snapshot := c.getSnapshot(ctx)
+	snapshot := getSnapshot(ctx, c.state, c.smConfig)
 	assert.NotNil(t, snapshot)
 }
 
@@ -45,10 +45,10 @@ func TestGetSnapshot_IncludesPooledTransaction(t *testing.T) {
 		transaction.State_Confirming_Dispatchable,
 	} {
 		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
+		c.state.transactionsByID[txn.ID] = txn
 	}
 
-	snapshot := c.getSnapshot(ctx)
+	snapshot := getSnapshot(ctx, c.state, c.smConfig)
 	require.NotNil(t, snapshot)
 	assert.Equal(t, 6, len(snapshot.PooledTransactions))
 
@@ -65,10 +65,10 @@ func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
 		transaction.State_Submitted,
 	} {
 		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
+		c.state.transactionsByID[txn.ID] = txn
 	}
 
-	snapshot := c.getSnapshot(ctx)
+	snapshot := getSnapshot(ctx, c.state, c.smConfig)
 	require.NotNil(t, snapshot)
 	assert.Equal(t, 3, len(snapshot.DispatchedTransactions))
 

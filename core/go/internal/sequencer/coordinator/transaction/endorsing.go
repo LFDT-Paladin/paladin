@@ -207,27 +207,28 @@ func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState
 	return endorsableList
 }
 
-func action_SendEndorsementRequests(ctx context.Context, txn *Transaction) error {
-	return txn.sendEndorsementRequests(ctx)
+func action_SendEndorsementRequests(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.sendEndorsementRequests(ctx)
 }
 
-func action_NudgeEndorsementRequests(ctx context.Context, txn *Transaction) error {
-	return txn.sendEndorsementRequests(ctx)
+func action_NudgeEndorsementRequests(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	// TODO AM: this looks identical to the above?
+	return reader.sendEndorsementRequests(ctx)
 }
 
 // endorsed by all required endorsers
-func guard_AttestationPlanFulfilled(ctx context.Context, txn *Transaction) bool {
-	return !txn.hasUnfulfilledEndorsementRequirements(ctx)
+func guard_AttestationPlanFulfilled(ctx context.Context, reader *Transaction, _ *Transaction) bool {
+	return !reader.hasUnfulfilledEndorsementRequirements(ctx)
 }
 
 // stateupdate_Endorsed applies an endorsement to the transaction
-func stateupdate_Endorsed(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_Endorsed(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	endorsedEvent := event.(*EndorsedEvent)
-	return txn.applyEndorsement(ctx, endorsedEvent.Endorsement, endorsedEvent.RequestID)
+	return state.applyEndorsement(ctx, endorsedEvent.Endorsement, endorsedEvent.RequestID)
 }
 
 // stateupdate_EndorsedRejected applies an endorsement rejection to the transaction
-func stateupdate_EndorsedRejected(ctx context.Context, txn *Transaction, event common.Event) error {
+func stateupdate_EndorsedRejected(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, event common.Event) error {
 	endorsedRejectedEvent := event.(*EndorsedRejectedEvent)
-	return txn.applyEndorsementRejection(ctx, endorsedRejectedEvent.RevertReason, endorsedRejectedEvent.Party, endorsedRejectedEvent.AttestationRequestName)
+	return state.applyEndorsementRejection(ctx, endorsedRejectedEvent.RevertReason, endorsedRejectedEvent.Party, endorsedRejectedEvent.AttestationRequestName)
 }

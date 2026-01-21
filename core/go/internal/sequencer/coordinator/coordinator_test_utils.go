@@ -32,6 +32,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+func ptrTo[T any](v T) *T {
+	return &v
+}
+
 type SentMessageRecorder struct {
 	transaction.SentMessageRecorder
 	hasSentHandoverRequest bool
@@ -218,10 +222,10 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 	}
 
 	for _, tx := range b.transactions {
-		coordinator.transactionsByID[tx.ID] = tx
+		coordinator.state.transactionsByID[tx.ID] = tx
 	}
 
-	coordinator.stateMachine.SetState(b.state)
+	coordinator.state.SetCurrentState(b.state)
 	switch b.state {
 	case State_Observing:
 		fallthrough
@@ -239,9 +243,9 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 			b.activeCoordinator = ptrTo("activeCoordinator")
 		}
 
-		coordinator.currentBlockHeight = *b.currentBlockHeight
-		coordinator.activeCoordinatorBlockHeight = *b.activeCoordinatorBlockHeight
-		coordinator.activeCoordinatorNode = *b.activeCoordinator
+		coordinator.state.currentBlockHeight = *b.currentBlockHeight
+		coordinator.state.activeCoordinatorBlockHeight = *b.activeCoordinatorBlockHeight
+		coordinator.state.activeCoordinatorNode = *b.activeCoordinator
 	case State_Prepared:
 		if b.flushPointTransactionID == nil {
 			b.flushPointTransactionID = ptrTo(uuid.New())
@@ -256,7 +260,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 			b.flushPointSignerAddress = pldtypes.RandAddress()
 		}
 
-		coordinator.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
+		coordinator.state.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
 			fmt.Sprintf("%s:%d", b.flushPointSignerAddress.String(), *b.flushPointNonce): {
 				TransactionID: *b.flushPointTransactionID,
 				Hash:          *b.flushPointHash,
@@ -268,7 +272,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		if b.heartbeatsUntilClosingGracePeriodExpires == nil {
 			b.heartbeatsUntilClosingGracePeriodExpires = ptrTo(5)
 		}
-		coordinator.heartbeatIntervalsSinceStateChange = 5 - *b.heartbeatsUntilClosingGracePeriodExpires
+		coordinator.state.heartbeatIntervalsSinceStateChange = 5 - *b.heartbeatsUntilClosingGracePeriodExpires
 
 	}
 

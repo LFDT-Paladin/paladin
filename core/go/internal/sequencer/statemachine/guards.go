@@ -18,18 +18,18 @@ package statemachine
 import "context"
 
 // Not returns a guard that negates the result of the given guard
-func Not[T any](guard Guard[T]) Guard[T] {
-	return func(ctx context.Context, subject T) bool {
-		return !guard(ctx, subject)
+func Not[S State, R StateReader[S], Cfg any](guard Guard[S, R, Cfg]) Guard[S, R, Cfg] {
+	return func(ctx context.Context, reader R, config Cfg) bool {
+		return !guard(ctx, reader, config)
 	}
 }
 
 // And returns a guard that returns true only if all given guards return true
 // Short-circuits on first false result
-func And[T any](guards ...Guard[T]) Guard[T] {
-	return func(ctx context.Context, subject T) bool {
+func And[S State, R StateReader[S], Cfg any](guards ...Guard[S, R, Cfg]) Guard[S, R, Cfg] {
+	return func(ctx context.Context, reader R, config Cfg) bool {
 		for _, guard := range guards {
-			if !guard(ctx, subject) {
+			if !guard(ctx, reader, config) {
 				return false
 			}
 		}
@@ -39,10 +39,10 @@ func And[T any](guards ...Guard[T]) Guard[T] {
 
 // Or returns a guard that returns true if any of the given guards returns true
 // Short-circuits on first true result
-func Or[T any](guards ...Guard[T]) Guard[T] {
-	return func(ctx context.Context, subject T) bool {
+func Or[S State, R StateReader[S], Cfg any](guards ...Guard[S, R, Cfg]) Guard[S, R, Cfg] {
+	return func(ctx context.Context, reader R, config Cfg) bool {
 		for _, guard := range guards {
-			if guard(ctx, subject) {
+			if guard(ctx, reader, config) {
 				return true
 			}
 		}

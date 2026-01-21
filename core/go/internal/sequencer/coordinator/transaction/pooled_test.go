@@ -21,25 +21,51 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAction_RecordRevert(t *testing.T) {
+func TestStateupdate_Confirmed_RecordsRevertTime(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
 	// Initially revertTime should be nil
 	assert.Nil(t, txn.revertTime)
 
-	// Call action_recordRevert
-	err := action_recordRevert(ctx, txn)
+	// Call stateupdate_Confirmed with a revert event
+	err := stateupdate_Confirmed(ctx, txn, txn, txn, &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.ID,
+		},
+		RevertReason: pldtypes.HexBytes("0x1234"),
+	})
 	require.NoError(t, err)
 
 	// Verify revertTime is set
 	assert.NotNil(t, txn.revertTime)
 	assert.WithinDuration(t, time.Now(), txn.revertTime.Time(), 1*time.Second)
+}
+
+func TestStateupdate_Confirmed_NoRevertTime_OnSuccess(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+
+	// Initially revertTime should be nil
+	assert.Nil(t, txn.revertTime)
+
+	// Call stateupdate_Confirmed without a revert (empty revert reason)
+	err := stateupdate_Confirmed(ctx, txn, txn, txn, &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.ID,
+		},
+		RevertReason: pldtypes.HexBytes{},
+	})
+	require.NoError(t, err)
+
+	// Verify revertTime is still nil
+	assert.Nil(t, txn.revertTime)
 }
 
 func TestAction_InitializeDependencies(t *testing.T) {
@@ -65,7 +91,7 @@ func TestAction_InitializeDependencies(t *testing.T) {
 	require.Equal(t, dependencyID, txn.PreAssembly.Dependencies.DependsOn[0])
 
 	// Call action_initializeDependencies
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, txn, txn, nil)
 	require.NoError(t, err)
 
 	// Verify that the dependency transaction has been updated with this transaction as a dependent
@@ -81,7 +107,7 @@ func TestAction_InitializeDependencies_NoPreAssembly(t *testing.T) {
 	txn.PreAssembly = nil
 
 	// Call action_initializeDependencies - should return error
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, txn, txn, nil)
 	assert.Error(t, err)
 }
 
@@ -97,7 +123,7 @@ func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
 	txn := txnBuilder.Build()
 
 	// Call action_initializeDependencies - should not error, just log
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, txn, txn, nil)
 	require.NoError(t, err)
 }
 
@@ -111,7 +137,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	if txn1.PreAssembly == nil {
 		txn1.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn1))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn1, txn1))
 
 	// Test 2: Has unassembled previous transaction
 	prevTxnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -123,7 +149,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	txn2 := txn2Builder.Build()
 	txn2.SetPreviousTransaction(ctx, prevTxn)
 
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn2))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn2, txn2))
 
 	// Test 3: Has assembled previous transaction
 	prevTxn3Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -135,7 +161,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	txn3 := txn3Builder.Build()
 	txn3.SetPreviousTransaction(ctx, prevTxn3)
 
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn3))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn3, txn3))
 
 	// Test 4: Has unassembled dependency in PreAssembly
 	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -148,7 +174,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 		PredefinedDependencies(dependencyID)
 	txn4 := txn4Builder.Build()
 
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn4))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn4, txn4))
 
 	// Test 5: Has assembled dependency in PreAssembly
 	dependency5Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -161,7 +187,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 		PredefinedDependencies(dependency5ID)
 	txn5 := txn5Builder.Build()
 
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn5))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn5, txn5))
 
 	// Test 6: Has missing dependency in PreAssembly (dependency not in grapher)
 	missingDependencyID := uuid.New()
@@ -172,7 +198,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 
 	// The missing dependency should not cause hasDependenciesNotAssembled to return true
 	// because the code assumes it's been confirmed and continues to the next dependency
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn6))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn6, txn6))
 
 	// Test 7: Has both missing and unassembled dependencies in PreAssembly
 	unassembledDependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -187,7 +213,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	txn7 := txn7Builder.Build()
 
 	// Should return true because one dependency is unassembled (missing one is skipped)
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn7))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn7, txn7))
 }
 
 func TestSetPreviousTransaction(t *testing.T) {
@@ -202,7 +228,7 @@ func TestSetPreviousTransaction(t *testing.T) {
 	if txn.PreAssembly == nil {
 		txn.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn, txn))
 
 	// Create a previous transaction
 	prevTxnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -213,11 +239,11 @@ func TestSetPreviousTransaction(t *testing.T) {
 	txn.SetPreviousTransaction(ctx, prevTxn)
 
 	// Verify the previous transaction was set by checking behavior
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn, txn))
 
 	// Test setting to nil
 	txn.SetPreviousTransaction(ctx, nil)
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn, txn))
 }
 
 func TestSetNextTransaction(t *testing.T) {
@@ -291,7 +317,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 
 	// Test 1: No dependencies - should return false
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	assert.False(t, guard_HasUnknownDependencies(ctx, txn1))
+	assert.False(t, guard_HasUnknownDependencies(ctx, txn1, txn1))
 
 	// Test 2: Has unknown dependency in PreAssembly
 	unknownDependencyID := uuid.New()
@@ -300,7 +326,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 		PredefinedDependencies(unknownDependencyID)
 	txn2 := txn2Builder.Build()
 
-	assert.True(t, guard_HasUnknownDependencies(ctx, txn2))
+	assert.True(t, guard_HasUnknownDependencies(ctx, txn2, txn2))
 
 	// Test 3: Has known dependency in PreAssembly
 	knownDependencyBuilder := NewTransactionBuilderForTesting(t, State_Initial).
@@ -313,7 +339,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 		PredefinedDependencies(knownDependencyID)
 	txn3 := txn3Builder.Build()
 
-	assert.False(t, guard_HasUnknownDependencies(ctx, txn3))
+	assert.False(t, guard_HasUnknownDependencies(ctx, txn3, txn3))
 
 	// Test 4: Has unknown dependency in dependencies field
 	txn4, _ := newTransactionForUnitTesting(t, grapher)
@@ -322,7 +348,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 		DependsOn: []uuid.UUID{unknownID},
 	}
 
-	assert.True(t, guard_HasUnknownDependencies(ctx, txn4))
+	assert.True(t, guard_HasUnknownDependencies(ctx, txn4, txn4))
 
 	// Test 5: Has both PreAssembly and dependencies field with mixed known/unknown
 	knownID1 := uuid.New()
@@ -342,7 +368,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 	}
 
 	// Should return true because one dependency is unknown
-	assert.True(t, guard_HasUnknownDependencies(ctx, txn5))
+	assert.True(t, guard_HasUnknownDependencies(ctx, txn5, txn5))
 }
 
 func TestGuard_HasDependenciesNotReady(t *testing.T) {
@@ -351,7 +377,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 
 	// Test 1: No dependencies - should return false
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1, txn1))
 
 	// Test 2: Has dependency not ready
 	dep1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -376,7 +402,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
+	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2, txn2))
 
 	// Test 3: Has dependency ready for dispatch
 	dep3Builder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -401,7 +427,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3, txn3))
 }
 
 func TestGuard_HasChainedTxInProgress(t *testing.T) {
@@ -409,11 +435,11 @@ func TestGuard_HasChainedTxInProgress(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
 	// Test 1: Initially false
-	assert.False(t, guard_HasChainedTxInProgress(ctx, txn))
+	assert.False(t, guard_HasChainedTxInProgress(ctx, txn, txn))
 	assert.False(t, txn.chainedTxAlreadyDispatched)
 
 	// Test 2: After setting chained transaction in progress
 	txn.SetChainedTxInProgress()
-	assert.True(t, guard_HasChainedTxInProgress(ctx, txn))
+	assert.True(t, guard_HasChainedTxInProgress(ctx, txn, txn))
 	assert.True(t, txn.chainedTxAlreadyDispatched)
 }

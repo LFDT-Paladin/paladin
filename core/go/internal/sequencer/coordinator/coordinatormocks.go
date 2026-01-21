@@ -636,7 +636,7 @@ func (_m *MockTransactionSelector) EXPECT() *MockTransactionSelector_Expecter {
 }
 
 // SelectNextTransactionToAssemble provides a mock function for the type MockTransactionSelector
-func (_mock *MockTransactionSelector) SelectNextTransactionToAssemble(ctx context.Context, event *TransactionStateTransitionEvent) (*transaction.Transaction, error) {
+func (_mock *MockTransactionSelector) SelectNextTransactionToAssemble(ctx context.Context, event *common.TransactionStateTransitionEvent) (*transaction.Transaction, error) {
 	ret := _mock.Called(ctx, event)
 
 	if len(ret) == 0 {
@@ -645,17 +645,17 @@ func (_mock *MockTransactionSelector) SelectNextTransactionToAssemble(ctx contex
 
 	var r0 *transaction.Transaction
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *TransactionStateTransitionEvent) (*transaction.Transaction, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *common.TransactionStateTransitionEvent) (*transaction.Transaction, error)); ok {
 		return returnFunc(ctx, event)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *TransactionStateTransitionEvent) *transaction.Transaction); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *common.TransactionStateTransitionEvent) *transaction.Transaction); ok {
 		r0 = returnFunc(ctx, event)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*transaction.Transaction)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *TransactionStateTransitionEvent) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *common.TransactionStateTransitionEvent) error); ok {
 		r1 = returnFunc(ctx, event)
 	} else {
 		r1 = ret.Error(1)
@@ -670,20 +670,20 @@ type MockTransactionSelector_SelectNextTransactionToAssemble_Call struct {
 
 // SelectNextTransactionToAssemble is a helper method to define mock.On call
 //   - ctx context.Context
-//   - event *TransactionStateTransitionEvent
+//   - event *common.TransactionStateTransitionEvent
 func (_e *MockTransactionSelector_Expecter) SelectNextTransactionToAssemble(ctx interface{}, event interface{}) *MockTransactionSelector_SelectNextTransactionToAssemble_Call {
 	return &MockTransactionSelector_SelectNextTransactionToAssemble_Call{Call: _e.mock.On("SelectNextTransactionToAssemble", ctx, event)}
 }
 
-func (_c *MockTransactionSelector_SelectNextTransactionToAssemble_Call) Run(run func(ctx context.Context, event *TransactionStateTransitionEvent)) *MockTransactionSelector_SelectNextTransactionToAssemble_Call {
+func (_c *MockTransactionSelector_SelectNextTransactionToAssemble_Call) Run(run func(ctx context.Context, event *common.TransactionStateTransitionEvent)) *MockTransactionSelector_SelectNextTransactionToAssemble_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *TransactionStateTransitionEvent
+		var arg1 *common.TransactionStateTransitionEvent
 		if args[1] != nil {
-			arg1 = args[1].(*TransactionStateTransitionEvent)
+			arg1 = args[1].(*common.TransactionStateTransitionEvent)
 		}
 		run(
 			arg0,
@@ -698,7 +698,7 @@ func (_c *MockTransactionSelector_SelectNextTransactionToAssemble_Call) Return(t
 	return _c
 }
 
-func (_c *MockTransactionSelector_SelectNextTransactionToAssemble_Call) RunAndReturn(run func(ctx context.Context, event *TransactionStateTransitionEvent) (*transaction.Transaction, error)) *MockTransactionSelector_SelectNextTransactionToAssemble_Call {
+func (_c *MockTransactionSelector_SelectNextTransactionToAssemble_Call) RunAndReturn(run func(ctx context.Context, event *common.TransactionStateTransitionEvent) (*transaction.Transaction, error)) *MockTransactionSelector_SelectNextTransactionToAssemble_Call {
 	_c.Call.Return(run)
 	return _c
 }

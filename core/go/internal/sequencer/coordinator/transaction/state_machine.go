@@ -70,20 +70,27 @@ const (
 )
 
 // Type aliases for the generic state machine types
+// For transaction, we use the same type for state, reader, config, and callbacks since they're all contained in Transaction
+// M = *Transaction (mutable state)
+// R = *Transaction (reader - provides read access)
+// Cfg = *Transaction (config), Cb = *Transaction (callbacks) - both use same type for now TODO AM
 type (
-	Action          = statemachine.Action[*Transaction]
-	Guard           = statemachine.Guard[*Transaction]
-	Validator       = statemachine.Validator[*Transaction]
-	StateUpdate     = statemachine.StateUpdate[*Transaction]
-	Transition      = statemachine.Transition[State, *Transaction]
-	ActionRule      = statemachine.ActionRule[*Transaction]
-	EventHandler    = statemachine.EventHandler[State, *Transaction]
-	StateDefinition = statemachine.StateDefinition[State, *Transaction]
+	Action              = statemachine.Action[State, *Transaction, *Transaction, *Transaction]
+	Guard               = statemachine.Guard[State, *Transaction, *Transaction]
+	Validator           = statemachine.Validator[State, *Transaction, *Transaction, *Transaction]
+	StateUpdate         = statemachine.StateUpdate[State, *Transaction, *Transaction, *Transaction]
+	StateUpdateRule     = statemachine.StateUpdateRule[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	Transition          = statemachine.Transition[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	ActionRule          = statemachine.ActionRule[State, *Transaction, *Transaction, *Transaction]
+	EventHandler        = statemachine.EventHandler[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	StateDefinition     = statemachine.StateDefinition[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	TransitionToHandler = statemachine.TransitionToHandler[State, *Transaction, *Transaction, *Transaction, *Transaction]
+	StateMachineConfig  = statemachine.StateMachineConfig[State, *Transaction, *Transaction, *Transaction, *Transaction]
 )
 
 // buildStateDefinitions returns the state machine configuration for coordinator transactions
-func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction] {
-	return statemachine.StateMachineConfig[State, *Transaction]{
+func buildStateDefinitions() StateMachineConfig {
+	return StateMachineConfig{
 		Definitions: map[State]StateDefinition{
 			State_Initial: {
 				Events: map[EventType]EventHandler{
@@ -106,6 +113,9 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_PreAssembly_Blocked: {
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_DependencyAssembled: {
 						Transitions: []Transition{{
@@ -116,7 +126,12 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Pooled: {
-				OnTransitionTo: action_initializeDependencies,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions: []ActionRule{
+						{Action: action_initializeDependencies},
+					},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Selected: {
 						Transitions: []Transition{
@@ -132,11 +147,14 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Assembling: {
-				OnTransitionTo: action_SendAssembleRequest,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}, {StateUpdate: stateupdate_InitializeAssembleRequest}},
+					Actions:      []ActionRule{{Action: action_SendAssembleRequest}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Assemble_Success: {
-						OnHandleEvent: stateupdate_AssembleSuccess,
-						Validator:     validator_MatchesPendingAssembleRequest,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_AssembleSuccess}},
+						Validator:    validator_MatchesPendingAssembleRequest,
 						Transitions: []Transition{
 							{
 								To: State_Endorsement_Gathering,
@@ -156,12 +174,16 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						Transitions: []Transition{{
 							To: State_Pooled,
 							If: guard_AssembleTimeoutExceeded,
-							On: action_IncrementAssembleErrors,
+							// TODO AM: I did not intend this to be the behaviour at all - need to get back to the original design and understand how this can update state
+							StateUpdates: []StateUpdate{stateupdate_IncrementAssembleErrors},
+							// To: State_Pooled,
+							// If: guard_AssembleTimeoutExceeded,
+							// On: action_IncrementAssembleErrors,
 						}},
 					},
 					Event_Assemble_Revert_Response: {
-						OnHandleEvent: stateupdate_AssembleRevert,
-						Validator:     validator_MatchesPendingAssembleRequest,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_AssembleRevert}},
+						Validator:    validator_MatchesPendingAssembleRequest,
 						Transitions: []Transition{{
 							To: State_Reverted,
 						}},
@@ -179,10 +201,13 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Endorsement_Gathering: {
-				OnTransitionTo: action_SendEndorsementRequests,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions:      []ActionRule{{Action: action_SendEndorsementRequests}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Endorsed: {
-						OnHandleEvent: stateupdate_Endorsed,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_Endorsed}},
 						Transitions: []Transition{
 							{
 								To: State_Confirming_Dispatchable,
@@ -195,11 +220,14 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 						},
 					},
 					Event_EndorsedRejected: {
-						OnHandleEvent: stateupdate_EndorsedRejected,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_EndorsedRejected}},
 						Transitions: []Transition{
 							{
-								To: State_Pooled,
-								On: action_IncrementAssembleErrors,
+								To:           State_Pooled,
+								StateUpdates: []StateUpdate{stateupdate_IncrementAssembleErrors},
+								// again I don't understand what's happened here
+								// To: State_Pooled,
+								// On: action_IncrementAssembleErrors,
 							},
 						},
 					},
@@ -211,6 +239,9 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Blocked: {
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_DependencyReady: {
 						Transitions: []Transition{{
@@ -221,11 +252,14 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Confirming_Dispatchable: {
-				OnTransitionTo: action_SendPreDispatchRequest,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions:      []ActionRule{{Action: action_SendPreDispatchRequest}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_DispatchRequestApproved: {
-						OnHandleEvent: stateupdate_DispatchApproved,
-						Validator:     validator_MatchesPendingPreDispatchRequest,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_DispatchApproved}},
+						Validator:    validator_MatchesPendingPreDispatchRequest,
 						Transitions: []Transition{
 							{
 								To: State_Ready_For_Dispatch,
@@ -239,7 +273,10 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Ready_For_Dispatch: {
-				OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions:      []ActionRule{{Action: action_NotifyDependentsOfReadiness}}, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+				},
 				Events: map[EventType]EventHandler{
 					Event_Dispatched: {
 						Transitions: []Transition{
@@ -250,9 +287,12 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Dispatched: {
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Collected: {
-						OnHandleEvent: stateupdate_Collected,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_Collected}},
 						Transitions: []Transition{
 							{
 								To: State_SubmissionPrepared,
@@ -261,23 +301,29 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_SubmissionPrepared: {
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Submitted: {
-						OnHandleEvent: stateupdate_Submitted,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_Submitted}},
 						Transitions: []Transition{
 							{
 								To: State_Submitted,
 							}},
 					},
 					Event_NonceAllocated: {
-						OnHandleEvent: stateupdate_NonceAllocated,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_NonceAllocated}},
 					},
 				},
 			},
 			State_Submitted: {
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+				},
 				Events: map[EventType]EventHandler{
 					Event_Confirmed: {
-						OnHandleEvent: stateupdate_Confirmed,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_Confirmed}},
 						Transitions: []Transition{
 							{
 								If: statemachine.Not(guard_HasRevertReason),
@@ -286,7 +332,8 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 							{
 								// MRW TODO - we're re-pooling this transaction. Should we discard other
 								// assembled transactions i.e. re-pool everything this coordinator is tracking?
-								On: action_recordRevert,
+								// On: action_recordRevert,
+								// Note: revert time is recorded in stateupdate_Confirmed TODO AM: check this please
 								If: guard_HasRevertReason,
 								To: State_Pooled,
 							},
@@ -295,10 +342,13 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Reverted: {
-				OnTransitionTo: action_NotifyDependentsOfRevert,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions:      []ActionRule{{Action: action_NotifyDependentsOfRevert}},
+				},
 				Events: map[EventType]EventHandler{
 					common.Event_HeartbeatInterval: {
-						OnHandleEvent: stateupdate_HeartbeatInterval,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatInterval}},
 						Transitions: []Transition{
 							{
 								If: guard_HasGracePeriodPassedSinceStateChange,
@@ -308,10 +358,13 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 				},
 			},
 			State_Confirmed: {
-				OnTransitionTo: action_NotifyOfConfirmation,
+				OnTransitionTo: TransitionToHandler{
+					StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_ResetHeartbeatCounter}},
+					Actions:      []ActionRule{{Action: action_NotifyOfConfirmation}},
+				},
 				Events: map[EventType]EventHandler{
 					common.Event_HeartbeatInterval: {
-						OnHandleEvent: stateupdate_HeartbeatInterval,
+						StateUpdates: []StateUpdateRule{{StateUpdate: stateupdate_HeartbeatInterval}},
 						Transitions: []Transition{
 							{
 								If: guard_HasGracePeriodPassedSinceStateChange,
@@ -320,36 +373,33 @@ func buildStateDefinitions() statemachine.StateMachineConfig[State, *Transaction
 					},
 				},
 			},
-			State_Final: {
-				OnTransitionTo: action_Cleanup,
-			},
+			State_Final: {},
 		},
-		OnTransition: func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
+		OnTransition: func(ctx context.Context, reader *Transaction, config *Transaction, callbacks *Transaction, from, to State, event common.Event) {
+			t := reader // reader, config, and callbacks are the same for Transaction
+			// TODO AM: they really must not be the same
+			// TODO AM: this logging and metrics should be common in the state machine
 			// Log the transition
 			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord-tx | %s   | %s | %T | %s -> %s", t.Address.String()[0:8], t.ID.String()[0:8], event, from.String(), to.String())
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), t.stateMachine.TimeSinceStateChange())
-			// Reset heartbeat counter
-			t.heartbeatIntervalsSinceStateChange = 0
-			// Handle special case for pooled transactions
-			if to == State_Pooled {
-				t.addToPool(ctx, t)
-			}
-			// Notify of transition if callback is set
-			if t.notifyOfTransition != nil {
-				t.notifyOfTransition(ctx, t, to, from)
-			}
+			// Notify coordinator of state transition
+			t.queueEventForCoordinator(ctx, &common.TransactionStateTransitionEvent{
+				TxID: t.ID,
+				From: int(from),
+				To:   int(to),
+			})
 		},
 	}
 }
 
 func (t *Transaction) InitializeStateMachine(initialState State) {
-	t.stateMachine = statemachine.NewStateMachine(buildStateDefinitions(), initialState)
+	t.stateMachine = statemachine.NewStateMachine(t, buildStateDefinitions(), initialState)
 }
 
 func (t *Transaction) ProcessEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event %s (TX ID %s, TX originator %s, TX address %+v)", event.TypeString(), t.ID.String(), t.originator, t.Address.HexString())
-	return t.stateMachine.ProcessEvent(ctx, t, event)
+	return t.stateMachine.ProcessEvent(ctx, event)
 }
 
 func (s State) String() string {

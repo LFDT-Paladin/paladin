@@ -23,78 +23,90 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-type StateMachine[S State, T any] struct {
-	config StateMachineConfig[S, T]
-	state  StateMachineState[S]
+// TODO AM: review locking
+
+// StateMachine manages state transitions for a subject
+// Type parameters:
+//   - S: state enum type
+//   - M: state mutator type (modified by StateUpdates)
+//   - R: state reader type (read-only view)
+//   - Cfg: config type (immutable configuration)
+//   - Cb: callbacks type (side effect callbacks)
+type StateMachine[S State, M StateMutator[S], R StateReader[S], Cfg any, Cb any] struct {
+	subject  Subject[S, M, R, Cfg, Cb]
+	smConfig StateMachineConfig[S, M, R, Cfg, Cb]
 }
 
 // NewStateMachine creates a new state machine with the given configuration and initial state
-func NewStateMachine[S State, T any](config StateMachineConfig[S, T], initialState S) *StateMachine[S, T] {
-	return &StateMachine[S, T]{
-		config: config,
-		state: StateMachineState[S]{
-			CurrentState:    initialState,
-			LastStateChange: time.Now(),
-		},
+func NewStateMachine[S State, M StateMutator[S], R StateReader[S], Cfg any, Cb any](subject Subject[S, M, R, Cfg, Cb], smConfig StateMachineConfig[S, M, R, Cfg, Cb], initialState S) *StateMachine[S, M, R, Cfg, Cb] {
+	sm := &StateMachine[S, M, R, Cfg, Cb]{
+		subject:  subject,
+		smConfig: smConfig,
 	}
-}
-
-// GetCurrentState returns the current state
-func (sm *StateMachine[S, T]) GetCurrentState() S {
-	return sm.state.CurrentState
-}
-
-// GetLastStateChange returns the time of the last state change
-func (sm *StateMachine[S, T]) GetLastStateChange() time.Time {
-	return sm.state.LastStateChange
-}
-
-// GetLatestEvent returns the type string of the last processed event that caused a transition
-func (sm *StateMachine[S, T]) GetLatestEvent() string {
-	return sm.state.LatestEvent
-}
-
-// SetState directly sets the current state (use with caution - bypasses normal transition logic)
-// This is primarily useful for initialization or testing
-func (sm *StateMachine[S, T]) SetState(state S) {
-	sm.state.CurrentState = state
-	sm.state.LastStateChange = time.Now()
+	sm.subject.GetStateMutator().SetCurrentState(initialState)
+	sm.subject.GetStateMutator().SetLastStateChange(time.Now())
+	return sm
 }
 
 // ProcessEvent processes an event through the state machine
-// Parameters:
-//   - ctx: context for logging and cancellation
-//   - subject: the entity that owns this state machine
-//   - event: the event to process
-//
-// Returns an error if event processing fails (validation errors, action errors, or transition errors)
-func (sm *StateMachine[S, T]) ProcessEvent(
+// The subject must implement Subject[S, M, R, Cfg, Cb] to provide access to mutator, reader, config, and callbacks
+func (sm *StateMachine[S, M, R, Cfg, Cb]) ProcessEvent(
 	ctx context.Context,
-	subject T,
 	event common.Event,
 ) error {
+	// Get components from subject
+	config := sm.subject.GetConfig()
+	callbacks := sm.subject.GetCallbacks()
+	reader := sm.subject.GetStateReader()
+
 	// Step 1: Evaluate whether this event is relevant to the current state
-	eventHandler, err := sm.evaluateEvent(ctx, subject, event)
+	eventHandler, err := sm.evaluateEvent(ctx, event)
 	if err != nil || eventHandler == nil {
 		return err
 	}
 
-	// Step 2: Apply the event to update the subject's internal state
-	// This happens before guards are evaluated so guards can reference the updated state
-	if eventHandler.OnHandleEvent != nil {
-		if err := eventHandler.OnHandleEvent(ctx, subject, event); err != nil {
-			log.L(ctx).Errorf("error in OnHandleEvent for %s: %v", event.TypeString(), err)
-			return err
+	// Step 2: Apply state updates to the mutable state (with lock held)
+	if len(eventHandler.StateUpdates) > 0 {
+		mutableState := sm.subject.GetStateMutator()
+		mutableState.Lock()
+
+		for _, rule := range eventHandler.StateUpdates {
+			// Check event validator if present
+			if rule.EventValidator != nil {
+				valid, err := rule.EventValidator(ctx, reader, config, callbacks, event)
+				if err != nil {
+					mutableState.Unlock()
+					log.L(ctx).Errorf("error in StateUpdate EventValidator for %s: %v", event.TypeString(), err)
+					return err
+				}
+				if !valid {
+					continue
+				}
+			}
+
+			// Check guard condition if present
+			if rule.If != nil && !rule.If(ctx, reader, config) {
+				continue
+			}
+
+			// Execute the state update
+			if err := rule.StateUpdate(ctx, mutableState, config, callbacks, event); err != nil {
+				mutableState.Unlock()
+				log.L(ctx).Errorf("error in StateUpdate for %s: %v", event.TypeString(), err)
+				return err
+			}
 		}
+
+		mutableState.Unlock()
 	}
 
 	// Step 3: Execute any actions defined for this event
-	if err := sm.performActions(ctx, subject, *eventHandler); err != nil {
+	if err := sm.performActions(ctx, event, *eventHandler); err != nil {
 		return err
 	}
 
 	// Step 4: Evaluate and execute transitions
-	if err := sm.evaluateTransitions(ctx, subject, event, *eventHandler); err != nil {
+	if err := sm.evaluateTransitions(ctx, event, *eventHandler); err != nil {
 		return err
 	}
 
@@ -102,12 +114,14 @@ func (sm *StateMachine[S, T]) ProcessEvent(
 }
 
 // evaluateEvent checks if the given event is relevant for the current state
-// Returns the event handler if the event should be processed, nil if it should be ignored
-func (sm *StateMachine[S, T]) evaluateEvent(ctx context.Context, subject T, event common.Event) (*EventHandler[S, T], error) {
-	currentState := sm.state.CurrentState
+func (sm *StateMachine[S, M, R, Cfg, Cb]) evaluateEvent(ctx context.Context, event common.Event) (*EventHandler[S, M, R, Cfg, Cb], error) {
+	reader := sm.subject.GetStateReader()
+	config := sm.subject.GetConfig()
+	callbacks := sm.subject.GetCallbacks()
+	currentState := reader.GetCurrentState()
 
 	// Get the state definition for the current state
-	stateDefinition, exists := sm.config.Definitions[currentState]
+	stateDefinition, exists := sm.smConfig.Definitions[currentState]
 	if !exists {
 		log.L(ctx).Tracef("no definition for current state %s, ignoring event %s", currentState.String(), event.TypeString())
 		return nil, nil
@@ -122,7 +136,7 @@ func (sm *StateMachine[S, T]) evaluateEvent(ctx context.Context, subject T, even
 
 	// If there's a validator, check if this specific event instance is valid
 	if eventHandler.Validator != nil {
-		valid, err := eventHandler.Validator(ctx, subject, event)
+		valid, err := eventHandler.Validator(ctx, reader, config, callbacks, event)
 		if err != nil {
 			log.L(ctx).Errorf("error validating event %s: %v", event.TypeString(), err)
 			return nil, err
@@ -137,15 +151,36 @@ func (sm *StateMachine[S, T]) evaluateEvent(ctx context.Context, subject T, even
 }
 
 // performActions executes all applicable actions for the event
-func (sm *StateMachine[S, T]) performActions(ctx context.Context, subject T, eventHandler EventHandler[S, T]) error {
+func (sm *StateMachine[S, M, R, Cfg, Cb]) performActions(ctx context.Context, event common.Event, eventHandler EventHandler[S, M, R, Cfg, Cb]) error {
+	if len(eventHandler.Actions) == 0 {
+		return nil
+	}
+	reader := sm.subject.GetStateReader()
+	config := sm.subject.GetConfig()
+	callbacks := sm.subject.GetCallbacks()
+
+	reader.RLock()
+	defer reader.RUnlock()
 	for _, rule := range eventHandler.Actions {
+		// Check event validator if present
+		if rule.EventValidator != nil {
+			valid, err := rule.EventValidator(ctx, reader, config, callbacks, event)
+			if err != nil {
+				log.L(ctx).Errorf("error in ActionRule EventValidator: %v", err)
+				return err
+			}
+			if !valid {
+				continue
+			}
+		}
+
 		// Check guard condition if present
-		if rule.If != nil && !rule.If(ctx, subject) {
+		if rule.If != nil && !rule.If(ctx, reader, config) {
 			continue
 		}
 
 		// Execute the action
-		if err := rule.Action(ctx, subject); err != nil {
+		if err := rule.Action(ctx, reader, config, callbacks, event); err != nil {
 			log.L(ctx).Errorf("error executing action: %v", err)
 			return err
 		}
@@ -154,51 +189,115 @@ func (sm *StateMachine[S, T]) performActions(ctx context.Context, subject T, eve
 }
 
 // evaluateTransitions checks each transition rule and executes the first matching one
-func (sm *StateMachine[S, T]) evaluateTransitions(
+func (sm *StateMachine[S, M, R, Cfg, Cb]) evaluateTransitions(
 	ctx context.Context,
-	subject T,
 	event common.Event,
-	eventHandler EventHandler[S, T],
+	eventHandler EventHandler[S, M, R, Cfg, Cb],
 ) error {
+	reader := sm.subject.GetStateReader()
+	mutableState := sm.subject.GetStateMutator()
+	config := sm.subject.GetConfig()
+	callbacks := sm.subject.GetCallbacks()
+
+	mutableState.Lock() // TODO AM: I'm thinking this might be too coarse grained?
+	defer mutableState.Unlock()
+
 	for _, transition := range eventHandler.Transitions {
 		// Check guard condition if present
-		if transition.If != nil && !transition.If(ctx, subject) {
+		if transition.If != nil && !transition.If(ctx, reader, config) {
 			continue
 		}
 
 		// Guard passed (or no guard) - execute this transition
-		previousState := sm.state.CurrentState
+		previousState := reader.GetCurrentState() // TODO AM: need to make sure this doesn't block
 		newState := transition.To
 
 		log.L(ctx).Debugf("state transition: %s -> %s (event: %s)",
 			previousState.String(), newState.String(), event.TypeString())
 
-		// Execute transition-specific action first (if defined)
+		// Execute transition-specific state updates (with lock held)
+		if len(transition.StateUpdates) > 0 {
+			for _, stateUpdate := range transition.StateUpdates {
+				if err := stateUpdate(ctx, mutableState, config, callbacks, event); err != nil {
+					log.L(ctx).Errorf("error executing transition StateUpdate: %v", err)
+					return err
+				}
+			}
+		}
+
+		// Execute transition-specific action (if defined)
 		if transition.On != nil {
-			if err := transition.On(ctx, subject); err != nil {
+			if err := transition.On(ctx, reader, config, callbacks, event); err != nil {
 				log.L(ctx).Errorf("error executing transition action: %v", err)
 				return err
 			}
 		}
 
-		// Update state
-		sm.state.CurrentState = newState
-		sm.state.LastStateChange = time.Now()
-		sm.state.LatestEvent = event.TypeString()
+		// Update state machine state
+		mutableState.SetCurrentState(newState)
+		mutableState.SetLastStateChange(time.Now())
+		mutableState.SetLatestEvent(event.TypeString())
 
-		// Execute OnTransitionTo action for the new state (if defined)
-		if newStateDefinition, exists := sm.config.Definitions[newState]; exists {
-			if newStateDefinition.OnTransitionTo != nil {
-				if err := newStateDefinition.OnTransitionTo(ctx, subject); err != nil {
-					log.L(ctx).Errorf("error executing OnTransitionTo for state %s: %v", newState.String(), err)
+		// Execute OnTransitionTo handler for the new state
+		if newStateDefinition, exists := sm.smConfig.Definitions[newState]; exists {
+			handler := newStateDefinition.OnTransitionTo
+
+			// Execute state updates (with lock held)
+			for _, rule := range handler.StateUpdates {
+				// Check event validator if present
+				if rule.EventValidator != nil {
+					valid, err := rule.EventValidator(ctx, reader, config, callbacks, event)
+					if err != nil {
+						log.L(ctx).Errorf("error in OnTransitionTo StateUpdate EventValidator for state %s: %v", newState.String(), err)
+						return err
+					}
+					if !valid {
+						continue
+					}
+				}
+
+				// Check guard condition if present
+				if rule.If != nil && !rule.If(ctx, reader, config) {
+					continue
+				}
+
+				// Execute the state update
+				if err := rule.StateUpdate(ctx, mutableState, config, callbacks, event); err != nil {
+					log.L(ctx).Errorf("error executing OnTransitionTo StateUpdate for state %s: %v", newState.String(), err)
+					return err
+				}
+			}
+
+			// Then execute actions
+			for _, rule := range handler.Actions {
+				// Check event validator if present
+				if rule.EventValidator != nil {
+					valid, err := rule.EventValidator(ctx, reader, config, callbacks, event)
+					if err != nil {
+						log.L(ctx).Errorf("error in OnTransitionTo Action EventValidator for state %s: %v", newState.String(), err)
+						return err
+					}
+					if !valid {
+						continue
+					}
+				}
+
+				// Check guard condition if present
+				if rule.If != nil && !rule.If(ctx, reader, config) {
+					continue
+				}
+
+				if err := rule.Action(ctx, reader, config, callbacks, event); err != nil {
+					log.L(ctx).Errorf("error executing OnTransitionTo Action for state %s: %v", newState.String(), err)
 					return err
 				}
 			}
 		}
 
 		// Call the transition callback if configured
-		if sm.config.OnTransition != nil {
-			sm.config.OnTransition(ctx, subject, previousState, newState, event)
+		if sm.smConfig.OnTransition != nil {
+			// Re-fetch reader for callback
+			sm.smConfig.OnTransition(ctx, reader, config, callbacks, previousState, newState, event) // TODO AM: what scope does this function have? I think it should maybe be removed
 		}
 
 		// Only the first matching transition is executed
@@ -208,22 +307,10 @@ func (sm *StateMachine[S, T]) evaluateTransitions(
 	return nil
 }
 
+// TODO AM: I think this function goes if we get rid of OnTransition
+
 // TimeSinceStateChange returns the duration since the last state change
-func (sm *StateMachine[S, T]) TimeSinceStateChange() time.Duration {
-	return time.Since(sm.state.LastStateChange)
-}
-
-// IsInState returns true if the state machine is currently in the given state
-func (sm *StateMachine[S, T]) IsInState(state S) bool {
-	return sm.state.CurrentState == state
-}
-
-// IsInAnyState returns true if the state machine is in any of the given states
-func (sm *StateMachine[S, T]) IsInAnyState(states ...S) bool {
-	for _, state := range states {
-		if sm.state.CurrentState == state {
-			return true
-		}
-	}
-	return false
+func (sm *StateMachine[S, M, R, Cfg, Cb]) TimeSinceStateChange() time.Duration {
+	// TODO AM: what's the locking model here if the function doesn't go?
+	return time.Since(sm.subject.GetStateReader().GetLastStateChange())
 }

@@ -23,30 +23,33 @@ import (
 )
 
 // stateupdate_HeartbeatInterval increments the heartbeat counter
-func stateupdate_HeartbeatInterval(ctx context.Context, txn *Transaction, _ common.Event) error {
-	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", txn.ID.String(), txn.GetCurrentState().String(), txn.heartbeatIntervalsSinceStateChange+1)
-	txn.heartbeatIntervalsSinceStateChange++
+func stateupdate_HeartbeatInterval(ctx context.Context, state *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", state.ID.String(), state.GetCurrentState().String(), state.heartbeatIntervalsSinceStateChange+1)
+	state.heartbeatIntervalsSinceStateChange++
 	return nil
 }
 
-func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transaction) bool {
-	// Has this transaction been in the same state for longer than the finalizing grace period?
-	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
-	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
+// stateupdate_ResetHeartbeatCounter resets the heartbeat counter on state transitions
+func stateupdate_ResetHeartbeatCounter(_ context.Context, state *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	state.heartbeatIntervalsSinceStateChange = 0
+	return nil
 }
 
-func action_Cleanup(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_Cleanup - cleaning up transaction %s", txn.ID.String())
-	return txn.cleanup(ctx)
+func guard_HasGracePeriodPassedSinceStateChange(_ context.Context, reader *Transaction, _ *Transaction) bool {
+	// Has this transaction been in the same state for longer than the finalizing grace period?
+	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
+	// TODO AM: this is not using a proper Reader interface
+	return reader.heartbeatIntervalsSinceStateChange >= reader.finalizingGracePeriod
 }
 
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
 // a transaction. The most likely cause is that the transaction reached a terminal state (e.g. reverted
 // during assembly) but the response was lost, and the transaction has since been removed from memory
 // on the originator after cleanup. The coordinator should clean up this transaction.
-func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", txn.ID)
-	return txn.finalizeAsUnknownByOriginator(ctx)
+func action_FinalizeAsUnknownByOriginator(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", reader.ID)
+	// TODO AM: understand whether this is really an action or a state update
+	return reader.finalizeAsUnknownByOriginator(ctx)
 }
 
 func (t *Transaction) finalizeAsUnknownByOriginator(ctx context.Context) error {

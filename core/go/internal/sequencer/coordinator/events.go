@@ -18,7 +18,6 @@ package coordinator
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -170,18 +169,4 @@ func (*HandoverReceivedEvent) Type() EventType {
 
 func (*HandoverReceivedEvent) TypeString() string {
 	return "Event_HandoverReceived"
-}
-
-type TransactionStateTransitionEvent struct {
-	TransactionID uuid.UUID
-	From          transaction.State
-	To            transaction.State
-}
-
-func (*TransactionStateTransitionEvent) Type() EventType {
-	return Event_TransactionStateTransition
-}
-
-func (*TransactionStateTransitionEvent) TypeString() string {
-	return "Event_TransactionStateTransition"
 }

@@ -21,8 +21,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 func (t *Transaction) SetPreviousTransaction(ctx context.Context, previousTransaction *Transaction) {
@@ -116,28 +116,22 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 
 }
 
-func action_recordRevert(_ context.Context, txn *Transaction) error {
-	now := pldtypes.TimestampNow()
-	txn.revertTime = &now
-	return nil
+func action_initializeDependencies(ctx context.Context, reader *Transaction, _ *Transaction, _ *Transaction, _ common.Event) error {
+	return reader.initializeDependencies(ctx)
 }
 
-func action_initializeDependencies(ctx context.Context, txn *Transaction) error {
-	return txn.initializeDependencies(ctx)
+func guard_HasUnassembledDependencies(ctx context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.hasDependenciesNotAssembled(ctx)
 }
 
-func guard_HasUnassembledDependencies(ctx context.Context, txn *Transaction) bool {
-	return txn.hasDependenciesNotAssembled(ctx)
+func guard_HasUnknownDependencies(ctx context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.hasUnknownDependencies(ctx)
 }
 
-func guard_HasUnknownDependencies(ctx context.Context, txn *Transaction) bool {
-	return txn.hasUnknownDependencies(ctx)
+func guard_HasDependenciesNotReady(ctx context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.hasDependenciesNotReady(ctx)
 }
 
-func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
-	return txn.hasDependenciesNotReady(ctx)
-}
-
-func guard_HasChainedTxInProgress(ctx context.Context, txn *Transaction) bool {
-	return txn.chainedTxAlreadyDispatched
+func guard_HasChainedTxInProgress(_ context.Context, reader *Transaction, _ *Transaction) bool {
+	return reader.chainedTxAlreadyDispatched
 }
