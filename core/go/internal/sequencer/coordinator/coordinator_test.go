@@ -2526,7 +2526,6 @@ func TestCoordinator_GetTransactionsReadyToDispatch_NoTransactionsReady(t *testi
 
 func TestCoordinator_GetTransactionsReadyToDispatch_SortTransactionsFails(t *testing.T) {
 	// Test that GetTransactionsReadyToDispatch returns an error when SortTransactions fails
-	// This covers lines 37-38 where the error is logged and returned
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)

@@ -199,7 +199,6 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.nextTransaction.ID,
 			},
-			DependencyID: t.ID,
 		})
 		if err != nil {
 			log.L(ctx).Errorf("error notifying next transaction %s of assembly of transaction %s: %s", t.nextTransaction.ID, t.ID, err)
@@ -216,9 +215,8 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 		}
 		err := dependent.HandleEvent(ctx, &DependencyAssembledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.nextTransaction.ID,
+				TransactionID: dependentId,
 			},
-			DependencyID: t.ID,
 		})
 		if err != nil {
 			log.L(ctx).Errorf("error notifying dependent transaction %s of assembly of transaction %s: %s", dependent.ID, t.ID, err)
@@ -244,7 +242,6 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},
-				DependencyID: t.ID,
 			})
 			if err != nil {
 				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependentID, t.ID, err)
@@ -274,7 +271,6 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 	}
 
 	found := make(map[uuid.UUID]bool)
-
 	t.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
 		PrereqOf:  make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
@@ -291,16 +287,12 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 			//assume the state was produced by a confirmed transaction
 			//TODO should we validate this by checking the domain context? If not, explain why this is safe in the architecture doc
 			continue
-		} else {
-			log.L(ctx).Debugf("calculatePostAssembleDependencies - dependency for state %s is %s", state.ID.String(), dependency.ID.String())
 		}
 		if found[dependency.ID] {
-			log.L(ctx).Debugf("calculatePostAssembleDependencies - found duplicate dependency for state %s is %s", state.ID.String(), dependency.ID.String())
 			continue
 		}
 		found[dependency.ID] = true
 
-		log.L(ctx).Debugf("calculatePostAssembleDependencies - adding dependency for transaction %s on transaction %s", t.ID.String(), dependency.ID.String())
 		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.ID)
 		//also set up the reverse association
 		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.ID)
@@ -345,9 +337,8 @@ func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) erro
 }
 
 func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
+	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
 	txn.engineIntegration.ResetTransactions(ctx, txn.ID)
-	log.L(ctx).Infof("action_NotifyOfConfirmation - issuing DependencyReadyEvent for all dependents of TXN %s", txn.ID.String())
 	return txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
 }
 

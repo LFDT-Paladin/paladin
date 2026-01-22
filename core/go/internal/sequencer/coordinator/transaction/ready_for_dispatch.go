@@ -142,7 +142,6 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependent.ID,
 				},
-				DependencyID: t.ID,
 			})
 
 			if err != nil {
@@ -171,7 +170,6 @@ func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx cont
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependent.ID,
 				},
-				DependencyID: t.ID,
 			})
 			if err != nil {
 				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)

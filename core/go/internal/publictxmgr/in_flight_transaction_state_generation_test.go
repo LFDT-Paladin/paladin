@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/publictxmgrmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -460,7 +461,6 @@ func TestStateVersionStartNewStageContext_SubmittingWithToAddress(t *testing.T) 
 		TransactionHash: testHash,
 	})
 
-	// Test submitting with To address (line 172-174)
 	// The test setup has a To address set, so we need to match it
 	// Get the actual To address from the in-memory tx through the InMemoryTxStateManager interface
 	toAddress := version.(InMemoryTxStateManager).GetTo()
@@ -497,7 +497,7 @@ func TestStateVersionAddStageOutputs_NoEventMode(t *testing.T) {
 	v := NewInFlightTransactionStateGeneration(metrics, balanceManager, mockActionTriggers, mockInMemoryState, ptm, ptm.submissionWriter, true)
 	version := v.(*inFlightTransactionStateGeneration)
 
-	// Add stage output - should return early due to testOnlyNoEventMode (line 230)
+	// Add stage output - should return early due to testOnlyNoEventMode
 	version.AddStageOutputs(ctx, &StageOutput{
 		Stage: InFlightTxStageQueued,
 	})
@@ -577,7 +577,7 @@ func TestStateVersionPersistTxState_ConfirmReceivedStatus(t *testing.T) {
 	rsc := version.GetRunningStageContext(ctx)
 	rsc.SetNewPersistenceUpdateOutput()
 
-	// Set InFlightStatus to ConfirmReceived (line 351-353)
+	// Set InFlightStatus to ConfirmReceived
 	confirmReceived := InFlightStatusConfirmReceived
 	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
 		NewValues: BaseTXUpdateNewValues{
@@ -603,23 +603,54 @@ func TestStateVersionPersistTxState_WithFixedGasPrice(t *testing.T) {
 	rsc := version.GetRunningStageContext(ctx)
 	rsc.SetNewPersistenceUpdateOutput()
 
-	// Create a new submission without binding, but with fixed gas price (line 327-333)
+	// Set fixed gas pricing on the in-memory transaction
+	fixedMaxFeePerGas := pldtypes.Uint64ToUint256(50000)
+	fixedMaxPriorityFeePerGas := pldtypes.Uint64ToUint256(5000)
+	fixedGasPricing := pldapi.PublicTxGasPricing{
+		MaxFeePerGas:         fixedMaxFeePerGas,
+		MaxPriorityFeePerGas: fixedMaxPriorityFeePerGas,
+	}
+	
+	// Update the transaction with fixed gas pricing
+	imtxs := version.(InMemoryTxStateManager)
+	updatedTx := &DBPublicTxn{
+		FixedGasPricing: pldtypes.JSONString(fixedGasPricing),
+	}
+	imtxs.UpdateTransaction(ctx, updatedTx)
+
+	// Verify that GetTransactionFixedGasPrice returns the fixed gas price
+	fixedPrice := imtxs.GetTransactionFixedGasPrice()
+	assert.NotNil(t, fixedPrice)
+	assert.Equal(t, fixedMaxFeePerGas.Int(), fixedPrice.MaxFeePerGas.Int())
+	assert.Equal(t, fixedMaxPriorityFeePerGas.Int(), fixedPrice.MaxPriorityFeePerGas.Int())
+
+	// Create a new submission without binding - it will be built and should use fixed gas price
+	txHash := pldtypes.RandBytes32()
+	privateTXID := uuid.New()
 	rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{
 		NewValues: BaseTXUpdateNewValues{
 			NewSubmission: &DBPubTxnSubmission{
 				from:            "0x12345",
-				TransactionHash: pldtypes.RandBytes32(),
+				TransactionHash: txHash,
+				PrivateTXID:     privateTXID,
 				Binding:         nil, // Will be built
 			},
 		},
 	}
 
 	// The binding will be built from the in-memory tx
-	// If the in-memory tx has a fixed gas price, it will be used (line 327-333)
+	// When GetTransactionFixedGasPrice() is not nil, it should set PublicTxGasPricing on the binding
 	m.db.ExpectBegin()
 	m.db.ExpectExec("INSERT.*public_submissions").WillReturnResult(sqlmock.NewResult(1, 1))
 	m.db.ExpectCommit()
 
 	_, _, err := version.PersistTxState(ctx)
 	assert.Nil(t, err)
+	
+	// Verify that the binding was built and has the fixed gas pricing set
+	// The binding should have PublicTxGasPricing set from the fixed gas price
+	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding)
+	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing)
+	assert.Equal(t, fixedMaxFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing.MaxFeePerGas.Int())
+	assert.Equal(t, fixedMaxPriorityFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing.MaxPriorityFeePerGas.Int())
 }

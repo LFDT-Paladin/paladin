@@ -45,7 +45,7 @@ func (t *Transaction) hasDependenciesNotAssembled(ctx context.Context) bool {
 		return true
 	}
 
-	if t.PreAssembly.Dependencies != nil {
+	if t.PreAssembly != nil && t.PreAssembly.Dependencies != nil {
 		for _, dependencyID := range t.PreAssembly.Dependencies.DependsOn {
 			dependency := t.grapher.TransactionByID(ctx, dependencyID)
 			if dependency == nil {
@@ -134,7 +134,6 @@ func (t *Transaction) rePoolDependents(ctx context.Context) error {
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependencyID,
 				},
-				DependencyID: t.ID,
 			})
 			if err != nil {
 				errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error notifying dependent transaction of revert", err)

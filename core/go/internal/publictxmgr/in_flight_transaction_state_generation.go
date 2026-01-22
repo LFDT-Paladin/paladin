@@ -261,16 +261,6 @@ func (v *inFlightTransactionStateGeneration) AddGasPriceOutput(ctx context.Conte
 	log.L(ctx).Debugf("%s AddGasPriceOutput took %s to write the result", v.GetSignerNonce(), time.Since(start))
 }
 
-func (v *inFlightTransactionStateGeneration) AddConfirmationsOutput(ctx context.Context, confirmedTx *pldapi.IndexedTransaction) {
-	panic("unused")
-	// start := time.Now()
-	// v.AddStageOutputs(ctx, &StageOutput{
-	// 	Stage:              InFlightTxStageConfirming,
-	// 	ConfirmationOutput: &ConfirmationOutputs{},
-	// })
-	// log.L(ctx).Debugf("%s AddConfirmationsOutput took %s to write the result", v.InMemoryTxStateManager.GetSignerNonce(), time.Since(start))
-}
-
 func (v *inFlightTransactionStateGeneration) AddPanicOutput(ctx context.Context, stage InFlightTxStage) {
 	start := time.Now()
 	// unexpected error, set an empty input for the stage

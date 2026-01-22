@@ -529,7 +529,6 @@ func Test_notifyDependentsOfReadinessAndQueueForDispatch_DependentHandleEventErr
 	}
 
 	// Call notifyDependentsOfReadinessAndQueueForDispatch - should return error
-	// This tests the error handling in lines 149-150
 	err := txn1.notifyDependentsOfReadinessAndQueueForDispatch(ctx)
 	assert.Error(t, err)
 	assert.True(t, onReadyCalled) // onReadyForDispatch should still be called before the error
@@ -659,7 +658,6 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentHandleEvent
 	}
 
 	// Call notifyDependentsOfConfirmationAndQueueForDispatch - should return error
-	// This tests the error handling in lines 177-178
 	err := txn1.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
 	assert.Error(t, err)
 }

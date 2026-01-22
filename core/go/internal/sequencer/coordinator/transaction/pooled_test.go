@@ -608,7 +608,6 @@ func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	assert.Nil(t, mainTxn.revertTime)
 
 	// Call action_recordRevert - should log error but continue and set revertTime
-	// This tests the error handling in lines 156-158
 	err := action_recordRevert(ctx, mainTxn)
 	require.NoError(t, err) // action_recordRevert always returns nil, even if rePoolDependents fails
 
