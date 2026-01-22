@@ -6,6 +6,7 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
@@ -338,6 +339,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | identifierCache | Identifier cache configuration | [`CacheConfig`](#keymanageridentifiercache) | - |
 | verifierCache | Verifier cache configuration | [`CacheConfig`](#keymanagerverifiercache) | - |
 
