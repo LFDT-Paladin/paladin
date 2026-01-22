@@ -8,6 +8,7 @@ export * from "./paladin";
 export * from "./privacygroups";
 export * from "./query";
 export * from "./registry";
+export * from "./signpayloads";
 export * from "./states";
 export * from "./transaction";
 export * from "./transport";
