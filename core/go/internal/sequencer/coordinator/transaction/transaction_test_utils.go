@@ -382,8 +382,8 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		privateTransaction,
 		b.sentMessageRecorder,
 		b.fakeClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
+		func(ctx context.Context, event common.Event) {
+			// No-op event handler for tests
 		},
 		b.fakeEngineIntegration,
 		b.syncPoints,
@@ -392,10 +392,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		5,
 		b.grapher,
 		metrics,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
+		nil, // onStateTransition function, not used in tests
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))

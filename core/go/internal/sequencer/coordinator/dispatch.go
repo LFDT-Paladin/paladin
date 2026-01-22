@@ -24,6 +24,8 @@ import (
 )
 
 func (c *coordinator) GetTransactionsReadyToDispatch(ctx context.Context) ([]*components.PrivateTransaction, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 	// Get the next transactions that are ready to be dispatched
 	// This is the transactions that are in the State_Ready_For_Dispatch state
 	// If there are no transactions in that state, return nil

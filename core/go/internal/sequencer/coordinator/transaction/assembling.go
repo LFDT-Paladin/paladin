@@ -107,28 +107,20 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 
 	// Schedule a short retry timeout for e.g. network blip
 	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+		t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.ID,
 			},
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling assemble request timeout interval: %s", err)
-			return
-		}
 	})
 
 	// Schedule a longer retry timeout for assembly to complete. If this timeout fires we start assembly from scratch after other transactions have had a turn to be assembled.
 	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.assembleTimeout, func() {
-		err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
+		t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: t.ID,
 			},
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling assemble timeout interval: %s", err)
-			return
-		}
 	})
 	return t.pendingAssembleRequest.Nudge(ctx)
 }

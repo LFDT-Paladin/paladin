@@ -173,6 +173,7 @@ func (*HandoverReceivedEvent) TypeString() string {
 }
 
 type TransactionStateTransitionEvent struct {
+	common.BaseEvent
 	TransactionID uuid.UUID
 	From          transaction.State
 	To            transaction.State

@@ -191,19 +191,6 @@ func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 	assert.NotNil(t, txn)
 }
 
-func TestTransaction_RemovesItselfFromGrapher(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	transaction, _ := newTransactionForUnitTesting(t, grapher)
-
-	err := transaction.cleanup(ctx)
-	assert.NoError(t, err)
-
-	txn := grapher.TransactionByID(ctx, transaction.ID)
-	assert.Nil(t, txn)
-}
-
 type transactionDependencyMocks struct {
 	transportWriter   *transport.MockTransportWriter
 	clock             *common.FakeClockForTesting
@@ -229,8 +216,8 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		},
 		mocks.transportWriter,
 		mocks.clock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
+		func(ctx context.Context, event common.Event) {
+			// No-op event handler for tests
 		},
 		mocks.engineIntegration,
 		mocks.syncPoints,
@@ -239,11 +226,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		5,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		func(ctx context.Context, txn *Transaction, from, to State) {
-		},
-		func(context.Context) {}, // onCleanup function, not used in tests
+		func(ctx context.Context, txn *Transaction, from, to State) {}, // onStateTransition
 	)
 	require.NoError(t, err)
 

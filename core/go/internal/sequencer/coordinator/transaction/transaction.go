@@ -65,7 +65,6 @@ type Transaction struct {
 	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
 	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
 	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
-	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex
 	pendingPreDispatchRequest                        *common.IdempotentRequest
@@ -74,8 +73,6 @@ type Transaction struct {
 	dependencies                                     *pldapi.TransactionDependencies
 	previousTransaction                              *Transaction
 	nextTransaction                                  *Transaction
-	addToPool                                        func(context.Context, *Transaction) // To put ourselves to the back of the pooled transactions queue
-	onReadyForDispatch                               func(context.Context, *Transaction)
 
 	//Configuration
 	requestTimeout        common.Duration
@@ -90,7 +87,7 @@ type Transaction struct {
 	engineIntegration  common.EngineIntegration
 	syncPoints         syncpoints.SyncPoints
 	notifyOfTransition OnStateTransition
-	eventHandler       func(context.Context, common.Event) error
+	eventHandler       func(context.Context, common.Event)
 	metrics            metrics.DistributedSequencerMetrics
 }
 
@@ -103,7 +100,7 @@ func NewTransaction(
 	pt *components.PrivateTransaction,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
-	eventHandler func(context.Context, common.Event) error,
+	eventHandler func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	requestTimeout,
@@ -111,10 +108,7 @@ func NewTransaction(
 	finalizingGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-	addToPool func(context.Context, *Transaction),
-	onReadyForDispatch func(context.Context, *Transaction),
 	onStateTransition OnStateTransition,
-	onCleanup func(context.Context),
 ) (*Transaction, error) {
 	originatorIdentity, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
@@ -137,22 +131,11 @@ func NewTransaction(
 		dependencies:          &pldapi.TransactionDependencies{},
 		grapher:               grapher,
 		metrics:               metrics,
-		addToPool:             addToPool,
 		notifyOfTransition:    onStateTransition,
-		onReadyForDispatch:    onReadyForDispatch,
-		onCleanup:             onCleanup,
 	}
 	txn.InitializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)
 	return txn, nil
-}
-
-func (t *Transaction) cleanup(ctx context.Context) error {
-	// Call any cleanup function passed in by the sequencer
-	t.onCleanup(ctx)
-
-	// Then clean ourselves up
-	return t.grapher.Forget(t.ID)
 }
 
 func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {

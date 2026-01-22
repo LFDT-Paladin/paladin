@@ -17,15 +17,20 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
+// State represents the coordinator's state
 type State int
+
+// EventType is an alias for common.EventType
 type EventType = common.EventType
 
 const (
@@ -55,54 +60,40 @@ const (
 	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
 )
 
-type StateMachine struct {
-	currentState State
-}
+// Type aliases for the generic statemachine types, specialized for coordinator
+type (
+	Action           = statemachine.Action[*coordinator]
+	EventAction      = statemachine.EventAction[*coordinator]
+	Guard            = statemachine.Guard[*coordinator]
+	ActionRule       = statemachine.ActionRule[*coordinator]
+	Transition       = statemachine.Transition[State, *coordinator]
+	EventHandler     = statemachine.EventHandler[State, *coordinator]
+	StateDefinition  = statemachine.StateDefinition[State, *coordinator]
+	StateDefinitions = statemachine.StateDefinitions[State, *coordinator]
+)
 
-// Actions can be specified for transition to a state either as the OnTransitionTo function that will run for all transitions to that state or as the On field in the Transition struct if the action applies
-// for a specific transition
-type Action func(ctx context.Context, c *coordinator) error
-type ActionRule struct {
-	Action Action
-	If     Guard
-}
-
-type Transition struct {
-	To State // State to transition to if the guard condition is met
-	If Guard // Condition to evaluate the transaction against to determine if this transition should be taken
-	On Action
-}
-
-type EventHandler struct {
-	Validator   func(ctx context.Context, c *coordinator, event common.Event) (bool, error) // function to validate whether the event is valid for the current state of the coordinator.  This is optional.  If not defined, the event is always considered valid.
-	Actions     []ActionRule                                                                // list of actions to be taken when this event is received.  These actions are run before any transition specific actions
-	Transitions []Transition                                                                // list of transitions that this event could trigger.  The list is ordered so the first matching transition is the one that will be taken.
-}
-
-type StateDefinition struct {
-	OnTransitionTo Action                     // function to be invoked when transitioning into this state.  This is invoked after any transition specific actions have been invoked
-	Events         map[EventType]EventHandler // rules to define what events apply to this state and what transitions they trigger.  Any events not in this list are ignored while in this state.
-}
-
-var stateDefinitionsMap map[State]StateDefinition
+var stateDefinitionsMap StateDefinitions
 
 func init() {
 	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = map[State]StateDefinition{
+	stateDefinitionsMap = StateDefinitions{
 		State_Idle: {
 			OnTransitionTo: action_Idle,
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
+					OnEvent: eventAction_TransactionsDelegated,
 					Transitions: []Transition{{
 						To: State_Active,
 					}},
 				},
 				Event_HeartbeatReceived: {
+					OnEvent: eventAction_HeartbeatReceived,
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
 				},
 				Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
+					OnEvent: eventAction_EndorsementRequested,
 					Transitions: []Transition{{
 						To: State_Observing,
 					}},
@@ -112,6 +103,7 @@ func init() {
 		State_Observing: {
 			Events: map[EventType]EventHandler{
 				Event_TransactionsDelegated: {
+					OnEvent: eventAction_TransactionsDelegated,
 					Transitions: []Transition{
 						{
 							To: State_Standby,
@@ -127,8 +119,11 @@ func init() {
 		},
 		State_Standby: {
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnEvent: eventAction_TransactionsDelegated,
+				},
 				Event_NewBlock: {
+					OnEvent: eventAction_NewBlock,
 					Transitions: []Transition{{
 						To: State_Elect,
 						If: guard_Not(guard_Behind),
@@ -139,7 +134,9 @@ func init() {
 		State_Elect: {
 			OnTransitionTo: action_SendHandoverRequest,
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnEvent: eventAction_TransactionsDelegated,
+				},
 				Event_HandoverReceived: {
 					Transitions: []Transition{{
 						To: State_Prepared,
@@ -149,8 +146,11 @@ func init() {
 		},
 		State_Prepared: {
 			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {},
+				Event_TransactionsDelegated: {
+					OnEvent: eventAction_TransactionsDelegated,
+				},
 				Event_TransactionConfirmed: {
+					OnEvent: eventAction_TransactionConfirmed,
 					Transitions: []Transition{{
 						To: State_Active,
 						If: guard_ActiveCoordinatorFlushComplete,
@@ -162,6 +162,7 @@ func init() {
 			OnTransitionTo: action_SelectTransaction,
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnEvent: eventAction_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
@@ -171,32 +172,48 @@ func init() {
 					}},
 				},
 				Event_TransactionsDelegated: {
-					Actions: []ActionRule{{
-						Action: action_SelectTransaction,
-						If:     guard_Not(guard_HasTransactionAssembling),
-					}},
+					OnEvent: eventAction_TransactionsDelegated,
+					// if this is the first transaction we have received, it needs to move into pooled state before
+					// it can be selected and there is a separate event for that
 				},
-				Event_TransactionConfirmed: {},
+				Event_TransactionConfirmed: {
+					OnEvent: eventAction_TransactionConfirmed,
+				},
 				Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 					Transitions: []Transition{{
 						To: State_Flush,
 					}},
 				},
+				Event_TransactionStateTransition: {
+					OnEvent: eventAction_TransactionStateTransition,
+					Actions: []ActionRule{{
+						Action: action_NudgeDispatchLoop,
+					}, {
+						Action: action_SelectTransaction,
+						If:     guard_Not(guard_HasTransactionAssembling),
+					}},
+				},
 			},
 		},
 		State_Flush: {
+			//TODO: should the dispatch loop stop dispatching transactions while in flush?
 			//TODO should we move to active if we get delegated transactions while in flush?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnEvent: eventAction_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
 				},
 				Event_TransactionConfirmed: {
+					OnEvent: eventAction_TransactionConfirmed,
 					Transitions: []Transition{{
 						To: State_Closing,
 						If: guard_FlushComplete,
 					}},
+				},
+				Event_TransactionStateTransition: {
+					OnEvent: eventAction_TransactionStateTransition,
 				},
 			},
 		},
@@ -204,6 +221,7 @@ func init() {
 			//TODO should we move to active if we get delegated transactions while in closing?
 			Events: map[EventType]EventHandler{
 				common.Event_HeartbeatInterval: {
+					OnEvent: eventAction_HeartbeatInterval,
 					Actions: []ActionRule{{
 						Action: action_SendHeartbeat,
 					}},
@@ -212,192 +230,150 @@ func init() {
 						If: guard_ClosingGracePeriodExpired,
 					}},
 				},
+				Event_TransactionStateTransition: {
+					OnEvent: eventAction_TransactionStateTransition,
+				},
 			},
 		},
 	}
 }
 
-func (c *coordinator) InitializeStateMachine(initialState State) {
-	c.stateMachine = &StateMachine{
-		currentState: initialState,
-	}
+func (c *coordinator) initializeProcessorEventLoop(initialState State) {
+	c.processorEventLoop = statemachine.NewProcessorEventLoop(statemachine.ProcessorEventLoopConfig[State, *coordinator]{
+		InitialState:        initialState,
+		Definitions:         stateDefinitionsMap,
+		Entity:              c,
+		EventLoopBufferSize: 50, // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		Name:                fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
+		OnStop: func(ctx context.Context) common.Event {
+			// Return the final event to process when stopping
+			return &CoordinatorClosedEvent{}
+		},
+		TransitionCallback: c.onStateTransition,
+		PreProcess:         c.preProcessEvent,
+	})
 }
 
-// Process a state machine event immediately. Should only be called on the sequencer loop, or in tests to avoid timing conditions
-func (c *coordinator) ProcessEvent(ctx context.Context, event common.Event) error {
-	log.L(ctx).Debugf("coordinator handling new event %s (contract address %s, active coordinator %s, current originator pool %+v)", event.TypeString(), c.contractAddress, c.activeCoordinatorNode, c.originatorNodePool)
-
+// preProcessEvent handles events that should be processed before the state machine.
+// Returns (true, nil) if the event was fully handled and should not be passed to the processor.
+func (c *coordinator) preProcessEvent(ctx context.Context, entity *coordinator, event common.Event) (bool, error) {
+	// Transaction events are propagated to the transaction state machine, not the coordinator state machine
 	if transactionEvent, ok := event.(transaction.Event); ok {
 		log.L(ctx).Debugf("coordinator propagating event %s to transactions: %s", event.TypeString(), transactionEvent.TypeString())
-		return c.propagateEventToTransaction(ctx, transactionEvent)
+		return true, c.propagateEventToTransaction(ctx, transactionEvent)
 	}
-
-	//determine whether this event is valid for the current state
-	eventHandler, err := c.evaluateEvent(ctx, event)
-	if err != nil || eventHandler == nil {
-		return err
-	}
-
-	// If we get here, the state machine has defined a rule for handling this event. Apply the event to the coordinator to
-	// update the internal state so that the guards and actions defined in the state machine can reference the new internal
-	// state of the coordinator
-	err = c.applyEvent(ctx, event)
-	if err != nil {
-		return err
-	}
-
-	err = c.performActions(ctx, *eventHandler)
-	if err != nil {
-		return err
-	}
-
-	//Determine whether this event triggers a state transition
-	err = c.evaluateTransitions(ctx, event, *eventHandler)
-	log.L(ctx).Debugf("coordinator handled new event %s (contract address %s)", event.TypeString(), c.contractAddress)
-
-	return err
+	return false, nil
 }
 
-// Queue a state machine event for the sequencer loop to process. Should be called by most Paladin components to ensure memory integrity of
+// onStateTransition is called when the state machine transitions to a new state
+func (c *coordinator) onStateTransition(ctx context.Context, entity *coordinator, from State, to State, event common.Event) {
+	// TODO AM: this is a strong candidate for common logging/metrics
+	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf(
+		"coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, from.String(), to.String())
+	c.heartbeatIntervalsSinceStateChange = 0
+}
+
+// QueueEvent asynchronously queues a state machine event for processing.
+// Should be called by most Paladin components to ensure memory integrity of
 // sequencer state machine and transactions.
 func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
-	log.L(ctx).Tracef("coordinator pushing event onto event queue: %s", event.TypeString())
-	c.coordinatorEvents <- event
-	log.L(ctx).Tracef("coordinator pushed event onto event queue: %s", event.TypeString())
+	c.processorEventLoop.QueueEvent(ctx, event)
 }
 
-// Function evaluateEvent evaluates whether the event is relevant given the current state of the coordinator
-func (c *coordinator) evaluateEvent(ctx context.Context, event common.Event) (*EventHandler, error) {
-	sm := c.stateMachine
+// Event action functions - these apply event-specific data to the coordinator's internal state
+// They are defined in the state machine definitions via the OnEvent field
 
-	//Determine if and how this event applies in the current state and which, if any, transition it triggers
-	eventHandlers := stateDefinitionsMap[sm.currentState].Events
-	eventHandler, isHandlerDefined := eventHandlers[event.Type()]
-	if isHandlerDefined {
-		//By default all events in the list are applied unless there is a validator function and it returns false
-		if eventHandler.Validator != nil {
-			valid, err := eventHandler.Validator(ctx, c, event)
-			if err != nil {
-				//This is an unexpected error.  If the event is invalid, the validator should return false and not an error
-				log.L(ctx).Errorf("error validating event %s: %v", event.TypeString(), err)
-				return nil, err
-			}
-			if !valid {
-				// This is perfectly normal sometimes an event happens and is no longer relevant to the transaction so we just ignore it and move on.
-				// We log a warning in case it's not a late-delivered message but something that needs looking in to
-				log.L(ctx).Warnf("coordinator event %s is not valid for current state %s: %t", event.TypeString(), sm.currentState.String(), valid)
-				return nil, nil
-			}
-		}
-		return &eventHandler, nil
-	}
-
-	return nil, nil
+func eventAction_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsDelegatedEvent)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
 }
 
-// Function applyEvent updates the internal state of the coordinator with information from the event
-// this happens before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the coordinator after this event has been applied
-func (c *coordinator) applyEvent(ctx context.Context, event common.Event) error {
-	var err error
-	// First apply the event to the update the internal fine grained state of the coordinator if there is any handler registered for the current state
-	switch event := event.(type) {
-	case *TransactionsDelegatedEvent:
-		err = c.addToDelegatedTransactions(ctx, event.Originator, event.Transactions)
-	case *TransactionConfirmedEvent:
-		//This may be a confirmation of a transaction that we have have been coordinating or it may be one that another coordinator has been coordinating
-		//if the latter, then we may or may not know about it depending on whether we have seen a heartbeat from that coordinator since last time
-		// we were loaded into memory
-		//TODO - we can't actually guarantee that we have all transactions we dispatched in memory.
-		//Even assuming that the public txmgr is in the same process (may not be true forever)  and assuming that we haven't been swapped out ( likely not to be true very soon) there is still a chance that the transaction was submitted to the base ledger, then the process restarted then we get the confirmation.
-		// //When the process starts, we need to make sure that the coordinator is pre loaded with knowledge of all transactions that it has dispatched
-		// MRW TODO ^^
-		isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, event.TxID, event.From, event.Nonce, event.Hash, event.RevertReason)
-		if err != nil {
-			log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %d, Hash: %v: %v", event.From, event.Nonce, event.Hash, err)
-			return err
-		}
-		if !isDispatchedTransaction {
-			c.confirmMonitoredTransaction(ctx, event.From, event.Nonce)
-		}
-	case *transaction.AssembleSuccessEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *transaction.AssembleRevertResponseEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *transaction.TransactionUnknownByOriginatorEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *TransactionDispatchConfirmedEvent:
-		err = c.propagateEventToTransaction(ctx, event)
-	case *NewBlockEvent:
-		c.currentBlockHeight = event.BlockHeight
-	case *EndorsementRequestedEvent:
-		c.activeCoordinatorNode = event.From
-		c.coordinatorActive(c.contractAddress, event.From)
-		c.UpdateOriginatorNodePool(ctx, event.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	case *HeartbeatReceivedEvent:
-		c.activeCoordinatorNode = event.From
-		c.activeCoordinatorBlockHeight = event.BlockHeight
-		c.coordinatorActive(c.contractAddress, event.From)
-		c.UpdateOriginatorNodePool(ctx, event.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-		for _, flushPoint := range event.FlushPoints {
-			c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-		}
-	case *common.HeartbeatIntervalEvent:
-		c.heartbeatIntervalsSinceStateChange++
-	}
+func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionConfirmedEvent)
+	//This may be a confirmation of a transaction that we have have been coordinating or it may be one that another coordinator has been coordinating
+	//if the latter, then we may or may not know about it depending on whether we have seen a heartbeat from that coordinator since last time
+	// we were loaded into memory
+	//TODO - we can't actually guarantee that we have all transactions we dispatched in memory.
+	//Even assuming that the public txmgr is in the same process (may not be true forever)  and assuming that we haven't been swapped out ( likely not to be true very soon) there is still a chance that the transaction was submitted to the base ledger, then the process restarted then we get the confirmation.
+	// //When the process starts, we need to make sure that the coordinator is pre loaded with knowledge of all transactions that it has dispatched
+	// MRW TODO ^^
+	isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, e.TxID, e.From, e.Nonce, e.Hash, e.RevertReason)
 	if err != nil {
-		log.L(ctx).Errorf("error applying event %v: %v", event.Type(), err)
+		log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %d, Hash: %v: %v", e.From, e.Nonce, e.Hash, err)
+		return err
 	}
-	return err
-}
-
-func (c *coordinator) performActions(ctx context.Context, eventHandler EventHandler) error {
-	for _, rule := range eventHandler.Actions {
-		if rule.If == nil || rule.If(ctx, c) {
-			err := rule.Action(ctx, c)
-			if err != nil {
-				//any recoverable errors should have been handled by the action function
-				log.L(ctx).Errorf("error applying action: %v", err)
-				return err
-			}
-		}
+	if !isDispatchedTransaction {
+		c.confirmMonitoredTransaction(ctx, e.From, e.Nonce)
 	}
 	return nil
 }
 
-func (c *coordinator) evaluateTransitions(ctx context.Context, event common.Event, eventHandler EventHandler) error {
-	sm := c.stateMachine
+func eventAction_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*NewBlockEvent)
+	c.currentBlockHeight = e.BlockHeight
+	return nil
+}
 
-	for _, rule := range eventHandler.Transitions {
-		if rule.If == nil || rule.If(ctx, c) { //if there is no guard defined, or the guard returns true
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, sm.currentState.String(), rule.To.String())
-			sm.currentState = rule.To
-			newStateDefinition := stateDefinitionsMap[sm.currentState]
-			//run any actions specific to the transition first
-			if rule.On != nil {
-				err := rule.On(ctx, c)
-				if err != nil {
-					//any recoverable errors should have been handled by the action function
-					log.L(ctx).Errorf("error transitioning coordinator to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
+func eventAction_EndorsementRequested(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*EndorsementRequestedEvent)
+	c.activeCoordinatorNode = e.From
+	c.coordinatorActive(c.contractAddress, e.From)
+	c.UpdateOriginatorNodePool(ctx, e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	return nil
+}
 
-			// then run any actions for the state entry
-			if newStateDefinition.OnTransitionTo != nil {
-				err := newStateDefinition.OnTransitionTo(ctx, c)
-				if err != nil {
-					// any recoverable errors should have been handled by the OnTransitionTo function
-					log.L(ctx).Errorf("error transitioning coordinator to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
-			c.heartbeatIntervalsSinceStateChange = 0
-			break
-		}
+func eventAction_HeartbeatReceived(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*HeartbeatReceivedEvent)
+	c.activeCoordinatorNode = e.From
+	c.activeCoordinatorBlockHeight = e.BlockHeight
+	c.coordinatorActive(c.contractAddress, e.From)
+	c.UpdateOriginatorNodePool(ctx, e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	for _, flushPoint := range e.FlushPoints {
+		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
 	return nil
+}
 
+func eventAction_HeartbeatInterval(ctx context.Context, c *coordinator, event common.Event) error {
+	c.heartbeatIntervalsSinceStateChange++
+	return nil
+}
+
+func eventAction_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionStateTransitionEvent)
+
+	// If a transaction has transitioned to Pooled, add it to the pool queue
+	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction
+	// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
+	// node. If a transaction needs re-assembly after a revert, it will be processed after
+	// a new transaction that hasn't ever been assembled.
+	if e.To == transaction.State_Pooled {
+		txn := c.transactionsByID[e.TransactionID]
+		if txn != nil {
+			c.AddTransactionToBackOfPool(ctx, txn)
+		}
+	}
+
+	// If a transaction has transitioned to Ready_For_Dispatch, queue it for dispatch
+	if e.To == transaction.State_Ready_For_Dispatch {
+		txn := c.transactionsByID[e.TransactionID]
+		if txn != nil {
+			c.dispatchQueue <- txn
+		}
+	}
+
+	// If a transaction has reached its final state, clean it up from the coordinator
+	if e.To == transaction.State_Final {
+		delete(c.transactionsByID, e.TransactionID)
+		c.metrics.DecCoordinatingTransactions()
+		err := c.grapher.Forget(e.TransactionID)
+		if err != nil {
+			log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
+		}
+		log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+	}
+
+	return nil
 }
 
 func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {
@@ -418,7 +394,7 @@ func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 	}
 
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
-	return c.selectNextTransactionToAssemble(ctx, nil)
+	return c.selectNextTransactionToAssemble(ctx)
 }
 
 func action_Idle(ctx context.Context, c *coordinator) error {
@@ -426,6 +402,23 @@ func action_Idle(ctx context.Context, c *coordinator) error {
 	if c.heartbeatCancel != nil {
 		c.heartbeatCancel()
 	}
+	return nil
+}
+
+func action_NudgeDispatchLoop(ctx context.Context, c *coordinator) error {
+	// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
+	c.inFlightMutex.L.Lock()
+	defer c.inFlightMutex.L.Unlock()
+	clear(c.inFlightTxns)
+	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
+	for _, txn := range dispatchingTransactions {
+		if txn.PreparedPrivateTransaction == nil {
+			// We don't count transactions that result in new private transactions
+			c.inFlightTxns[txn.ID] = txn
+		}
+	}
+	log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))
+	c.inFlightMutex.Signal()
 	return nil
 }
 
@@ -440,6 +433,8 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
 		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
 		if err != nil {
+			// This is currently unreachable because the heartbeat interval event only causes a transaction
+			// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
 			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
 		}
 

@@ -27,10 +27,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -38,26 +38,35 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
+// SeqCoordinaor is the interface that consumers should use to interact with the coordinator.
+// It should only expose the following types of function
+// - lifecycle functions (currently just stop)
+// - event queueing: this should be the only way consumers are able to modify the state of the coordinator
+// - getter functions: these can return the internal state of the coordinator but must be thread safe
+//
+// GetActiveCoordinatorNode and UpdateOriginatorNodePool are currently exceptions to this pattern and need to be removed
 type SeqCoordinator interface {
-	// Asynchronously update the state machine by queueing an event to be processed. Most
-	// callers should use this interface.
+	// Asynchronously update the state machine by queueing an event to be processed
+	// This is the only interface by which consumers should update the state of the coordinator
 	QueueEvent(ctx context.Context, event common.Event)
 
-	// Synchronously update the state machine by processing this event. Primarily used for testing the state machine.
-	ProcessEvent(ctx context.Context, event common.Event) error
-
-	// Manage the state of the coordinator
-	GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string
-	SelectActiveCoordinatorNode(ctx context.Context) (string, error)
+	// Query the state of the coordinator
 	GetCurrentState() State
-	UpdateOriginatorNodePool(ctx context.Context, originatorNode string)
-
-	// Transactions being sequencer (here or elsewhere)
 	GetTransactionsReadyToDispatch(ctx context.Context) ([]*components.PrivateTransaction, error)
 	GetTransactionByID(ctx context.Context, txID uuid.UUID) *transaction.Transaction
+	// The name of this function gives the impression that it is modifying state but it is actually
+	// using the existing state as the input to the algorithm that chooses the current active coordinator.
+	// It returns the name of this node, but doesn't make it the active coordinator
+	SelectActiveCoordinatorNode(ctx context.Context) (string, error)
+
+	// DANGEROUS- THIS FUNCTIONS MODIFIES STATE OUTSIDE OF THE STATE MACHINE WHEN initIfNoActiveCoordinator IS TRUE
+	GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string
+	// DANGEROUS- THIS FUNCTIONS MODIFIES STATE OUTSIDE OF THE STATE MACHINE
+	UpdateOriginatorNodePool(ctx context.Context, originatorNode string)
 
 	// Lifecycle
 	Stop()
@@ -67,18 +76,20 @@ type coordinator struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
-	/* State */
-	stateMachine                               *StateMachine
+	mutex sync.RWMutex // Mutex for thread-safe event processing (implements statemachine.Lockable)
+
+	/* State machine - using generic statemachine.ProcessorEventLoop */
+	processorEventLoop                         *statemachine.ProcessorEventLoop[State, *coordinator]
 	activeCoordinatorNode                      string
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
 	heartbeatInterval                          common.Duration
 	transactionsByID                           map[uuid.UUID]*transaction.Transaction
-	pooledTransactionsMutex                    sync.RWMutex
 	pooledTransactions                         []*transaction.Transaction
 	currentBlockHeight                         uint64
 	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.FlushPoint
 	grapher                                    transaction.Grapher
+	originatorNodePool                         []string // The (possibly changing) list of originator nodes
 
 	/* Config */
 	contractAddress                *pldtypes.EthAddress
@@ -86,8 +97,6 @@ type coordinator struct {
 	closingGracePeriod             int // expressed as a multiple of heartbeat intervals
 	requestTimeout                 common.Duration
 	assembleTimeout                common.Duration
-	originatorNodePool             []string // The (possibly changing) list of originator nodes
-	originatorNodePoolMutex        sync.RWMutex
 	nodeName                       string
 	coordinatorSelectionBlockRange uint64
 	maxInflightTransactions        int
@@ -107,13 +116,6 @@ type coordinator struct {
 	heartbeatCancel   context.CancelFunc
 	metrics           metrics.DistributedSequencerMetrics
 
-	/*Algorithms*/
-	transactionSelector TransactionSelector
-
-	/* Event loop */
-	coordinatorEvents chan common.Event
-	stopEventLoop     chan struct{}
-	eventLoopStopped  chan struct{}
 	/* Dispatch loop */
 	dispatchQueue       chan *transaction.Transaction
 	stopDispatchLoop    chan struct{}
@@ -160,15 +162,14 @@ func NewCoordinator(
 		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
-		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		stopEventLoop:                      make(chan struct{}),
-		eventLoopStopped:                   make(chan struct{}),
 		stopDispatchLoop:                   make(chan struct{}),
 		dispatchLoopStopped:                make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0)
-	c.InitializeStateMachine(State_Idle)
-	c.transactionSelector = NewTransactionSelector(ctx, c)
+
+	// Initialize the processor event loop (state machine + event loop combined)
+	c.initializeProcessorEventLoop(State_Idle)
+
 	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
@@ -183,8 +184,8 @@ func NewCoordinator(
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
-	// Start event processing loop
-	go c.eventLoop(ctx)
+	// Start the processor event loop
+	go c.processorEventLoop.Start(ctx)
 
 	// Start dispatch queue loop
 	go c.dispatchLoop(ctx)
@@ -195,29 +196,127 @@ func NewCoordinator(
 	return c, nil
 }
 
-func (c *coordinator) eventLoop(ctx context.Context) {
-	defer close(c.eventLoopStopped)
-	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
-	for {
-		select {
-		case event := <-c.coordinatorEvents:
-			log.L(ctx).Debugf("coordinator for contract %s pulled event from the queue: %s", c.contractAddress.String(), event.TypeString())
-			err := c.ProcessEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error processing event: %v", err)
-			}
-		case <-c.stopEventLoop:
-			// Synchronously move the state machine to closed
-			err := c.ProcessEvent(ctx, &CoordinatorClosedEvent{})
-			if err != nil {
-				// Log internal error
-				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error processing coordinator closed event for contract %s: %v", c.contractAddress.String(), err)
-				log.L(ctx).Error(err)
-			}
-			log.L(ctx).Debugf("coordinator event loop stopped for contract %s", c.contractAddress.String())
-			return
+// Lock implements statemachine.Lockable interface.
+// Called by the ProcessorEventLoop before processing each event.
+func (c *coordinator) Lock() {
+	c.mutex.Lock()
+}
+
+// Unlock implements statemachine.Lockable interface.
+// Called by the ProcessorEventLoop after processing each event.
+func (c *coordinator) Unlock() {
+	c.mutex.Unlock()
+}
+
+func (c *coordinator) GetCurrentState() State {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.processorEventLoop.GetCurrentState()
+}
+
+func (c *coordinator) GetTransactionByID(_ context.Context, txnID uuid.UUID) *transaction.Transaction {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.transactionsByID[txnID]
+}
+
+func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string {
+	if initIfNoActiveCoordinator && c.activeCoordinatorNode == "" {
+		// If we don't yet have an active coordinator, select one based on the appropriate algorithm for the contract type
+		activeCoordinator, err := c.SelectActiveCoordinatorNode(ctx)
+		if err != nil {
+			log.L(ctx).Errorf("error selecting next active coordinator: %v", err)
+			return ""
 		}
+		c.activeCoordinatorNode = activeCoordinator
 	}
+	return c.activeCoordinatorNode
+}
+
+func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, error) {
+	coordinatorNode := ""
+	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {
+		// E.g. Noto
+		if c.domainAPI.ContractConfig().GetStaticCoordinator() == "" {
+			return "", i18n.NewError(ctx, "static coordinator mode is configured but static coordinator node is not set")
+		}
+		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in static coordinator mode", c.domainAPI.ContractConfig().GetStaticCoordinator())
+		// If the static coordinator returns a fully qualified identity extract just the node name
+
+		coordinator, err := pldtypes.PrivateIdentityLocator(c.domainAPI.ContractConfig().GetStaticCoordinator()).Node(ctx, false)
+		if err != nil {
+			log.L(ctx).Errorf("error getting static coordinator node id for %s: %s", c.domainAPI.ContractConfig().GetStaticCoordinator(), err)
+			return "", err
+		}
+		coordinatorNode = coordinator
+	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_ENDORSER {
+		// E.g. Pente
+		// Make a fair choice about the next coordinator
+		if len(c.originatorNodePool) == 0 {
+			log.L(ctx).Warnf("no pool to select a coordinator from yet")
+			return "", nil
+		} else {
+			c.mutex.RLock()
+			defer c.mutex.RUnlock()
+			// Round block number down to the nearest block range (e.g. block 1012, 1013, 1014 etc. all become 1000 for hashing)
+			effectiveBlockNumber := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
+
+			// Take a numeric hash of the identities using the current block range
+			h := fnv.New32a()
+			h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
+			coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
+			log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
+		}
+	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_SENDER {
+		// E.g. Zeto
+		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in originator coordinator mode", c.nodeName)
+		coordinatorNode = c.nodeName
+	}
+
+	log.L(ctx).Debugf("selected active coordinator for contract %s: %s", c.contractAddress.String(), coordinatorNode)
+
+	return coordinatorNode, nil
+}
+
+// The originator node pool is the list of all parties who should receive heartbeats, and who are
+// eligible to be chosen as the coordinator for ContractConfig_COORDINATOR_ENDORSER domains such as Pente
+func (c *coordinator) UpdateOriginatorNodePool(ctx context.Context, originatorNode string) {
+	log.L(ctx).Debugf("updating originator node pool for contract %s with node %s", c.contractAddress.String(), originatorNode)
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if !slices.Contains(c.originatorNodePool, originatorNode) {
+		c.originatorNodePool = append(c.originatorNodePool, originatorNode)
+	}
+	if !slices.Contains(c.originatorNodePool, c.nodeName) {
+		// As coordinator we should always be in the pool as it's used to select the next coordinator when necessary
+		c.originatorNodePool = append(c.originatorNodePool, c.nodeName)
+	}
+	slices.Sort(c.originatorNodePool)
+}
+
+// A coordinator may be required to stop if this node has reached its capacity. The node may still need to
+// have an active sequencer for the contract address since it may be the only originator that can honour dispatch
+// requests from another coordinator, but this node is no longer acting as the coordinator.
+func (c *coordinator) Stop() {
+	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
+
+	// Make Stop() idempotent - check if already stopped
+	if c.processorEventLoop.IsStopped() {
+		return
+	}
+
+	// Stop the processor event loop (will process final CoordinatorClosedEvent)
+	c.processorEventLoop.Stop()
+
+	// Stop the dispatch loop
+	c.stopDispatchLoop <- struct{}{}
+	<-c.dispatchLoopStopped
+
+	// Stop the loopback goroutine
+	c.transportWriter.StopLoopbackWriter()
+
+	// Cancel this coordinator's context which will cancel any timers started
+	c.cancelCtx()
 }
 
 func (c *coordinator) dispatchLoop(ctx context.Context) {
@@ -277,80 +376,6 @@ func (c *coordinator) sendHandoverRequest(ctx context.Context) {
 	}
 }
 
-func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string {
-	if initIfNoActiveCoordinator && c.activeCoordinatorNode == "" {
-		// If we don't yet have an active coordinator, select one based on the appropriate algorithm for the contract type
-		activeCoordinator, err := c.SelectActiveCoordinatorNode(ctx)
-		if err != nil {
-			log.L(ctx).Errorf("error selecting next active coordinator: %v", err)
-			return ""
-		}
-		c.activeCoordinatorNode = activeCoordinator
-	}
-	return c.activeCoordinatorNode
-}
-
-func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, error) {
-	coordinatorNode := ""
-	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {
-		// E.g. Noto
-		if c.domainAPI.ContractConfig().GetStaticCoordinator() == "" {
-			return "", i18n.NewError(ctx, "static coordinator mode is configured but static coordinator node is not set")
-		}
-		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in static coordinator mode", c.domainAPI.ContractConfig().GetStaticCoordinator())
-		// If the static coordinator returns a fully qualified identity extract just the node name
-
-		coordinator, err := pldtypes.PrivateIdentityLocator(c.domainAPI.ContractConfig().GetStaticCoordinator()).Node(ctx, false)
-		if err != nil {
-			log.L(ctx).Errorf("error getting static coordinator node id for %s: %s", c.domainAPI.ContractConfig().GetStaticCoordinator(), err)
-			return "", err
-		}
-		coordinatorNode = coordinator
-	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_ENDORSER {
-		// E.g. Pente
-		// Make a fair choice about the next coordinator
-		if len(c.originatorNodePool) == 0 {
-			log.L(ctx).Warnf("no pool to select a coordinator from yet")
-			return "", nil
-		} else {
-			c.originatorNodePoolMutex.RLock()
-			defer c.originatorNodePoolMutex.RUnlock()
-			// Round block number down to the nearest block range (e.g. block 1012, 1013, 1014 etc. all become 1000 for hashing)
-			effectiveBlockNumber := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
-
-			// Take a numeric hash of the identities using the current block range
-			h := fnv.New32a()
-			h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
-			coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
-			log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
-		}
-	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_SENDER {
-		// E.g. Zeto
-		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in originator coordinator mode", c.nodeName)
-		coordinatorNode = c.nodeName
-	}
-
-	log.L(ctx).Debugf("selected active coordinator for contract %s: %s", c.contractAddress.String(), coordinatorNode)
-
-	return coordinatorNode, nil
-}
-
-// The originator node pool is the list of all parties who should receive heartbeats, and who are
-// eligible to be chosen as the coordinator for ContractConfig_COORDINATOR_ENDORSER domains such as Pente
-func (c *coordinator) UpdateOriginatorNodePool(ctx context.Context, originatorNode string) {
-	log.L(ctx).Debugf("updating originator node pool for contract %s with node %s", c.contractAddress.String(), originatorNode)
-	c.originatorNodePoolMutex.Lock()
-	defer c.originatorNodePoolMutex.Unlock()
-	if !slices.Contains(c.originatorNodePool, originatorNode) {
-		c.originatorNodePool = append(c.originatorNodePool, originatorNode)
-	}
-	if !slices.Contains(c.originatorNodePool, c.nodeName) {
-		// As coordinator we should always be in the pool as it's used to select the next coordinator when necessary
-		c.originatorNodePool = append(c.originatorNodePool, c.nodeName)
-	}
-	slices.Sort(c.originatorNodePool)
-}
-
 // TODO consider renaming to setDelegatedTransactionsForOriginator to make it clear that we expect originators to include all inflight transactions in every delegation request and therefore this is
 // a replace, not an add.  Need to finalize the decision about whether we expect the originator to include all inflight delegated transactions in every delegation request. Currently the code assumes we do so need to make the spec clear on that point and
 // record a decision record to explain why.  Every  time we come back to this point, we will be tempted to reverse that decision so we need to make sure we have a record of the known consequences.
@@ -375,7 +400,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			txn,
 			c.transportWriter,
 			c.clock,
-			c.ProcessEvent,
+			c.QueueEvent,
 			c.engineIntegration,
 			c.syncPoints,
 			c.requestTimeout,
@@ -383,49 +408,13 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.closingGracePeriod,
 			c.grapher,
 			c.metrics,
-			c.AddTransactionToBackOfPool,
-			c.queueForDispatch,
 			func(ctx context.Context, t *transaction.Transaction, to, from transaction.State) {
-				// TX state changed, check if we need to be selecting the next transaction for this sequencer
-				//TODO the following logic should be moved to the state machine so that all the rules are in one place
-				if c.stateMachine.currentState == State_Active {
-					if from == transaction.State_Assembling || to == transaction.State_Pooled {
-						err := c.selectNextTransactionToAssemble(ctx, &TransactionStateTransitionEvent{
-							TransactionID: t.ID,
-							From:          from,
-							To:            to,
-						})
-						if err != nil {
-							log.L(ctx).Errorf("error selecting next transaction after transaction %s moved from %s to %s: %v", t.ID.String(), from.String(), to.String(), err)
-							//TODO figure out how to get this to the abend handler
-						}
-					}
-				}
-
-				// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
-				c.inFlightMutex.L.Lock()
-				defer c.inFlightMutex.L.Unlock()
-				clear(c.inFlightTxns)
-				dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
-				for _, txn := range dispatchingTransactions {
-					if txn.PreparedPrivateTransaction == nil {
-						// We don't count transactions the result in new private transactions
-						c.inFlightTxns[txn.ID] = txn
-					}
-				}
-				log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))
-				c.inFlightMutex.Signal()
-			},
-			func(ctx context.Context) {
-				// TX cleaned up after confirmation & sufficient heartbeats
-				delete(c.transactionsByID, txn.ID)
-				c.metrics.DecCoordinatingTransactions()
-				err := c.grapher.Forget(txn.ID)
-
-				if err != nil {
-					log.L(ctx).Errorf("error forgetting transaction %s: %v", txn.ID.String(), err)
-				}
-				log.L(ctx).Debugf("transaction %s cleaned up", txn.ID.String())
+				// TX state changed - notify the coordinator state machine
+				c.QueueEvent(ctx, &TransactionStateTransitionEvent{
+					TransactionID: t.ID,
+					From:          from,
+					To:            to,
+				})
 			},
 		)
 		if err != nil {
@@ -462,10 +451,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		}
 	}
 	return nil
-}
-
-func (c *coordinator) queueForDispatch(ctx context.Context, txn *transaction.Transaction) {
-	c.dispatchQueue <- txn
 }
 
 func (c *coordinator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
@@ -599,37 +584,4 @@ func (c *coordinator) confirmMonitoredTransaction(_ context.Context, from *pldty
 
 func ptrTo[T any](v T) *T {
 	return &v
-}
-
-// A coordinator may be required to stop if this node has reached its capacity. The node may still need to
-// have an active sequencer for the contract address since it may be the only originator that can honour dispatch
-// requests from another coordinator, but this node is no longer acting as the coordinator.
-func (c *coordinator) Stop() {
-	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
-
-	// Make Stop() idempotent - make sure we've not already been stopped
-	select {
-	case <-c.eventLoopStopped:
-		return
-	default:
-	}
-
-	// Stop the event and dispatch loops
-	c.stopEventLoop <- struct{}{}
-	c.stopDispatchLoop <- struct{}{}
-	<-c.eventLoopStopped
-	<-c.dispatchLoopStopped
-
-	// Stop the loopback goroutine
-	c.transportWriter.StopLoopbackWriter()
-
-	// Cancel this coordinator's context which will cancel any timers started
-	c.cancelCtx()
-}
-
-//TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
-// We should consider making them safe to call from any goroutine by maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
-
-func (c *coordinator) GetCurrentState() State {
-	return c.stateMachine.currentState
 }

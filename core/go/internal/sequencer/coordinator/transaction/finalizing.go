@@ -27,11 +27,6 @@ func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transa
 	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
 }
 
-func action_Cleanup(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_Cleanup - cleaning up transaction %s", txn.ID.String())
-	return txn.cleanup(ctx)
-}
-
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
 // a transaction. The most likely cause is that the transaction reached a terminal state (e.g. reverted
 // during assembly) but the response was lost, and the transaction has since been removed from memory

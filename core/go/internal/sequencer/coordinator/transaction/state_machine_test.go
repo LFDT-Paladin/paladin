@@ -41,10 +41,9 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		},
 		transportWriter,
 		clock,
-		func(ctx context.Context, event common.Event) error {
+		func(ctx context.Context, event common.Event) {
 			//don't expect any events during initialize
 			assert.Failf(t, "unexpected event", "%T", event)
-			return nil
 		},
 		engineIntegration,
 		syncPoints,
@@ -53,10 +52,7 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		5,
 		NewGrapher(ctx),
 		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
+		nil, // onStateTransition, not used in tests
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, txn)

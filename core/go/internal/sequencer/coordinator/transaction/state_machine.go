@@ -334,7 +334,7 @@ func init() {
 			},
 		},
 		State_Final: {
-			OnTransitionTo: action_Cleanup,
+			// Cleanup is handled by the coordinator in response to the state transition event
 		},
 	}
 }
@@ -417,11 +417,7 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 				seqRevertEvent := &AssembleRevertResponseEvent{}
 				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
 				seqRevertEvent.TransactionID = t.ID
-				err = t.eventHandler(ctx, seqRevertEvent)
-				if err != nil {
-					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
-					log.L(ctx).Error(handlerErr)
-				}
+				t.eventHandler(ctx, seqRevertEvent)
 				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
 				// Return the original error
 				return err
@@ -499,16 +495,6 @@ func (t *Transaction) evaluateTransitions(ctx context.Context, event common.Even
 					log.L(ctx).Errorf("error transitioning coordinator transaction to state %v: %v", sm.currentState, err)
 					return err
 				}
-			}
-
-			// For pooled transactions, when we are pooling (or re-pooling) we push the tranasction
-			// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
-			// node. If a transaction needs re-assembly after a revert, it will be processed after
-			// a new transaction that hasn't ever been assembled. transactionsById is unordered so we
-			// maintain a separate queue to achieve ordered behaviour.
-			if rule.To == State_Pooled {
-				// Push to the back of the pooled transactions queue
-				t.addToPool(ctx, t)
 			}
 
 			// if there is a state change notification function, run it

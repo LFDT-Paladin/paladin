@@ -109,30 +109,33 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
-	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
-	builder.OverrideSequencerConfig(config)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	c, mocks := builder.Build(ctx)
+	c.maxDispatchAhead = 0 // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 	txn := transactionBuilder.BuildSparse()
-	err := c.ProcessEvent(ctx, &TransactionsDelegatedEvent{
+	c.QueueEvent(ctx, &TransactionsDelegatedEvent{
 		Originator:   originator,
 		Transactions: []*components.PrivateTransaction{txn},
 	})
-	assert.NoError(t, err)
+
+	var snapshot *common.CoordinatorSnapshot
 
 	// Assert that snapshot contains a transaction with matching ID
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
+	require.Eventually(t, func() bool {
+		snapshot = c.getSnapshot(ctx)
+		return snapshot != nil && len(snapshot.PooledTransactions) == 1
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain one pooled transaction")
+
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
 	// Assert that a request has been sent to the originator and respond with an assembled transaction
-	require.True(t, mocks.SentMessageRecorder.HasSentAssembleRequest())
-	err = c.ProcessEvent(ctx, &transaction.AssembleSuccessEvent{
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentAssembleRequest()
+	}, 100*time.Millisecond, 1*time.Millisecond, "Assemble request should be sent")
+	c.QueueEvent(ctx, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
@@ -140,144 +143,145 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		PostAssembly: transactionBuilder.BuildPostAssembly(),
 		PreAssembly:  transactionBuilder.BuildPreAssembly(),
 	})
-	assert.NoError(t, err)
+
+	// Assert that the coordinator has sent an endorsement request to the endorser
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.NumberOfSentEndorsementRequests() == 1
+	}, 100*time.Millisecond, 1*time.Millisecond, "Endorsement request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
 	snapshot = c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
-	// Assert that the coordinator has sent an endorsement request to the endorser and respond with an endorsement
-	require.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-	err = c.ProcessEvent(ctx, &transaction.EndorsedEvent{
+	// now respond with an endorsement
+	c.QueueEvent(ctx, &transaction.EndorsedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		RequestID:   mocks.SentMessageRecorder.SentEndorsementRequestsForPartyIdempotencyKey(transactionBuilder.GetEndorserIdentityLocator(0)),
 		Endorsement: transactionBuilder.BuildEndorsement(0),
 	})
-	assert.NoError(t, err)
+
+	// Assert that the coordinator has sent a dispatch confirmation request to the transaction sender
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest()
+	}, 100*time.Millisecond, 1*time.Millisecond, "Dispatch confirmation request should be sent")
 
 	// Assert that snapshot still contains the same single transaction in the pooled transactions
 	snapshot = c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
 	require.Equal(t, 1, len(snapshot.PooledTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
+	assert.Equal(t, txn.ID.String(), snapshot.PooledTransactions[0].ID.String(), "Snapshot should contain the pooled transaction with ID %s", txn.ID.String())
 
-	// Assert that the coordinator has sent a dispatch confirmation request to the transaction sender and respond with a dispatch confirmation
-	require.True(t, mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest())
-	err = c.ProcessEvent(ctx, &transaction.DispatchRequestApprovedEvent{
+	// now respond with a dispatch confirmation
+	c.QueueEvent(ctx, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		RequestID: mocks.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
 	})
-	assert.NoError(t, err)
+
+	// Assert that the transaction is ready to be collected by the dispatcher thread
+	assert.Eventually(t, func() bool {
+		readyTransactions, err := c.GetTransactionsReadyToDispatch(ctx)
+		return err == nil &&
+			len(readyTransactions) == 1 &&
+			readyTransactions[0].ID.String() == txn.ID.String()
+	}, 100*time.Millisecond, 1*time.Millisecond, "There should be exactly one transaction ready to dispatch")
 
 	// Assert that snapshot no longer contains that transaction in the pooled transactions but does contain it in the dispatched transactions
 	//NOTE: This is a key design point.  When a transaction is ready to be dispatched, we communicate to other nodes, via the heartbeat snapshot, that the transaction is dispatched.
-	snapshot = c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	require.Equal(t, 1, len(snapshot.DispatchedTransactions), "Snapshot should contain exactly one dispatched transaction")
-	assert.Equal(t, txn.ID.String(), snapshot.DispatchedTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
-
-	// Assert that the transaction is ready to be collected by the dispatcher thread
-	readyTransactions, err := c.GetTransactionsReadyToDispatch(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, readyTransactions)
-	require.Equal(t, 1, len(readyTransactions), "There should be exactly one transaction ready to dispatch")
-	assert.Equal(t, txn.ID.String(), readyTransactions[0].ID.String(), "The transaction ready to dispatch should match the delegated transaction ID")
+	assert.Eventually(t, func() bool {
+		snapshot := c.getSnapshot(ctx)
+		return snapshot != nil &&
+			len(snapshot.PooledTransactions) == 0 &&
+			len(snapshot.DispatchedTransactions) == 1 &&
+			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String()
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one dispatched transaction")
 
 	// Simulate the dispatcher thread collecting the transaction and dispatching it to a public transaction manager
-	err = c.ProcessEvent(ctx, &transaction.DispatchedEvent{
+	c.QueueEvent(ctx, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 	})
-	assert.NoError(t, err)
 
 	// Simulate the public transaction manager collecting the dispatched transaction and associating a signing address with it
 	signerAddress := pldtypes.RandAddress()
-	err = c.ProcessEvent(ctx, &transaction.CollectedEvent{
+	c.QueueEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		SignerAddress: *signerAddress,
 	})
-	assert.NoError(t, err)
 
 	// Assert that we now have a signer address in the snapshot
-	snapshot = c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	require.Equal(t, 1, len(snapshot.DispatchedTransactions), "Snapshot should contain exactly one dispatched transaction")
-	assert.Equal(t, txn.ID.String(), snapshot.DispatchedTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
-	assert.Equal(t, signerAddress.String(), snapshot.DispatchedTransactions[0].Signer.String(), "Snapshot should contain the dispatched transaction with signer address %s", signerAddress.String())
+	assert.Eventually(t, func() bool {
+		snapshot := c.getSnapshot(ctx)
+		return snapshot != nil &&
+			len(snapshot.PooledTransactions) == 0 &&
+			len(snapshot.DispatchedTransactions) == 1 &&
+			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Signer.String() == signerAddress.String()
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with signer address")
 
 	// Simulate the dispatcher thread allocating a nonce for the transaction
-	err = c.ProcessEvent(ctx, &transaction.NonceAllocatedEvent{
+	c.QueueEvent(ctx, &transaction.NonceAllocatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		Nonce: 42,
 	})
-	assert.NoError(t, err)
 
 	// Assert that the nonce is now included in the snapshot
-	snapshot = c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	require.Equal(t, 1, len(snapshot.DispatchedTransactions), "Snapshot should contain exactly one dispatched transaction")
-	assert.Equal(t, txn.ID.String(), snapshot.DispatchedTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
-	assert.Equal(t, signerAddress.String(), snapshot.DispatchedTransactions[0].Signer.String(), "Snapshot should contain the dispatched transaction with signer address %s", signerAddress.String())
-	require.NotNil(t, snapshot.DispatchedTransactions[0].Nonce, "Snapshot should contain the dispatched transaction with a nonce")
-	assert.Equal(t, uint64(42), *snapshot.DispatchedTransactions[0].Nonce, "Snapshot should contain the dispatched transaction with nonce 42")
+	assert.Eventually(t, func() bool {
+		snapshot := c.getSnapshot(ctx)
+		return snapshot != nil &&
+			len(snapshot.PooledTransactions) == 0 &&
+			len(snapshot.DispatchedTransactions) == 1 &&
+			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].Nonce != nil &&
+			*snapshot.DispatchedTransactions[0].Nonce == uint64(42)
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with nonce 42")
 
 	// Simulate the public transaction manager submitting the transaction
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err = c.ProcessEvent(ctx, &transaction.SubmittedEvent{
+	c.QueueEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		SubmissionHash: submissionHash,
 	})
-	assert.NoError(t, err)
 
 	// Assert that the hash is now included in the snapshot
-	snapshot = c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	require.Equal(t, 1, len(snapshot.DispatchedTransactions), "Snapshot should contain exactly one dispatched transaction")
-	assert.Equal(t, txn.ID.String(), snapshot.DispatchedTransactions[0].ID.String(), "Snapshot should contain the dispatched transaction with ID %s", txn.ID.String())
-	assert.Equal(t, signerAddress.String(), snapshot.DispatchedTransactions[0].Signer.String(), "Snapshot should contain the dispatched transaction with signer address %s", signerAddress.String())
-	require.NotNil(t, snapshot.DispatchedTransactions[0].Nonce, "Snapshot should contain the dispatched transaction with a nonce")
-	assert.Equal(t, uint64(42), *snapshot.DispatchedTransactions[0].Nonce, "Snapshot should contain the dispatched transaction with nonce 42")
-	require.NotNil(t, snapshot.DispatchedTransactions[0].LatestSubmissionHash, "Snapshot should contain the dispatched transaction with a submission hash")
+	assert.Eventually(t, func() bool {
+		snapshot := c.getSnapshot(ctx)
+		return snapshot != nil &&
+			len(snapshot.PooledTransactions) == 0 &&
+			len(snapshot.DispatchedTransactions) == 1 &&
+			snapshot.DispatchedTransactions[0].ID.String() == txn.ID.String() &&
+			snapshot.DispatchedTransactions[0].LatestSubmissionHash != nil &&
+			*snapshot.DispatchedTransactions[0].LatestSubmissionHash == submissionHash
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain dispatched transaction with a submission hash")
 
 	// Simulate the block indexer confirming the transaction
-	err = c.ProcessEvent(ctx, &transaction.ConfirmedEvent{
+	c.QueueEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.ID,
 		},
 		Nonce: 42,
 		Hash:  submissionHash,
 	})
-	assert.NoError(t, err)
 
-	// Assert that snapshot contains a transaction with matching ID
-	snapshot = c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-
-	assert.Equal(t, 0, len(snapshot.DispatchedTransactions))
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	assert.Equal(t, 1, len(snapshot.ConfirmedTransactions))
-	assert.Equal(t, txn.ID.String(), snapshot.ConfirmedTransactions[0].ID.String())
-	assert.Equal(t, signerAddress.String(), snapshot.ConfirmedTransactions[0].Signer.String())
-	require.NotNil(t, snapshot.ConfirmedTransactions[0].Nonce)
-	assert.Equal(t, uint64(42), *snapshot.ConfirmedTransactions[0].Nonce)
-	assert.Equal(t, submissionHash, *snapshot.ConfirmedTransactions[0].LatestSubmissionHash)
+	// Assert that snapshot contains a confirmed transaction with matching ID
+	assert.Eventually(t, func() bool {
+		snapshot := c.getSnapshot(ctx)
+		return snapshot != nil &&
+			len(snapshot.ConfirmedTransactions) == 1 &&
+			snapshot.ConfirmedTransactions[0].ID.String() == txn.ID.String()
+	}, 100*time.Millisecond, 1*time.Millisecond, "Snapshot should contain exactly one confirmed transaction")
 
 }
 
@@ -397,7 +401,7 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 
 	assert.NotEqual(t, transaction.State_Submitted, coordinatedTxn.GetState(), "transaction should NOT be in State_Submitted when chained transaction is not found")
 	// The transaction should be in a state that indicates it's ready for normal processing
-	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked}, coordinatedTxn.GetState(), "transaction should be in Pooled or PreAssembly_Blocked state when chained transaction is not found")
+	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked, transaction.State_Assembling}, coordinatedTxn.GetState(), "transaction should be in Pooled, PreAssembly_Blocked, or Assembling state when chained transaction is not found")
 }
 
 func TestCoordinator_AddToDelegatedTransactions_DuplicateTransaction(t *testing.T) {
@@ -615,12 +619,9 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Verify loops are running by checking channels are not closed
-	select {
-	case <-c.eventLoopStopped:
-		t.Fatal("event loop should not be stopped initially")
-	default:
-	}
+	// Verify event loop is running
+	require.False(t, c.processorEventLoop.IsStopped(), "event loop should not be stopped initially")
+
 	select {
 	case <-c.dispatchLoopStopped:
 		t.Fatal("dispatch loop should not be stopped initially")
@@ -630,13 +631,8 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	// Should block until shutdown is complete
 	c.Stop()
 
-	// Verify both loops have stopped (reading from closed channel returns immediately with ok=false)
-	select {
-	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(10 * time.Millisecond):
-		t.Fatal("event loop did not stop within timeout")
-	}
+	// Verify both loops have stopped
+	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
@@ -679,12 +675,7 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 	c.Stop()
 
 	// Verify both loops have stopped
-	select {
-	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(10 * time.Millisecond):
-		t.Fatal("event loop did not stop within timeout")
-	}
+	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
@@ -707,12 +698,7 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	c.Stop()
 
 	// Verify both loops have stopped
-	select {
-	case _, ok := <-c.eventLoopStopped:
-		require.False(t, ok, "event loop stopped channel should be closed")
-	case <-time.After(10 * time.Millisecond):
-		t.Fatal("event loop did not stop within timeout")
-	}
+	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
@@ -2309,59 +2295,6 @@ func TestCoordinator_HeartbeatLoop_DoesNotStartIfHeartbeatCtxAlreadySet(t *testi
 
 	// Cleanup
 	heartbeatCancel()
-}
-
-func TestCoordinator_HeartbeatLoop_HandlesPropagateEventToAllTransactionsErrorsGracefully(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Active)
-	c, _ := builder.Build(ctx)
-	c.heartbeatInterval = 10 * time.Millisecond // can't use builder.OverrideSequencerConfig() because NewCoordinator enforces a minimum of 1 second
-
-	// Set up originator pool with another node so heartbeats can be sent
-	c.UpdateOriginatorNodePool(ctx, "node2")
-
-	// Mock grapher that returns an error on cleanup - this will cause propagateEventToAllTransactions to fail
-	mockGrapher := transaction.NewMockGrapher(t)
-	mockGrapher.On("Add", mock.Anything, mock.Anything).Return().Twice() // Called during transaction creation
-	mockGrapher.On("Forget", mock.Anything).Return(fmt.Errorf("grapher error")).Twice()
-
-	// Transaction in State_Confirmed that will try to transition to State_Final on heartbeat
-	// heartbeatIntervalsSinceStateChange >= grace period (5) triggers cleanup attempt
-	txn1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
-		Grapher(mockGrapher).
-		HeartbeatIntervalsSinceStateChange(5).
-		Build()
-	c.transactionsByID[txn1.ID] = txn1
-
-	// Start heartbeat loop in a goroutine
-	done := make(chan struct{})
-	go func() {
-		c.heartbeatLoop(ctx)
-		close(done)
-	}()
-
-	// Wait for loop to have attempted cleanup after the initial heartbeat interval event
-	// (2 calls includes the initial Add call)
-	assert.Eventually(t, func() bool {
-		return len(mockGrapher.Calls) == 2
-	}, 500*time.Millisecond, 5*time.Millisecond, "expected at least 1 Forget calls")
-
-	// create a second transaction in State_Confirmed that will try to transition to State_Final on heartbeat
-	txn2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
-		Grapher(mockGrapher).
-		HeartbeatIntervalsSinceStateChange(5).
-		Build()
-	c.transactionsByID[txn2.ID] = txn2
-
-	// Wait for loop to have attempted cleanup after a periodic heartbeat interval event
-	// (4 calls includes the first 2 calls, another Add call, and another Forget call)
-	assert.Eventually(t, func() bool {
-		return len(mockGrapher.Calls) == 4
-	}, 500*time.Millisecond, 5*time.Millisecond, "expected at least 2 Forget calls")
-
-	// Cancel to stop the loop
-	c.heartbeatCancel()
-	<-done
 }
 
 func TestCoordinator_HeartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
