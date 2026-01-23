@@ -397,16 +397,17 @@ func (tm *txManager) GetTransactionReceiptByID(ctx context.Context, id uuid.UUID
 
 func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.TransactionReceipt, domainReceipt bool) (fullReceipt *pldapi.TransactionReceiptFull, err error) {
 	log.L(ctx).Debugf("Building full transaction receipt by ID: %s", receipt.ID)
+	dbtx := tm.p.NOTX() // For now we don't use a TX for queries but we'll define and re-use this so in the future we can swap out for a DBTX
 	fullReceipt = &pldapi.TransactionReceiptFull{TransactionReceipt: receipt}
 	if receipt.Domain != "" {
-		fullReceipt.States, err = tm.stateMgr.GetTransactionStates(ctx, tm.p.NOTX(), fullReceipt.ID)
+		fullReceipt.States, err = tm.stateMgr.GetTransactionStates(ctx, dbtx, fullReceipt.ID)
 		if err != nil {
 			return nil, err
 		}
 		if domainReceipt {
 			d, domainErr := tm.domainMgr.GetDomainByName(ctx, receipt.Domain)
 			if domainErr == nil {
-				fullReceipt.DomainReceipt, domainErr = d.BuildDomainReceipt(ctx, tm.p.NOTX(), fullReceipt.ID, fullReceipt.States)
+				fullReceipt.DomainReceipt, domainErr = d.BuildDomainReceipt(ctx, dbtx, fullReceipt.ID, fullReceipt.States)
 			}
 			if domainErr != nil {
 				fullReceipt.DomainReceiptError = domainErr.Error()
@@ -414,17 +415,17 @@ func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.Trans
 		}
 	}
 
-	fullReceipt, err = tm.mergeDispatches(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	fullReceipt, err = tm.mergeDispatches(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 	if err != nil {
 		return nil, err
 	}
 
-	fullReceipt, err = tm.mergeChainedTranasctions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	fullReceipt, err = tm.mergeChainedTranasctions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 	if err != nil {
 		return nil, err
 	}
 
-	return tm.mergeReceiptPublicTransactions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	return tm.mergeReceiptPublicTransactions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 }
 
 func (tm *txManager) mergeReceiptPublicTransactions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
