@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36" version="29.2.7">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="29.3.3">
   <diagram name="Page-1" id="tseofZP5oSliSnW_sVjo">
-    <mxGraphModel dx="1014" dy="534" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="929" dy="496" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -38,7 +38,7 @@
         <mxCell id="MFZU3HRR1KX5dudQivj--11" parent="MFZU3HRR1KX5dudQivj--5" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="MFZU3HRR1KX5dudQivj--13" parent="MFZU3HRR1KX5dudQivj--11" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt(TX1)&lt;/span&gt;" vertex="1">
+        <mxCell id="MFZU3HRR1KX5dudQivj--13" parent="MFZU3HRR1KX5dudQivj--11" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceiptFull(TX1)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -216,10 +216,10 @@
         <mxCell id="4EduVCgQz5uBQDLYcrN7-66" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=none;fillColor=none;" value="&lt;font style=&quot;font-size: 6px;&quot;&gt;TX1&lt;/font&gt;" vertex="1">
           <mxGeometry height="30" width="32" x="142" y="253" as="geometry" />
         </mxCell>
-        <mxCell id="4EduVCgQz5uBQDLYcrN7-67" edge="1" parent="1" style="endArrow=blockThin;html=1;rounded=0;dashed=1;endFill=1;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);startArrow=none;startFill=0;" value="">
+        <mxCell id="4EduVCgQz5uBQDLYcrN7-67" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;dashed=1;endFill=0;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);startArrow=none;startFill=0;" value="">
           <mxGeometry height="50" relative="1" width="50" as="geometry">
             <mxPoint x="295" y="268" as="sourcePoint" />
-            <mxPoint x="294" y="344" as="targetPoint" />
+            <mxPoint x="294" y="322" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="4EduVCgQz5uBQDLYcrN7-69" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;dashed=1;endFill=0;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);" value="">
@@ -262,7 +262,7 @@
         <mxCell id="4EduVCgQz5uBQDLYcrN7-97" parent="4EduVCgQz5uBQDLYcrN7-93" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="4EduVCgQz5uBQDLYcrN7-98" parent="4EduVCgQz5uBQDLYcrN7-97" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
+        <mxCell id="4EduVCgQz5uBQDLYcrN7-98" parent="4EduVCgQz5uBQDLYcrN7-97" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceiptFull&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -293,7 +293,7 @@
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="4EduVCgQz5uBQDLYcrN7-105" parent="4EduVCgQz5uBQDLYcrN7-103" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;color: rgb(147, 196, 125); font-family: Arial, sans-serif; font-size: 10.6667px; font-weight: 700; white-space-collapse: preserve;&quot;&gt;✓&lt;/span&gt;" vertex="1">
+        <mxCell id="4EduVCgQz5uBQDLYcrN7-105" parent="4EduVCgQz5uBQDLYcrN7-103" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;color: rgb(224, 102, 102); font-family: Arial, sans-serif; font-size: 10.6667px; font-weight: 700; white-space-collapse: preserve;&quot;&gt;✗&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="32" x="108" as="geometry">
             <mxRectangle height="18" width="32" as="alternateBounds" />
           </mxGeometry>
@@ -330,7 +330,7 @@
         <mxCell id="4EduVCgQz5uBQDLYcrN7-110" parent="4EduVCgQz5uBQDLYcrN7-106" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="4EduVCgQz5uBQDLYcrN7-111" parent="4EduVCgQz5uBQDLYcrN7-110" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
+        <mxCell id="4EduVCgQz5uBQDLYcrN7-111" parent="4EduVCgQz5uBQDLYcrN7-110" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -398,7 +398,7 @@
         <mxCell id="4EduVCgQz5uBQDLYcrN7-123" parent="4EduVCgQz5uBQDLYcrN7-119" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="4EduVCgQz5uBQDLYcrN7-124" parent="4EduVCgQz5uBQDLYcrN7-123" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
+        <mxCell id="4EduVCgQz5uBQDLYcrN7-124" parent="4EduVCgQz5uBQDLYcrN7-123" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(TX1)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -507,10 +507,10 @@
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-2" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=2.799999999999983;" value="" vertex="1">
           <mxGeometry height="24" width="33" x="287" y="345" as="geometry" />
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-3" edge="1" parent="1" source="MFZU3HRR1KX5dudQivj--49" style="endArrow=blockThin;html=1;rounded=0;dashed=1;endFill=1;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);startArrow=none;startFill=0;exitX=0.62;exitY=0.675;exitDx=0;exitDy=0;exitPerimeter=0;" value="">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-3" edge="1" parent="1" source="MFZU3HRR1KX5dudQivj--49" style="endArrow=none;html=1;rounded=0;dashed=1;endFill=0;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);startArrow=none;startFill=0;exitX=0.62;exitY=0.675;exitDx=0;exitDy=0;exitPerimeter=0;" value="">
           <mxGeometry height="50" relative="1" width="50" as="geometry">
             <mxPoint x="446" y="279" as="sourcePoint" />
-            <mxPoint x="445.5" y="344" as="targetPoint" />
+            <mxPoint x="446" y="322" as="targetPoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-4" edge="1" parent="1" style="endArrow=none;html=1;rounded=0;dashed=1;endFill=0;fillColor=#f5f5f5;strokeColor=light-dark(#c7c7c7, #959595);" value="">
@@ -577,7 +577,7 @@
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-20" parent="a4EuQcioMNlFe9N-_0Yq-16" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-21" parent="a4EuQcioMNlFe9N-_0Yq-20" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-21" parent="a4EuQcioMNlFe9N-_0Yq-20" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -638,7 +638,7 @@
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-35" parent="a4EuQcioMNlFe9N-_0Yq-31" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-36" parent="a4EuQcioMNlFe9N-_0Yq-35" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-36" parent="a4EuQcioMNlFe9N-_0Yq-35" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -693,7 +693,7 @@
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-48" parent="a4EuQcioMNlFe9N-_0Yq-44" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-49" parent="a4EuQcioMNlFe9N-_0Yq-48" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-49" parent="a4EuQcioMNlFe9N-_0Yq-48" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
@@ -724,7 +724,7 @@
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-56" parent="a4EuQcioMNlFe9N-_0Yq-54" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;color: rgb(147, 196, 125); font-family: Arial, sans-serif; font-size: 10.6667px; font-weight: 700; white-space-collapse: preserve;&quot;&gt;✓&lt;/span&gt;" vertex="1">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-56" parent="a4EuQcioMNlFe9N-_0Yq-54" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;color: rgb(224, 102, 102); font-family: Arial, sans-serif; font-size: 10.6667px; font-weight: 700; white-space-collapse: preserve;&quot;&gt;✗&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="32" x="108" as="geometry">
             <mxRectangle height="18" width="32" as="alternateBounds" />
           </mxGeometry>
@@ -748,7 +748,7 @@
         <mxCell id="a4EuQcioMNlFe9N-_0Yq-61" parent="a4EuQcioMNlFe9N-_0Yq-57" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;" value="" vertex="1">
           <mxGeometry height="18" width="140" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="a4EuQcioMNlFe9N-_0Yq-62" parent="a4EuQcioMNlFe9N-_0Yq-61" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
+        <mxCell id="a4EuQcioMNlFe9N-_0Yq-62" parent="a4EuQcioMNlFe9N-_0Yq-61" style="shape=partialRectangle;html=1;whiteSpace=wrap;connectable=0;strokeColor=inherit;overflow=hidden;fillColor=none;top=0;left=0;bottom=0;right=0;pointerEvents=1;spacingRight=2;spacingLeft=2;fontSize=5;" value="&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;ptx_getTransactionReceipt&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;Full&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;(&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;TX2&lt;/span&gt;&lt;span style=&quot;font-family: Arial, sans-serif; font-size: 6px; white-space-collapse: preserve;&quot;&gt;)&lt;/span&gt;" vertex="1">
           <mxGeometry height="18" width="108" as="geometry">
             <mxRectangle height="18" width="108" as="alternateBounds" />
           </mxGeometry>

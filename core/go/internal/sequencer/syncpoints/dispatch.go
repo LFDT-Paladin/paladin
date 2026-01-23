@@ -107,7 +107,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
 				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
 				if node != s.transportMgr.LocalNodeName() && binding.TransactionID.String() == privateTx.PrivateTransactionID {
-					log.L(dCtx.Ctx()).Debugf("Sending sequencerdispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
+					log.L(dCtx.Ctx()).Tracef("Sending sequencer dispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
 					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 						Node:        node,
 						MessageType: pldapi.RMTSequencingActivity.Enum(),
@@ -115,6 +115,28 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 					})
 				}
 			}
+		}
+	}
+
+	// Sequencer activity dispatch records for public transactions
+	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
+		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
+		sequencingProgress := &pldapi.SequencerActivity{
+			RemoteID:       privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
+			Timestamp:      pldtypes.TimestampNow(),
+			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),
+			SubmittingNode: s.transportMgr.LocalNodeName(), // Us
+			TransactionID:  privateDispatch.OriginalTransaction,
+		}
+
+		node, _ := pldtypes.PrivateIdentityLocator(privateDispatch.OriginalSenderLocator).Node(dCtx.Ctx(), false)
+		if node != s.transportMgr.LocalNodeName() {
+			log.L(dCtx.Ctx()).Tracef("Sending sequencer chained-dispatch activity for TX %s to node %s", privateDispatch.OriginalTransaction, privateDispatch.OriginalSenderLocator)
+			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
+				Node:        node,
+				MessageType: pldapi.RMTSequencingActivity.Enum(),
+				Metadata:    pldtypes.JSONString(sequencingProgress),
+			})
 		}
 	}
 
@@ -206,7 +228,6 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				log.L(ctx).Errorf("Error persisting dispatches: %s", err)
 				return err
 			}
-
 		}
 
 		if len(op.privateDispatches) > 0 {

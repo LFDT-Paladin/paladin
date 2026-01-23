@@ -72,6 +72,7 @@ type ValidatedTransaction struct {
 }
 
 type ChainedPrivateTransaction struct {
+	ID                      uuid.UUID // the ID of the chained private transaction
 	OriginalSenderLocator   string    // the original sender fully qualified identity
 	OriginalTransaction     uuid.UUID // the original transaction that chained this transaction
 	OriginalDomain          string    // the original domain of the upstream transaction

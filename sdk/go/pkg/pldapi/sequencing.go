@@ -24,7 +24,8 @@ import (
 type SequencerActivityType string
 
 const (
-	SequencerActivityType_Dispatched SequencerActivityType = "dispatched"
+	SequencerActivityType_Dispatched      SequencerActivityType = "dispatched"
+	SequencerActivityType_ChainedDispatch SequencerActivityType = "chained_dispatch"
 )
 
 type SequencerActivity struct {

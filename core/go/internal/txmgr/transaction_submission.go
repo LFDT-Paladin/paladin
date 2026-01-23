@@ -95,6 +95,7 @@ type persistedChainedPrivateTxn struct {
 	Sender             string    `gorm:"column:sender;primaryKey"`
 	Domain             string    `gorm:"column:domain;primaryKey"`
 	ContractAddress    string    `gorm:"column:contract_address;primaryKey"`
+	ID                 uuid.UUID `gorm:"column:id"`
 }
 
 func (persistedChainedPrivateTxn) TableName() string {
@@ -382,6 +383,7 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 			Domain:             chainedTxn.OriginalDomain,
 			ContractAddress:    chainedTxn.OriginalContractAddress,
 			ChainedTransaction: *chainedTxn.NewTransaction.Transaction.ID,
+			ID:                 chainedTxn.ID,
 		}
 	}
 

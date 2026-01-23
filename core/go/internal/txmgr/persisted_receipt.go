@@ -419,6 +419,11 @@ func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.Trans
 		return nil, err
 	}
 
+	fullReceipt, err = tm.mergeChainedTranasctions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	if err != nil {
+		return nil, err
+	}
+
 	return tm.mergeReceiptPublicTransactions(ctx, tm.p.NOTX(), []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 }
 
@@ -453,6 +458,32 @@ func (tm *txManager) mergeDispatches(ctx context.Context, dbTX persistence.DBTX,
 			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
 			for i, txdp := range txdps {
 				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
+			}
+		}
+	}
+	return txs[0], nil
+}
+
+func (tm *txManager) mergeChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	txdps := []*persistedChainedPrivateTxn{}
+	err := dbTX.DB().Table("chained_private_txns").
+		WithContext(ctx).
+		Where(`"transaction" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[string(txdp.Transaction.String())] = append(txdpMap[string(txdp.Transaction.String())], txdp)
+	}
+	for _, tx := range txs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
+			for i, txdp := range txdps {
+				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
 			}
 		}
 	}

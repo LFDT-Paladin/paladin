@@ -123,6 +123,14 @@ func (tm *txManager) mapPersistedTXDispatch(pd *syncpoints.DispatchPersisted) *p
 	}
 }
 
+func (tm *txManager) mapPersistedChainedTransaction(pd *persistedChainedPrivateTxn) *pldapi.ChainedTransaction {
+	return &pldapi.ChainedTransaction{
+		ChainedTransactionID: pd.ChainedTransaction.String(),
+		TransactionID:        pd.Transaction.String(),
+		LocalID:              pd.ID.String(),
+	}
+}
+
 func (tm *txManager) mapPersistedTXResolved(pt *persistedTransaction) *components.ResolvedTransaction {
 	res := &components.ResolvedTransaction{
 		Transaction: tm.mapPersistedTXBase(pt),
@@ -225,12 +233,17 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		return nil, err
 	}
 
-	ptxs, err = tm.AddSequencerActivity(ctx, dbTX, txIDs, ptxs)
+	ptxs, err = tm.AddDispatches(ctx, dbTX, txIDs, ptxs)
 	if err != nil {
 		return nil, err
 	}
 
-	ptxs, err = tm.AddDispatches(ctx, dbTX, txIDs, ptxs)
+	ptxs, err = tm.AddChainedTranasctions(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
+	ptxs, err = tm.AddSequencerActivity(ctx, dbTX, txIDs, ptxs)
 	if err != nil {
 		return nil, err
 	}
@@ -313,6 +326,32 @@ func (tm *txManager) AddDispatches(ctx context.Context, dbTX persistence.DBTX, t
 			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
 			for i, txdp := range txdps {
 				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
+func (tm *txManager) AddChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txdps := []*persistedChainedPrivateTxn{}
+	err := dbTX.DB().Table("chained_private_txns").
+		WithContext(ctx).
+		Where(`"transaction" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.Transaction.String()] = append(txdpMap[txdp.Transaction.String()], txdp)
+	}
+	for _, tx := range ptxs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
+			for i, txdp := range txdps {
+				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
 			}
 		}
 	}
