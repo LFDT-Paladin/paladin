@@ -186,6 +186,10 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			} else {
 				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
+
+				// Before persisting, assert that the dispatcher is the source node of the reliable message
+				// rather than assume the dispatched in the payload is valid.
+				publicTXSubmission.Dispatcher = v.msg.FromNode
 				txPublicTXSubmissionsToPersist = append(txPublicTXSubmissionsToPersist, &publicTXSubmission)
 			}
 		case RMHMessageTypeSequencingActivity:
