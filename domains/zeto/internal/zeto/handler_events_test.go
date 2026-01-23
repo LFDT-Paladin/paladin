@@ -438,7 +438,7 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 	count := 0
 	data, _ := json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
 	errCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			if count == 0 {
 				count++
 				return &prototk.FindAvailableStatesResponse{

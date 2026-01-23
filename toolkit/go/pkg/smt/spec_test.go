@@ -16,6 +16,7 @@
 package smt
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestNewMerkleTreeSpec(t *testing.T) {
 
 	// Test successful creation
 	callbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{}, nil
 		},
 	}
@@ -64,7 +65,7 @@ func TestNewMerkleTreeSpecWithError(t *testing.T) {
 
 	// Test error handling when callbacks fail
 	callbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("callback error")
 		},
 	}
@@ -89,4 +90,62 @@ func TestMerkleTreeTypeConstants(t *testing.T) {
 	assert.Equal(t, 0, int(StatesTree))
 	assert.Equal(t, 1, int(LockedStatesTree))
 	assert.Equal(t, 2, int(KycStatesTree))
+}
+
+func TestNewMerkleTreeSpecWithKycStatesTree(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+
+	callbacks := &domain.MockDomainCallbacks{
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+			return &prototk.FindAvailableStatesResponse{}, nil
+		},
+	}
+
+	spec, err := NewMerkleTreeSpec(
+		t.Context(),
+		"kyc-tree",
+		KycStatesTree,
+		32,
+		hasher,
+		false,
+		callbacks,
+		"root-schema",
+		"node-schema",
+		stateQueryContext,
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, spec)
+	assert.Equal(t, "kyc-tree", spec.Name)
+	assert.Equal(t, 32, spec.Levels)
+	assert.Equal(t, KycStatesTree, spec.Type)
+	assert.NotNil(t, spec.Storage)
+	assert.NotNil(t, spec.Tree)
+}
+
+func TestNewMerkleTreeSpecWithUseEIP712False(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+
+	callbacks := &domain.MockDomainCallbacks{
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+			return &prototk.FindAvailableStatesResponse{}, nil
+		},
+	}
+
+	spec, err := NewMerkleTreeSpec(
+		t.Context(),
+		"non-eip712-tree",
+		StatesTree,
+		64,
+		hasher,
+		false,
+		callbacks,
+		"root-schema",
+		"node-schema",
+		stateQueryContext,
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, spec)
+	assert.Equal(t, false, spec.Storage.(*statesStorage).useEIP712)
 }

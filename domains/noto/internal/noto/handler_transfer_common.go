@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type transferCommon struct {
@@ -58,16 +59,24 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	notary := tx.DomainConfig.NotaryLookup
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount, useNullifiers)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -80,11 +89,8 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 	}
 
 	// Avoid duplicating the sender in distribution lists
-	outputDistributionList := []string{notary, tx.Transaction.From, to}
-	if from != tx.Transaction.From {
-		outputDistributionList = append(outputDistributionList, from)
-	}
-	outputStates, err := h.noto.prepareOutputs(toAddress, amount, outputDistributionList)
+	outputDistributionList := identityList{notaryID, senderID, fromID, toID} // de-dup done on query
+	outputStates, err := h.noto.prepareOutputs(toID, amount, outputDistributionList)
 	if err != nil {
 		return nil, err
 	}
@@ -101,22 +107,16 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		}
 	}
 
-	infoDistributionList := []string{notary, tx.Transaction.From, to}
-	if from != tx.Transaction.From {
-		infoDistributionList = append(infoDistributionList, from)
-	}
-	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, infoDistributionList)
+	infoDistribution := identityList{notaryID, senderID, fromID, toID}
+	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 
 	if inputStates.total.Cmp(amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-		remainderDistributionList := []string{notary, tx.Transaction.From}
-		if from != tx.Transaction.From {
-			remainderDistributionList = append(remainderDistributionList, from)
-		}
-		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), remainderDistributionList)
+		remainderDistributionList := identityList{notaryID, senderID, fromID}
+		returnedStates, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), remainderDistributionList)
 		if err != nil {
 			return nil, err
 		}
@@ -132,6 +132,7 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 				}
 			}
 		}
+		outputStates.distributions = append(outputStates.distributions, returnedStates.distributions...)
 		outputStates.coins = append(outputStates.coins, returnedStates.coins...)
 		outputStates.states = append(outputStates.states, returnedStates.states...)
 	}
@@ -161,6 +162,17 @@ func (h *transferCommon) assembleTransfer(ctx context.Context, tx *types.ParsedT
 		},
 	}
 
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder().
+			addOutputs(outputStates).
+			addInfoStates(infoDistribution, infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
+	}
+
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
@@ -186,7 +198,7 @@ func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTr
 	if err := h.noto.validateTransferAmounts(ctx, inputs, outputs); err != nil {
 		return nil, err
 	}
-	if err := h.noto.validateOwners(ctx, from, req, inputs.coins, inputs.states); err != nil {
+	if err := h.noto.validateOwners(ctx, from, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err
 	}
 
@@ -204,6 +216,7 @@ func (h *transferCommon) endorseTransfer(ctx context.Context, tx *types.ParsedTr
 }
 
 func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, withApproval bool, useNullifier bool) (*TransactionWrapper, error) {
+	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 	// Include the signature from the sender
 	// This is not verified on the base ledger, but can be verified by anyone with the unmasked state data
 	signature := domain.FindAttestation("sender", req.AttestationResult)
@@ -215,45 +228,65 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 	if err != nil {
 		return nil, err
 	}
-	payload := signature.Payload
-	if useNullifier {
-		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
-		if err != nil {
-			return nil, err
+
+	// if useNullifier {
+	// 	encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	payload = encoded
+	// }
+
+	var interfaceABI abi.ABI
+	var functionName string
+	var paramsJSON []byte
+
+	switch tx.DomainConfig.Variant {
+	case types.NotoVariantDefault, types.NotoVariantNullifier:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
+		functionName = "transfer"
+		if withApproval {
+			functionName = "transferWithApproval"
 		}
-		payload = encoded
+		params := &NotoTransferParams{
+			TxId:    req.Transaction.TransactionId,
+			Inputs:  endorsableStateIDs(req.InputStates, useNullifiers),
+			Outputs: endorsableStateIDs(req.OutputStates, false),
+			Proof:   signature.Payload,
+			Data:    data,
+		}
+		paramsJSON, err = json.Marshal(params)
+	default:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
+		functionName = "transfer"
+		params := &NotoTransfer_V0_Params{
+			TxId:      req.Transaction.TransactionId,
+			Inputs:    endorsableStateIDs(req.InputStates, false),
+			Outputs:   endorsableStateIDs(req.OutputStates, false),
+			Signature: signature.Payload,
+			Data:      data,
+		}
+		paramsJSON, err = json.Marshal(params)
 	}
-	params := &NotoTransferParams{
-		TxId:      req.Transaction.TransactionId,
-		Inputs:    endorsableStateIDs(req.InputStates, useNullifier),
-		Outputs:   endorsableStateIDs(req.OutputStates, false),
-		Signature: payload,
-		Data:      data,
-	}
-	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
-	fn := "transfer"
-	if withApproval {
-		fn = "transferWithApproval"
-	}
 	return &TransactionWrapper{
-		functionABI: interfaceBuild.ABI.Functions()[fn],
+		functionABI: interfaceABI.Functions()[functionName],
 		paramsJSON:  paramsJSON,
 	}, nil
 }
 
 func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from, to string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
-	senderAddress, err := h.noto.findEthAddressVerifier(ctx, "sender", req.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", req.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	toAddress, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
+	toID, err := h.noto.findEthAddressVerifier(ctx, "to", to, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -263,9 +296,9 @@ func (h *transferCommon) hookInvokeTransfer(ctx context.Context, tx *types.Parse
 		return nil, err
 	}
 	params := &TransferHookParams{
-		Sender: senderAddress,
-		From:   fromAddress,
-		To:     toAddress,
+		Sender: senderID.address,
+		From:   fromID.address,
+		To:     toID.address,
 		Amount: amount,
 		Data:   data,
 		Prepared: PreparedTransaction{

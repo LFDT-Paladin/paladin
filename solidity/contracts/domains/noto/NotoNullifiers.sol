@@ -43,11 +43,11 @@ contract NotoNullifiers is Noto {
         bytes32 txId,
         bytes32[] calldata inputs,
         bytes32[] calldata outputs,
-        bytes calldata signature,
+        bytes calldata proof,
         bytes calldata data
     ) external virtual override onlyNotary txIdNotUsed(txId) {
         (uint256 root, bytes memory _signature) = abi.decode(
-            signature,
+            proof,
             (uint256, bytes)
         );
         if (!_commitmentsTree.rootExists(root)) {
@@ -55,57 +55,38 @@ contract NotoNullifiers is Noto {
         }
         _processNullifiers(inputs);
         _processOutputs(outputs);
-        emit NotoTransfer(txId, inputs, outputs, _signature, data);
+        emit Transfer(txId, msg.sender, inputs, outputs, _signature, data);
     }
 
-    /**
-     * @dev Lock some value so it cannot be spent until it is unlocked.
-     *      The lockId is computed deterministically from the txId.
-     *
-     * @param txId a unique identifier for this transaction which must not have been used before
-     * @param nullifiers array of zero or more outputs of a previous function call against this
-     *      contract that have not yet been spent, and the signer is authorized to spend
-     * @param outputs array of zero or more new outputs to generate, for future transactions to spend
-     * @param lockedOutputs array of zero or more locked outputs to generate, which will be tied to the lock ID
-     * @param proof a proof over the original request to the notary (opaque to the blockchain)
-     * @param data any additional transaction data (opaque to the blockchain)
-     *
-     * Emits a {NotoLock} event.
-     */
-    function lock(
-        bytes32 txId,
-        bytes32[] calldata nullifiers,
-        bytes32[] calldata outputs,
-        bytes32[] calldata lockedOutputs,
-        bytes calldata proof,
+    function _updateLock(
+        NotoLockOperation memory lockOp,
+        LockParams calldata params,
+        bytes32 lockId,
         bytes calldata data
-    ) public virtual override onlyNotary txIdNotUsed(txId) lockIdNotUsed(txId) {
+    ) internal override {
+        useTxId(lockOp.txId);
         (uint256 root, bytes memory signature) = abi.decode(
-            proof,
+            lockOp.proof,
             (uint256, bytes)
         );
         if (!_commitmentsTree.rootExists(root)) {
             revert NotoInvalidRoot(root);
         }
 
-        bytes32 lockId = computeLockId(txId);
+        _processNullifiers(lockOp.inputs);
+        _processOutputs(lockOp.outputs);
+        _processLockedOutputs(lockId, lockOp.lockedOutputs);
 
-        _processNullifiers(nullifiers);
-        _processOutputs(outputs);
-        _processLockedOutputs(lockId, lockedOutputs);
+        // Initially, owner and spender are both the notary
+        LockInfo storage lock = _locks[lockId];
+        lock.spendHash = params.spendHash;
+        lock.cancelHash = params.cancelHash;
 
-        LockInfo storage lockInfo = _locks[lockId];
-        lockInfo.owner = msg.sender;
+        if (params.options.length > 0) {
+            _setLockOptions(lockId, params.options);
+        }
 
-        emit NotoLock(
-            txId,
-            lockId,
-            nullifiers,
-            outputs,
-            lockedOutputs,
-            signature,
-            data
-        );
+        emit LockUpdated(lockId, lock, data);
     }
 
     /**

@@ -802,6 +802,7 @@ github.com/hyperledger/firefly-common v1.4.6/go.mod h1:jkErZdQmC9fsAJZQO427tURdw
 github.com/hyperledger/firefly-common v1.5.1/go.mod h1:1Xawm5PUhxT7k+CL/Kr3i1LE3cTTzoQwZMLimvlW8rs=
 github.com/hyperledger/firefly-common v1.5.5/go.mod h1:1Xawm5PUhxT7k+CL/Kr3i1LE3cTTzoQwZMLimvlW8rs=
 github.com/hyperledger/firefly-common v1.5.6/go.mod h1:1Xawm5PUhxT7k+CL/Kr3i1LE3cTTzoQwZMLimvlW8rs=
+github.com/hyperledger/firefly-common v1.5.4/go.mod h1:1Xawm5PUhxT7k+CL/Kr3i1LE3cTTzoQwZMLimvlW8rs=
 github.com/hyperledger/firefly-signer v1.1.13/go.mod h1:pK6kivzBFSue3zpJSQpH67VasnLLbwBJOBUNv0zHbRA=
 github.com/hyperledger/firefly-signer v1.1.21/go.mod h1:axrlSQeKrd124UdHF5L3MkTjb5DeTcbJxJNCZ3JmcWM=
 github.com/iancoleman/strcase v0.3.0/go.mod h1:iwCmte+B7n89clKwxIoIXy/HfoL7AsD47ZCWhYzw7ho=

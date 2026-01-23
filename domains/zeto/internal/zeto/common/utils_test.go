@@ -197,7 +197,7 @@ func TestCryptoRandBN254(t *testing.T) {
 func TestNewMerkleTreeSpec(t *testing.T) {
 	ctx := context.Background()
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}

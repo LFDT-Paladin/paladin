@@ -32,7 +32,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -372,44 +371,6 @@ func TestWaitForTransactionTimeout(t *testing.T) {
 	cancel()
 	err := dm.ExecAndWaitTransaction(cancelled, uuid.New(), func() error { return nil })
 	assert.Regexp(t, "PD020100", err)
-}
-
-func TestPopulateContractConfig(t *testing.T) {
-	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
-		Domains: map[string]*pldconf.DomainConfig{
-			"domain1": {
-				RegistryAddress: pldtypes.RandHex(20),
-			},
-		},
-	})
-	defer done()
-
-	result := &pldapi.DomainSmartContract{}
-
-	// Test with nil config
-	dm.populateContractConfig(result, nil)
-	assert.Nil(t, result.Config)
-
-	// Test with empty config
-	dm.populateContractConfig(result, &prototk.ContractConfig{})
-	assert.NotNil(t, result.Config)
-	assert.Nil(t, result.Config.ContractConfig)
-
-	// Test with contract config JSON
-	result = &pldapi.DomainSmartContract{}
-	dm.populateContractConfig(result, &prototk.ContractConfig{
-		ContractConfigJson: `{"key":"value"}`,
-	})
-	assert.NotNil(t, result.Config)
-	assert.Equal(t, pldtypes.RawJSON(`{"key":"value"}`), result.Config.ContractConfig)
-
-	// Test with empty JSON string
-	result = &pldapi.DomainSmartContract{}
-	dm.populateContractConfig(result, &prototk.ContractConfig{
-		ContractConfigJson: "",
-	})
-	assert.NotNil(t, result.Config)
-	assert.Nil(t, result.Config.ContractConfig)
 }
 
 func TestGetSmartContractByAddressCached(t *testing.T) {

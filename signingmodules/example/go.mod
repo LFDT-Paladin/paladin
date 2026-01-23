@@ -1,4 +1,4 @@
-module github.com/kaleido-io/key-manager/signingmodules/example
+module github.com/LFDT-Paladin/key-manager/signingmodules/example
 
 go 1.24.4
 

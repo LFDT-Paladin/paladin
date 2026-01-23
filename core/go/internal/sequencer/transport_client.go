@@ -477,10 +477,6 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 	// If this TX ID doesn't exist in the "transactions" DB, insert here.
 	theUUID := pldtypes.MustParseBytes32(transactionSpecification.TransactionId).UUIDFirst16()
 	txID := theUUID
-	if err != nil {
-		log.L(ctx).Errorf("failed to parse transaction ID %s: %s", transactionSpecification.TransactionId, err)
-		return
-	}
 	tx, err := sMgr.components.TxManager().GetTransactionByID(ctx, txID)
 	if err != nil {
 		log.L(ctx).Errorf("failed to get transaction %s from the 'transactions' DB: %s", transactionSpecification.TransactionId, err)
@@ -534,7 +530,8 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 					},
 				},
 			}
-			_, err := sMgr.components.TxManager().InsertRemoteTransaction(ctx, dbTx, validatedTransaction, true)
+			// TODO: efficient batch insertion, or remove use of transaction for this purpose
+			_, err := sMgr.components.TxManager().InsertRemoteTransactions(ctx, dbTx, []*components.ValidatedTransaction{validatedTransaction}, false)
 			// If this fails we reject the request to endorse. We need to persist the remote TX. A future endorsement request will eventually be received again
 			return err
 		})

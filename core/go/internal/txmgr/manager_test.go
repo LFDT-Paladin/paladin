@@ -34,6 +34,7 @@ import (
 )
 
 type mockComponents struct {
+	t                *testing.T
 	c                *componentsmocks.AllComponents
 	db               sqlmock.Sqlmock
 	ethClientFactory *ethclientmocks.EthClientFactory
@@ -58,6 +59,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 		},
 	}
 	mc := &mockComponents{
+		t:                t,
 		c:                componentsmocks.NewAllComponents(t),
 		blockIndexer:     blockindexermocks.NewBlockIndexer(t),
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
@@ -118,8 +120,10 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

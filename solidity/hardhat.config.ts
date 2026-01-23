@@ -34,7 +34,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       // a small number of verifiers are bigger than the default 24576 bytes
       // so we need to allow unlimited contract size to avoid test errors
-      // allowUnlimitedContractSize: true,
+      allowUnlimitedContractSize: true,
     },
   },
 };

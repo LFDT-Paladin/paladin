@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2025 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,190 +22,230 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFindVerifierFound(t *testing.T) {
-	verifiers := []*pb.ResolvedVerifier{
+func TestFindVerifier(t *testing.T) {
+	tests := []struct {
+		name         string
+		lookup       string
+		algorithm    string
+		verifierType string
+		verifiers    []*pb.ResolvedVerifier
+		expected     *pb.ResolvedVerifier
+	}{
 		{
-			Lookup:       "lookup1",
-			Algorithm:    "algorithm1",
-			VerifierType: "type1",
+			name:         "find existing verifier",
+			lookup:       "alice",
+			algorithm:    "ecdsa-secp256k1",
+			verifierType: "eth_address",
+			verifiers: []*pb.ResolvedVerifier{
+				{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+				{
+					Lookup:       "bob",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0xfedcba0987654321",
+				},
+			},
+			expected: &pb.ResolvedVerifier{
+				Lookup:       "alice",
+				Algorithm:    "ecdsa-secp256k1",
+				VerifierType: "eth_address",
+				Verifier:     "0x1234567890abcdef",
+			},
 		},
 		{
-			Lookup:       "lookup2",
-			Algorithm:    "algorithm2",
-			VerifierType: "type2",
-		},
-	}
-
-	result := FindVerifier("lookup1", "algorithm1", "type1", verifiers)
-	assert.NotNil(t, result)
-	assert.Equal(t, "lookup1", result.Lookup)
-	assert.Equal(t, "algorithm1", result.Algorithm)
-	assert.Equal(t, "type1", result.VerifierType)
-}
-
-func TestFindVerifierNotFound(t *testing.T) {
-	verifiers := []*pb.ResolvedVerifier{
-		{
-			Lookup:       "lookup1",
-			Algorithm:    "algorithm1",
-			VerifierType: "type1",
-		},
-	}
-
-	result := FindVerifier("nonexistent", "algorithm1", "type1", verifiers)
-	assert.Nil(t, result)
-}
-
-func TestFindVerifierEmptyList(t *testing.T) {
-	result := FindVerifier("lookup1", "algorithm1", "type1", []*pb.ResolvedVerifier{})
-	assert.Nil(t, result)
-}
-
-func TestFindVerifierPartialMatch(t *testing.T) {
-	verifiers := []*pb.ResolvedVerifier{
-		{
-			Lookup:       "lookup1",
-			Algorithm:    "algorithm1",
-			VerifierType: "type1",
-		},
-	}
-
-	// Matching lookup but different algorithm
-	result := FindVerifier("lookup1", "different_algorithm", "type1", verifiers)
-	assert.Nil(t, result)
-
-	// Matching lookup and algorithm but different type
-	result = FindVerifier("lookup1", "algorithm1", "different_type", verifiers)
-	assert.Nil(t, result)
-
-	// Matching algorithm but different lookup
-	result = FindVerifier("different_lookup", "algorithm1", "type1", verifiers)
-	assert.Nil(t, result)
-}
-
-func TestFindVerifierMultipleMatches(t *testing.T) {
-	verifiers := []*pb.ResolvedVerifier{
-		{
-			Lookup:       "lookup1",
-			Algorithm:    "algorithm1",
-			VerifierType: "type1",
+			name:         "verifier not found - different lookup",
+			lookup:       "charlie",
+			algorithm:    "ecdsa-secp256k1",
+			verifierType: "eth_address",
+			verifiers: []*pb.ResolvedVerifier{
+				{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+				{
+					Lookup:       "bob",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0xfedcba0987654321",
+				},
+			},
+			expected: nil,
 		},
 		{
-			Lookup:       "lookup1",
-			Algorithm:    "algorithm1",
-			VerifierType: "type1",
+			name:         "verifier not found - different algorithm",
+			lookup:       "alice",
+			algorithm:    "ed25519",
+			verifierType: "eth_address",
+			verifiers: []*pb.ResolvedVerifier{
+				{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+			},
+			expected: nil,
 		},
-	}
-
-	// Should return the first match
-	result := FindVerifier("lookup1", "algorithm1", "type1", verifiers)
-	assert.Equal(t, verifiers[0], result)
-}
-
-func TestFindVerifierCaseSensitive(t *testing.T) {
-	verifiers := []*pb.ResolvedVerifier{
 		{
-			Lookup:       "Lookup1",
-			Algorithm:    "Algorithm1",
-			VerifierType: "Type1",
+			name:         "verifier not found - different verifier type",
+			lookup:       "alice",
+			algorithm:    "ecdsa-secp256k1",
+			verifierType: "public_key",
+			verifiers: []*pb.ResolvedVerifier{
+				{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+			},
+			expected: nil,
+		},
+		{
+			name:         "empty verifiers slice",
+			lookup:       "alice",
+			algorithm:    "ecdsa-secp256k1",
+			verifierType: "eth_address",
+			verifiers:    []*pb.ResolvedVerifier{},
+			expected:     nil,
+		},
+		{
+			name:         "nil verifiers slice",
+			lookup:       "alice",
+			algorithm:    "ecdsa-secp256k1",
+			verifierType: "eth_address",
+			verifiers:    nil,
+			expected:     nil,
+		},
+		{
+			name:         "case sensitive matching",
+			lookup:       "Alice",
+			algorithm:    "ECDSA-SECP256K1",
+			verifierType: "ETH_ADDRESS",
+			verifiers: []*pb.ResolvedVerifier{
+				{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+			},
+			expected: nil,
 		},
 	}
 
-	result := FindVerifier("lookup1", "algorithm1", "type1", verifiers)
-	assert.Nil(t, result, "should be case-sensitive")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FindVerifier(tt.lookup, tt.algorithm, tt.verifierType, tt.verifiers)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
-func TestFindVerifierLargeList(t *testing.T) {
-	verifiers := make([]*pb.ResolvedVerifier, 1000)
-	for i := 0; i < 1000; i++ {
-		lookup := "lookup"
-		if i == 500 {
-			lookup = "target"
-		}
-		verifiers[i] = &pb.ResolvedVerifier{
-			Lookup:       lookup,
-			Algorithm:    "algorithm",
-			VerifierType: "type",
-		}
+func TestFindAttestation(t *testing.T) {
+	tests := []struct {
+		name            string
+		attestationName string
+		attestations    []*pb.AttestationResult
+		expected        *pb.AttestationResult
+	}{
+		{
+			name:            "find existing attestation",
+			attestationName: "sender_signature",
+			attestations: []*pb.AttestationResult{
+				{
+					Name:            "sender_signature",
+					AttestationType: pb.AttestationType_SIGN,
+					Verifier: &pb.ResolvedVerifier{
+						Lookup:       "alice",
+						Algorithm:    "ecdsa-secp256k1",
+						VerifierType: "eth_address",
+						Verifier:     "0x1234567890abcdef",
+					},
+					Payload: []byte("signature_data"),
+				},
+				{
+					Name:            "notary_endorsement",
+					AttestationType: pb.AttestationType_ENDORSE,
+					Verifier: &pb.ResolvedVerifier{
+						Lookup:       "notary",
+						Algorithm:    "ecdsa-secp256k1",
+						VerifierType: "eth_address",
+						Verifier:     "0xfedcba0987654321",
+					},
+				},
+			},
+			expected: &pb.AttestationResult{
+				Name:            "sender_signature",
+				AttestationType: pb.AttestationType_SIGN,
+				Verifier: &pb.ResolvedVerifier{
+					Lookup:       "alice",
+					Algorithm:    "ecdsa-secp256k1",
+					VerifierType: "eth_address",
+					Verifier:     "0x1234567890abcdef",
+				},
+				Payload: []byte("signature_data"),
+			},
+		},
+		{
+			name:            "attestation not found",
+			attestationName: "missing_attestation",
+			attestations: []*pb.AttestationResult{
+				{
+					Name:            "sender_signature",
+					AttestationType: pb.AttestationType_SIGN,
+					Verifier: &pb.ResolvedVerifier{
+						Lookup:       "alice",
+						Algorithm:    "ecdsa-secp256k1",
+						VerifierType: "eth_address",
+						Verifier:     "0x1234567890abcdef",
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name:            "empty attestations slice",
+			attestationName: "sender_signature",
+			attestations:    []*pb.AttestationResult{},
+			expected:        nil,
+		},
+		{
+			name:            "nil attestations slice",
+			attestationName: "sender_signature",
+			attestations:    nil,
+			expected:        nil,
+		},
+		{
+			name:            "case sensitive matching",
+			attestationName: "SENDER_SIGNATURE",
+			attestations: []*pb.AttestationResult{
+				{
+					Name:            "sender_signature",
+					AttestationType: pb.AttestationType_SIGN,
+					Verifier: &pb.ResolvedVerifier{
+						Lookup:       "alice",
+						Algorithm:    "ecdsa-secp256k1",
+						VerifierType: "eth_address",
+						Verifier:     "0x1234567890abcdef",
+					},
+				},
+			},
+			expected: nil,
+		},
 	}
 
-	result := FindVerifier("target", "algorithm", "type", verifiers)
-	assert.NotNil(t, result)
-	assert.Equal(t, "target", result.Lookup)
-}
-
-func TestFindAttestationFound(t *testing.T) {
-	attestations := []*pb.AttestationResult{
-		{Name: "attestation1"},
-		{Name: "attestation2"},
-		{Name: "attestation3"},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FindAttestation(tt.attestationName, tt.attestations)
+			assert.Equal(t, tt.expected, result)
+		})
 	}
-
-	result := FindAttestation("attestation2", attestations)
-	assert.NotNil(t, result)
-	assert.Equal(t, "attestation2", result.Name)
-}
-
-func TestFindAttestationNotFound(t *testing.T) {
-	attestations := []*pb.AttestationResult{
-		{Name: "attestation1"},
-		{Name: "attestation2"},
-	}
-
-	result := FindAttestation("nonexistent", attestations)
-	assert.Nil(t, result)
-}
-
-func TestFindAttestationEmptyList(t *testing.T) {
-	result := FindAttestation("attestation1", []*pb.AttestationResult{})
-	assert.Nil(t, result)
-}
-
-func TestFindAttestationFirstMatch(t *testing.T) {
-	attestations := []*pb.AttestationResult{
-		{Name: "attestation1"},
-		{Name: "attestation1"}, // Duplicate
-	}
-
-	// Should return the first match
-	result := FindAttestation("attestation1", attestations)
-	assert.NotNil(t, result)
-	assert.Equal(t, "attestation1", result.Name)
-	assert.Equal(t, attestations[0], result)
-}
-
-func TestFindAttestationEmptyName(t *testing.T) {
-	attestations := []*pb.AttestationResult{
-		{Name: ""},
-		{Name: "attestation1"},
-	}
-
-	result := FindAttestation("", attestations)
-	assert.NotNil(t, result)
-	assert.Equal(t, "", result.Name)
-}
-
-func TestFindAttestationCaseSensitive(t *testing.T) {
-	attestations := []*pb.AttestationResult{
-		{Name: "Attestation1"},
-		{Name: "attestation2"},
-	}
-
-	result := FindAttestation("attestation1", attestations)
-	assert.Nil(t, result, "should be case-sensitive")
-}
-
-func TestFindAttestationLargeList(t *testing.T) {
-	attestations := make([]*pb.AttestationResult, 1000)
-	for i := 0; i < 1000; i++ {
-		name := "attestation"
-		if i == 500 {
-			name = "target_attestation"
-		}
-		attestations[i] = &pb.AttestationResult{Name: name}
-	}
-
-	result := FindAttestation("target_attestation", attestations)
-	assert.NotNil(t, result)
-	assert.Equal(t, "target_attestation", result.Name)
 }

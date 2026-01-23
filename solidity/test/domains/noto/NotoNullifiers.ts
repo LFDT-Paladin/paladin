@@ -2,7 +2,7 @@ import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { Merkletree, InMemoryDB, str2Bytes, HashAlgorithm, Hash } from "@iden3/js-merkletree";
-import { Noto } from "../../../typechain-types";
+import { Noto, NotoNullifiers } from "../../../typechain-types";
 import {
   deployNotoFactory,
   registerNotoNullifiersImplementation,
@@ -17,8 +17,9 @@ import {
   newUTXO,
   randomBytes32,
   UTXO,
+  NotoLockOperation
 } from "./util";
-import { NotoNullifiers } from "../../../typechain-types/contracts/domains/noto/NotoNullifiers";
+import { randomBytes } from "crypto";
 
 describe("NotoNullifiers", function () {
   async function deployNotoFixture() {
@@ -221,17 +222,15 @@ describe("NotoNullifiers", function () {
 
       it("unlock UTXOs", async function () {
         // Unlock the UTXO
-        locked2 = newUTXO(25);
-        txo4 = newUTXO(10);
+        txo4 = newUTXO(35);
         await doUnlock(
           randomBytes32(),
           notary,
           noto as unknown as Noto,
+          lockId,
           [locked1.hash!],
-          [locked2.hash!],
           [txo4.hash!],
           randomBytes32(),
-          lockId,
           true
         );
         await smtNotary.add(BigInt(txo4.hash!), BigInt(txo4.hash!));
@@ -243,69 +242,93 @@ describe("NotoNullifiers", function () {
             randomBytes32(),
             notary,
             noto as unknown as Noto,
+            lockId,
             [locked1.hash!],
             [],
-            [],
             randomBytes32(),
-            lockId,
             true
           )
-        ).to.be.rejectedWith("NotoInvalidInput");
+        ).to.be.rejectedWith("LockNotActive");
+      });
+
+      it("lock more UTXOs", async function () {
+        const root = await smtNotary.root();
+        locked2 = newUTXO(35);
+        lockId = await doLockWithNullifiers(
+          randomBytes32(),
+          notary,
+          noto,
+          [txo4.nullifier!],
+          [],
+          [locked2.hash!],
+          root.bigInt().toString(10),
+          randomBytes32()
+        );
       });
 
       it("prepare unlock, delegate lock, and perform unlock", async function () {
-        const txo5 = newUTXO(25);
-        // Prepare an unlock operation
+        const txo5 = newUTXO(35);
+        const txo6 = newUTXO(35);
+
+        // Prepare unlock operations (both spend and cancel) before unlocking
+        const unlockTxId = randomBytes32();
         const unlockData = randomBytes32();
-        const unlockHash = await newUnlockHash(
-          noto as unknown as Noto,
+        const spendHash = await newUnlockHash(
+          noto,
+          unlockTxId,
           [locked2.hash!],
-          [],
           [txo5.hash!],
           unlockData
         );
-        await doPrepareUnlock(notary, noto as unknown as Noto, [locked2.hash!], unlockHash, unlockData, lockId);
+        const cancelHash = await newUnlockHash(noto, unlockTxId, [locked2.hash!], [txo6.hash!], unlockData);
+        await doPrepareUnlock(
+          randomBytes32(),
+          notary,
+          noto,
+          lockId,
+          unlockTxId,
+          spendHash,
+          cancelHash,
+          unlockData,
+        );
 
         // Delegate the unlock
         await doDelegateLock(
           randomBytes32(),
           notary,
           noto as unknown as Noto,
-          unlockHash,
+          lockId,
           delegate.address,
-          randomBytes32(),
-          lockId
+          randomBytes32()
         );
 
         // Attempt to perform an incorrect unlock
         await expect(
           doUnlock(
-            randomBytes32(),
+            unlockTxId,
             delegate,
             noto as unknown as Noto,
+            lockId,
             [locked2.hash!],
-            [],
             [txo5.hash!],
             randomBytes32(),
-            lockId,
             true
           ) // wrong data
         ).to.be.rejectedWith("NotoInvalidUnlockHash");
 
         await expect(
-          doUnlock(randomBytes32(), other, noto as unknown as Noto, [locked2.hash!], [], [txo5.hash!], unlockData, lockId, true) // wrong delegate
-        ).to.be.rejectedWith("NotoInvalidDelegate");
+          doUnlock(randomBytes32(), other, noto as unknown as Noto, lockId, [locked2.hash!], [txo5.hash!], unlockData, true) // wrong delegate
+        ).to.be.rejectedWith("LockUnauthorized");
 
         // Perform the prepared unlock
         await doUnlock(
-          randomBytes32(),
+          unlockTxId,
           delegate,
           noto as unknown as Noto,
+          lockId,
           [locked2.hash!],
-          [],
           [txo5.hash!],
           unlockData,
-          lockId,
           true
         );
       });
@@ -324,7 +347,7 @@ describe("NotoNullifiers", function () {
         const txId1 = randomBytes32();
 
         // Make two UTXOs - should succeed
-        await doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
+        await expect(doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true)).to.be.fulfilled;
 
         // Make two more UTXOs with the same TX ID - should fail
         const root = await smtNotary.root();
@@ -356,7 +379,7 @@ describe("NotoNullifiers", function () {
         txId1 = randomBytes32();
 
         // Make two UTXOs
-        await doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true);
+        await expect(doMint(txId1, notary, noto as unknown as Noto, [txo1.hash!, txo2.hash!], randomBytes32(), true)).to.be.fulfilled;
         await smtNotary.add(BigInt(txo1.hash!), BigInt(txo1.hash!));
         await smtNotary.add(BigInt(txo2.hash!), BigInt(txo2.hash!));
       });
@@ -402,11 +425,10 @@ describe("NotoNullifiers", function () {
             txId1,
             notary,
             noto as unknown as Noto,
+            lockId,
             [locked1.hash!], // unlock inputs are locked outputs which are identified by their hashes (not nullifiers)
-            [locked2.hash!],
             [txo4.hash!],
             randomBytes32(),
-            lockId,
             true
           )
         ).to.be.rejectedWith("NotoDuplicateTransaction");
@@ -414,15 +436,28 @@ describe("NotoNullifiers", function () {
 
       it("should fail on duplicate txId during prepare unlock and delegate lock", async function () {
         const txo5 = newUTXO(1);
+        const txo6 = newUTXO(1);
 
         // Prepare an unlock operation
         const unlockData = randomBytes32();
-        const unlockHash = await newUnlockHash(
+        const unlockTxId = randomBytes32();
+        const spendHash = await newUnlockHash(
           noto as unknown as Noto,
+          unlockTxId,
           [locked2.hash!],
-          [],
           [txo5.hash!],
           unlockData
+        );
+        const cancelHash = await newUnlockHash(noto, unlockTxId, [locked2.hash!], [txo6.hash!], unlockData);
+        await doPrepareUnlock(
+          randomBytes32(),
+          notary,
+          noto,
+          lockId,
+          unlockTxId,
+          spendHash,
+          cancelHash,
+          unlockData,
         );
 
         // Delegate the lock using the same TX ID as the transfer - should fail
@@ -431,10 +466,9 @@ describe("NotoNullifiers", function () {
             txId1,
             notary,
             noto as unknown as Noto,
-            unlockHash,
-            delegate.address,
+            lockId,
+            "0x" + Buffer.from(randomBytes(20)).toString("hex"),
             randomBytes32(),
-            lockId
           )
         ).to.be.rejectedWith("NotoDuplicateTransaction");
       });

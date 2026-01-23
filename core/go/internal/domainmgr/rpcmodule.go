@@ -28,16 +28,20 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
+func (dm *domainManager) RPCModule() *rpcserver.RPCModule {
+	return dm.rpcModule
+}
+
 func (dm *domainManager) buildRPCModule() {
 	dm.rpcModule = rpcserver.NewRPCModule("domain").
-		Add("domain_listDomains", dm.rpcQueryTransactions()).
+		Add("domain_listDomains", dm.rpcListDomains()).
 		Add("domain_getDomain", dm.rpcGetDomain()).
 		Add("domain_getDomainByAddress", dm.rpcGetDomainByAddress()).
 		Add("domain_querySmartContracts", dm.rpcQuerySmartContracts()).
 		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress())
 }
 
-func (dm *domainManager) rpcQueryTransactions() rpcserver.RPCHandler {
+func (dm *domainManager) rpcListDomains() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod0(func(ctx context.Context) ([]string, error) {
 		res := []string{}
 		for name := range dm.ConfiguredDomains() {
@@ -109,12 +113,10 @@ func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 		if err != nil {
 			return nil, err
 		}
-		result := &pldapi.DomainSmartContract{
+		return &pldapi.DomainSmartContract{
 			DomainName:    sc.Domain().Name(),
 			DomainAddress: sc.Domain().RegistryAddress(),
 			Address:       sc.Address(),
-		}
-		dm.populateContractConfig(result, sc.ContractConfig())
-		return result, nil
+		}, nil
 	})
 }

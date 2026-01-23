@@ -250,7 +250,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 
 	// Mock callbacks that will simulate generateMerkleProofs returning fewer proofs than inputSize
 	mockCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			// Return error to simulate generateMerkleProofs failure, which allows us to test error handling
 			return nil, errors.New("simulated merkle tree error")
 		},
@@ -280,7 +280,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 	})
 	count := 0
 	mockCallbacksNullifier := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			switch count {
 			case 0:
 				count++
@@ -328,7 +328,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 
 	kycCount := 0
 	mockCallbacksNullifierKyc := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			switch kycCount {
 			case 0, 5: // root node for utxo tree and kyc tree
 				kycCount++

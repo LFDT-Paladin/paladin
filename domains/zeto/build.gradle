@@ -184,7 +184,6 @@ task copyPkgSolidity(type: Copy) {
 task unitTests(type: Exec, dependsOn: [
         protoc,
         ":core:go:makeMocks",
-        ":testinfra:startTestInfra",
         downloadZetoCompiledContracts,
         copySolidity,
         copyPkgSolidity,
@@ -210,7 +209,6 @@ task unitTests(type: Exec, dependsOn: [
     if (project.findProperty('verboseTests') == 'true') {
         args '-v'
     }
-    helpers.dumpLogsOnFailure(it, ':testinfra:startTestInfra')
 }
 
 task checkCoverage(type: GoCheckCoverage, dependsOn: [unitTests]) {

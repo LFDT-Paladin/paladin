@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type burnCommon struct {
@@ -67,12 +68,20 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 	notary := tx.DomainConfig.NotaryLookup
 	useNullifiers := tx.DomainConfig.IsNullifierVariant()
 
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
 
-	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromAddress, amount, useNullifiers)
+	inputStates, revert, err := h.noto.prepareInputs(ctx, req.StateQueryContext, fromID, amount, useNullifiers)
 	if err != nil {
 		if revert {
 			message := err.Error()
@@ -83,22 +92,22 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 		}
 		return nil, err
 	}
-	infoStates, err := h.noto.prepareInfo(data, tx.DomainConfig.Variant, []string{notary, tx.Transaction.From, from})
+	infoDistribution := identityList{notaryID, senderID, fromID}
+	infoStates, err := h.noto.prepareDataInfo(data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 
-	var outputCoins []*types.NotoCoin
-	var outputStates []*prototk.NewState
+	outputs := &preparedOutputs{}
 	if inputStates.total.Cmp(amount.Int()) == 1 {
 		remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-		returnedStates, err := h.noto.prepareOutputs(fromAddress, (*pldtypes.HexUint256)(remainder), []string{notary, tx.Transaction.From, from})
+		outputs, err = h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(remainder), identityList{notaryID, senderID, fromID})
 		if err != nil {
 			return nil, err
 		}
 		if useNullifiers {
 			// add nullifier spec to each returned state (they are new states)
-			for _, newState := range returnedStates.states {
+			for _, newState := range outputs.states {
 				newState.NullifierSpecs = []*prototk.NullifierSpec{
 					{
 						Party:        from,
@@ -109,20 +118,29 @@ func (h *burnCommon) assembleBurn(ctx context.Context, tx *types.ParsedTransacti
 				}
 			}
 		}
-		outputCoins = append(outputCoins, returnedStates.coins...)
-		outputStates = append(outputStates, returnedStates.states...)
 	}
 
-	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputCoins)
+	encodedTransfer, err := h.noto.encodeTransferUnmasked(ctx, tx.ContractAddress, inputStates.coins, outputs.coins)
 	if err != nil {
 		return nil, err
+	}
+
+	if !tx.DomainConfig.IsV0() {
+		manifestState, err := h.noto.newManifestBuilder().
+			addOutputs(outputs).
+			addInfoStates(infoDistribution, infoStates...).
+			buildManifest(ctx, req.StateQueryContext)
+		if err != nil {
+			return nil, err
+		}
+		infoStates = append([]*prototk.NewState{manifestState} /* manifest first */, infoStates...)
 	}
 
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
 			InputStates:  inputStates.states,
-			OutputStates: outputStates,
+			OutputStates: outputs.states,
 			InfoStates:   infoStates,
 		},
 		AttestationPlan: []*prototk.AttestationRequest{
@@ -166,7 +184,7 @@ func (h *burnCommon) endorseBurn(ctx context.Context, tx *types.ParsedTransactio
 	if err := h.noto.validateBurnAmounts(ctx, &types.BurnParams{Amount: amount, Data: data}, inputs, outputs); err != nil {
 		return nil, err
 	}
-	if err := h.noto.validateOwners(ctx, from, req, inputs.coins, inputs.states); err != nil {
+	if err := h.noto.validateOwners(ctx, from, req.ResolvedVerifiers, inputs.coins, inputs.states); err != nil {
 		return nil, err
 	}
 
@@ -195,39 +213,59 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	if err != nil {
 		return nil, err
 	}
-	payload := sender.Payload
-	if useNullifier {
-		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
-		if err != nil {
-			return nil, err
-		}
-		payload = encoded
-	}
 
-	params := &NotoBurnParams{
-		TxId:      req.Transaction.TransactionId,
-		Inputs:    endorsableStateIDs(req.InputStates, useNullifier),
-		Outputs:   endorsableStateIDs(req.OutputStates, false),
-		Signature: payload,
-		Data:      data,
+	var interfaceABI abi.ABI
+	var functionName string
+	var paramsJSON []byte
+
+	// if useNullifier {
+	// 	encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	payload = encoded
+	// }
+
+	switch tx.DomainConfig.Variant {
+	case types.NotoVariantDefault, types.NotoVariantNullifier:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
+		functionName = "transfer"
+		params := &NotoBurnParams{
+			TxId:    req.Transaction.TransactionId,
+			Inputs:  endorsableStateIDs(req.InputStates, useNullifier),
+			Outputs: endorsableStateIDs(req.OutputStates, false),
+			Proof:   sender.Payload,
+			Data:    data,
+		}
+		paramsJSON, err = json.Marshal(params)
+	default:
+		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
+		functionName = "transfer"
+		params := &NotoTransfer_V0_Params{
+			TxId:      req.Transaction.TransactionId,
+			Inputs:    endorsableStateIDs(req.InputStates, false),
+			Outputs:   endorsableStateIDs(req.OutputStates, false),
+			Signature: sender.Payload,
+			Data:      data,
+		}
+		paramsJSON, err = json.Marshal(params)
 	}
-	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, err
 	}
 	return &TransactionWrapper{
 		transactionType: prototk.PreparedTransaction_PUBLIC,
-		functionABI:     interfaceBuild.ABI.Functions()["transfer"],
+		functionABI:     interfaceABI.Functions()[functionName],
 		paramsJSON:      paramsJSON,
 	}, nil
 }
 
 func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransaction, req *prototk.PrepareTransactionRequest, baseTransaction *TransactionWrapper, from string, amount *pldtypes.HexUint256, data pldtypes.HexBytes) (*TransactionWrapper, error) {
-	senderAddress, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
-	fromAddress, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
+	fromID, err := h.noto.findEthAddressVerifier(ctx, "from", from, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -237,8 +275,8 @@ func (h *burnCommon) hookInvokeBurn(ctx context.Context, tx *types.ParsedTransac
 		return nil, err
 	}
 	params := &BurnHookParams{
-		Sender: senderAddress,
-		From:   fromAddress,
+		Sender: senderID.address,
+		From:   fromID.address,
 		Amount: amount,
 		Data:   data,
 		Prepared: PreparedTransaction{

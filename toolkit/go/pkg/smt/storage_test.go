@@ -16,6 +16,7 @@
 package smt
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -32,15 +33,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func returnCustomError() (*prototk.FindAvailableStatesResponse, error) {
+func returnCustomError(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return nil, errors.New("test error")
 }
 
-func returnEmptyStates() (*prototk.FindAvailableStatesResponse, error) {
+func returnEmptyStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return &prototk.FindAvailableStatesResponse{}, nil
 }
 
-func returnBadData() (*prototk.FindAvailableStatesResponse, error) {
+func returnBadData(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	return &prototk.FindAvailableStatesResponse{
 		States: []*prototk.StoredState{
 			{
@@ -50,7 +51,7 @@ func returnBadData() (*prototk.FindAvailableStatesResponse, error) {
 	}, nil
 }
 
-func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
+func returnNode(t int) func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 	var data []byte
 	if t == 0 {
 		data, _ = json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
@@ -100,7 +101,7 @@ func returnNode(t int) func() (*prototk.FindAvailableStatesResponse, error) {
 			"type":       "0x02", // leaf node
 		})
 	}
-	return func() (*prototk.FindAvailableStatesResponse, error) {
+	return func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -672,3 +673,254 @@ type badIndex struct {
 
 func (b badIndex) IsBitOne(uint) bool { return false }
 func (b badIndex) ToPath(int) []bool  { return nil }
+
+func TestMakeNewStateFromTreeNodeWithEIP712(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := true
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test-smt", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(9999), hasher)
+	leafNode, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
+
+	smtNode := &smtNode{
+		node: leafNode,
+		txId: "leaf-eip712-tx",
+	}
+
+	newState, err := storage.(*statesStorage).makeNewStateFromTreeNode(t.Context(), smtNode)
+	assert.NoError(t, err)
+	assert.NotNil(t, newState)
+	assert.Equal(t, "leaf-eip712-tx", newState.TransactionId)
+	assert.NotEmpty(t, *newState.Id)
+}
+
+func TestMakeNewStateFromRootNodeWithEIP712(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := true
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test-smt", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1111), hasher)
+	rootRef := idx
+
+	smtRootNode := &smtRootNode{
+		root: rootRef,
+		txId: "root-eip712-tx",
+	}
+
+	newState, err := storage.(*statesStorage).makeNewStateFromRootNode(t.Context(), smtRootNode)
+	assert.NoError(t, err)
+	assert.NotNil(t, newState)
+	assert.Equal(t, "root-eip712-tx", newState.TransactionId)
+	assert.Equal(t, "root-schema", newState.SchemaId)
+	assert.NotEmpty(t, *newState.Id)
+}
+
+func TestSetTransactionIdWhenPendingNodesTxIsNil(t *testing.T) {
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", "stateQueryContext", "root-schema", "node-schema", hasher, useEIP712)
+	assert.Nil(t, storage.(*statesStorage).pendingNodesTx)
+	
+	storage.SetTransactionId("txid1")
+	assert.NotNil(t, storage.(*statesStorage).pendingNodesTx)
+	assert.Equal(t, "txid1", storage.(*statesStorage).pendingNodesTx.transactionId)
+}
+
+func TestUpsertRootNodeRefWhenPendingNodesTxIsNil(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	assert.Nil(t, storage.(*statesStorage).pendingNodesTx)
+	
+	tx, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(5678), hasher)
+	err = tx.UpsertRootNodeRef(t.Context(), idx)
+	assert.NoError(t, err)
+	assert.NotNil(t, storage.(*statesStorage).pendingNodesTx)
+	assert.Equal(t, idx, storage.(*statesStorage).pendingNodesTx.inflightRoot)
+}
+
+func TestBeginTxResetsInflightNodes(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	
+	// First transaction
+	tx1, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(100), hasher)
+	node1, _ := node.NewLeafNode(node.NewIndexOnly(idx1), nil)
+	err = tx1.InsertNode(t.Context(), node1)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+	
+	// Second transaction should reset inflight nodes
+	tx2, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+	
+	// Insert a different node
+	idx2, _ := node.NewNodeIndexFromBigInt(big.NewInt(200), hasher)
+	node2, _ := node.NewLeafNode(node.NewIndexOnly(idx2), nil)
+	err = tx2.InsertNode(t.Context(), node2)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+}
+
+func TestGetRootNodeRefWithPendingInflightRoot(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	
+	tx, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(9999), hasher)
+	err = tx.UpsertRootNodeRef(t.Context(), idx)
+	assert.NoError(t, err)
+	
+	// GetRootNodeRef should return the pending inflight root
+	rootRef, err := storage.GetRootNodeRef(t.Context())
+	assert.NoError(t, err)
+	assert.Equal(t, idx, rootRef)
+}
+
+func TestCommitMergesInflightNodes(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	
+	tx, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	storage.SetTransactionId("commit-test-tx")
+	
+	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(111), hasher)
+	node1, _ := node.NewLeafNode(node.NewIndexOnly(idx1), nil)
+	err = tx.InsertNode(t.Context(), node1)
+	assert.NoError(t, err)
+	
+	idx2, _ := node.NewNodeIndexFromBigInt(big.NewInt(222), hasher)
+	err = tx.UpsertRootNodeRef(t.Context(), idx2)
+	assert.NoError(t, err)
+	
+	// Before commit, committedNewNodes should be empty
+	assert.Equal(t, 0, len(storage.(*statesStorage).committedNewNodes))
+	assert.Nil(t, storage.(*statesStorage).rootNode)
+	
+	// Commit should merge inflight nodes
+	err = tx.Commit(t.Context())
+	assert.NoError(t, err)
+	
+	// After commit, nodes should be in committedNewNodes
+	assert.Equal(t, 1, len(storage.(*statesStorage).committedNewNodes))
+	assert.NotNil(t, storage.(*statesStorage).rootNode)
+	assert.Equal(t, "commit-test-tx", storage.(*statesStorage).rootNode.txId)
+	assert.Equal(t, idx2, storage.(*statesStorage).rootNode.root)
+	
+	// Inflight nodes should be reset
+	assert.Equal(t, 0, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+	assert.Nil(t, storage.(*statesStorage).pendingNodesTx.inflightRoot)
+}
+
+func TestRollbackResetsPendingNodesTx(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	
+	tx, err := storage.BeginTx(t.Context())
+	assert.NoError(t, err)
+	storage.SetTransactionId("rollback-test-tx")
+	
+	idx1, _ := node.NewNodeIndexFromBigInt(big.NewInt(333), hasher)
+	node1, _ := node.NewLeafNode(node.NewIndexOnly(idx1), nil)
+	err = tx.InsertNode(t.Context(), node1)
+	assert.NoError(t, err)
+	
+	idx2, _ := node.NewNodeIndexFromBigInt(big.NewInt(444), hasher)
+	err = tx.UpsertRootNodeRef(t.Context(), idx2)
+	assert.NoError(t, err)
+	
+	// Verify nodes are in pending
+	assert.Equal(t, 1, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+	assert.Equal(t, idx2, storage.(*statesStorage).pendingNodesTx.inflightRoot)
+	
+	// Rollback should reset
+	err = tx.Rollback(t.Context())
+	assert.NoError(t, err)
+	
+	// After rollback, pendingNodesTx should be reset
+	assert.Equal(t, 0, len(storage.(*statesStorage).pendingNodesTx.inflightNodes))
+	assert.Nil(t, storage.(*statesStorage).pendingNodesTx.inflightRoot)
+	assert.Equal(t, "", storage.(*statesStorage).pendingNodesTx.transactionId)
+}
+
+func TestGetNodeWithCommittedNodesFirst(t *testing.T) {
+	stateQueryContext := pldtypes.ShortID()
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := false
+
+	storage := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test", stateQueryContext, "root-schema", "node-schema", hasher, useEIP712)
+	
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(555), hasher)
+	node1, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
+	
+	// Commit a node first
+	tx1, _ := storage.BeginTx(t.Context())
+	tx1.InsertNode(t.Context(), node1)
+	tx1.Commit(t.Context())
+	
+	// Start a new transaction and insert a different node with same ref
+	tx2, _ := storage.BeginTx(t.Context())
+	node2, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
+	tx2.InsertNode(t.Context(), node2)
+	
+	// GetNode should return the committed node, not the pending one
+	retrievedNode, err := storage.GetNode(t.Context(), node1.Ref())
+	assert.NoError(t, err)
+	assert.Equal(t, node1, retrievedNode)
+}
+
+func TestGetNewStatesWithEIP712(t *testing.T) {
+	hasher := utxo.NewPoseidonHasher()
+	useEIP712 := true
+
+	s := NewStatesStorage(&domain.MockDomainCallbacks{MockFindAvailableStates: returnEmptyStates}, "test-smt", "stateQueryContext", "root-schema", "node-schema", hasher, useEIP712)
+	storage := s.(*statesStorage)
+	
+	rootNode, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234), hasher)
+	storage.rootNode = &smtRootNode{
+		root: rootNode,
+		txId: "eip712-tx",
+	}
+	
+	idx, _ := node.NewNodeIndexFromBigInt(big.NewInt(1234567890), hasher)
+	node, _ := node.NewLeafNode(node.NewIndexOnly(idx), nil)
+	storage.committedNewNodes = map[core.NodeRef]*smtNode{
+		idx: {
+			node: node,
+			txId: "eip712-tx",
+		},
+	}
+	
+	states, err := storage.GetNewStates(t.Context())
+	assert.NoError(t, err)
+	assert.Len(t, states, 2)
+	// Verify that EIP712 hashing was used (hash should be different from regular hash)
+	assert.NotEmpty(t, states[0].Id)
+	assert.NotEmpty(t, states[1].Id)
+}
