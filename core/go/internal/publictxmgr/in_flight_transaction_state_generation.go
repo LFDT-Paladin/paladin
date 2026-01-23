@@ -300,6 +300,10 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 		if newSubmission != nil {
 			log.L(ctx).Debugf("PersistTxState TXID %s: Queueing new submission", newSubmission.SequencerContext.PrivateTXID)
 
+			// The public TX manager and sequencer primarily deal with public transactions and private transactions respectively. However, the sequencer
+			// also needs to update its state machine(s) when public TX activity takes place, and acts to inform other sequencers about progress with a
+			// Paladin transaction. The SequencerContext here is used to pass non-persisted context about the Paladin transaction (pulled from TX manager's
+			// rsc.InMemoryTx) and its associated public transaction (passed in the SequencerContext.Binding).
 			if newSubmission.SequencerContext.Binding == nil && rsc.InMemoryTx != nil {
 				log.L(ctx).Debugf("PersistTxState TXID %s: Building binding", newSubmission.SequencerContext.PrivateTXID)
 				nonce := pldtypes.HexUint64(rsc.InMemoryTx.GetNonce())
