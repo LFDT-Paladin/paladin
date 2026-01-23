@@ -33,7 +33,11 @@ title: TransactionReceiptFull
 | `domainReceiptError` | Contains the error if it was not possible to obtain the domain receipt for a private transaction | `string` |
 | `public` | Public transactions submitted for this receipt's transaction | [`PublicTx[]`](publictx.md#publictx) |
 | `dispatches` | Dispatches for this receipt's transaction | [`Dispatch[]`](#dispatch) |
+| `chainedTransactions` | Chained private transactions resulting from this receipt's transaction | [`ChainedTransaction[]`](#chainedtransaction) |
 
 ## Dispatch
+
+
+## ChainedTransaction
 
 
