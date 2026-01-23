@@ -394,7 +394,9 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			TransactionHash: *tx.TransactionHash,
 			Created:         tx.PublicTx.Submissions[0].Time, // We should never get here without exactly one submission
 			GasPricing:      pldtypes.JSONString(tx.PublicTx.Submissions[0].PublicTxGasPricing),
-			PrivateTXID:     tx.Transaction,
+			SequencerContext: PubTxnSubmissionSequencerContext{
+				PrivateTXID: tx.Transaction,
+			},
 		}
 		persistedSubmissions = append(persistedSubmissions, dbSubmission)
 		dbBinding := &DBPublicTxnBinding{

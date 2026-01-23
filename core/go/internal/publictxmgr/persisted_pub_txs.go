@@ -57,21 +57,32 @@ func (DBPublicTxnBinding) TableName() string {
 	return "public_txn_bindings"
 }
 
+// The interaction point between the public transaction manager and the sequencer is in the submission writer
+// where we both persist the public TX and ask the sequencer to persist (under the same DBTX) any necessary updates.
+// This struct has non-gorm fields that allow us to give the sequencer more context than the data we are persisting to
+// the DB
 type DBPubTxnSubmission struct {
-	from                string                                `gorm:"-"` // just used to ensure we dispatch to same writer as the associated pubic TX
-	PublicTxnID         uint64                                `gorm:"column:pub_txn_id"`
-	Created             pldtypes.Timestamp                    `gorm:"column:created;autoCreateTime:false"` // we set this as we track the record in memory too
-	TransactionHash     pldtypes.Bytes32                      `gorm:"column:tx_hash;primaryKey"`
-	GasPricing          pldtypes.RawJSON                      `gorm:"column:gas_pricing"` // no filtering allowed on this field as it's complex JSON gasPrice/maxFeePerGas/maxPriorityFeePerGas calculation
-	TransactionType     pldtypes.Enum[pldapi.TransactionType] `gorm:"-"`                  // just used by the sequencer
-	PrivateTXID         uuid.UUID                             `gorm:"-"`                  // just used by the sequencer
-	PrivateTXOriginator string                                `gorm:"-"`                  // just used by the sequencer
-	ContractAddress     string                                `gorm:"-"`                  // just used by the sequencer
-	Binding             *pldapi.PublicTx                      `gorm:"-"`                  // just used by the sequencer
+	from             string                           `gorm:"-"` // just used to ensure we dispatch to same writer as the associated pubic TX
+	PublicTxnID      uint64                           `gorm:"column:pub_txn_id"`
+	Created          pldtypes.Timestamp               `gorm:"column:created;autoCreateTime:false"` // we set this as we track the record in memory too
+	TransactionHash  pldtypes.Bytes32                 `gorm:"column:tx_hash;primaryKey"`
+	GasPricing       pldtypes.RawJSON                 `gorm:"column:gas_pricing"` // no filtering allowed on this field as it's complex JSON gasPrice/maxFeePerGas/maxPriorityFeePerGas calculation
+	SequencerContext PubTxnSubmissionSequencerContext `gorm:"-"`
 }
 
 func (DBPubTxnSubmission) TableName() string {
 	return "public_submissions"
+}
+
+// Persisting a public TXN requires the sequencer to update both its state store and potentially the DB. This struct is used
+// to pass additional context to the batched submission writer to give the sequencer additional context about what this public
+// transaction relates to with the need for additional DB reads.
+type PubTxnSubmissionSequencerContext struct {
+	TransactionType     pldtypes.Enum[pldapi.TransactionType] `gorm:"-"`
+	PrivateTXID         uuid.UUID                             `gorm:"-"`
+	PrivateTXOriginator string                                `gorm:"-"`
+	ContractAddress     string                                `gorm:"-"`
+	Binding             *pldapi.PublicTx                      `gorm:"-"`
 }
 
 type DBPublicTxnCompletion struct {
