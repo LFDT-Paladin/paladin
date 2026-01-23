@@ -250,7 +250,7 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	remoteID := "remote-activity-id-123"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 	activityType := "dispatched"
-	submittingNode := "node-abc"
+	sequencingNode := "node-abc"
 	transactionID := uuid.New()
 
 	psa := &sequencer.DBSequencingActivity{
@@ -258,7 +258,7 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 		RemoteID:       remoteID,
 		Timestamp:      timestamp,
 		ActivityType:   activityType,
-		SubmittingNode: submittingNode,
+		SequencingNode: sequencingNode,
 		TransactionID:  transactionID,
 	}
 
@@ -269,7 +269,7 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	assert.Equal(t, remoteID, result.RemoteID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
-	assert.Equal(t, submittingNode, result.SubmittingNode)
+	assert.Equal(t, sequencingNode, result.SequencingNode)
 	assert.Equal(t, transactionID, result.TransactionID)
 }
 
@@ -280,7 +280,7 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 	remoteID := "remote-activity-id-456"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 	activityType := "dispatched"
-	submittingNode := "node-xyz"
+	sequencingNode := "node-xyz"
 	transactionID := uuid.New()
 
 	psa := &sequencer.DBSequencingActivity{
@@ -288,7 +288,7 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 		RemoteID:       remoteID,
 		Timestamp:      timestamp,
 		ActivityType:   activityType,
-		SubmittingNode: submittingNode,
+		SequencingNode: sequencingNode,
 		TransactionID:  transactionID,
 	}
 
@@ -299,7 +299,7 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 	assert.Equal(t, remoteID, result.RemoteID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
-	assert.Equal(t, submittingNode, result.SubmittingNode)
+	assert.Equal(t, sequencingNode, result.SequencingNode)
 	assert.Equal(t, transactionID, result.TransactionID)
 }
 
@@ -342,14 +342,14 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	assert.Equal(t, remoteID1, result[0].SequencerActivity[0].RemoteID)
 	assert.Equal(t, timestamp1, result[0].SequencerActivity[0].Timestamp)
 	assert.Equal(t, "dispatched", result[0].SequencerActivity[0].ActivityType)
-	assert.Equal(t, "node1", result[0].SequencerActivity[0].SubmittingNode)
+	assert.Equal(t, "node1", result[0].SequencerActivity[0].SequencingNode)
 	assert.Equal(t, txID1, result[0].SequencerActivity[0].TransactionID)
 
 	assert.Equal(t, &localID2, result[0].SequencerActivity[1].LocalID)
 	assert.Equal(t, remoteID2, result[0].SequencerActivity[1].RemoteID)
 	assert.Equal(t, timestamp2, result[0].SequencerActivity[1].Timestamp)
 	assert.Equal(t, "confirmed", result[0].SequencerActivity[1].ActivityType)
-	assert.Equal(t, "node1", result[0].SequencerActivity[1].SubmittingNode)
+	assert.Equal(t, "node1", result[0].SequencerActivity[1].SequencingNode)
 	assert.Equal(t, txID1, result[0].SequencerActivity[1].TransactionID)
 
 	// Second transaction should have 1 sequencer activity
@@ -359,7 +359,7 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	assert.Equal(t, remoteID3, result[1].SequencerActivity[0].RemoteID)
 	assert.Equal(t, timestamp3, result[1].SequencerActivity[0].Timestamp)
 	assert.Equal(t, "dispatched", result[1].SequencerActivity[0].ActivityType)
-	assert.Equal(t, "node2", result[1].SequencerActivity[0].SubmittingNode)
+	assert.Equal(t, "node2", result[1].SequencerActivity[0].SequencingNode)
 	assert.Equal(t, txID2, result[1].SequencerActivity[0].TransactionID)
 }
 

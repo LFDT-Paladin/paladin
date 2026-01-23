@@ -203,6 +203,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			} else {
 				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
+				sequencingActivity.SequencingNode = v.msg.FromNode // Don't trust the payload, populate from the peer source node
 				sequencingActivitiesToPersist = append(sequencingActivitiesToPersist, &sequencingActivity)
 			}
 		case RMHMessageTypeAck, RMHMessageTypeNack:

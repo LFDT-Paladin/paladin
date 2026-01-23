@@ -33,6 +33,6 @@ type SequencerActivity struct {
 	RemoteID       string             `docstruct:"SequencerActivity" json:"remoteId,omitempty"` // Optional depending on the activity type. It may have a remote ID that correlates with something on another node
 	Timestamp      pldtypes.Timestamp `docstruct:"SequencerActivity" json:"timestamp,omitempty"`
 	ActivityType   string             `docstruct:"SequencerActivity" json:"activityType,omitempty"`
-	SubmittingNode string             `docstruct:"SequencerActivity" json:"submittingNode,omitempty"` // The node where this activity took place
+	SequencingNode string             `docstruct:"SequencerActivity" json:"sequencingNode,omitempty"` // The node where this activity took place
 	TransactionID  uuid.UUID          `docstruct:"SequencerActivity" json:"transactionId,omitempty"`
 }

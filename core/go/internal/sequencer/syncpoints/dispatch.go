@@ -100,7 +100,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 				RemoteID:       privateTx.ID, // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
 				Timestamp:      pldtypes.TimestampNow(),
 				ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-				SubmittingNode: s.transportMgr.LocalNodeName(), // Us
+				SequencingNode: s.transportMgr.LocalNodeName(), // Us
 				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
 			}
 
@@ -125,7 +125,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 			RemoteID:       privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
 			Timestamp:      pldtypes.TimestampNow(),
 			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),
-			SubmittingNode: s.transportMgr.LocalNodeName(), // Us
+			SequencingNode: s.transportMgr.LocalNodeName(), // Us
 			TransactionID:  privateDispatch.OriginalTransaction,
 		}
 

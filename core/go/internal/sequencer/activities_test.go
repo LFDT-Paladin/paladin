@@ -59,7 +59,7 @@ func TestWriteReceivedSequencingActivities_SingleActivity(t *testing.T) {
 	txID := uuid.New()
 	remoteID := "remote-123"
 	activityType := string(pldapi.SequencerActivityType_Dispatched)
-	submittingNode := "node1"
+	sequencingNode := "node1"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 
 	sequencingActivity := &pldapi.SequencerActivity{
@@ -67,7 +67,7 @@ func TestWriteReceivedSequencingActivities_SingleActivity(t *testing.T) {
 		Timestamp:      timestamp,
 		TransactionID:  txID,
 		ActivityType:   activityType,
-		SubmittingNode: submittingNode,
+		SequencingNode: sequencingNode,
 	}
 
 	// Expect INSERT query for sequencer_activities table (GORM uses Query with RETURNING)
@@ -103,21 +103,21 @@ func TestWriteReceivedSequencingActivities_MultipleActivities(t *testing.T) {
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID1,
 			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-			SubmittingNode: "node1",
+			SequencingNode: "node1",
 		},
 		{
 			RemoteID:       "remote-2",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID2,
 			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-			SubmittingNode: "node2",
+			SequencingNode: "node2",
 		},
 		{
 			RemoteID:       "remote-3",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID3,
 			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-			SubmittingNode: "node3",
+			SequencingNode: "node3",
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestWriteReceivedSequencingActivities_DatabaseError(t *testing.T) {
 		Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 		TransactionID:  txID,
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-		SubmittingNode: "node1",
+		SequencingNode: "node1",
 	}
 
 	dbError := errors.New("database connection error")
@@ -192,7 +192,7 @@ func TestWriteReceivedSequencingActivities_ActivityWithAllFields(t *testing.T) {
 	localID := uint64(42)
 	remoteID := "remote-activity-456"
 	activityType := "custom_activity"
-	submittingNode := "test-node"
+	sequencingNode := "test-node"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 
 	sequencingActivity := &pldapi.SequencerActivity{
@@ -201,7 +201,7 @@ func TestWriteReceivedSequencingActivities_ActivityWithAllFields(t *testing.T) {
 		Timestamp:      timestamp,
 		TransactionID:  txID,
 		ActivityType:   activityType,
-		SubmittingNode: submittingNode,
+		SequencingNode: sequencingNode,
 	}
 
 	// Expect INSERT query (GORM uses Query with RETURNING)

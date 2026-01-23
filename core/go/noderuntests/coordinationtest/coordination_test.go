@@ -156,7 +156,7 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	// Check Alice has the sequencing activity Bob has distributed to her
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatched)) // Only 1 activity type supported currently
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].SubmittingNode, bob.GetName())
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID, aliceTx.ID())
 
 	// Check Bob has the dispatch
@@ -771,7 +771,7 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 	require.NotNil(t, aliceChainedTxFull)
 
 	assert.True(t, len(aliceChainedTxFull.SequencerActivity) == 1)
-	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].SubmittingNode, bob.GetName())
+	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].TransactionID.String(), aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatched))
 
@@ -866,7 +866,7 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 	require.NotNil(t, aliceTxFull)
 
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].SubmittingNode, bob.GetName())
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID.String(), aliceTx.ID().String())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_ChainedDispatch)) // The coordination resulted in a chained transaction, not a public dispatch
 

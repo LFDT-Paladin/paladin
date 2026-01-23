@@ -853,7 +853,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 		RemoteID:       "remoteID",
 		Timestamp:      pldtypes.TimestampNow(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-		SubmittingNode: "node2",
+		SequencingNode: "node2",
 		TransactionID:  uuid.New(),
 	}
 
@@ -888,6 +888,6 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	require.Equal(t, sequencerActivity.RemoteID, receivedSequencerActivity.RemoteID)
 	require.Equal(t, sequencerActivity.Timestamp, receivedSequencerActivity.Timestamp)
 	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
-	require.Equal(t, sequencerActivity.SubmittingNode, receivedSequencerActivity.SubmittingNode)
+	require.Equal(t, sequencerActivity.SequencingNode, receivedSequencerActivity.SequencingNode)
 	require.Equal(t, sequencerActivity.TransactionID, receivedSequencerActivity.TransactionID)
 }

@@ -109,7 +109,7 @@ func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencin
 		RemoteID:       psa.RemoteID,
 		Timestamp:      psa.Timestamp,
 		ActivityType:   psa.ActivityType,
-		SubmittingNode: psa.SubmittingNode,
+		SequencingNode: psa.SequencingNode,
 		TransactionID:  psa.TransactionID,
 	}
 }

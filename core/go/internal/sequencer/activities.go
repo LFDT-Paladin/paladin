@@ -33,7 +33,7 @@ type DBSequencingActivity struct {
 	Timestamp      pldtypes.Timestamp `gorm:"column:timestamp"`
 	TransactionID  uuid.UUID          `gorm:"column:transaction_id"`
 	ActivityType   string             `gorm:"column:activity_type"`
-	SubmittingNode string             `gorm:"column:submitting_node"`
+	SequencingNode string             `gorm:"column:sequencing_node"`
 }
 
 func (DBSequencingActivity) TableName() string {
@@ -49,7 +49,7 @@ func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Cont
 			Timestamp:      sequencingActivity.Timestamp,
 			TransactionID:  sequencingActivity.TransactionID,
 			ActivityType:   sequencingActivity.ActivityType,
-			SubmittingNode: sequencingActivity.SubmittingNode,
+			SequencingNode: sequencingActivity.SequencingNode,
 		}
 		dbActivities = append(dbActivities, dbSequencingActivity)
 	}

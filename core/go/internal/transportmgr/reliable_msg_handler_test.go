@@ -1353,7 +1353,7 @@ func TestHandleSequencingActivityOk(t *testing.T) {
 	sequencingActivity := &pldapi.SequencerActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-		SubmittingNode: "node2",
+		SequencingNode: "node2",
 		Timestamp:      pldtypes.TimestampNow(),
 	}
 
@@ -1417,7 +1417,7 @@ func TestHandleSequencingActivityFail(t *testing.T) {
 	sequencingActivity := &pldapi.SequencerActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
-		SubmittingNode: "node2",
+		SequencingNode: "node2",
 		Timestamp:      pldtypes.TimestampNow(),
 	}
 
