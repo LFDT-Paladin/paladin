@@ -560,12 +560,12 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 }
 
 // Handle public TX submission, both for our own coordination state machine(s), and by distributing this public TX submission to other parties who need to have it
-func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, sender string, txID uuid.UUID, tx *pldapi.PublicTxWithBinding) error {
+func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, tx *pldapi.PublicTxWithBinding) error {
 	log.L(sMgr.ctx).Debugf("HandlePublicTXSubmission TXID %s", txID.String())
 
 	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *tx.To, nil, nil)
+		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(tx.TransactionContractAddress), nil, nil)
 		if err != nil {
 			return err
 		}
@@ -596,7 +596,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
 		// related to their coordinated private transaction submissions
-		senderNode, err := pldtypes.PrivateIdentityLocator(sender).Node(ctx, false)
+		senderNode, err := pldtypes.PrivateIdentityLocator(tx.TransactionSender).Node(ctx, false)
 		if err != nil {
 			return err
 		}

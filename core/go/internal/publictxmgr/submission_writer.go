@@ -67,31 +67,33 @@ func (sw *submissionWriter) runBatch(ctx context.Context, tx persistence.DBTX, v
 	// Once we have persisted a TX binding with the originating node the sequencer needs to distribute the public submission back to that node.
 	// We ask the sequencer to a) update its local state machine and b) send a reliable message to the originator under the same DBTX
 	for _, value := range values {
-		if value.SequencerContext.PrivateTXOriginator != "" && value.SequencerContext.Binding != nil {
+		if value.SequencerTXReference.PrivateTXOriginator != "" && value.SequencerTXReference.Binding != nil {
 
 			publicTXSubmission := &pldapi.PublicTxWithBinding{}
-			nonce := pldtypes.HexUint64(*value.SequencerContext.Binding.Nonce)
+			nonce := pldtypes.HexUint64(*value.SequencerTXReference.Binding.Nonce)
 			from := pldtypes.MustEthAddress(value.from)
 			publicTX := &pldapi.PublicTx{
 				Dispatcher: sw.nodeName,
 				From:       *from,
-				To:         value.SequencerContext.Binding.To,
-				Data:       value.SequencerContext.Binding.Data,
+				To:         value.SequencerTXReference.Binding.To,
+				Data:       value.SequencerTXReference.Binding.Data,
 				Nonce:      &nonce,
-				Created:    value.SequencerContext.Binding.Created,
+				Created:    value.SequencerTXReference.Binding.Created,
 				PublicTxOptions: pldapi.PublicTxOptions{
-					Gas:   value.SequencerContext.Binding.Gas,
-					Value: value.SequencerContext.Binding.Value,
+					Gas:   value.SequencerTXReference.Binding.Gas,
+					Value: value.SequencerTXReference.Binding.Value,
 					PublicTxGasPricing: pldapi.PublicTxGasPricing{
-						MaxPriorityFeePerGas: value.SequencerContext.Binding.MaxPriorityFeePerGas,
-						MaxFeePerGas:         value.SequencerContext.Binding.MaxFeePerGas,
+						MaxPriorityFeePerGas: value.SequencerTXReference.Binding.MaxPriorityFeePerGas,
+						MaxFeePerGas:         value.SequencerTXReference.Binding.MaxFeePerGas,
 					},
 				},
 			}
 			publicTXSubmission.PublicTx = publicTX
 			publicTXSubmission.TransactionHash = &value.TransactionHash
-			publicTXSubmission.Transaction = value.SequencerContext.PrivateTXID
-			publicTXSubmission.TransactionType = value.SequencerContext.TransactionType
+			publicTXSubmission.Transaction = value.SequencerTXReference.PrivateTXID
+			publicTXSubmission.TransactionType = value.SequencerTXReference.TransactionType
+			publicTXSubmission.TransactionContractAddress = value.SequencerTXReference.ContractAddress
+			publicTXSubmission.TransactionSender = value.SequencerTXReference.PrivateTXOriginator
 
 			var submissionGasPrice pldapi.PublicTxGasPricing
 			if value.GasPricing != nil {
@@ -110,8 +112,7 @@ func (sw *submissionWriter) runBatch(ctx context.Context, tx persistence.DBTX, v
 
 			err = sw.sequencerManager.HandlePublicTXSubmission(ctx,
 				tx,
-				value.SequencerContext.PrivateTXOriginator,
-				value.SequencerContext.PrivateTXID,
+				value.SequencerTXReference.PrivateTXID,
 				publicTXSubmission,
 			)
 			if err != nil {

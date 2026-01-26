@@ -449,7 +449,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 
 		for _, tx := range additional {
 			if tx.To != nil {
-				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.To.String(), tx.Binding.Transaction)
+				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.Binding.ContractAddress, tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing nonce assignment to sequencer for %d: %s", tx.PublicTxnID, err)
 				}

@@ -158,6 +158,13 @@ func (imtxs *inMemoryTxState) GetPrivateTXOriginator() string {
 	return ""
 }
 
+func (imtxs *inMemoryTxState) GetContractAddress() string {
+	if imtxs.mtx.ptx.Binding != nil {
+		return imtxs.mtx.ptx.Binding.ContractAddress
+	}
+	return ""
+}
+
 func (imtxs *inMemoryTxState) GetSignerNonce() string {
 	nonceStr := "unassigned"
 	if imtxs.mtx.ptx.Nonce != nil {

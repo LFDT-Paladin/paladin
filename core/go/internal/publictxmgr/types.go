@@ -236,6 +236,7 @@ type InMemoryTxStateReadOnly interface {
 	GetPubTxnID() uint64
 	GetTransactionType() *pldapi.TransactionType
 	GetPrivateTXOriginator() string
+	GetContractAddress() string
 	GetNonce() uint64
 	GetFrom() pldtypes.EthAddress
 	GetTo() *pldtypes.EthAddress

@@ -298,17 +298,17 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 	if rsc.StageOutputsToBePersisted.TxUpdates != nil {
 		newSubmission := rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission
 		if newSubmission != nil {
-			log.L(ctx).Debugf("PersistTxState TXID %s: Queueing new submission", newSubmission.SequencerContext.PrivateTXID)
+			log.L(ctx).Debugf("PersistTxState TXID %s: Queueing new submission", newSubmission.SequencerTXReference.PrivateTXID)
 
 			// The public TX manager and sequencer primarily deal with public transactions and private transactions respectively. However, the sequencer
 			// also needs to update its state machine(s) when public TX activity takes place, and acts to inform other sequencers about progress with a
 			// Paladin transaction. The SequencerContext here is used to pass non-persisted context about the Paladin transaction (pulled from TX manager's
 			// rsc.InMemoryTx) and its associated public transaction (passed in the SequencerContext.Binding).
-			if newSubmission.SequencerContext.Binding == nil && rsc.InMemoryTx != nil {
-				log.L(ctx).Debugf("PersistTxState TXID %s: Building binding", newSubmission.SequencerContext.PrivateTXID)
+			if newSubmission.SequencerTXReference.Binding == nil && rsc.InMemoryTx != nil {
+				log.L(ctx).Debugf("PersistTxState TXID %s: Building binding", newSubmission.SequencerTXReference.PrivateTXID)
 				nonce := pldtypes.HexUint64(rsc.InMemoryTx.GetNonce())
 				gasLimit := pldtypes.HexUint64(rsc.InMemoryTx.GetGasLimit())
-				newSubmission.SequencerContext.Binding = &pldapi.PublicTx{
+				newSubmission.SequencerTXReference.Binding = &pldapi.PublicTx{
 					TransactionHash: rsc.InMemoryTx.GetTransactionHash(),
 					From:            rsc.InMemoryTx.GetFrom(),
 					To:              rsc.InMemoryTx.GetTo(),
@@ -329,8 +329,8 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 					},
 				}
 				if rsc.InMemoryTx.GetTransactionFixedGasPrice() != nil {
-					log.L(ctx).Debugf("PersistTxState TXID %s: Setting gas pricing to %+v", newSubmission.SequencerContext.PrivateTXID, rsc.InMemoryTx.GetGasPriceObject())
-					newSubmission.SequencerContext.Binding.PublicTxGasPricing = pldapi.PublicTxGasPricing{
+					log.L(ctx).Debugf("PersistTxState TXID %s: Setting gas pricing to %+v", newSubmission.SequencerTXReference.PrivateTXID, rsc.InMemoryTx.GetGasPriceObject())
+					newSubmission.SequencerTXReference.Binding.PublicTxGasPricing = pldapi.PublicTxGasPricing{
 						MaxPriorityFeePerGas: rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxPriorityFeePerGas,
 						MaxFeePerGas:         rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxFeePerGas,
 					}
