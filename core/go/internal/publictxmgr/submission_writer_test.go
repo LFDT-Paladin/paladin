@@ -161,7 +161,7 @@ func TestRunBatch_WithOriginatorAndBinding(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		// Verify the PublicTxWithBinding structure
 		require.NotNil(t, txSubmission)
 		require.NotNil(t, txSubmission.PublicTx)
@@ -230,7 +230,7 @@ func TestRunBatch_WithOriginatorAndBinding_WithoutGasPricing(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		require.NotNil(t, txSubmission)
 		require.NotNil(t, txSubmission.PublicTx)
 		require.Len(t, txSubmission.PublicTx.Submissions, 1)
@@ -331,7 +331,7 @@ func TestRunBatch_HandlePublicTXSubmissionError(t *testing.T) {
 
 	// Mock HandlePublicTXSubmission to return an error
 	expectedError := errors.New("sequencer error")
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerTXReference.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission.SequencerTXReference.PrivateTXID, mock.Anything).
 		Return(expectedError).Once()
 
 	// Execute runBatch - should return error
@@ -365,9 +365,9 @@ func TestRunBatch_MultipleSubmissions(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission for submission1 and submission2 (submission3 should be skipped)
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission1.SequencerTXReference.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission1.SequencerTXReference.PrivateTXID, mock.Anything).
 		Return(nil).Once()
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission2.SequencerTXReference.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission2.SequencerTXReference.PrivateTXID, mock.Anything).
 		Return(nil).Once()
 
 	// Execute runBatch
@@ -402,7 +402,7 @@ func TestRunBatch_NonceConversion(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission and verify nonce conversion
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		require.NotNil(t, txSubmission.PublicTx.Nonce)
 		require.Equal(t, uint64(12345), uint64(*txSubmission.PublicTx.Nonce))
 		return true
@@ -436,7 +436,7 @@ func TestRunBatch_FromAddressConversion(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission and verify from address conversion
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, submission.SequencerTXReference.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		expectedFrom := pldtypes.MustEthAddress(testFromAddress)
 		require.Equal(t, *expectedFrom, txSubmission.PublicTx.From)
 		return true

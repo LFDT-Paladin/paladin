@@ -656,6 +656,7 @@ func (ptm *pubTxManager) UpdateTransaction(ctx context.Context, id uuid.UUID, pu
 		WithContext(ctx).
 		Table("public_txns").
 		Where(`"pub_txn_id" = ?`, pubTXID).
+		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
 		Limit(1).
 		Find(&ptxs).
 		Error
