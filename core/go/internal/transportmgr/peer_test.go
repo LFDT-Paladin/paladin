@@ -850,9 +850,9 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	}
 
 	sequencerActivity := &pldapi.SequencerActivity{
-		RemoteID:       "remoteID",
+		SubjectID:      "subjectID",
 		Timestamp:      pldtypes.TimestampNow(),
-		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node2",
 		TransactionID:  uuid.New(),
 	}
@@ -885,7 +885,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	var receivedSequencerActivity pldapi.SequencerActivity
 	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
 	require.NoError(t, err)
-	require.Equal(t, sequencerActivity.RemoteID, receivedSequencerActivity.RemoteID)
+	require.Equal(t, sequencerActivity.SubjectID, receivedSequencerActivity.SubjectID)
 	require.Equal(t, sequencerActivity.Timestamp, receivedSequencerActivity.Timestamp)
 	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
 	require.Equal(t, sequencerActivity.SequencingNode, receivedSequencerActivity.SequencingNode)

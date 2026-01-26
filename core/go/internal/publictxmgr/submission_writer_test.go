@@ -63,7 +63,7 @@ func newTestSubmissionWriter(t *testing.T) (context.Context, *submissionWriter, 
 
 type mockMetrics struct {
 	incDBSubmittedTransactionsByNCalled bool
-	incDBSubmittedTransactionsByNValue   uint64
+	incDBSubmittedTransactionsByNValue  uint64
 }
 
 func (m *mockMetrics) IncDBSubmittedTransactions() {
@@ -80,15 +80,20 @@ func (m *mockMetrics) IncCompletedTransactions() {}
 
 func (m *mockMetrics) IncCompletedTransactionsByN(numberOfTransactions uint64) {}
 
-func (m *mockMetrics) RecordOperationMetrics(ctx context.Context, operationName string, operationResult string, durationInSeconds float64) {}
+func (m *mockMetrics) RecordOperationMetrics(ctx context.Context, operationName string, operationResult string, durationInSeconds float64) {
+}
 
-func (m *mockMetrics) RecordStageChangeMetrics(ctx context.Context, stage string, durationInSeconds float64) {}
+func (m *mockMetrics) RecordStageChangeMetrics(ctx context.Context, stage string, durationInSeconds float64) {
+}
 
-func (m *mockMetrics) RecordInFlightTxQueueMetrics(ctx context.Context, usedCountPerStage map[string]int, freeCount int) {}
+func (m *mockMetrics) RecordInFlightTxQueueMetrics(ctx context.Context, usedCountPerStage map[string]int, freeCount int) {
+}
 
-func (m *mockMetrics) RecordCompletedTransactionCountMetrics(ctx context.Context, processStatus string) {}
+func (m *mockMetrics) RecordCompletedTransactionCountMetrics(ctx context.Context, processStatus string) {
+}
 
-func (m *mockMetrics) RecordInFlightOrchestratorPoolMetrics(ctx context.Context, usedCountPerState map[string]int, freeCount int) {}
+func (m *mockMetrics) RecordInFlightOrchestratorPoolMetrics(ctx context.Context, usedCountPerState map[string]int, freeCount int) {
+}
 
 func createTestDBPubTxnSubmission(t *testing.T, withOriginator bool, withBinding bool, withGasPricing bool) *DBPubTxnSubmission {
 	submission := &DBPubTxnSubmission{
@@ -96,12 +101,14 @@ func createTestDBPubTxnSubmission(t *testing.T, withOriginator bool, withBinding
 		PublicTxnID:     1,
 		Created:         pldtypes.Timestamp(time.Now().UnixNano()),
 		TransactionHash: pldtypes.RandBytes32(),
-		TransactionType: pldtypes.Enum[pldapi.TransactionType](pldapi.TransactionTypePrivate),
-		PrivateTXID:     uuid.New(),
+		SequencerContext: PubTxnSubmissionSequencerContext{
+			TransactionType: pldtypes.Enum[pldapi.TransactionType](pldapi.TransactionTypePrivate),
+			PrivateTXID:     uuid.New(),
+		},
 	}
 
 	if withOriginator {
-		submission.PrivateTXOriginator = "originator-node"
+		submission.SequencerContext.PrivateTXOriginator = "originator-node"
 	}
 
 	if withBinding {
@@ -112,7 +119,7 @@ func createTestDBPubTxnSubmission(t *testing.T, withOriginator bool, withBinding
 		maxPriorityFeePerGas := pldtypes.MustParseHexUint256("0x10")
 		maxFeePerGas := pldtypes.MustParseHexUint256("0x100")
 
-		submission.Binding = &pldapi.PublicTx{
+		submission.SequencerContext.Binding = &pldapi.PublicTx{
 			Nonce:   &nonce,
 			To:      to,
 			Created: pldtypes.Timestamp(time.Now().UnixNano()),
@@ -154,27 +161,27 @@ func TestRunBatch_WithOriginatorAndBinding(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerContext.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		// Verify the PublicTxWithBinding structure
 		require.NotNil(t, txSubmission)
 		require.NotNil(t, txSubmission.PublicTx)
 		require.NotNil(t, txSubmission.TransactionHash)
 		require.Equal(t, submission.TransactionHash, *txSubmission.TransactionHash)
-		require.Equal(t, submission.PrivateTXID, txSubmission.Transaction)
-		require.Equal(t, submission.TransactionType, txSubmission.TransactionType)
+		require.Equal(t, submission.SequencerContext.PrivateTXID, txSubmission.Transaction)
+		require.Equal(t, submission.SequencerContext.TransactionType, txSubmission.TransactionType)
 
 		// Verify PublicTx fields
 		publicTX := txSubmission.PublicTx
 		require.Equal(t, "test-node", publicTX.Dispatcher)
-		require.Equal(t, submission.Binding.To, publicTX.To)
-		require.Equal(t, submission.Binding.Data, publicTX.Data)
-		require.Equal(t, submission.Binding.Gas, publicTX.PublicTxOptions.Gas)
-		require.Equal(t, submission.Binding.Value, publicTX.PublicTxOptions.Value)
-		require.Equal(t, submission.Binding.Created, publicTX.Created)
+		require.Equal(t, submission.SequencerContext.Binding.To, publicTX.To)
+		require.Equal(t, submission.SequencerContext.Binding.Data, publicTX.Data)
+		require.Equal(t, submission.SequencerContext.Binding.Gas, publicTX.PublicTxOptions.Gas)
+		require.Equal(t, submission.SequencerContext.Binding.Value, publicTX.PublicTxOptions.Value)
+		require.Equal(t, submission.SequencerContext.Binding.Created, publicTX.Created)
 		require.NotNil(t, publicTX.Nonce)
 		require.Equal(t, uint64(42), uint64(*publicTX.Nonce))
-		require.Equal(t, submission.Binding.MaxPriorityFeePerGas, publicTX.PublicTxOptions.MaxPriorityFeePerGas)
-		require.Equal(t, submission.Binding.MaxFeePerGas, publicTX.PublicTxOptions.MaxFeePerGas)
+		require.Equal(t, submission.SequencerContext.Binding.MaxPriorityFeePerGas, publicTX.PublicTxOptions.MaxPriorityFeePerGas)
+		require.Equal(t, submission.SequencerContext.Binding.MaxFeePerGas, publicTX.PublicTxOptions.MaxFeePerGas)
 
 		// Verify From address
 		expectedFrom := pldtypes.MustEthAddress(submission.from)
@@ -223,7 +230,7 @@ func TestRunBatch_WithOriginatorAndBinding_WithoutGasPricing(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerContext.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		require.NotNil(t, txSubmission)
 		require.NotNil(t, txSubmission.PublicTx)
 		require.Len(t, txSubmission.PublicTx.Submissions, 1)
@@ -324,7 +331,7 @@ func TestRunBatch_HandlePublicTXSubmissionError(t *testing.T) {
 
 	// Mock HandlePublicTXSubmission to return an error
 	expectedError := errors.New("sequencer error")
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerContext.PrivateTXID, mock.Anything).
 		Return(expectedError).Once()
 
 	// Execute runBatch - should return error
@@ -358,9 +365,9 @@ func TestRunBatch_MultipleSubmissions(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission for submission1 and submission2 (submission3 should be skipped)
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission1.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission1.SequencerContext.PrivateTXID, mock.Anything).
 		Return(nil).Once()
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission2.PrivateTXID, mock.Anything).
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission2.SequencerContext.PrivateTXID, mock.Anything).
 		Return(nil).Once()
 
 	// Execute runBatch
@@ -386,7 +393,7 @@ func TestRunBatch_NonceConversion(t *testing.T) {
 	submission := createTestDBPubTxnSubmission(t, true, true, false)
 	// Set a specific nonce value
 	nonce := pldtypes.HexUint64(12345)
-	submission.Binding.Nonce = &nonce
+	submission.SequencerContext.Binding.Nonce = &nonce
 
 	// Mock database insert
 	mdb.ExpectBegin()
@@ -395,7 +402,7 @@ func TestRunBatch_NonceConversion(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission and verify nonce conversion
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerContext.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		require.NotNil(t, txSubmission.PublicTx.Nonce)
 		require.Equal(t, uint64(12345), uint64(*txSubmission.PublicTx.Nonce))
 		return true
@@ -429,7 +436,7 @@ func TestRunBatch_FromAddressConversion(t *testing.T) {
 	mdb.ExpectCommit()
 
 	// Mock HandlePublicTXSubmission and verify from address conversion
-	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
+	sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, "originator-node", submission.SequencerContext.PrivateTXID, mock.MatchedBy(func(txSubmission *pldapi.PublicTxWithBinding) bool {
 		expectedFrom := pldtypes.MustEthAddress(testFromAddress)
 		require.Equal(t, *expectedFrom, txSubmission.PublicTx.From)
 		return true
@@ -446,4 +453,3 @@ func TestRunBatch_FromAddressConversion(t *testing.T) {
 
 	sequencerManager.AssertExpectations(t)
 }
-

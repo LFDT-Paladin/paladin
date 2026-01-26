@@ -24,13 +24,13 @@ import (
 type SequencerActivityType string
 
 const (
-	SequencerActivityType_Dispatched      SequencerActivityType = "dispatched"
+	SequencerActivityType_Dispatch        SequencerActivityType = "dispatch"
 	SequencerActivityType_ChainedDispatch SequencerActivityType = "chained_dispatch"
 )
 
 type SequencerActivity struct {
-	LocalID        *uint64            `docstruct:"SequencerActivity" json:"localId,omitempty"`  // only a local DB identifier for the sequencing activity
-	RemoteID       string             `docstruct:"SequencerActivity" json:"remoteId,omitempty"` // Optional depending on the activity type. It may have a remote ID that correlates with something on another node
+	LocalID        *uint64            `docstruct:"SequencerActivity" json:"localId,omitempty"`   // only a local DB identifier for the sequencing activity
+	SubjectID      string             `docstruct:"SequencerActivity" json:"subjectId,omitempty"` // Optional depending on the activity type. It may have an ID that correlates with something on this node or another node
 	Timestamp      pldtypes.Timestamp `docstruct:"SequencerActivity" json:"timestamp,omitempty"`
 	ActivityType   string             `docstruct:"SequencerActivity" json:"activityType,omitempty"`
 	SequencingNode string             `docstruct:"SequencerActivity" json:"sequencingNode,omitempty"` // The node where this activity took place

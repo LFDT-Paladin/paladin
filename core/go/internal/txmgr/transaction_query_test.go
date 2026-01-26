@@ -247,15 +247,15 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	defer done()
 
 	localID := uint64(12345)
-	remoteID := "remote-activity-id-123"
+	subjectID := "subject-activity-id-123"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
-	activityType := "dispatched"
+	activityType := "dispatch"
 	sequencingNode := "node-abc"
 	transactionID := uuid.New()
 
 	psa := &sequencer.DBSequencingActivity{
 		LocalID:        &localID,
-		RemoteID:       remoteID,
+		SubjectID:      subjectID,
 		Timestamp:      timestamp,
 		ActivityType:   activityType,
 		SequencingNode: sequencingNode,
@@ -266,7 +266,7 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 
 	require.NotNil(t, result)
 	assert.Equal(t, &localID, result.LocalID)
-	assert.Equal(t, remoteID, result.RemoteID)
+	assert.Equal(t, subjectID, result.SubjectID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
 	assert.Equal(t, sequencingNode, result.SequencingNode)
@@ -277,15 +277,15 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
 	defer done()
 
-	remoteID := "remote-activity-id-456"
+	subjectID := "subject-activity-id-456"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
-	activityType := "dispatched"
+	activityType := "dispatch"
 	sequencingNode := "node-xyz"
 	transactionID := uuid.New()
 
 	psa := &sequencer.DBSequencingActivity{
 		LocalID:        nil,
-		RemoteID:       remoteID,
+		SubjectID:      subjectID,
 		Timestamp:      timestamp,
 		ActivityType:   activityType,
 		SequencingNode: sequencingNode,
@@ -296,7 +296,7 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 
 	require.NotNil(t, result)
 	assert.Nil(t, result.LocalID)
-	assert.Equal(t, remoteID, result.RemoteID)
+	assert.Equal(t, subjectID, result.SubjectID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
 	assert.Equal(t, sequencingNode, result.SequencingNode)
@@ -308,9 +308,9 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	txID2 := uuid.New()
 	localID1 := uint64(100)
 	localID2 := uint64(200)
-	remoteID1 := "remote-1"
-	remoteID2 := "remote-2"
-	remoteID3 := "remote-3"
+	subjectID1 := "subject-1"
+	subjectID2 := "subject-2"
+	subjectID3 := "subject-3"
 	timestamp1 := pldtypes.Timestamp(time.Now().UnixNano())
 	timestamp2 := pldtypes.Timestamp(time.Now().UnixNano() + 1000)
 	timestamp3 := pldtypes.Timestamp(time.Now().UnixNano() + 2000)
@@ -318,10 +318,10 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "remote_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
-				AddRow(localID1, remoteID1, timestamp1, txID1, "dispatched", "node1").
-				AddRow(localID2, remoteID2, timestamp2, txID1, "confirmed", "node1").
-				AddRow(nil, remoteID3, timestamp3, txID2, "dispatched", "node2")
+			rows := sqlmock.NewRows([]string{"id", "subject_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
+				AddRow(localID1, subjectID1, timestamp1, txID1, "dispatch", "node1").
+				AddRow(localID2, subjectID2, timestamp2, txID1, "chained_dispatch", "node1").
+				AddRow(nil, subjectID3, timestamp3, txID2, "dispatch", "node2")
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(rows)
 		})
 	defer done()
@@ -339,16 +339,16 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	require.NotNil(t, result[0].SequencerActivity)
 	require.Equal(t, 2, len(result[0].SequencerActivity))
 	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
-	assert.Equal(t, remoteID1, result[0].SequencerActivity[0].RemoteID)
+	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
 	assert.Equal(t, timestamp1, result[0].SequencerActivity[0].Timestamp)
-	assert.Equal(t, "dispatched", result[0].SequencerActivity[0].ActivityType)
+	assert.Equal(t, "dispatch", result[0].SequencerActivity[0].ActivityType)
 	assert.Equal(t, "node1", result[0].SequencerActivity[0].SequencingNode)
 	assert.Equal(t, txID1, result[0].SequencerActivity[0].TransactionID)
 
 	assert.Equal(t, &localID2, result[0].SequencerActivity[1].LocalID)
-	assert.Equal(t, remoteID2, result[0].SequencerActivity[1].RemoteID)
+	assert.Equal(t, subjectID2, result[0].SequencerActivity[1].SubjectID)
 	assert.Equal(t, timestamp2, result[0].SequencerActivity[1].Timestamp)
-	assert.Equal(t, "confirmed", result[0].SequencerActivity[1].ActivityType)
+	assert.Equal(t, "chained_dispatch", result[0].SequencerActivity[1].ActivityType)
 	assert.Equal(t, "node1", result[0].SequencerActivity[1].SequencingNode)
 	assert.Equal(t, txID1, result[0].SequencerActivity[1].TransactionID)
 
@@ -356,9 +356,9 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	require.NotNil(t, result[1].SequencerActivity)
 	require.Equal(t, 1, len(result[1].SequencerActivity))
 	assert.Nil(t, result[1].SequencerActivity[0].LocalID)
-	assert.Equal(t, remoteID3, result[1].SequencerActivity[0].RemoteID)
+	assert.Equal(t, subjectID3, result[1].SequencerActivity[0].SubjectID)
 	assert.Equal(t, timestamp3, result[1].SequencerActivity[0].Timestamp)
-	assert.Equal(t, "dispatched", result[1].SequencerActivity[0].ActivityType)
+	assert.Equal(t, "dispatch", result[1].SequencerActivity[0].ActivityType)
 	assert.Equal(t, "node2", result[1].SequencerActivity[0].SequencingNode)
 	assert.Equal(t, txID2, result[1].SequencerActivity[0].TransactionID)
 }
@@ -393,14 +393,14 @@ func TestAddSequencerActivity_PartialActivities(t *testing.T) {
 	txID2 := uuid.New()
 	txID3 := uuid.New()
 	localID1 := uint64(100)
-	remoteID1 := "remote-1"
+	subjectID1 := "subject-1"
 	timestamp1 := pldtypes.Timestamp(time.Now().UnixNano())
 
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "remote_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
-				AddRow(localID1, remoteID1, timestamp1, txID1, "dispatched", "node1")
+			rows := sqlmock.NewRows([]string{"id", "subject_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
+				AddRow(localID1, subjectID1, timestamp1, txID1, "dispatch", "node1")
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(rows)
 		})
 	defer done()
@@ -419,7 +419,7 @@ func TestAddSequencerActivity_PartialActivities(t *testing.T) {
 	require.NotNil(t, result[0].SequencerActivity)
 	require.Equal(t, 1, len(result[0].SequencerActivity))
 	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
-	assert.Equal(t, remoteID1, result[0].SequencerActivity[0].RemoteID)
+	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
 	assert.Equal(t, txID1, result[0].SequencerActivity[0].TransactionID)
 
 	// Second and third transactions should not have sequencer activities
@@ -432,9 +432,9 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 	localID1 := uint64(100)
 	localID2 := uint64(200)
 	localID3 := uint64(300)
-	remoteID1 := "remote-1"
-	remoteID2 := "remote-2"
-	remoteID3 := "remote-3"
+	subjectID1 := "subject-1"
+	subjectID2 := "subject-2"
+	subjectID3 := "subject-3"
 	timestamp1 := pldtypes.Timestamp(time.Now().UnixNano())
 	timestamp2 := pldtypes.Timestamp(time.Now().UnixNano() + 1000)
 	timestamp3 := pldtypes.Timestamp(time.Now().UnixNano() + 2000)
@@ -442,10 +442,10 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "remote_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
-				AddRow(localID1, remoteID1, timestamp1, txID, "dispatched", "node1").
-				AddRow(localID2, remoteID2, timestamp2, txID, "confirmed", "node1").
-				AddRow(localID3, remoteID3, timestamp3, txID, "finalized", "node1")
+			rows := sqlmock.NewRows([]string{"id", "subject_id", "timestamp", "transaction_id", "activity_type", "submitting_node"}).
+				AddRow(localID1, subjectID1, timestamp1, txID, "dispatch", "node1").
+				AddRow(localID2, subjectID2, timestamp2, txID, "chained_dispatch", "node1").
+				AddRow(localID3, subjectID3, timestamp3, txID, "dispatch", "node1")
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(rows)
 		})
 	defer done()
@@ -464,16 +464,16 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 
 	// Verify all activities are mapped correctly
 	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
-	assert.Equal(t, remoteID1, result[0].SequencerActivity[0].RemoteID)
-	assert.Equal(t, "dispatched", result[0].SequencerActivity[0].ActivityType)
+	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
+	assert.Equal(t, "dispatch", result[0].SequencerActivity[0].ActivityType)
 
 	assert.Equal(t, &localID2, result[0].SequencerActivity[1].LocalID)
-	assert.Equal(t, remoteID2, result[0].SequencerActivity[1].RemoteID)
-	assert.Equal(t, "confirmed", result[0].SequencerActivity[1].ActivityType)
+	assert.Equal(t, subjectID2, result[0].SequencerActivity[1].SubjectID)
+	assert.Equal(t, "chained_dispatch", result[0].SequencerActivity[1].ActivityType)
 
 	assert.Equal(t, &localID3, result[0].SequencerActivity[2].LocalID)
-	assert.Equal(t, remoteID3, result[0].SequencerActivity[2].RemoteID)
-	assert.Equal(t, "finalized", result[0].SequencerActivity[2].ActivityType)
+	assert.Equal(t, subjectID3, result[0].SequencerActivity[2].SubjectID)
+	assert.Equal(t, "dispatch", result[0].SequencerActivity[2].ActivityType)
 }
 
 func TestAddDispatches_WithDispatches(t *testing.T) {

@@ -57,13 +57,13 @@ func TestWriteReceivedSequencingActivities_SingleActivity(t *testing.T) {
 	sm := &sequencerManager{}
 
 	txID := uuid.New()
-	remoteID := "remote-123"
-	activityType := string(pldapi.SequencerActivityType_Dispatched)
+	subjectID := "subject-123"
+	activityType := string(pldapi.SequencerActivityType_Dispatch)
 	sequencingNode := "node1"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 
 	sequencingActivity := &pldapi.SequencerActivity{
-		RemoteID:       remoteID,
+		SubjectID:      subjectID,
 		Timestamp:      timestamp,
 		TransactionID:  txID,
 		ActivityType:   activityType,
@@ -73,7 +73,7 @@ func TestWriteReceivedSequencingActivities_SingleActivity(t *testing.T) {
 	// Expect INSERT query for sequencer_activities table (GORM uses Query with RETURNING)
 	mp.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
 		WithArgs(
-			sqlmock.AnyArg(), // remote_id
+			sqlmock.AnyArg(), // subject_id
 			sqlmock.AnyArg(), // timestamp
 			sqlmock.AnyArg(), // transaction_id
 			sqlmock.AnyArg(), // activity_type
@@ -99,24 +99,24 @@ func TestWriteReceivedSequencingActivities_MultipleActivities(t *testing.T) {
 
 	activities := []*pldapi.SequencerActivity{
 		{
-			RemoteID:       "remote-1",
+			SubjectID:      "subject-1",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID1,
-			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+			ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 			SequencingNode: "node1",
 		},
 		{
-			RemoteID:       "remote-2",
+			SubjectID:      "subject-2",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID2,
-			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+			ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 			SequencingNode: "node2",
 		},
 		{
-			RemoteID:       "remote-3",
+			SubjectID:      "subject-3",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 			TransactionID:  txID3,
-			ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+			ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 			SequencingNode: "node3",
 		},
 	}
@@ -124,17 +124,17 @@ func TestWriteReceivedSequencingActivities_MultipleActivities(t *testing.T) {
 	// Expect INSERT query for multiple activities (GORM uses Query with RETURNING)
 	mp.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
 		WithArgs(
-			sqlmock.AnyArg(), // remote_id for activity 1
+			sqlmock.AnyArg(), // subject_id for activity 1
 			sqlmock.AnyArg(), // timestamp for activity 1
 			sqlmock.AnyArg(), // transaction_id for activity 1
 			sqlmock.AnyArg(), // activity_type for activity 1
 			sqlmock.AnyArg(), // submitting_node for activity 1
-			sqlmock.AnyArg(), // remote_id for activity 2
+			sqlmock.AnyArg(), // subject_id for activity 2
 			sqlmock.AnyArg(), // timestamp for activity 2
 			sqlmock.AnyArg(), // transaction_id for activity 2
 			sqlmock.AnyArg(), // activity_type for activity 2
 			sqlmock.AnyArg(), // submitting_node for activity 2
-			sqlmock.AnyArg(), // remote_id for activity 3
+			sqlmock.AnyArg(), // subject_id for activity 3
 			sqlmock.AnyArg(), // timestamp for activity 3
 			sqlmock.AnyArg(), // transaction_id for activity 3
 			sqlmock.AnyArg(), // activity_type for activity 3
@@ -156,10 +156,10 @@ func TestWriteReceivedSequencingActivities_DatabaseError(t *testing.T) {
 
 	txID := uuid.New()
 	sequencingActivity := &pldapi.SequencerActivity{
-		RemoteID:       "remote-123",
+		SubjectID:      "subject-123",
 		Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 		TransactionID:  txID,
-		ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node1",
 	}
 
@@ -167,7 +167,7 @@ func TestWriteReceivedSequencingActivities_DatabaseError(t *testing.T) {
 	// Expect INSERT query to fail (GORM uses Query with RETURNING)
 	mp.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
 		WithArgs(
-			sqlmock.AnyArg(), // remote_id
+			sqlmock.AnyArg(), // subject_id
 			sqlmock.AnyArg(), // timestamp
 			sqlmock.AnyArg(), // transaction_id
 			sqlmock.AnyArg(), // activity_type
@@ -190,14 +190,14 @@ func TestWriteReceivedSequencingActivities_ActivityWithAllFields(t *testing.T) {
 
 	txID := uuid.New()
 	localID := uint64(42)
-	remoteID := "remote-activity-456"
+	subjectID := "subject-activity-456"
 	activityType := "custom_activity"
 	sequencingNode := "test-node"
 	timestamp := pldtypes.Timestamp(time.Now().UnixNano())
 
 	sequencingActivity := &pldapi.SequencerActivity{
 		LocalID:        &localID,
-		RemoteID:       remoteID,
+		SubjectID:      subjectID,
 		Timestamp:      timestamp,
 		TransactionID:  txID,
 		ActivityType:   activityType,
@@ -207,7 +207,7 @@ func TestWriteReceivedSequencingActivities_ActivityWithAllFields(t *testing.T) {
 	// Expect INSERT query (GORM uses Query with RETURNING)
 	mp.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
 		WithArgs(
-			sqlmock.AnyArg(), // remote_id
+			sqlmock.AnyArg(), // subject_id
 			sqlmock.AnyArg(), // timestamp
 			sqlmock.AnyArg(), // transaction_id
 			sqlmock.AnyArg(), // activity_type

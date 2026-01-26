@@ -29,11 +29,11 @@ import (
 
 type DBSequencingActivity struct {
 	LocalID        *uint64            `gorm:"column:id"`
-	RemoteID       string             `gorm:"column:remote_id"`
+	SubjectID      string             `gorm:"column:subject_id"`
 	Timestamp      pldtypes.Timestamp `gorm:"column:timestamp"`
 	TransactionID  uuid.UUID          `gorm:"column:transaction_id"`
 	ActivityType   string             `gorm:"column:activity_type"`
-	SequencingNode string             `gorm:"column:sequencing_node"`
+	SequencingNode string             `gorm:"column:submitting_node"`
 }
 
 func (DBSequencingActivity) TableName() string {
@@ -45,7 +45,7 @@ func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Cont
 	dbActivities := make([]*DBSequencingActivity, 0, len(sequencingActivities))
 	for _, sequencingActivity := range sequencingActivities {
 		dbSequencingActivity := &DBSequencingActivity{
-			RemoteID:       sequencingActivity.RemoteID,
+			SubjectID:      sequencingActivity.SubjectID,
 			Timestamp:      sequencingActivity.Timestamp,
 			TransactionID:  sequencingActivity.TransactionID,
 			ActivityType:   sequencingActivity.ActivityType,

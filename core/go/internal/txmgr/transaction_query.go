@@ -106,7 +106,7 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencerActivity {
 	return &pldapi.SequencerActivity{
 		LocalID:        psa.LocalID,
-		RemoteID:       psa.RemoteID,
+		SubjectID:      psa.SubjectID,
 		Timestamp:      psa.Timestamp,
 		ActivityType:   psa.ActivityType,
 		SequencingNode: psa.SequencingNode,

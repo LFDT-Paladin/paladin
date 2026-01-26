@@ -97,9 +97,9 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	for _, publicDispatch := range dispatchBatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
 			sequencingProgress := &pldapi.SequencerActivity{
-				RemoteID:       privateTx.ID, // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
+				SubjectID:      privateTx.ID, // This is the dispatch ID (not the TX ID)
 				Timestamp:      pldtypes.TimestampNow(),
-				ActivityType:   string(pldapi.SequencerActivityType_Dispatched),
+				ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 				SequencingNode: s.transportMgr.LocalNodeName(), // Us
 				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
 			}
@@ -122,7 +122,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
 		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
 		sequencingProgress := &pldapi.SequencerActivity{
-			RemoteID:       privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID) and will be remote on the node that receives this message
+			SubjectID:      privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID)
 			Timestamp:      pldtypes.TimestampNow(),
 			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),
 			SequencingNode: s.transportMgr.LocalNodeName(), // Us
