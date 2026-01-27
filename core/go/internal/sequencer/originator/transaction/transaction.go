@@ -44,6 +44,7 @@ type Transaction struct {
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
 	eventHandler                     func(context.Context, common.Event) error
+	onCleanup                        func(context.Context)
 	currentDelegate                  string
 	lastDelegatedTime                *common.Time
 	latestAssembleRequest            *assembleRequestFromCoordinator
@@ -62,6 +63,7 @@ func NewTransaction(
 	eventHandler func(context.Context, common.Event) error,
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
+	onCleanup func(context.Context),
 
 ) (*Transaction, error) {
 	if pt == nil {
@@ -72,6 +74,7 @@ func NewTransaction(
 		engineIntegration:  engineIntegration,
 		transportWriter:    transportWriter,
 		eventHandler:       eventHandler,
+		onCleanup:          onCleanup,
 		metrics:            metrics,
 	}
 

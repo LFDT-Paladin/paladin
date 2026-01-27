@@ -42,6 +42,7 @@ const (
 	MessageType_TransactionRequest               = "TransactionRequest"
 	MessageType_TransactionSubmitted             = "TransactionSubmitted"
 	MessageType_TransactionConfirmed             = "TransactionConfirmed"
+	MessageType_TransactionUnknown               = "TransactionUnknown"
 )
 
 type CoordinatorHeartbeatNotification struct {

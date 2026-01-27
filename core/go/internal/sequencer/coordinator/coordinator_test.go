@@ -400,6 +400,41 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked}, coordinatedTxn.GetState(), "transaction should be in Pooled or PreAssembly_Blocked state when chained transaction is not found")
 }
 
+func TestCoordinator_AddToDelegatedTransactions_DuplicateTransaction(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@senderNode"
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+
+	// First call - add the transaction
+	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn})
+	require.NoError(t, err, "should not return error on first add")
+
+	// Verify that the transaction was added to transactionsByID
+	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
+	firstCoordinatedTxn := c.transactionsByID[txn.ID]
+	require.NotNil(t, firstCoordinatedTxn, "transaction should exist in transactionsByID")
+
+	// Second call - try to add the same transaction again (duplicate)
+	err = c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn})
+	require.NoError(t, err, "should not return error when adding duplicate transaction")
+
+	// Verify that the transaction count is still 1 (duplicate was skipped)
+	assert.Equal(t, 1, len(c.transactionsByID), "duplicate transaction should be skipped, count should remain 1")
+
+	// Verify that the same transaction object is still in the map (not replaced)
+	secondCoordinatedTxn := c.transactionsByID[txn.ID]
+	require.NotNil(t, secondCoordinatedTxn, "transaction should still exist in transactionsByID")
+	assert.Equal(t, firstCoordinatedTxn, secondCoordinatedTxn, "duplicate transaction should not replace existing transaction")
+}
+
 func TestCoordinator_SelectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithFullyQualifiedIdentity(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -2069,16 +2104,64 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 	assert.NoError(t, err, "heartbeat event should be handled successfully by all transaction states")
 }
 
-func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
+func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForConfirmedTransaction(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	// Create a transaction in State_Confirmed with 4 heartbeat intervals
+	// (grace period is 5, so after one more heartbeat it should transition to State_Final)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		HeartbeatIntervalsSinceStateChange(4)
+	txn := txBuilder.Build()
+
+	// Add transaction to coordinator
+	c.transactionsByID[txn.ID] = txn
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should start in State_Confirmed")
+
+	// Propagate heartbeat event
+	event := &common.HeartbeatIntervalEvent{}
+	err := c.propagateEventToAllTransactions(ctx, event)
+	assert.NoError(t, err)
+
+	// Transaction should have transitioned to State_Final (counter went from 4 to 5, which >= grace period of 5)
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "transaction should have transitioned to State_Final after heartbeat")
+}
+
+func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForRevertedTransaction(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _ := builder.Build(ctx)
+
+	// Create a transaction in State_Reverted with 4 heartbeat intervals
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).
+		HeartbeatIntervalsSinceStateChange(4)
+	txn := txBuilder.Build()
+
+	// Add transaction to coordinator
+	c.transactionsByID[txn.ID] = txn
+	assert.Equal(t, transaction.State_Reverted, txn.GetCurrentState(), "transaction should start in State_Reverted")
+
+	// Propagate heartbeat event
+	event := &common.HeartbeatIntervalEvent{}
+	err := c.propagateEventToAllTransactions(ctx, event)
+	assert.NoError(t, err)
+
+	// Transaction should have transitioned to State_Final
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "transaction should have transitioned to State_Final after heartbeat")
+}
+
+func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, mocks := builder.Build(ctx)
 
 	// Set up originator pool with another node so heartbeats can be sent
 	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
 
 	// Ensure heartbeatCtx is nil initially
 	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
@@ -2090,11 +2173,9 @@ func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) 
 		close(done)
 	}()
 
-	// Wait a bit for initial heartbeat to be sent
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify initial heartbeat was sent
-	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "initial heartbeat should be sent")
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentHeartbeat()
+	}, 50*time.Millisecond, 1*time.Millisecond)
 
 	// Cancel to stop the loop
 	c.heartbeatCancel()
@@ -2107,15 +2188,17 @@ func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) 
 
 func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("50ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, mocks := builder.Build(ctx)
+	c.heartbeatInterval = 10 * time.Millisecond // can't use builder.OverrideSequencerConfig() because NewCoordinator enforces a minimum of 1 second
 
 	// Set up originator pool with another node so heartbeats can be sent
 	c.UpdateOriginatorNodePool(ctx, "node2")
 
+	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
+
 	// Start heartbeat loop in a goroutine
 	done := make(chan struct{})
 	go func() {
@@ -2123,25 +2206,24 @@ func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 		close(done)
 	}()
 
-	for c.heartbeatCtx == nil {
-		time.Sleep(1 * time.Millisecond)
-	}
+	assert.Eventually(t, func() bool {
+		// Verify heartbeats were sent (at least initial + periodic)
+		return mocks.SentMessageRecorder.SentHeartbeatCount() >= 2
+	}, 500*time.Millisecond, 10*time.Millisecond)
 
 	// Cancel to stop the loop
 	c.heartbeatCancel()
 	<-done
-
-	// Verify heartbeats were sent (at least initial + periodic)
-	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "heartbeats should be sent periodically")
 }
 
 func TestCoordinator_HeartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _ := builder.Build(ctx)
+
+	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
 
 	// Start heartbeat loop in a goroutine
 	done := make(chan struct{})
@@ -2150,12 +2232,11 @@ func TestCoordinator_HeartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T
 		close(done)
 	}()
 
-	for c.heartbeatCtx == nil {
-		time.Sleep(1 * time.Millisecond)
-	}
+	require.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCancel should be set")
 
-	// Cancel heartbeatCtx
-	require.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be set")
+	// require.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be set")
 	c.heartbeatCancel()
 
 	// Wait for loop to exit
@@ -2173,11 +2254,12 @@ func TestCoordinator_HeartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T
 
 func TestCoordinator_HeartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _ := builder.Build(ctx)
+
+	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
 
 	// Start heartbeat loop in a goroutine
 	done := make(chan struct{})
@@ -2186,9 +2268,9 @@ func TestCoordinator_HeartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
 		close(done)
 	}()
 
-	for c.heartbeatCtx == nil {
-		time.Sleep(1 * time.Millisecond)
-	}
+	assert.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCtx should be set")
 
 	// Cancel parent context
 	cancel()
@@ -2208,10 +2290,7 @@ func TestCoordinator_HeartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
 
 func TestCoordinator_HeartbeatLoop_DoesNotStartIfHeartbeatCtxAlreadySet(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, mocks := builder.Build(ctx)
 
 	// Manually set heartbeatCtx to simulate an already running loop
@@ -2232,22 +2311,27 @@ func TestCoordinator_HeartbeatLoop_DoesNotStartIfHeartbeatCtxAlreadySet(t *testi
 	heartbeatCancel()
 }
 
-func TestCoordinator_HeartbeatLoop_HandlesSendHeartbeatErrorsGracefully(t *testing.T) {
+func TestCoordinator_HeartbeatLoop_HandlesPropagateEventToAllTransactionsErrorsGracefully(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("50ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _ := builder.Build(ctx)
+	c.heartbeatInterval = 10 * time.Millisecond // can't use builder.OverrideSequencerConfig() because NewCoordinator enforces a minimum of 1 second
 
 	// Set up originator pool with another node so heartbeats can be sent
 	c.UpdateOriginatorNodePool(ctx, "node2")
 
-	// Create a mock transport that returns errors
-	mockTransport := transport.NewMockTransportWriter(t)
-	// StartLoopbackWriter was already called during NewCoordinator, so we don't expect it again
-	mockTransport.On("SendHeartbeat", mock.Anything, "node2", mock.Anything, mock.Anything).Return(fmt.Errorf("transport error")).Maybe()
-	c.transportWriter = mockTransport
+	// Mock grapher that returns an error on cleanup - this will cause propagateEventToAllTransactions to fail
+	mockGrapher := transaction.NewMockGrapher(t)
+	mockGrapher.On("Add", mock.Anything, mock.Anything).Return().Twice() // Called during transaction creation
+	mockGrapher.On("Forget", mock.Anything).Return(fmt.Errorf("grapher error")).Twice()
+
+	// Transaction in State_Confirmed that will try to transition to State_Final on heartbeat
+	// heartbeatIntervalsSinceStateChange >= grace period (5) triggers cleanup attempt
+	txn1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		Grapher(mockGrapher).
+		HeartbeatIntervalsSinceStateChange(5).
+		Build()
+	c.transactionsByID[txn1.ID] = txn1
 
 	// Start heartbeat loop in a goroutine
 	done := make(chan struct{})
@@ -2256,34 +2340,38 @@ func TestCoordinator_HeartbeatLoop_HandlesSendHeartbeatErrorsGracefully(t *testi
 		close(done)
 	}()
 
-	for c.heartbeatCtx == nil {
-		time.Sleep(1 * time.Millisecond)
-	}
+	// Wait for loop to have attempted cleanup after the initial heartbeat interval event
+	// (2 calls includes the initial Add call)
+	assert.Eventually(t, func() bool {
+		return len(mockGrapher.Calls) == 2
+	}, 500*time.Millisecond, 5*time.Millisecond, "expected at least 1 Forget calls")
 
-	// Loop should continue running despite errors
-	select {
-	case <-done:
-		t.Fatal("heartbeat loop should continue running despite sendHeartbeat errors")
-	default:
-		// Loop is still running, which is expected
-	}
+	// create a second transaction in State_Confirmed that will try to transition to State_Final on heartbeat
+	txn2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		Grapher(mockGrapher).
+		HeartbeatIntervalsSinceStateChange(5).
+		Build()
+	c.transactionsByID[txn2.ID] = txn2
+
+	// Wait for loop to have attempted cleanup after a periodic heartbeat interval event
+	// (4 calls includes the first 2 calls, another Add call, and another Forget call)
+	assert.Eventually(t, func() bool {
+		return len(mockGrapher.Calls) == 4
+	}, 500*time.Millisecond, 5*time.Millisecond, "expected at least 2 Forget calls")
 
 	// Cancel to stop the loop
 	c.heartbeatCancel()
 	<-done
-
-	// Verify cleanup happened
-	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
-	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
 }
 
 func TestCoordinator_HeartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.HeartbeatInterval = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _ := builder.Build(ctx)
+
+	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
 
 	// Verify heartbeatCtx is nil initially
 	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
@@ -2296,11 +2384,10 @@ func TestCoordinator_HeartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
 		close(done)
 	}()
 
-	// Verify heartbeatCtx was created
-	for c.heartbeatCtx == nil {
-		time.Sleep(1 * time.Millisecond)
-	}
-	assert.NotNil(t, c.heartbeatCtx, "heartbeatCtx should be created when loop starts")
+	assert.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCtx should be created when loop starts")
+
 	assert.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be created when loop starts")
 
 	// Cancel to stop the loop
@@ -2338,7 +2425,7 @@ func TestCoordinator_HeartbeatLoop_StopsTickerOnExit(t *testing.T) {
 
 func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	config := builder.GetSequencerConfig()
 	config.HeartbeatInterval = confutil.P("100ms")
 	builder.OverrideSequencerConfig(config)
@@ -2346,6 +2433,10 @@ func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T)
 
 	// Set up originator pool with another node so heartbeats can be sent
 	c.UpdateOriginatorNodePool(ctx, "node2")
+
+	// Create a transaction and add it to the coordinator so the coordinator stays active
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.ID] = txn
 
 	// Start and stop first loop
 	done1 := make(chan struct{})

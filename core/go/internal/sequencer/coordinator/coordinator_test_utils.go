@@ -35,7 +35,7 @@ import (
 type SentMessageRecorder struct {
 	transaction.SentMessageRecorder
 	hasSentHandoverRequest bool
-	hasSentHeartbeat       bool
+	sentHeartbeatCount     int
 }
 
 func NewSentMessageRecorder() *SentMessageRecorder {
@@ -46,7 +46,7 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 
 func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.hasSentHandoverRequest = false
-	r.hasSentHeartbeat = false
+	r.sentHeartbeatCount = 0
 	r.SentMessageRecorder.Reset(ctx)
 }
 
@@ -60,7 +60,7 @@ func (r *SentMessageRecorder) HasSentHandoverRequest() bool {
 }
 
 func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
-	r.hasSentHeartbeat = true
+	r.sentHeartbeatCount++
 	return nil
 }
 
@@ -68,8 +68,12 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordin
 	return nil
 }
 
+func (r *SentMessageRecorder) SentHeartbeatCount() int {
+	return r.sentHeartbeatCount
+}
+
 func (r *SentMessageRecorder) HasSentHeartbeat() bool {
-	return r.hasSentHeartbeat
+	return r.sentHeartbeatCount > 0
 }
 
 type CoordinatorBuilderForTesting struct {

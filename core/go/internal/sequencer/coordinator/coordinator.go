@@ -359,6 +359,11 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	var previousTransaction *transaction.Transaction
 	for _, txn := range transactions {
 
+		if c.transactionsByID[txn.ID] != nil {
+			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			continue
+		}
+
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
 			// We'll rely on the fact that originators retry incomplete transactions periodically
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
@@ -501,22 +506,6 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 		}
 	}
 	log.L(ctx).Tracef("%d transactions in states: %+v", len(matchingTxns), states)
-	return matchingTxns
-}
-
-func (c *coordinator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
-	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
-	// deferring until we have a comprehensive test suite to catch errors
-	nonMatchingStates := make(map[transaction.State]bool)
-	for _, state := range states {
-		nonMatchingStates[state] = true
-	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
-	for _, txn := range c.transactionsByID {
-		if !nonMatchingStates[txn.GetState()] {
-			matchingTxns = append(matchingTxns, txn)
-		}
-	}
 	return matchingTxns
 }
 

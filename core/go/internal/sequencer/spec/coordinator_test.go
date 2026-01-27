@@ -203,23 +203,16 @@ func TestCoordinator_PreparedNoTransition_OnTransactionConfirmed_IfNotFlushCompl
 
 }
 
-func TestCoordinator_Active_ToIdle_OnTransactionConfirmed_IfNoTransactionsInFlight(t *testing.T) {
+func TestCoordinator_Active_ToIdle_NoTransactionsInFlight(t *testing.T) {
 	ctx := context.Background()
 
-	soleTransaction := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Active).
-		Transactions(soleTransaction).
 		Build(ctx)
 
-	err := c.ProcessEvent(ctx, &coordinator.TransactionConfirmedEvent{
-		From:  soleTransaction.GetSignerAddress(),
-		Nonce: *soleTransaction.GetNonce(),
-		Hash:  *soleTransaction.GetLatestSubmissionHash(),
-	})
+	err := c.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
-	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
 
+	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
 }
 
 func TestCoordinator_ActiveNoTransition_OnTransactionConfirmed_IfNotTransactionsEmpty(t *testing.T) {
