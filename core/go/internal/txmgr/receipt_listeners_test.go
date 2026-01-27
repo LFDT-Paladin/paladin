@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -35,6 +37,16 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func testUUID(desc string) uuid.UUID {
+	u := uuid.New()
+	log.L(context.Background()).Infof("UUID[%s]: %s", desc, u)
+	return u
+}
+
+func requireStrEqual[T1, T2 fmt.Stringer](t *testing.T, expected T1, actual T2) {
+	require.Equal(t, expected.String(), actual.String())
+}
 
 type testReceiptReceiver struct {
 	err       error
@@ -83,8 +95,22 @@ func mockTxStatesAllAvailable(conf *pldconf.TxManagerConfig, mc *mockComponents)
 		}, nil)
 }
 
+func mockDomain(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+	md := componentsmocks.NewDomain(mc.t)
+	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
+}
+
+func mockDomainStateCompletion(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+	md := componentsmocks.NewDomain(mc.t)
+	mc.domainManager.On("GetDomainByName", mock.Anything, mock.Anything).Return(md, nil)
+	md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(func(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.HexBytes, error) {
+			return txStates.FirstUnavailable(), nil
+		})
+}
+
 func TestE2EReceiptListenerDeliveryLateAttach(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable)
+	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomain)
 	defer done()
 
 	// Create listener (started)
@@ -199,7 +225,7 @@ func randOnChain(addr *pldtypes.EthAddress) pldtypes.OnChainLocation {
 }
 
 func TestLoadListenersMultiPageFilters(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable)
+	ctx, txm, done := newTestTransactionManager(t, true, mockTxStatesAllAvailable, mockDomain)
 	defer done()
 
 	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
@@ -360,16 +386,17 @@ func TestGapsDomainsForNonAvailableReceiptsForcingPagination(t *testing.T) {
 }
 
 func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	txID3 := uuid.New()
-	txID4 := uuid.New()
-	txID5 := uuid.New()
-	txID6 := uuid.New()
+	txID1 := testUUID("txID1")
+	txID2 := testUUID("txID2")
+	txID3 := testUUID("txID3")
+	txID4 := testUUID("txID4")
+	txID5 := testUUID("txID5")
+	txID6 := testUUID("txID6")
 	missingStateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 	missingStateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
 	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainStateCompletion,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			// Mock TX2 being unavailable when first attempted, so it will block TX3
 			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID2).
@@ -451,9 +478,9 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	require.NoError(t, err)
 
 	// We get the first one, before the block
-	require.Equal(t, txID1, (<-r1.receipts).ID)
+	requireStrEqual(t, txID1, (<-r1.receipts).ID)
 	// .. then we skip to the 4th one, for a different contract address
-	require.Equal(t, txID4, (<-r1.receipts).ID)
+	requireStrEqual(t, txID4, (<-r1.receipts).ID)
 
 	// We can get new batches on the unblocked contracts
 	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -467,7 +494,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 		})
 	})
 	require.NoError(t, err)
-	require.Equal(t, txID6, (<-r1.receipts).ID)
+	requireStrEqual(t, txID6, (<-r1.receipts).ID)
 
 	// Write the state that's missing
 	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
@@ -479,7 +506,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	txm.NotifyStatesDBChanged(ctx)
 
 	// .. now TX2 is unblocked
-	require.Equal(t, txID2, (<-r1.receipts).ID)
+	requireStrEqual(t, txID2, (<-r1.receipts).ID)
 
 	// Write the second state that's missing
 	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
@@ -491,9 +518,9 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	txm.NotifyStatesDBChanged(ctx)
 
 	// .. and TX3 is unblocked
-	require.Equal(t, txID3, (<-r1.receipts).ID)
+	requireStrEqual(t, txID3, (<-r1.receipts).ID)
 	// .. and TX5 is unblocked immediately
-	require.Equal(t, txID5, (<-r1.receipts).ID)
+	requireStrEqual(t, txID5, (<-r1.receipts).ID)
 
 }
 
@@ -1003,9 +1030,11 @@ func TestProcessPersistedReceiptPostFilter(t *testing.T) {
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
 
-	err = l.processPersistedReceipt(&receiptDeliveryBatch{}, &transactionReceipt{
+	receipt := &transactionReceipt{
 		Domain: "domain2",
-	})
+	}
+	batchCtx := l.newReceiptBatchContext()
+	err = l.processPersistedReceipt(&receiptDeliveryBatch{}, receipt, batchCtx)
 	require.NoError(t, err)
 	close(l.done)
 
@@ -1139,6 +1168,524 @@ func TestProcessStaleGapFailRetryingUpdateGapForPage(t *testing.T) {
 	l.initStart()
 
 	err = l.processStaleGaps()
+	assert.Regexp(t, "pop", err)
+	close(l.done)
+
+}
+
+func TestE2EReceiptListenerProcess(t *testing.T) {
+	privateTransactionID := uuid.New()
+	missingStateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, true,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// Mock state manager to return incomplete states for the private transaction
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, privateTransactionID).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{missingStateID},
+					},
+				}, nil)
+		},
+		mockDomainStateCompletion,
+	)
+	defer done()
+
+	// Create listener with process behavior (delivers receipts even if states are incomplete)
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: "process_listener",
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorProcess.Enum(),
+			DomainReceipts:                 false,
+		},
+	})
+	require.NoError(t, err)
+
+	// Create a receiver and attach it to the listener
+	receipts := newTestReceiptReceiver(nil)
+	closeReceiver, err := txm.AddReceiptReceiver(ctx, "process_listener", receipts)
+	require.NoError(t, err)
+	defer closeReceiver.Close()
+	err = txm.StartReceiptListener(ctx, "process_listener")
+	require.NoError(t, err)
+
+	// Write receipts - one public and one private with incomplete states
+	contractAddr1 := pldtypes.RandAddress()
+	receiptInputs := []*components.ReceiptInput{
+		{
+			ReceiptType:   components.RT_Success,
+			Domain:        "", // public transaction - should be delivered immediately
+			TransactionID: uuid.New(),
+			OnChain: pldtypes.OnChainLocation{
+				Type:             pldtypes.OnChainTransaction,
+				TransactionHash:  pldtypes.Bytes32(pldtypes.RandBytes(32)),
+				BlockNumber:      12345,
+				TransactionIndex: 10,
+				Source:           contractAddr1,
+			},
+		},
+		{
+			ReceiptType:   components.RT_Success,
+			Domain:        "domain1", // private transaction with incomplete states
+			TransactionID: privateTransactionID,
+			OnChain: pldtypes.OnChainLocation{
+				Type:             pldtypes.OnChainTransaction,
+				TransactionHash:  pldtypes.Bytes32(pldtypes.RandBytes(32)),
+				BlockNumber:      12346,
+				TransactionIndex: 11,
+				Source:           contractAddr1,
+			},
+		},
+	}
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, receiptInputs)
+	})
+	require.NoError(t, err)
+
+	// Should receive both receipts immediately, even though the private one has incomplete states
+	receivedTxIDs := make(map[uuid.UUID]bool)
+	for range 2 {
+		r := <-receipts.receipts
+		receivedTxIDs[r.ID] = true
+	}
+
+	// Verify we received both expected transaction IDs
+	assert.True(t, receivedTxIDs[receiptInputs[0].TransactionID], "Expected to receive public transaction")
+	assert.True(t, receivedTxIDs[receiptInputs[1].TransactionID], "Expected to receive private transaction with incomplete states")
+}
+
+func TestProcessPersistedReceiptFailDomainRetrieval(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
+				Return(&pldapi.TransactionStates{}, nil)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").
+				Return(nil, fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	receipt := &transactionReceipt{
+		Domain:           "domain1",
+		TransactionID:    txID,
+		Source:           pldtypes.RandAddress(),
+		TransactionHash:  (*pldtypes.Bytes32)(pldtypes.RandBytes(32)),
+		BlockNumber:      confutil.P(int64(12345)),
+		TransactionIndex: confutil.P(int64(10)),
+		LogIndex:         confutil.P(int64(5)),
+	}
+
+	batchCtx := l.newReceiptBatchContext()
+	err = l.processPersistedReceipt(&receiptDeliveryBatch{}, receipt, batchCtx)
+	assert.Regexp(t, "pop", err)
+	close(l.done)
+}
+
+func TestProcessPersistedReceiptFailStateCompletionCheck(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			md := componentsmocks.NewDomain(mc.t)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").
+				Return(md, nil)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{pldtypes.HexBytes(pldtypes.RandBytes(32))},
+					},
+				}, nil)
+			md.On("CheckStateCompletion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil, fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	receipt := &transactionReceipt{
+		Domain:           "domain1",
+		TransactionID:    txID,
+		Source:           pldtypes.RandAddress(),
+		TransactionHash:  (*pldtypes.Bytes32)(pldtypes.RandBytes(32)),
+		BlockNumber:      confutil.P(int64(12345)),
+		TransactionIndex: confutil.P(int64(10)),
+		LogIndex:         confutil.P(int64(5)),
+	}
+
+	batchCtx := l.newReceiptBatchContext()
+	err = l.processPersistedReceipt(&receiptDeliveryBatch{}, receipt, batchCtx)
+	assert.Regexp(t, "pop", err)
+	close(l.done)
+}
+
+func TestRunListenerFailsOnStaleGaps(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.db.ExpectQuery("SELECT.*receipt_listener_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
+			// First call to processStaleGaps fails
+			mc.db.ExpectQuery("SELECT.*receipt_listener_gap").WillReturnError(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	txm.receiptsRetry.UTSetMaxAttempts(1)
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+	l.runListener()
+}
+
+func TestBuildFullReceiptGetDomainError(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).Return(&pldapi.TransactionStates{}, nil)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").
+				Return(nil, fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	receipt := &pldapi.TransactionReceipt{
+		ID: txID,
+		TransactionReceiptData: pldapi.TransactionReceiptData{
+			Domain: "domain1",
+		},
+	}
+
+	batchCtx := l.newReceiptBatchContext()
+	_, err = batchCtx.buildFullReceipt(receipt, true)
+	assert.Regexp(t, "pop", err)
+
+	close(l.done)
+}
+
+func TestBuildFullReceiptGetDomainOK(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID).Return(&pldapi.TransactionStates{}, nil)
+			md := componentsmocks.NewDomain(t)
+			md.On("BuildDomainReceipt", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(pldtypes.RawJSON(`{}`), nil)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
+		},
+	)
+	defer done()
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Options: pldapi.TransactionReceiptListenerOptions{},
+		Started: confutil.P(false),
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	receipt := &pldapi.TransactionReceipt{
+		ID: txID,
+		TransactionReceiptData: pldapi.TransactionReceiptData{
+			Domain: "domain1",
+		},
+	}
+
+	batchCtx := l.newReceiptBatchContext()
+	r, err := batchCtx.buildFullReceipt(receipt, true)
+	require.NoError(t, err)
+	require.Equal(t, `{}`, r.DomainReceipt.String())
+
+	close(l.done)
+}
+
+func TestIncompleteDomainsForNonAvailableReceipts(t *testing.T) {
+	testIncompleteDomainsForNonAvailableReceipts(t, 100)
+}
+
+func TestIncompleteDomainsForNonAvailableReceiptsForcingPagination(t *testing.T) {
+	testIncompleteDomainsForNonAvailableReceipts(t, 1)
+}
+
+func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
+	txID1 := testUUID("txID1")
+	txID2 := testUUID("txID2")
+	txID3 := testUUID("txID3")
+	txID4 := testUUID("txID4")
+	txID5 := testUUID("txID5")
+	txID6 := testUUID("txID6")
+	missingStateID1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingStateID2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingStateID3 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	missingStateID4 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	ctx, txm, done := newTestTransactionManager(t, true,
+		mockDomainStateCompletion,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// Mock TX2 being unavailable when first attempted
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID2).
+				Return(&pldapi.TransactionStates{
+					Info: []*pldapi.StateBase{
+						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}, // We have the manifest
+					},
+					Unavailable: &pldapi.UnavailableStates{
+						Confirmed: []pldtypes.HexBytes{missingStateID1}, // but not one required state
+					},
+				}, nil).
+				Once()
+			// Mock TX3 being unavailable when first attempted
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID3).
+				Return(&pldapi.TransactionStates{
+					Unavailable: &pldapi.UnavailableStates{
+						Info: []pldtypes.HexBytes{missingStateID2}, // no manifest
+						Read: []pldtypes.HexBytes{missingStateID1},
+					},
+				}, nil).
+				Once()
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID4).
+				Return(&pldapi.TransactionStates{
+					Info: []*pldapi.StateBase{
+						{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}, // we have the manifest
+					},
+					Unavailable: &pldapi.UnavailableStates{
+						Read: []pldtypes.HexBytes{missingStateID4}, // but not one required state
+					},
+				}, nil).
+				Once()
+			// Other calls return ok for when we unblock
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(&pldapi.TransactionStates{}, nil)
+		},
+	)
+	defer done()
+
+	txm.receiptsStateGapCheckTime = 50 * time.Millisecond
+	txm.receiptsReadPageSize = pageSize
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: "listener1",
+		Filters: pldapi.TransactionReceiptFilters{
+			Type:   confutil.P(pldapi.TransactionTypePrivate.Enum()),
+			Domain: "domain1",
+		},
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	r1 := newTestReceiptReceiver(nil)
+	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
+	require.NoError(t, err)
+	defer close1.Close()
+
+	contract1 := pldtypes.RandAddress()
+	contract2 := pldtypes.RandAddress()
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID1,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID2,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID3,
+				OnChain:       randOnChain(contract1),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID4,
+				OnChain:       randOnChain(contract2),
+			},
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID5,
+				OnChain:       randOnChain(contract1),
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	// We get all the complete ones, regardless of the fact that means skipping
+	requireStrEqual(t, txID1, (<-r1.receipts).ID)
+	requireStrEqual(t, txID5, (<-r1.receipts).ID)
+
+	// We can get new batches on the unblocked contracts
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				ReceiptType:   components.RT_Success,
+				Domain:        "domain1",
+				TransactionID: txID6,
+				OnChain:       randOnChain(contract2),
+			},
+		})
+	})
+	require.NoError(t, err)
+	requireStrEqual(t, txID6, (<-r1.receipts).ID)
+
+	// Write the state that's missing
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID1, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. now TX2 is unblocked
+	requireStrEqual(t, txID2, (<-r1.receipts).ID)
+
+	// Write the second state that's missing
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID2, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// Write the third state that's missing
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID3, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. and TX3 is unblocked
+	requireStrEqual(t, txID3, (<-r1.receipts).ID)
+
+	// And the fourth
+	err = txm.p.DB().WithContext(ctx).Exec("INSERT INTO states ( id, created, domain_name, contract_address ) VALUES ( ?, ?, ?, ? )",
+		missingStateID4, pldtypes.TimestampNow(), "domain1", contract1,
+	).Error
+	require.NoError(t, err)
+
+	// Trigger a poll
+	txm.NotifyStatesDBChanged(ctx)
+
+	// .. and TX3 is unblocked
+	requireStrEqual(t, txID4, (<-r1.receipts).ID)
+
+}
+
+func TestProcessStaleIncompletesFailRetryingReadIncompletes(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.db.MatchExpectationsInOrder(false)
+			mc.db.ExpectQuery("SELECT.*receipt_listener_incomplete").WillReturnError(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	txm.receiptsRetry.UTSetMaxAttempts(1)
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Started: confutil.P(false),
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+
+	err = l.processStaleIncompletes()
+	assert.Regexp(t, "pop", err)
+	close(l.done)
+
+}
+
+func TestProcessStaleIncompletesFailRetryingDeleteIncompletes(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
+			mc.db.MatchExpectationsInOrder(false)
+			mc.db.ExpectQuery("SELECT.*receipt_listener_incomplete").WillReturnRows(
+				sqlmock.NewRows([]string{"listener", "sequence", "domain_name", "state", "Receipt__sequence", "Receipt__transaction"}).AddRow(
+					"listener1", 100, "domain1", pldtypes.HexBytes(pldtypes.RandBytes(32)), 100, uuid.New(),
+				))
+			mc.db.ExpectExec("DELETE.*receipt_listener_incomplete").WillReturnError(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	txm.receiptsRetry.UTSetMaxAttempts(1)
+
+	err := txm.CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name:    "listener1",
+		Started: confutil.P(false),
+		Options: pldapi.TransactionReceiptListenerOptions{
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	l := txm.receiptListeners["listener1"]
+	l.initStart()
+	_ = l.addReceiver(newTestReceiptReceiver(nil))
+
+	err = l.processStaleIncompletes()
 	assert.Regexp(t, "pop", err)
 	close(l.done)
 

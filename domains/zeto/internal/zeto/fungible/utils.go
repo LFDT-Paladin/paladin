@@ -21,9 +21,10 @@ import (
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
@@ -31,8 +32,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	utxocore "github.com/LFDT-Paladin/smt/pkg/utxo/core"
+
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
 	"github.com/iden3/go-iden3-crypto/poseidon"
 	"google.golang.org/protobuf/proto"
 )
@@ -126,7 +130,7 @@ func generateMerkleProofs(ctx context.Context, smtSpec *common.MerkleTreeSpec, i
 	// verify that the input UTXOs have been indexed by the Merkle tree DB
 	// and generate a merkle proof for each
 	mtRoot := smtSpec.Tree.Root()
-	proofs, _, err := smtSpec.Tree.GenerateProofs(indexes, mtRoot)
+	proofs, _, err := smtSpec.Tree.GenerateProofs(ctx, indexes, mtRoot)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorGenerateMTP, err)
 	}
@@ -162,7 +166,7 @@ func generateMerkleProofs(ctx context.Context, smtSpec *common.MerkleTreeSpec, i
 	return smtProof, nil
 }
 
-func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin, mt core.SparseMerkleTree) ([]*big.Int, error) {
+func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin, mt core.SparseMerkleTree, hasher utxocore.Hasher) ([]*big.Int, error) {
 	var indexes []*big.Int
 	for _, coin := range inputCoins {
 		pubKey, err := zetosigner.DecodeBabyJubJubPublicKey(coin.Owner.String())
@@ -172,17 +176,17 @@ func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin,
 		// Create a new fungible node for the coin, to check existence
 		// in the Merkle tree. The index is calculated from the coin's
 		// amount, owner and salt.
-		idx := node.NewFungible(coin.Amount.Int(), pubKey, coin.Salt.Int())
-		leaf, err := node.NewLeafNode(idx)
+		idx := node.NewFungible(coin.Amount.Int(), pubKey, coin.Salt.Int(), hasher)
+		leaf, err := node.NewLeafNode(idx, nil)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewLeafNode, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewLeafNode, err)
 		}
 		// Check if the leaf exists in the Merkle tree
-		n, err := mt.GetNode(leaf.Ref())
+		n, err := mt.GetNode(ctx, leaf.Ref())
 		if err != nil {
 			// TODO: deal with when the node is not found in the DB tables for the tree
 			// e.g because the transaction event hasn't been processed yet
-			return nil, i18n.NewError(ctx, msgs.MsgErrorQueryLeafNode, leaf.Ref().Hex(), err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorQueryLeafNode, leaf.Ref().Hex(), err)
 		}
 		// Check if the index of the node returned from the merkle tree
 		// matches the expected index calculated from the coin's amount, owner and salt.
@@ -191,9 +195,9 @@ func makeLeafIndexesFromCoins(ctx context.Context, inputCoins []*types.ZetoCoin,
 			return nil, i18n.NewError(ctx, msgs.MsgErrorHashInputState, err)
 		}
 		if n.Index().BigInt().Cmp(hash.Int()) != 0 {
-			expectedIndex, err := node.NewNodeIndexFromBigInt(hash.Int())
+			expectedIndex, err := node.NewNodeIndexFromBigInt(hash.Int(), hasher)
 			if err != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err)
+				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewNodeIndex, err)
 			}
 			// we have found a node in the tree based on its primary key (ref),
 			// but the node's index doesn't match the expected index based on
@@ -235,7 +239,7 @@ func makeLeafIndexesFromCoinOwners(ctx context.Context, inputOwner string, outpu
 // formatTransferProvingRequest formats the proving request for a transfer transaction.
 // the same function is used for both the transfer and lock transactions because they
 // both require the same proof from the transfer circuit
-func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, delegate ...string) ([]byte, error) {
+func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, inputCoins, outputCoins []*types.ZetoCoin, circuit *zetosignerapi.Circuit, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, delegate ...string) ([]byte, error) {
 	inputSize := common.GetInputSize(len(inputCoins))
 	inputCommitments := make([]string, inputSize)
 	inputValueInts := make([]uint64, inputSize)
@@ -275,7 +279,7 @@ func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.Domain
 	if circuit.UsesNullifiers {
 		forLockedStates := len(delegate) > 0
 
-		smtProof, err := smtProofForInputs(ctx, callbacks, merkleTreeRootSchema, merkleTreeNodeSchema, tokenName, stateQueryContext, contractAddress, inputCoins, forLockedStates, inputSize)
+		smtProof, err := smtProofForInputs(ctx, callbacks, merkleTreeRootSchema, merkleTreeNodeSchema, hasher, tokenName, stateQueryContext, contractAddress, inputCoins, forLockedStates, inputSize)
 		if err != nil {
 			return nil, i18n.NewError(ctx, msgs.MsgErrorGenerateMTP, err)
 		}
@@ -331,14 +335,14 @@ func formatTransferProvingRequest(ctx context.Context, callbacks plugintk.Domain
 	return proto.Marshal(payload)
 }
 
-func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, inputCoins []*types.ZetoCoin, forLockedStates bool, targetSize int) (*corepb.MerkleProofObject, error) {
-	smtName := smt.MerkleTreeName(tokenName, contractAddress)
+func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, hasher utxocore.Hasher, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, inputCoins []*types.ZetoCoin, forLockedStates bool, targetSize int) (*corepb.MerkleProofObject, error) {
+	smtName := zetosmt.MerkleTreeName(tokenName, contractAddress)
 	if forLockedStates {
-		smtName = smt.MerkleTreeNameForLockedStates(tokenName, contractAddress)
+		smtName = zetosmt.MerkleTreeNameForLockedStates(tokenName, contractAddress)
 	}
-	smtType := common.StatesTree
+	smtType := smt.StatesTree
 	if forLockedStates {
-		smtType = common.LockedStatesTree
+		smtType = smt.LockedStatesTree
 	}
 
 	mt, err := common.NewMerkleTreeSpec(ctx, smtName, smtType, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
@@ -347,7 +351,7 @@ func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 	}
 
 	var indexes []*big.Int
-	indexes, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+	indexes, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, hasher)
 	if err != nil {
 		return nil, err
 	}
@@ -360,8 +364,8 @@ func smtProofForInputs(ctx context.Context, callbacks plugintk.DomainCallbacks, 
 }
 
 func smtProofForOwners(ctx context.Context, callbacks plugintk.DomainCallbacks, merkleTreeRootSchema *prototk.StateSchema, merkleTreeNodeSchema *prototk.StateSchema, tokenName, stateQueryContext string, contractAddress *pldtypes.EthAddress, inputOwner string, outputCoins []*types.ZetoCoin, targetSize int) (*corepb.MerkleProofObject, error) {
-	smtName := smt.MerkleTreeNameForKycStates(tokenName, contractAddress)
-	mt, err := common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
+	smtName := zetosmt.MerkleTreeNameForKycStates(tokenName, contractAddress)
+	mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.KycStatesTree, callbacks, merkleTreeRootSchema.Id, merkleTreeNodeSchema.Id, stateQueryContext)
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -54,7 +56,7 @@ var NotoConfigABI_V1 = &abi.ParameterArray{
 }
 
 var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
-var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00010001")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {
@@ -134,8 +136,13 @@ const (
 	NotaryModeIntHooks pldtypes.HexUint64 = 0x0001
 )
 
-var NotoVariantDefault pldtypes.HexUint64 = 0x0001 // V1 variant
-var NotoVariantLegacy pldtypes.HexUint64 = 0x0000  // V0 variant
+var NotoVariantNullifier pldtypes.HexUint64 = 0x0002 // V2 variant
+var NotoVariantDefault pldtypes.HexUint64 = 0x0001   // V1 variant
+var NotoVariantLegacy pldtypes.HexUint64 = 0x0000    // V0 variant
+
+func (c *NotoParsedConfig) IsNullifierVariant() bool {
+	return c.Variant == NotoVariantNullifier
+}
 
 func (c *NotoParsedConfig) IsV1() bool {
 	return c.Variant == NotoVariantDefault
@@ -143,4 +150,8 @@ func (c *NotoParsedConfig) IsV1() bool {
 
 func (c *NotoParsedConfig) IsV0() bool {
 	return c.Variant == NotoVariantLegacy
+}
+
+func AlgoDomainNullifier(name string) string {
+	return fmt.Sprintf("domain:%s:nullifier", name)
 }

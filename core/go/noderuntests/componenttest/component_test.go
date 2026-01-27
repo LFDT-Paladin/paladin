@@ -382,8 +382,9 @@ func TestUpdatePublicTransaction(t *testing.T) {
 		tx, err = c.PTX().GetTransactionFull(ctx, *setRes.ID())
 		require.NoError(ct, err)
 		require.Len(ct, tx.Public, 1)
+		require.NotEmpty(ct, tx.Public[0].Activity, "Activity array should not be empty")
 		require.NotNil(ct, tx.Public[0].Activity[0])
-		assert.Regexp(ct, "ERROR.*Intrinsic", tx.Public[0].Activity[0])
+		assert.Regexp(ct, "ERROR.*Intrinsic", tx.Public[0].Activity[0].Message)
 	}, 10*time.Second, 100*time.Millisecond, "Transaction was not processed with error in time")
 
 	_, err = c.PTX().UpdateTransaction(ctx, *setRes.ID(), &pldapi.TransactionInput{

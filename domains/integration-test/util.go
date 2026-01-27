@@ -140,7 +140,7 @@ func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[
 	return done, conf, tb, rpc, wsClient
 }
 
-func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte, postDeploy ...func(deployed map[string]string, rpc rpcclient.Client)) map[string]string {
+func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, deployOrder []string, contracts map[string][]byte, postDeploy ...func(deployed map[string]string, rpc rpcclient.Client)) map[string]string {
 	tb := testbed.NewTestBed()
 	httpURL, _, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
 	assert.NoError(t, err)
@@ -148,8 +148,10 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	deployed := make(map[string]string, len(contracts))
-	for name, contract := range contracts {
-		build := solutils.MustLoadBuild(contract)
+	libs := make(map[string]*pldtypes.EthAddress, len(contracts))
+	for _, name := range deployOrder {
+		contract := contracts[name]
+		build := solutils.MustLoadBuildResolveLinks(contract, libs)
 		var addr string
 		rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deployBytecode",
 			deployer, build.ABI, build.Bytecode.String(), pldtypes.RawJSON(`{}`))
@@ -157,6 +159,7 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 			assert.NoError(t, rpcerr)
 		}
 		deployed[name] = addr
+		libs[name] = pldtypes.MustEthAddress(addr)
 	}
 	for _, fn := range postDeploy {
 		fn(deployed, rpc)
@@ -176,6 +179,7 @@ func newNotoDomain(t *testing.T, registryAddress *pldtypes.EthAddress) (chan not
 			return domain
 		}),
 		RegistryAddress: registryAddress,
+		AllowSigning:    true,
 	}
 	return waitForDomain, tbd
 }

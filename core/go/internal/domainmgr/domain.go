@@ -790,12 +790,12 @@ func (d *domain) BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, 
 
 	// As long as we have some knowledge, we call to the domain and see what it builds with what we have available
 	res, err := d.api.BuildReceipt(ctx, &prototk.BuildReceiptRequest{
-		TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
-		Complete:      txStates.Unavailable == nil, // important for the domain to know if we have everything (it may fail with partial knowledge)
-		InputStates:   d.toEndorsableListBase(txStates.Spent),
-		ReadStates:    d.toEndorsableListBase(txStates.Read),
-		OutputStates:  d.toEndorsableListBase(txStates.Confirmed),
-		InfoStates:    d.toEndorsableListBase(txStates.Info),
+		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
+		UnavailableStates: txStates.Unavailable != nil, // important for the domain to know if we have everything (it may fail with partial knowledge)
+		InputStates:       d.toEndorsableListBase(txStates.Spent),
+		ReadStates:        d.toEndorsableListBase(txStates.Read),
+		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
+		InfoStates:        d.toEndorsableListBase(txStates.Info),
 	})
 	if err != nil {
 		return nil, err
@@ -860,6 +860,75 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 	}, err
 }
 
+func (d *domain) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+	results := make([]*prototk.LookupKeyIdentifierResult, len(req.Verifiers))
+	for i, verifier := range req.Verifiers {
+		resolve, err := d.dm.keyManager.ReverseKeyLookup(ctx, d.dm.persistence.NOTX(), req.Algorithm, req.VerifierType, verifier)
+		if err != nil {
+			i18nErr, ok := err.(i18n.PDError)
+			if ok && i18nErr.MessageKey() == msgs.MsgKeyManagerVerifierLookupNotFound {
+				log.L(ctx).Debugf("Key for verifier %s not found (algorithm=%s,verifierType=%s)", verifier, req.Algorithm, req.VerifierType)
+				results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: false}
+				continue
+			}
+			return nil, err
+		}
+		keyIdentifier := resolve.Identifier
+		log.L(ctx).Debugf("Key available locally for verifier %s (algorithm=%s,verifierType=%s): %s", verifier, req.Algorithm, req.VerifierType, keyIdentifier)
+		results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: true, KeyIdentifier: &keyIdentifier}
+	}
+	return &prototk.LookupKeyIdentifiersResponse{Results: results}, nil
+}
+
+func (d *domain) mapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (newStatesToWrite []*components.StateUpsert, err error) {
+	newStatesToWrite = make([]*components.StateUpsert, len(potentialStates))
+	for i, s := range potentialStates {
+		schema := d.schemasByID[s.SchemaId]
+		if schema == nil {
+			schema = d.schemasBySignature[s.SchemaId]
+		}
+		if schema == nil {
+			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
+		}
+		var id pldtypes.HexBytes
+		if s.Id != nil {
+			id, err = pldtypes.ParseHexBytes(dCtx.Ctx(), *s.Id)
+			if err != nil {
+				return nil, err
+			}
+		}
+		stateUpsert := &components.StateUpsert{
+			ID:     id,
+			Schema: schema.ID(),
+			Data:   pldtypes.RawJSON(s.StateDataJson),
+		}
+		if isOutput {
+			// These are marked as locked and creating in the transaction, and become available for other transaction to read
+			stateUpsert.CreatedBy = &createdByTX.ID
+		}
+		newStatesToWrite[i] = stateUpsert
+	}
+	return newStatesToWrite, nil
+}
+
+func (d *domain) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {
+	c, err := d.checkInFlight(ctx, req.StateQueryContext, false)
+	if err != nil {
+		return nil, err
+	}
+	statesToValidate, err := d.mapPotentialStates(c.dCtx, req.States, false, nil)
+	if err != nil {
+		return nil, err
+	}
+	states, err := c.dCtx.ValidateStates(c.dbTX, statesToValidate...)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.ValidateStatesResponse{
+		States: d.toEndorsableListBase(states),
+	}, nil
+}
+
 func (d *domain) ConfigurePrivacyGroup(ctx context.Context, inputConfiguration map[string]string) (configuration map[string]string, err error) {
 	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-%s", d.Name())))
 	res, err := d.api.ConfigurePrivacyGroup(ctx, &prototk.ConfigurePrivacyGroupRequest{
@@ -915,4 +984,45 @@ func (d *domain) InitPrivacyGroup(ctx context.Context, id pldtypes.HexBytes, gen
 		ABI: abi.ABI{&functionABI},
 	}, nil
 
+}
+
+func (d *domain) CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (primaryMissingStateID pldtypes.HexBytes, err error) {
+	scr := &prototk.CheckStateCompletionRequest{
+		TransactionId:     pldtypes.Bytes32UUIDFirst16(txID).String(),
+		InputStates:       d.toEndorsableListBase(txStates.Spent),
+		ReadStates:        d.toEndorsableListBase(txStates.Read),
+		OutputStates:      d.toEndorsableListBase(txStates.Confirmed),
+		InfoStates:        d.toEndorsableListBase(txStates.Info),
+		UnavailableStates: &prototk.UnavailableStates{}, // always non-nil, but FirstUnavailable will be nil if none unavailable
+	}
+	setIfFirstUnavailable := func(unavailable pldtypes.HexBytes) {
+		if scr.UnavailableStates.FirstUnavailableId == nil {
+			idStr := unavailable.String()
+			scr.UnavailableStates.FirstUnavailableId = &idStr
+		}
+	}
+	// The order of these checks is documented in the first_unavailable_id
+	if txStates.Unavailable != nil {
+		for _, unavailable := range txStates.Unavailable.Info {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InfoStateIds = append(scr.UnavailableStates.InfoStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Spent {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.InputStateIds = append(scr.UnavailableStates.InputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Confirmed {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.OutputStateIds = append(scr.UnavailableStates.OutputStateIds, unavailable.String())
+		}
+		for _, unavailable := range txStates.Unavailable.Read {
+			setIfFirstUnavailable(unavailable)
+			scr.UnavailableStates.ReadStateIds = append(scr.UnavailableStates.ReadStateIds, unavailable.String())
+		}
+	}
+	res, err := d.api.CheckStateCompletion(ctx, scr)
+	if err == nil && res.PrimaryMissingStateId != nil && len(*res.PrimaryMissingStateId) > 0 {
+		primaryMissingStateID, err = pldtypes.ParseHexBytes(ctx, *res.PrimaryMissingStateId)
+	}
+	return primaryMissingStateID, err
 }

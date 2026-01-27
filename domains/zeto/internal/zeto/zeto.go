@@ -24,12 +24,13 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/nonfungible"
 	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
@@ -38,7 +39,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
@@ -58,6 +62,7 @@ type Zeto struct {
 	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchema           *prototk.StateSchema
 	snarkProver          signerapi.InMemorySigner
+	hasher               core.Hasher
 	events               struct {
 		mint               string
 		burn               string
@@ -126,6 +131,7 @@ var factoryDeployABI = &abi.Entry{
 func New(callbacks plugintk.DomainCallbacks) *Zeto {
 	return &Zeto{
 		Callbacks: callbacks,
+		hasher:    utxo.NewPoseidonHasher(),
 	}
 }
 
@@ -200,7 +206,6 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 }
 
 func (z *Zeto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "zeto")
 	z.coinSchema = req.AbiStateSchemas[0]
 	z.nftSchema = req.AbiStateSchemas[1]
 	z.merkleTreeRootSchema = req.AbiStateSchemas[2]
@@ -516,20 +521,20 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	var smtForLockedStates *common.MerkleTreeSpec
 	var smtForKyc *common.MerkleTreeSpec
 	if common.IsNullifiersToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeName(domainConfig.TokenName, contractAddress)
-		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName := zetosmt.MerkleTreeName(domainConfig.TokenName, contractAddress)
+		smtForStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
-		smtName = smt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
-		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, common.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName = zetosmt.MerkleTreeNameForLockedStates(domainConfig.TokenName, contractAddress)
+		smtForLockedStates, err = common.NewMerkleTreeSpec(ctx, smtName, smt.LockedStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if common.IsKycToken(domainConfig.TokenName) {
-		smtName := smt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
-		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, common.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
+		smtName := zetosmt.MerkleTreeNameForKycStates(domainConfig.TokenName, contractAddress)
+		smtForKyc, err = common.NewMerkleTreeSpec(ctx, smtName, smt.KycStatesTree, z.Callbacks, z.merkleTreeRootSchema.Id, z.merkleTreeNodeSchema.Id, req.StateQueryContext)
 		if err != nil {
 			return nil, err
 		}
@@ -558,24 +563,25 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 		return &res, i18n.NewError(ctx, msgs.MsgErrorHandleEvents, formatErrors(errors))
 	}
 	if common.IsNullifiersToken(domainConfig.TokenName) {
-		newStatesForSMT, err := smtForStates.Storage.GetNewStates()
+		newStatesForSMT, err := smtForStates.Storage.GetNewStates(ctx)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForStates.Name, err)
 		}
 		if len(newStatesForSMT) > 0 {
 			res.NewStates = append(res.NewStates, newStatesForSMT...)
 		}
-		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates()
+		newStatesForSMTForLocked, err := smtForLockedStates.Storage.GetNewStates(ctx)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForLockedStates.Name, err)
 		}
 		if len(newStatesForSMTForLocked) > 0 {
 			res.NewStates = append(res.NewStates, newStatesForSMTForLocked...)
 		}
 		if common.IsKycToken(domainConfig.TokenName) {
-			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates()
+			newStatesForSMTForKyc, err := smtForKyc.Storage.GetNewStates(ctx)
+			log.L(ctx).Debugf("New KYC states from SMT %s: %+v", smtForKyc.Name, newStatesForSMTForKyc)
 			if err != nil {
-				return nil, i18n.NewError(ctx, msgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
+				return nil, i18n.NewError(ctx, pldmsgs.MsgErrorGetNewSmtStates, smtForKyc.Name, err)
 			}
 			if len(newStatesForSMTForKyc) > 0 {
 				res.NewStates = append(res.NewStates, newStatesForSMTForKyc...)
@@ -729,4 +735,11 @@ func (z *Zeto) InitPrivacyGroup(ctx context.Context, req *prototk.InitPrivacyGro
 
 func (z *Zeto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error) {
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}
+
+func (z *Zeto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	return &prototk.CheckStateCompletionResponse{
+		// TODO: Implement manifests similar to noto, to allow receipts to be delivered to listeners reliably with partial state avaialability.
+		PrimaryMissingStateId: req.UnavailableStates.FirstUnavailableId,
+	}, nil
 }

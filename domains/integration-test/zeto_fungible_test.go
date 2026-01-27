@@ -38,7 +38,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestFungibleZetoDomainTestSuite(t *testing.T) {
+func TestZetoFungibleSuite(t *testing.T) {
 	contractsFile = "./zeto/config-for-deploy-fungible.yaml"
 	suite.Run(t, new(fungibleTestSuiteHelper))
 }
@@ -48,34 +48,42 @@ type fungibleTestSuiteHelper struct {
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_Anon() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON, false, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonBatch() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON, true, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonEnc() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, false, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonEncBatch() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_ENC, true, false)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifier() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierBatch() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKyc() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
 }
 
 func (s *fungibleTestSuiteHelper) TestZeto_AnonNullifierKycBatch() {
+	// s.T().Skip()
 	s.testZeto(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
 }
 

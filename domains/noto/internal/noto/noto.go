@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"reflect"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -33,6 +32,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 
 	"github.com/google/uuid"
@@ -47,13 +47,13 @@ type ParamValidator interface {
 }
 
 //go:embed abis/NotoFactory.json
-var notoFactoryJSON []byte
+var notoFactoryV1JSON []byte
 
 //go:embed abis/NotoFactory_V0.json
 var notoFactoryV0JSON []byte
 
 //go:embed abis/INoto.json
-var notoInterfaceJSON []byte
+var notoInterfaceV1JSON []byte
 
 //go:embed abis/INoto_V0.json
 var notoInterfaceV0JSON []byte
@@ -65,41 +65,55 @@ var notoErrorsJSON []byte
 var notoHooksJSON []byte
 
 var (
-	factoryBuild     = solutils.MustLoadBuild(notoFactoryJSON)
+	factoryV1Build   = solutils.MustLoadBuild(notoFactoryV1JSON)
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
-	interfaceBuild   = solutils.MustLoadBuild(notoInterfaceJSON)
+	interfaceV1Build = solutils.MustLoadBuild(notoInterfaceV1JSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
 	errorsBuild      = solutils.MustLoadBuild(notoErrorsJSON)
 	hooksBuild       = solutils.MustLoadBuild(notoHooksJSON)
 )
 
 var (
-	NotoTransfer       = "NotoTransfer"
-	NotoLock           = "NotoLock"
-	NotoUnlock         = "NotoUnlock"
-	NotoUnlockPrepared = "NotoUnlockPrepared"
-	NotoLockDelegated  = "NotoLockDelegated"
+	// ILockableCapability standardized events
+	EventTransfer      = "Transfer"
+	EventLockUpdated   = "LockUpdated"
+	EventLockDelegated = "LockDelegated"
+
+	// Noto additional lock related events that include the transaction/UTXO details
+	EventNotoLockCreated   = "NotoLockCreated"
+	EventNotoLockUpdated   = "NotoLockUpdated"
+	EventNotoLockSpent     = "NotoLockSpent"
+	EventNotoLockCancelled = "NotoLockCancelled"
+	EventNotoLockDelegated = "NotoLockDelegated"
+
+	// Old variant 0 events
+	EventNotoTransfer       = "NotoTransfer"
+	EventNotoLock           = "NotoLock"
+	EventNotoUnlock         = "NotoUnlock"
+	EventNotoUnlockPrepared = "NotoUnlockPrepared"
 )
 
 var allEvents = []string{
-	NotoTransfer,
-	NotoLock,
-	NotoUnlock,
-	NotoUnlockPrepared,
-	NotoLockDelegated,
+	EventTransfer,
+	EventNotoLockCreated,
+	EventNotoLockUpdated,
+	EventNotoLockSpent,
+	EventNotoLockCancelled,
+	EventNotoLockDelegated,
+	EventLockUpdated,
+	EventLockDelegated,
 }
 
-// V0 event names (same names as V1, but different signatures)
 var allEventsV0 = []string{
-	NotoTransfer,
-	NotoLock,
-	NotoUnlock,
-	NotoUnlockPrepared,
-	NotoLockDelegated,
+	EventNotoTransfer,
+	EventNotoLock,
+	EventNotoUnlock,
+	EventNotoUnlockPrepared,
+	EventNotoLockDelegated,
 }
 
-var eventsJSON = mustBuildEventsJSON(interfaceBuild.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
-var eventSignatures = mustLoadEventSignatures(interfaceBuild.ABI, allEvents)
+var allEventsJSON = mustBuildEventsJSON(interfaceV1Build.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
+var eventSignatures = mustLoadEventSignatures(interfaceV1Build.ABI, allEvents)
 var eventSignaturesV0 = mustLoadEventSignatures(interfaceV0Build.ABI, allEventsV0)
 
 var allSchemas = []*abi.Parameter{
@@ -109,6 +123,9 @@ var allSchemas = []*abi.Parameter{
 	types.NotoLockedCoinABI,
 	types.TransactionDataABI_V0,
 	types.TransactionDataABI_V1,
+	types.NotoManifestABI,
+	smt.MerkleTreeRootABI,
+	smt.MerkleTreeNodeABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -122,14 +139,18 @@ type Noto struct {
 	fixedSigningIdentity string
 	coinSchema           *prototk.StateSchema
 	lockedCoinSchema     *prototk.StateSchema
+	merkleTreeRootSchema *prototk.StateSchema
+	merkleTreeNodeSchema *prototk.StateSchema
 	dataSchemaV0         *prototk.StateSchema
 	dataSchemaV1         *prototk.StateSchema
 	lockInfoSchemaV0     *prototk.StateSchema
 	lockInfoSchemaV1     *prototk.StateSchema
+	manifestSchema       *prototk.StateSchema
 }
 
 type NotoDeployParams struct {
 	TransactionID string              `json:"transactionId"`
+	ImplName      string              `json:"implName"`
 	Name          string              `json:"name"`
 	Symbol        string              `json:"symbol"`
 	Notary        pldtypes.EthAddress `json:"notary"`
@@ -137,21 +158,174 @@ type NotoDeployParams struct {
 }
 
 type NotoMintParams struct {
-	TxId      string            `json:"txId"`
-	Outputs   []string          `json:"outputs"`
-	Signature pldtypes.HexBytes `json:"signature"`
-	Data      pldtypes.HexBytes `json:"data"`
+	TxId    string            `json:"txId"`
+	Outputs []string          `json:"outputs"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+	Data    pldtypes.HexBytes `json:"data"`
 }
 
 type NotoTransferParams struct {
-	TxId      string            `json:"txId"`
-	Inputs    []string          `json:"inputs"`
-	Outputs   []string          `json:"outputs"`
-	Signature pldtypes.HexBytes `json:"signature"`
-	Data      pldtypes.HexBytes `json:"data"`
+	TxId    string            `json:"txId"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+	Data    pldtypes.HexBytes `json:"data"`
 }
 
 type NotoBurnParams struct {
+	TxId    string            `json:"txId"`
+	Inputs  []string          `json:"inputs"`
+	Outputs []string          `json:"outputs"`
+	Proof   pldtypes.HexBytes `json:"proof"`
+	Data    pldtypes.HexBytes `json:"data"`
+}
+
+// ILockableCapability.LockParams
+type LockParams struct {
+	SpendHash  pldtypes.Bytes32  `json:"spendHash"`
+	CancelHash pldtypes.Bytes32  `json:"cancelHash"`
+	Options    pldtypes.HexBytes `json:"options"`
+}
+
+// ILockableCapability.createLock()
+type CreateLockParams struct {
+	CreateInputs pldtypes.HexBytes `json:"createInputs"`
+	Params       LockParams        `json:"params"`
+	Data         pldtypes.HexBytes `json:"data"`
+}
+
+// ILockableCapability.updateLock()
+type UpdateLockParams struct {
+	LockID       pldtypes.Bytes32  `json:"lockId"`
+	UpdateInputs pldtypes.HexBytes `json:"updateInputs"`
+	Params       LockParams        `json:"params"`
+	Data         pldtypes.HexBytes `json:"data"`
+}
+
+// ILockableCapability.spendLock()
+type SpendLockParams struct {
+	LockID      pldtypes.Bytes32  `json:"lockId"`
+	SpendInputs pldtypes.HexBytes `json:"spendInputs"`
+	Data        pldtypes.HexBytes `json:"data"`
+}
+
+// ILockableCapability.cancelLock()
+type CancelLockParams struct {
+	LockID       pldtypes.Bytes32  `json:"lockId"`
+	CancelInputs pldtypes.HexBytes `json:"cancelInputs"`
+	Data         pldtypes.HexBytes `json:"data"`
+}
+
+type NotoUpdateLockParams struct {
+	TxId         string            `json:"txId"`
+	LockedInputs []string          `json:"lockedInputs"`
+	Proof        pldtypes.HexBytes `json:"proof"`
+	Options      pldtypes.HexBytes `json:"options"`
+}
+
+var UpdateLockParamsABI = &abi.ParameterArray{
+	{Name: "txId", Type: "bytes32"},
+	{Name: "lockedInputs", Type: "bytes32[]"},
+	{Name: "proof", Type: "bytes"},
+	{Name: "options", Type: "bytes"},
+}
+
+type DelegateLockParams struct {
+	LockID         pldtypes.Bytes32     `json:"lockId"`
+	DelegateInputs pldtypes.HexBytes    `json:"delegateInputs"`
+	NewSpender     *pldtypes.EthAddress `json:"newSpender"`
+	Data           pldtypes.HexBytes    `json:"data"`
+}
+
+type DelegateLockData struct {
+	TxId pldtypes.Bytes32  `json:"txId"`
+	Data pldtypes.HexBytes `json:"data"`
+}
+
+type DelegateLockDataStrings struct {
+	TxId string            `json:"txId"`
+	Data pldtypes.HexBytes `json:"data"`
+}
+
+var DelegateLockDataABI = &abi.ParameterArray{
+	{Name: "txId", Type: "bytes32"},
+	{Name: "data", Type: "bytes"},
+}
+
+type NotoTransfer_Event struct {
+	TxId     pldtypes.Bytes32     `json:"txId"`
+	Operator *pldtypes.EthAddress `json:"operator"`
+	Inputs   []pldtypes.Bytes32   `json:"inputs"`
+	Outputs  []pldtypes.Bytes32   `json:"outputs"`
+	Proof    pldtypes.HexBytes    `json:"proof"`
+	Data     pldtypes.HexBytes    `json:"data"`
+}
+
+type LockStates struct {
+	Inputs        []pldtypes.Bytes32 `json:"inputs"`
+	Outputs       []pldtypes.Bytes32 `json:"outputs"`
+	LockedOutputs []pldtypes.Bytes32 `json:"lockedOutputs"`
+}
+
+// INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock create
+type NotoLockCreated_Event struct {
+	TxId          pldtypes.Bytes32     `json:"txId"`
+	LockID        pldtypes.Bytes32     `json:"lockId"`
+	Owner         *pldtypes.EthAddress `json:"owner"`
+	Inputs        []pldtypes.Bytes32   `json:"inputs"`
+	Outputs       []pldtypes.Bytes32   `json:"outputs"`
+	LockedOutputs []pldtypes.Bytes32   `json:"lockedOutputs"`
+	Proof         pldtypes.HexBytes    `json:"proof"`
+	Data          pldtypes.HexBytes    `json:"data"`
+}
+
+// INoto.NotoLockSpent and INoto.NotoLockCancelled event JSON schema
+type NotoLockSpentOrCancelled_Event struct {
+	TxId    pldtypes.Bytes32     `json:"txId"`
+	LockID  pldtypes.Bytes32     `json:"lockId"`
+	Spender *pldtypes.EthAddress `json:"spender"`
+	Inputs  []pldtypes.Bytes32   `json:"inputs"`
+	Outputs []pldtypes.Bytes32   `json:"outputs"`
+	TxData  pldtypes.HexBytes    `json:"txData"`
+	Proof   pldtypes.HexBytes    `json:"proof"`
+	Data    pldtypes.HexBytes    `json:"data"`
+}
+
+// INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock update
+type NotoLockUpdated_Event struct {
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Operator     *pldtypes.EthAddress `json:"operator"`
+	LockContents []pldtypes.Bytes32   `json:"lockContents"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
+}
+
+// INoto.LockDelegated event JSON schema
+type NotoLockDelegated_Event struct {
+	TxId    pldtypes.Bytes32     `json:"txId"`
+	LockID  pldtypes.Bytes32     `json:"lockId"`
+	From    *pldtypes.EthAddress `json:"from"`
+	To      *pldtypes.EthAddress `json:"to"`
+	Inputs  []pldtypes.Bytes32   `json:"inputs"`
+	Outputs []pldtypes.Bytes32   `json:"outputs"`
+	Proof   pldtypes.HexBytes    `json:"proof"`
+	Data    pldtypes.HexBytes    `json:"data"`
+}
+
+type parsedCoins struct {
+	coins        []*types.NotoCoin
+	states       []*prototk.StateRef
+	total        *big.Int
+	lockedCoins  []*types.NotoLockedCoin
+	lockedStates []*prototk.StateRef
+	lockedTotal  *big.Int
+}
+
+// Variant 0 parameter structures (legacy)
+type NotoTransfer_V0_Params struct {
 	TxId      string            `json:"txId"`
 	Inputs    []string          `json:"inputs"`
 	Outputs   []string          `json:"outputs"`
@@ -159,15 +333,14 @@ type NotoBurnParams struct {
 	Data      pldtypes.HexBytes `json:"data"`
 }
 
-type NotoApproveTransferParams struct {
-	TxId      string               `json:"txId"`
-	Delegate  *pldtypes.EthAddress `json:"delegate"`
-	TXHash    pldtypes.Bytes32     `json:"txhash"`
-	Signature pldtypes.HexBytes    `json:"signature"`
-	Data      pldtypes.HexBytes    `json:"data"`
+type NotoMint_V0_Params struct {
+	TxId      string            `json:"txId"`
+	Outputs   []string          `json:"outputs"`
+	Signature pldtypes.HexBytes `json:"signature"`
+	Data      pldtypes.HexBytes `json:"data"`
 }
 
-type NotoLockParams struct {
+type NotoLock_V0_Params struct {
 	TxId          string            `json:"txId"`
 	Inputs        []string          `json:"inputs"`
 	Outputs       []string          `json:"outputs"`
@@ -176,18 +349,8 @@ type NotoLockParams struct {
 	Data          pldtypes.HexBytes `json:"data"`
 }
 
-type NotoPrepareUnlockParams struct {
-	TxId         *string           `json:"txId,omitempty"`       // Required for V1, omitted for V0
-	LockId       *pldtypes.Bytes32 `json:"lockId,omitempty"`     // Required for V1, omitted for V0
-	UnlockTxId   *string           `json:"unlockTxId,omitempty"` // Required for V1, omitted for V0
-	LockedInputs []string          `json:"lockedInputs"`
-	UnlockHash   pldtypes.Bytes32  `json:"unlockHash"`
-	Signature    pldtypes.HexBytes `json:"signature"`
-	Data         pldtypes.HexBytes `json:"data"`
-}
-
-// NotoUnlockStruct matches the Solidity UnlockParams struct
-type NotoUnlockStruct struct {
+type NotoUnlock_V0_Params struct {
+	TxId          string            `json:"txId"`
 	LockedInputs  []string          `json:"lockedInputs"`
 	LockedOutputs []string          `json:"lockedOutputs"`
 	Outputs       []string          `json:"outputs"`
@@ -195,22 +358,23 @@ type NotoUnlockStruct struct {
 	Data          pldtypes.HexBytes `json:"data"`
 }
 
-type NotoUnlockParams struct {
-	TxId   string            `json:"txId"`
-	LockId *pldtypes.Bytes32 `json:"lockId,omitempty"`
-	Params NotoUnlockStruct  `json:"params"`
+type NotoPrepareUnlock_V0_Params struct {
+	LockedInputs []string          `json:"lockedInputs"`
+	UnlockHash   string            `json:"unlockHash"`
+	Signature    pldtypes.HexBytes `json:"signature"`
+	Data         pldtypes.HexBytes `json:"data"`
 }
 
-type NotoDelegateLockParams struct {
+type NotoDelegateLock_V0_Params struct {
 	TxId       string               `json:"txId"`
-	LockId     *pldtypes.Bytes32    `json:"lockId,omitempty"`     // Required for V1, omitted for V0
-	UnlockHash *pldtypes.Bytes32    `json:"unlockHash,omitempty"` // Required for V0, omitted for V1
+	UnlockHash *pldtypes.Bytes32    `json:"unlockHash"`
 	Delegate   *pldtypes.EthAddress `json:"delegate"`
 	Signature  pldtypes.HexBytes    `json:"signature"`
 	Data       pldtypes.HexBytes    `json:"data"`
 }
 
-type NotoTransfer_Event struct {
+// Old event structures for variant 0 compatibility
+type NotoTransfer_V0_Event struct {
 	TxId      pldtypes.Bytes32   `json:"txId"`
 	Inputs    []pldtypes.Bytes32 `json:"inputs"`
 	Outputs   []pldtypes.Bytes32 `json:"outputs"`
@@ -218,55 +382,6 @@ type NotoTransfer_Event struct {
 	Data      pldtypes.HexBytes  `json:"data"`
 }
 
-type NotoApproved_Event struct {
-	Delegate  pldtypes.EthAddress `json:"delegate"`
-	TXHash    pldtypes.Bytes32    `json:"txhash"`
-	Signature pldtypes.HexBytes   `json:"signature"`
-	Data      pldtypes.HexBytes   `json:"data"`
-}
-
-// V1 event structures (with lockId)
-type NotoLock_Event struct {
-	TxId          pldtypes.Bytes32   `json:"txId"`
-	LockId        pldtypes.Bytes32   `json:"lockId"`
-	Inputs        []pldtypes.Bytes32 `json:"inputs"`
-	Outputs       []pldtypes.Bytes32 `json:"outputs"`
-	LockedOutputs []pldtypes.Bytes32 `json:"lockedOutputs"`
-	Signature     pldtypes.HexBytes  `json:"signature"`
-	Data          pldtypes.HexBytes  `json:"data"`
-}
-
-type NotoUnlock_Event struct {
-	TxId          pldtypes.Bytes32     `json:"txId"`
-	LockId        pldtypes.Bytes32     `json:"lockId"`
-	Sender        *pldtypes.EthAddress `json:"sender"`
-	LockedInputs  []pldtypes.Bytes32   `json:"lockedInputs"`
-	LockedOutputs []pldtypes.Bytes32   `json:"lockedOutputs"`
-	Outputs       []pldtypes.Bytes32   `json:"outputs"`
-	Signature     pldtypes.HexBytes    `json:"signature"`
-	Data          pldtypes.HexBytes    `json:"data"`
-}
-
-type NotoUnlockPrepared_Event struct {
-	TxId         pldtypes.Bytes32   `json:"txId"`
-	LockId       pldtypes.Bytes32   `json:"lockId"`
-	UnlockTxId   pldtypes.Bytes32   `json:"unlockTxId"`
-	LockedInputs []pldtypes.Bytes32 `json:"lockedInputs"`
-	UnlockHash   pldtypes.Bytes32   `json:"unlockHash"`
-	Signature    pldtypes.HexBytes  `json:"signature"`
-	Data         pldtypes.HexBytes  `json:"data"`
-}
-
-type NotoLockDelegated_Event struct {
-	TxId       pldtypes.Bytes32     `json:"txId"`
-	LockId     pldtypes.Bytes32     `json:"lockId"`
-	UnlockHash pldtypes.Bytes32     `json:"unlockHash"`
-	Delegate   *pldtypes.EthAddress `json:"delegate"`
-	Signature  pldtypes.HexBytes    `json:"signature"`
-	Data       pldtypes.HexBytes    `json:"data"`
-}
-
-// V0 event structures (legacy)
 type NotoLock_V0_Event struct {
 	TxId          pldtypes.Bytes32   `json:"txId"`
 	Inputs        []pldtypes.Bytes32 `json:"inputs"`
@@ -277,13 +392,13 @@ type NotoLock_V0_Event struct {
 }
 
 type NotoUnlock_V0_Event struct {
-	TxId          pldtypes.Bytes32     `json:"txId"`
-	Sender        *pldtypes.EthAddress `json:"sender"`
-	LockedInputs  []pldtypes.Bytes32   `json:"lockedInputs"`
-	LockedOutputs []pldtypes.Bytes32   `json:"lockedOutputs"`
-	Outputs       []pldtypes.Bytes32   `json:"outputs"`
-	Signature     pldtypes.HexBytes    `json:"signature"`
-	Data          pldtypes.HexBytes    `json:"data"`
+	TxId          pldtypes.Bytes32    `json:"txId"`
+	Sender        pldtypes.EthAddress `json:"sender"`
+	LockedInputs  []pldtypes.Bytes32  `json:"lockedInputs"`
+	LockedOutputs []pldtypes.Bytes32  `json:"lockedOutputs"`
+	Outputs       []pldtypes.Bytes32  `json:"outputs"`
+	Signature     pldtypes.HexBytes   `json:"signature"`
+	Data          pldtypes.HexBytes   `json:"data"`
 }
 
 type NotoUnlockPrepared_V0_Event struct {
@@ -294,20 +409,11 @@ type NotoUnlockPrepared_V0_Event struct {
 }
 
 type NotoLockDelegated_V0_Event struct {
-	TxId       pldtypes.Bytes32     `json:"txId"`
-	UnlockHash pldtypes.Bytes32     `json:"unlockHash"`
-	Delegate   *pldtypes.EthAddress `json:"delegate"`
-	Signature  pldtypes.HexBytes    `json:"signature"`
-	Data       pldtypes.HexBytes    `json:"data"`
-}
-
-type parsedCoins struct {
-	coins        []*types.NotoCoin
-	states       []*prototk.StateRef
-	total        *big.Int
-	lockedCoins  []*types.NotoLockedCoin
-	lockedStates []*prototk.StateRef
-	lockedTotal  *big.Int
+	TxId       pldtypes.Bytes32    `json:"txId"`
+	UnlockHash pldtypes.Bytes32    `json:"unlockHash"`
+	Delegate   pldtypes.EthAddress `json:"delegate"`
+	Signature  pldtypes.HexBytes   `json:"signature"`
+	Data       pldtypes.HexBytes   `json:"data"`
 }
 
 func mustLoadEventSignatures(contractABI abi.ABI, allEvents []string) map[string]string {
@@ -372,8 +478,11 @@ func (n *Noto) DataSchemaID() string {
 	return n.dataSchemaV1.Id
 }
 
+func (n *Noto) ManifestSchemaID() string {
+	return n.manifestSchema.Id
+}
+
 func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	var config types.DomainConfig
 	err := json.Unmarshal([]byte(req.ConfigJson), &config)
 	if err != nil {
@@ -385,16 +494,21 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 	n.chainID = req.ChainId
 	n.fixedSigningIdentity = req.FixedSigningIdentity
 
+	algoName := types.AlgoDomainNullifier(n.name)
+	signingAlgos := map[string]int32{
+		algoName: 32,
+	}
+
 	return &prototk.ConfigureDomainResponse{
 		DomainConfig: &prototk.DomainConfig{
 			AbiStateSchemasJson: schemasJSON,
-			AbiEventsJson:       eventsJSON,
+			AbiEventsJson:       allEventsJSON,
+			SigningAlgorithms:   signingAlgos,
 		},
 	}, nil
 }
 
 func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	for i, schema := range allSchemas {
 		switch schema.Name {
 		case types.NotoCoinABI.Name:
@@ -409,6 +523,12 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:
 			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case smt.MerkleTreeRootABI.Name:
+			n.merkleTreeRootSchema = req.AbiStateSchemas[i]
+		case smt.MerkleTreeNodeABI.Name:
+			n.merkleTreeNodeSchema = req.AbiStateSchemas[i]
+		case types.NotoManifestABI.Name:
+			n.manifestSchema = req.AbiStateSchemas[i]
 		}
 	}
 	return &prototk.InitDomainResponse{}, nil
@@ -465,10 +585,11 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	notaryAddress, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
+	notaryInfo, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
+	notaryAddress := notaryInfo.address
 
 	deployData := &types.NotoConfigData_V0{
 		NotaryLookup: notaryQualified.String(),
@@ -510,7 +631,7 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	// Default to the V0 NotoFactory ABI if no version is specified
 	abi := factoryV0Build.ABI
 	if n.config.FactoryVersion == 1 {
-		abi = factoryBuild.ABI
+		abi = factoryV1Build.ABI
 	}
 
 	functionName := "deploy"
@@ -530,14 +651,16 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 				Data:          deployDataJSON,
 			})
 		} else {
-			// For V1 factories, include name and symbol
-			paramsJSON, err = json.Marshal(&NotoDeployParams{
+			deployParams := &NotoDeployParams{
 				TransactionID: req.Transaction.TransactionId,
+				ImplName:      params.Implementation,
 				Name:          params.Name,
 				Symbol:        params.Symbol,
 				Notary:        *notaryAddress,
 				Data:          deployDataJSON,
-			})
+			}
+			// For V1 factories, include name and symbol
+			paramsJSON, err = json.Marshal(deployParams)
 		}
 	}
 
@@ -684,7 +807,7 @@ func (n *Noto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*type
 	return &params, err
 }
 
-func validateTransactionCommon[T any](
+func validateTransactionCommon[T comparable](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
 	getHandler func(method string) T,
@@ -716,11 +839,10 @@ func validateTransactionCommon[T any](
 		abi = types.NotoABI.Functions()[functionABI.Name]
 	}
 
+	var unsetT T
 	handler := getHandler(functionABI.Name)
-	handlerValue := reflect.ValueOf(handler)
-	if abi == nil || handlerValue.IsNil() {
-		var zero T
-		return nil, zero, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
+	if abi == nil || handler == unsetT {
+		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
 	// check if the handler implements the ValidateParams method cause generic T
@@ -841,6 +963,8 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 				Id:       state.Id,
 			})
 
+		case n.lockInfoSchemaV1.Id:
+			// Not a coin - so ignored in this function
 		default:
 			return nil, i18n.NewError(ctx, msgs.MsgUnexpectedSchema, state.SchemaId)
 		}
@@ -848,9 +972,29 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 	return result, nil
 }
 
+func (n *Noto) encodeNotoLockOperation(ctx context.Context, lockOp *types.NotoLockOperation) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{lockOp})
+	if err == nil {
+		abiData, err = types.NotoLockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	return abiData, err
+}
+
+func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, lockID pldtypes.Bytes32, unlockOp *types.NotoUnlockOperation) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{unlockOp})
+	if err == nil {
+		abiData, err = types.NotoUnlockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	if err == nil {
+		jsonUnlock, _ := json.Marshal(unlockOp)
+		log.L(ctx).Infof("Unlock operation %s: %s", lockID, jsonUnlock)
+	}
+	return abiData, err
+}
+
 func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
 	if domainConfig.IsV1() {
-		return n.encodeTransactionDataV1(ctx, infoStates)
+		return n.encodeTransactionDataV1(ctx, infoStates, domainConfig.IsNullifierVariant())
 	} else {
 		return n.encodeTransactionDataV0(ctx, transaction, infoStates)
 	}
@@ -889,7 +1033,7 @@ func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk
 	return data, nil
 }
 
-func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*prototk.EndorsableState, useNullifiers bool) (pldtypes.HexBytes, error) {
 	var err error
 	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
 	for i, state := range infoStates {
@@ -995,11 +1139,35 @@ func mapPrepareTransactionType(transactionType pldapi.TransactionType) prototk.P
 }
 
 func (n *Noto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	log.L(ctx).Infof("generating nullifier for %s\n", req.Algorithm)
+	switch req.PayloadType {
+	case types.PAYLOAD_DOMAIN_NOTO_NULLIFIER:
+		var coin *types.NotoCoin
+		var hashBytes *pldtypes.Bytes32
+		err := json.Unmarshal(req.Payload, &coin)
+		log.L(ctx).Debugf("unmarshaled coin: %+v\n", coin)
+		if err == nil {
+			hashBytes, err = calculateNullifier(coin)
+		}
+		if err != nil {
+			return nil, i18n.WrapError(ctx, err, msgs.MsgNullifierGenerationFailed)
+		}
+		log.L(ctx).Infof("generated nullifier (string): %s\n", hashBytes.String())
+		log.L(ctx).Infof("generated nullifier (bytes): %x\n", hashBytes.Bytes())
+		return &prototk.SignResponse{
+			Payload: hashBytes.Bytes(),
+		}, nil
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnknownSignPayload, req.PayloadType)
+	}
 }
 
 func (n *Noto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+	// as per the current nullifier design, no specific verifier is required
+	// to produce the nullifier. return a placeholder verifier
+	return &prototk.GetVerifierResponse{
+		Verifier: types.VERIFIER_DOMAIN_NOTO_NULLIFIER,
+	}, nil
 }
 
 func (n *Noto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error) {
@@ -1036,12 +1204,102 @@ func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }
 
+func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	res := &prototk.CheckStateCompletionResponse{}
+	if req.UnavailableStates == nil || req.UnavailableStates.FirstUnavailableId == nil {
+		// There's nothing unavailable - we have all the states (in reality Paladin does not call us in this case)
+		return res, nil
+	}
+	// Determine if we have a manifest available.
+	var manifestState *prototk.EndorsableState
+	for _, potentialManifest := range req.InfoStates {
+		if potentialManifest.SchemaId == n.ManifestSchemaID() {
+			manifestState = potentialManifest
+			break
+		}
+	}
+	// If we don't (Noto V0, or just not available yet) then we return the pre-calculated FirstUnavailableId
+	// provided by us by Paladin.
+	if manifestState == nil {
+		res.PrimaryMissingStateId = req.UnavailableStates.FirstUnavailableId
+		log.L(ctx).Debugf("No manifest available. Returning pre-calculated first unavailable state for transaction %s: %s", req.TransactionId, *res.PrimaryMissingStateId)
+		return res, nil
+	}
+	// Decode the manifest
+	var manifest types.NotoManifest
+	if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidManifestState, manifestState.Id)
+	}
+	// Now, it get's a little complex - we need to ask the Paladin node which of the addresses
+	// in the state distribution list are "ours". There's a batch API for this provided.
+	// Note we only get to this point if we're involved in the transaction in some way, and
+	// don't have the whole state set (Notary always has full set before submit).
+	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
+	lookupReq := &prototk.LookupKeyIdentifiersRequest{
+		Algorithm:    algorithms.ECDSA_SECP256K1,
+		VerifierType: verifiers.ETH_ADDRESS,
+	}
+	uniqueAddresses := make(map[string]struct{})
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			uniqueAddresses[target.String()] = struct{}{}
+		}
+	}
+	for addr := range uniqueAddresses {
+		lookupReq.Verifiers = append(lookupReq.Verifiers, addr)
+	}
+	lookupRes, err := n.Callbacks.LookupKeyIdentifiers(ctx, lookupReq)
+	if err != nil {
+		return nil, err
+	}
+	// Now we build a list of all states we expect to find for this
+	var requiredStateIDs []string
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			for _, keyLookup := range lookupRes.Results {
+				if target.String() == keyLookup.Verifier && keyLookup.Found {
+					log.L(ctx).Debugf("Require state %s as we own key %s for address %s", state.ID, *keyLookup.KeyIdentifier, target)
+					requiredStateIDs = append(requiredStateIDs, state.ID.String())
+				}
+			}
+		}
+	}
+	// The states could be in any set of unavailable
+	for _, requiredStateID := range requiredStateIDs {
+		for _, unavailableID := range req.UnavailableStates.InfoStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required info state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.InputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required input state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.OutputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required output state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.ReadStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required read state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{PrimaryMissingStateId: &requiredStateID}, nil
+			}
+		}
+	}
+	return res, nil
+}
+
 // getInterfaceABI returns the appropriate interface ABI based on the variant
 func (n *Noto) getInterfaceABI(variant pldtypes.HexUint64) abi.ABI {
 	if variant == types.NotoVariantLegacy {
 		return interfaceV0Build.ABI
 	}
-	return interfaceBuild.ABI
+	return interfaceV1Build.ABI
 }
 
 // computeLockId computes the lockId the same way the contract does:
@@ -1072,14 +1330,55 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	return pldtypes.Bytes32Keccak(encoded), nil
 }
 
-func (n *Noto) extractLockInfo(ctx context.Context, req *prototk.PrepareTransactionRequest) (*types.NotoLockInfo_V1, error) {
-	lockStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
-	if len(lockStates) == 1 {
-		lock, err := n.unmarshalLock(lockStates[0].StateDataJson)
-		if err != nil {
-			return nil, err
+func (n *Noto) extractLockInfoV0(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
+	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
+	if len(lockStates) != 1 {
+		if !required {
+			return nil, nil, nil, nil
 		}
-		return lock, nil
+		return nil, nil, nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 	}
-	return nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
+	state := lockStates[0]
+	if state.SchemaId == n.lockInfoSchemaV0.Id {
+		lock, err := n.unmarshalLockV0(lockStates[0].StateDataJson)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return &lock.LockID, nil /* no spendTxId in V0 lock info */, lock.Delegate, nil
+	}
+	lock, err := n.unmarshalLockV1(lockStates[0].StateDataJson)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &lock.LockID, &lock.SpendTxId, nil /* no delegate in V1 lock info */, nil
+}
+
+func (n *Noto) encodeNotoLockOptions(ctx context.Context, notoLockOptions *types.NotoLockOptions) (encoded pldtypes.HexBytes, err error) {
+	lockOptionsJSON, err := json.Marshal([]any{notoLockOptions})
+	if err == nil {
+		encoded, err = types.NotoLockOptionsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+	}
+	return encoded, err
+}
+
+func (n *Noto) encodeNotoDelegateOperation(ctx context.Context, notoDelegateOp *types.NotoDelegateOperation) (encoded pldtypes.HexBytes, err error) {
+	lockOptionsJSON, err := json.Marshal([]any{notoDelegateOp})
+	if err == nil {
+		encoded, err = types.NotoDelegateOperationABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+	}
+	return encoded, err
+}
+
+func (n *Noto) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTransaction, notaryID *identityPair) (pldtypes.Bytes32, error) {
+	notaryAddress := notaryID.address
+	var senderAddress *pldtypes.EthAddress
+	contractAddress := (*pldtypes.EthAddress)(tx.ContractAddress)
+	if tx.DomainConfig.NotaryMode == types.NotaryModeHooks.Enum() &&
+		tx.DomainConfig.Options.Hooks != nil &&
+		tx.DomainConfig.Options.Hooks.PublicAddress != nil {
+		senderAddress = tx.DomainConfig.Options.Hooks.PublicAddress
+	} else {
+		senderAddress = notaryAddress
+	}
+	return n.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
 }

@@ -435,14 +435,17 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	// Call Stop() - this should send a signal to stopEventLoop channel, and then wait for it
 	s.Stop()
 
-	// Verify that Stop() completed by loading up len(s.originatorEvents) events but no more. These should be buffered and hence should not block
+	// Verify that Stop() completed without blocking (the channel send should succeed)
 	transactionBuilder2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn2 := transactionBuilder2.BuildSparse()
 	event2 := &TransactionCreatedEvent{
 		Transaction: txn2,
 	}
 
-	for i := 0; i < len(s.originatorEvents); i++ {
+	// We have to get past the buffer in the channel to validate it doesn't block
+	for i := 0; i < len(s.originatorEvents)+1; i++ {
+		// This just needs to not block - it checks the event loop is not done
 		s.QueueEvent(ctx, event2)
 	}
+
 }

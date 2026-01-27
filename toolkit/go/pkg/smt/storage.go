@@ -20,19 +20,19 @@ import (
 	"encoding/json"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/core"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/sparse-merkle-tree/node"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/core"
+	"github.com/LFDT-Paladin/smt/pkg/sparse-merkle-tree/node"
+	utxocore "github.com/LFDT-Paladin/smt/pkg/utxo/core"
 )
 
 type StatesStorage interface {
 	core.Storage
-	GetNewStates() ([]*prototk.NewConfirmedState, error)
+	GetNewStates(ctx context.Context) ([]*prototk.NewConfirmedState, error)
 	SetTransactionId(txId string)
 }
 
@@ -49,6 +49,8 @@ type statesStorage struct {
 	pendingNodesTx    *nodesTx
 	rootNode          *smtRootNode
 	committedNewNodes map[core.NodeRef]*smtNode
+	hasher            utxocore.Hasher
+	useEIP712         bool
 }
 
 // this corresponds to the new nodes resulted from the execution of
@@ -76,7 +78,7 @@ func (n *nodesTx) getNode(ref core.NodeRef) (core.Node, error) {
 	return nil, core.ErrNotFound
 }
 
-func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string) StatesStorage {
+func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, rootSchemaId, nodeSchemaId string, hasher utxocore.Hasher, useEIP712 bool) StatesStorage {
 	return &statesStorage{
 		CoreInterface:     c,
 		smtName:           smtName,
@@ -84,6 +86,8 @@ func NewStatesStorage(c plugintk.DomainCallbacks, smtName, stateQueryContext, ro
 		rootSchemaId:      rootSchemaId,
 		nodeSchemaId:      nodeSchemaId,
 		committedNewNodes: make(map[core.NodeRef]*smtNode),
+		hasher:            hasher,
+		useEIP712:         useEIP712,
 	}
 }
 
@@ -96,27 +100,26 @@ func (s *statesStorage) SetTransactionId(txId string) {
 	s.pendingNodesTx.transactionId = txId
 }
 
-func (s *statesStorage) GetNewStates() ([]*prototk.NewConfirmedState, error) {
+func (s *statesStorage) GetNewStates(ctx context.Context) ([]*prototk.NewConfirmedState, error) {
 	var newStates []*prototk.NewConfirmedState
-	ctx := context.Background()
 	if s.rootNode != nil {
 		newRootNodeState, err := s.makeNewStateFromRootNode(ctx, s.rootNode)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewStateFromCommittedRoot, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewStateFromCommittedRoot, err)
 		}
 		newStates = append(newStates, newRootNodeState)
 	}
 	for _, node := range s.committedNewNodes {
 		newNodeState, err := s.makeNewStateFromTreeNode(ctx, node)
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewStateFromCommittedNode, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorNewStateFromCommittedNode, err)
 		}
 		newStates = append(newStates, newNodeState)
 	}
 	return newStates, nil
 }
 
-func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
+func (s *statesStorage) GetRootNodeRef(ctx context.Context) (core.NodeRef, error) {
 	if s.pendingNodesTx != nil && s.pendingNodesTx.inflightRoot != nil {
 		return s.pendingNodesTx.inflightRoot, nil
 	}
@@ -130,31 +133,30 @@ func (s *statesStorage) GetRootNodeRef() (core.NodeRef, error) {
 		Sort(".created DESC").
 		Equal("smtName", s.smtName)
 
-	ctx := context.Background()
 	res, err := s.CoreInterface.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: s.stateQueryContext,
 		SchemaId:          s.rootSchemaId,
 		QueryJson:         queryBuilder.Query().String(),
 	})
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorQueryAvailStates, err)
+		return nil, err
 	}
 
 	if len(res.States) == 0 {
 		return nil, core.ErrNotFound
 	}
 
-	var root types.MerkleTreeRoot
+	var root MerkleTreeRoot
 	err = json.Unmarshal([]byte(res.States[0].DataJson), &root)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalRootIdx, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUnmarshalRootIdx, err)
 	}
 
-	idx, err := node.NewNodeIndexFromHex(root.RootIndex.HexString())
+	idx, err := node.NewNodeIndexFromHex(root.RootIndex.HexString(), s.hasher)
 	return idx, err
 }
 
-func (s *statesStorage) UpsertRootNodeRef(root core.NodeRef) error {
+func (s *statesStorage) UpsertRootNodeRef(ctx context.Context, root core.NodeRef) error {
 	if s.pendingNodesTx == nil {
 		s.pendingNodesTx = &nodesTx{
 			inflightNodes: make(map[core.NodeRef]core.Node),
@@ -164,7 +166,7 @@ func (s *statesStorage) UpsertRootNodeRef(root core.NodeRef) error {
 	return nil
 }
 
-func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
+func (s *statesStorage) GetNode(ctx context.Context, ref core.NodeRef) (core.Node, error) {
 	// the node's reference key (not the index) is used as the key to
 	// store the node in the DB
 	refKey := ref.Hex()
@@ -185,55 +187,45 @@ func (s *statesStorage) GetNode(ref core.NodeRef) (core.Node, error) {
 		Sort(".created").
 		Equal("refKey", refKey)
 
-	ctx := context.Background()
 	res, err := s.CoreInterface.FindAvailableStates(ctx, &prototk.FindAvailableStatesRequest{
 		StateQueryContext: s.stateQueryContext,
 		SchemaId:          s.nodeSchemaId,
 		QueryJson:         queryBuilder.Query().String(),
 	})
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorQueryAvailStates, err)
+		return nil, err
 	}
 	if len(res.States) == 0 {
 		return nil, core.ErrNotFound
 	}
-	var n types.MerkleTreeNode
+	var n MerkleTreeNode
 	err = json.Unmarshal([]byte(res.States[0].DataJson), &n)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUnmarshalSMTNode, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorUnmarshalSMTNode, err)
 	}
 
 	var newNode core.Node
 	nodeType := core.NodeTypeFromByte(n.Type[:][0])
 	switch nodeType {
 	case core.NodeTypeLeaf:
-		idx, err1 := node.NewNodeIndexFromHex(n.Index.HexString())
-		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err1)
-		}
+		idx, _ := node.NewNodeIndexFromHex(n.Index.HexString(), s.hasher)
 		v := node.NewIndexOnly(idx)
-		newNode, err = node.NewLeafNode(v)
+		newNode, err = node.NewLeafNode(v, nil)
 	case core.NodeTypeBranch:
-		leftChild, err1 := node.NewNodeIndexFromHex(n.LeftChild.HexString())
-		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err1)
-		}
-		rightChild, err2 := node.NewNodeIndexFromHex(n.RightChild.HexString())
-		if err2 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorNewNodeIndex, err2)
-		}
-		newNode, err = node.NewBranchNode(leftChild, rightChild)
+		leftChild, _ := node.NewNodeIndexFromHex(n.LeftChild.HexString(), s.hasher)
+		rightChild, _ := node.NewNodeIndexFromHex(n.RightChild.HexString(), s.hasher)
+		newNode, err = node.NewBranchNode(leftChild, rightChild, s.hasher)
 	}
 	return newNode, err
 }
 
-func (s *statesStorage) InsertNode(n core.Node) error {
+func (s *statesStorage) InsertNode(ctx context.Context, n core.Node) error {
 	s.pendingNodesTx.inflightNodes[n.Ref()] = n
 
 	return nil
 }
 
-func (s *statesStorage) BeginTx() (core.Transaction, error) {
+func (s *statesStorage) BeginTx(ctx context.Context) (core.Transaction, error) {
 	// reset the inflight nodes cache
 	if s.pendingNodesTx != nil {
 		s.pendingNodesTx.inflightNodes = make(map[core.NodeRef]core.Node)
@@ -245,7 +237,7 @@ func (s *statesStorage) BeginTx() (core.Transaction, error) {
 	return s, nil
 }
 
-func (s *statesStorage) Commit() error {
+func (s *statesStorage) Commit(ctx context.Context) error {
 	// here we merge the inflight nodes in the pending Tx with the committed new nodes
 	s.rootNode = &smtRootNode{
 		root: s.pendingNodesTx.inflightRoot,
@@ -263,12 +255,16 @@ func (s *statesStorage) Commit() error {
 	return nil
 }
 
-func (s *statesStorage) Rollback() error {
+func (s *statesStorage) Rollback(ctx context.Context) error {
 	// reset the inflight nodes cache
 	s.pendingNodesTx = &nodesTx{
 		inflightNodes: make(map[core.NodeRef]core.Node),
 	}
 	return nil
+}
+
+func (s *statesStorage) GetHasher() utxocore.Hasher {
+	return s.hasher
 }
 
 func (s *statesStorage) Close() {
@@ -281,35 +277,35 @@ func (s *statesStorage) makeNewStateFromTreeNode(ctx context.Context, n *smtNode
 	// we clone the node so that the value properties are not saved
 	refBytes, err := pldtypes.ParseBytes32(node.Ref().Hex())
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err)
 	}
-	newNode := &types.MerkleTreeNode{
+	newNode := &MerkleTreeNode{
 		RefKey: refBytes,
 		Type:   pldtypes.HexBytes([]byte{node.Type().ToByte()}),
 	}
 	if node.Type() == core.NodeTypeBranch {
 		leftBytes, err1 := pldtypes.ParseBytes32(node.LeftChild().Hex())
 		if err1 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err1)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err1)
 		}
 		rightBytes, err2 := pldtypes.ParseBytes32(node.RightChild().Hex())
 		if err2 != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err2)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err2)
 		}
 		newNode.LeftChild = leftBytes
 		newNode.RightChild = rightBytes
 	} else if node.Type() == core.NodeTypeLeaf {
 		idxBytes, err := pldtypes.ParseBytes32(node.Index().Hex())
 		if err != nil {
-			return nil, i18n.NewError(ctx, msgs.MsgErrorParseNodeRef, err)
+			return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseNodeRef, err)
 		}
 		newNode.Index = idxBytes
 	}
 
 	data, _ := json.Marshal(newNode)
-	hash, err := newNode.Hash(s.smtName)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorHashSMTNode, err)
+	hash, _ := newNode.Hash(s.smtName)
+	if s.useEIP712 {
+		hash, _ = newNode.Hash_EIP712(ctx)
 	}
 	newNodeState := &prototk.NewConfirmedState{
 		Id:            &hash,
@@ -324,19 +320,16 @@ func (s *statesStorage) makeNewStateFromRootNode(ctx context.Context, rootNode *
 	root := rootNode.root
 	bytes, err := pldtypes.ParseBytes32(root.Hex())
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorParseRootNodeIdx, err)
+		return nil, i18n.NewError(ctx, pldmsgs.MsgErrorParseRootNodeIdx, err)
 	}
-	newRoot := &types.MerkleTreeRoot{
+	newRoot := &MerkleTreeRoot{
 		SmtName:   s.smtName,
 		RootIndex: bytes,
 	}
-	data, err := json.Marshal(newRoot)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorUpsertRootNode, err)
-	}
-	hash, err := newRoot.Hash()
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorHashSMTNode, err)
+	data, _ := json.Marshal(newRoot)
+	hash, _ := newRoot.Hash()
+	if s.useEIP712 {
+		hash, _ = newRoot.Hash_EIP712(ctx)
 	}
 	newRootState := &prototk.NewConfirmedState{
 		Id:            &hash,

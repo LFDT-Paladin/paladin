@@ -105,7 +105,7 @@ func TestLockInit(t *testing.T) {
 
 func TestLockAssemble(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{
 				States: []*prototk.StoredState{
 					{
@@ -172,7 +172,7 @@ func TestLockAssemble(t *testing.T) {
 	req.ResolvedVerifiers[0].Lookup = "Alice"
 
 	badCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}
@@ -189,7 +189,7 @@ func TestLockAssemble(t *testing.T) {
 	assert.ErrorContains(t, err, "PD210017: Failed to decode contract address. bad address")
 
 	h.callbacks = &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return &prototk.FindAvailableStatesResponse{}, nil
 		},
 	}

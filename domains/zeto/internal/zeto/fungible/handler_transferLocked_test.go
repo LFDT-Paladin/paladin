@@ -23,7 +23,8 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
@@ -32,6 +33,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
@@ -184,7 +186,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 		VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
 	})
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}
@@ -205,7 +207,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.EqualError(t, err, "PD210039: Failed to prepare transaction inputs. test error")
 
 	calls := 0
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		defer func() { calls++ }()
 		if calls == 0 {
 			return &prototk.FindAvailableStatesResponse{
@@ -244,7 +246,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.EqualError(t, err, "PD210039: Failed to prepare transaction inputs. test error")
 	req.ResolvedVerifiers[0].Lookup = "Alice"
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -280,7 +282,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.Equal(t, "0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025", coin2.Owner.String())
 	assert.Equal(t, "0x06", coin2.Amount.String())
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -298,7 +300,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "PD210134: Failed to query states by IDs. Wanted: 1, Found: 2", *res.RevertReason)
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -313,7 +315,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, *res.RevertReason, "PD210087: Failed to unmarshal state data")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -329,7 +331,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "PD210128: Input 0x0c3d1d2996e66d8512c7c3faa4b5f55180fee870190d589a911b6517dc578dba is not locked", *res.RevertReason)
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -352,7 +354,7 @@ func TestTransferLockedAssemble(t *testing.T) {
 	req.ResolvedVerifiers[1].Algorithm = h.getAlgoZetoSnarkBJJ()
 	(*tx.DomainConfig.Circuits)["transfer"] = &zetosignerapi.Circuit{Name: "anon_nullifier_transfer", Type: "transfer"}
 	called := 0
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		var dataJson string
 		if called == 0 {
 			dataJson = "{\"salt\":\"0x13de02d64a5736a56b2d35d2a83dd60397ba70aae6f8347629f0960d4fee5d58\",\"owner\":\"0xc1d218cf8993f940e75eabd3fee23dadc4e89cd1de479f03a61e91727959281b\",\"amount\":\"0x0a\",\"locked\":true}"
@@ -504,7 +506,7 @@ func TestTransferLockedPrepare(t *testing.T) {
 
 func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}
@@ -536,11 +538,11 @@ func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 	}
 	ctx := context.Background()
 	queryContext := "queryContext"
-	smtName := smt.MerkleTreeName("Zeto_Anon", addr)
-	_, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
-	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree for smt_Zeto_Anon_0x1234567890123456789012345678901234567890: PD210065: Failed to find available states for the merkle tree. test error")
+	smtName := zetosmt.MerkleTreeName("Zeto_Anon", addr)
+	_, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
+	assert.EqualError(t, err, "PD210019: Failed to create Merkle tree spec for smt_Zeto_Anon_0x1234567890123456789012345678901234567890: test error")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		return &prototk.FindAvailableStatesResponse{
 			States: []*prototk.StoredState{
 				{
@@ -549,18 +551,18 @@ func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 			},
 		}, nil
 	}
-	mt, err := common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
+	mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
 	assert.NoError(t, err)
-	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 	assert.EqualError(t, err, "PD210037: Failed load owner public key. PD210072: Invalid compressed public key length: 2")
 
 	inputCoins[0].Owner = pldtypes.MustParseHexBytes("0x7cdd539f3ed6c283494f47d8481f84308a6d7043087fb6711c9f1df04e2b8025")
-	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
-	assert.EqualError(t, err, "PD210054: Failed to create new leaf node. inputs values not inside Finite Field")
+	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
+	assert.EqualError(t, err, "PD021210: Failed to create new leaf node. inputs values not inside Finite Field")
 
 	inputCoins[0].Salt = pldtypes.MustParseHexUint256("0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec")
 	calls := 0
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		defer func() { calls++ }()
 		if calls == 0 {
 			return &prototk.FindAvailableStatesResponse{
@@ -576,12 +578,12 @@ func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 			}, nil
 		}
 	}
-	mt, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
+	mt, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
 	assert.NoError(t, err)
-	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
-	assert.EqualError(t, err, "PD210055: Failed to query the smt DB for leaf node (ref=789c99b9a2196addb3ac11567135877e8b86bc9b5f7725808a79757fd36b2a2a). key not found")
+	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
+	assert.EqualError(t, err, "PD021211: Failed to query the smt DB for leaf node (ref=789c99b9a2196addb3ac11567135877e8b86bc9b5f7725808a79757fd36b2a2a). key not found")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		defer func() { calls++ }()
 		if calls == 0 {
 			return &prototk.FindAvailableStatesResponse{
@@ -601,12 +603,12 @@ func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 			}, nil
 		}
 	}
-	mt, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
+	mt, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
 	assert.NoError(t, err)
-	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+	_, err = makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 	assert.EqualError(t, err, "PD210057: Coin (ref=789c99b9a2196addb3ac11567135877e8b86bc9b5f7725808a79757fd36b2a2a) found in the merkle tree but the persisted hash 26e3879b46b15a4ddbaca5d96af1bd2743f67f13f0bb85c40782950a2a700138 (index=3801702a0a958207c485bbf0137ff64327bdf16ad9a5acdb4d5ab1469b87e326) did not match the expected hash 0x303eb034d22aacc5dff09647928d757017a35e64e696d48609a250a6505e5d5f (index=5f5d5e50a650a20986d496e6645ea31770758d924796f0dfc5ac2ad234b03e30)")
 
-	testCallbacks.MockFindAvailableStates = func() (*prototk.FindAvailableStatesResponse, error) {
+	testCallbacks.MockFindAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 		defer func() { calls++ }()
 		if calls == 0 {
 			return &prototk.FindAvailableStatesResponse{
@@ -626,9 +628,9 @@ func TestGenerateMerkleProofsForLockedStates(t *testing.T) {
 			}, nil
 		}
 	}
-	mt, err = common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
+	mt, err = common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, queryContext)
 	assert.NoError(t, err)
-	indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+	indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 	assert.NoError(t, err)
 	_, err = generateMerkleProofs(ctx, mt, indexes, 2)
 	assert.NoError(t, err)

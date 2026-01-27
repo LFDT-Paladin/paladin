@@ -10,15 +10,29 @@ interface INotoErrors {
 
     error NotoInvalidOutput(bytes32 id);
 
+    error NotoInvalidRoot(uint256 root);
+
     error NotoNotNotary(address sender);
 
-    error NotoInvalidDelegate(bytes32 txhash, address delegate, address sender);
+    error NotoInvalidDelegate(bytes32 txhash, address delegate, address sender); // V0 only
+
+    error NotoDuplicateLock(bytes32 lockId);
 
     error NotoInvalidUnlockHash(bytes32 expected, bytes32 actual);
 
-    error NotoAlreadyPrepared(bytes32 unlockHash);
+    error NotoInvalidUnlockInputs(uint256 expected, uint256 actual);
+
+    error NotoNotPrepared(bytes32 lockId);
+
+    error NotoLockedOutputsInUpdate(bytes32 lockId);
+
+    error NotoAlreadyPrepared(bytes32 lockId);
 
     error NotoDuplicateTransaction(bytes32 txId);
 
-    error NotoDuplicateLock(bytes32 txId);
+    error NotoDuplicateSpendTransaction(bytes32 txId);
+
+    error NotoInvalidOptions(bytes options);
+
+    error NotoInvalidTransaction(bytes32 txId);
 }

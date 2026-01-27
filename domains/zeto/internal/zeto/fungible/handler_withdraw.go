@@ -24,7 +24,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	zetosmt "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
 	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
@@ -34,6 +35,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+
 	"github.com/hyperledger-labs/zeto/go-sdk/pkg/crypto"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
@@ -305,12 +308,12 @@ func (h *withdrawHandler) formatProvingRequest(ctx context.Context, inputCoins [
 
 	var extras []byte
 	if circuit.UsesNullifiers {
-		smtName := smt.MerkleTreeName(tokenName, contractAddress)
-		mt, err := common.NewMerkleTreeSpec(ctx, smtName, common.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, stateQueryContext)
+		smtName := zetosmt.MerkleTreeName(tokenName, contractAddress)
+		mt, err := common.NewMerkleTreeSpec(ctx, smtName, smt.StatesTree, h.callbacks, h.stateSchemas.MerkleTreeRootSchema.Id, h.stateSchemas.MerkleTreeNodeSchema.Id, stateQueryContext)
 		if err != nil {
 			return nil, err
 		}
-		indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree)
+		indexes, err := makeLeafIndexesFromCoins(ctx, inputCoins, mt.Tree, signercommon.GetHasher())
 		if err != nil {
 			return nil, err
 		}

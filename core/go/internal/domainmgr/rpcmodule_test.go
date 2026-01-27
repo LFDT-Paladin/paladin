@@ -16,29 +16,84 @@
 package domainmgr
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestRPCModuleBuild(t *testing.T) {
-	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
-		Domains: map[string]*pldconf.DomainConfig{
-			"domain1": {
-				RegistryAddress: pldtypes.RandHex(20),
-			},
-		},
-	})
+func TestRPCModule(t *testing.T) {
+
+	domainConf := goodDomainConf()
+	td, done := newTestDomain(t, true, domainConf)
 	defer done()
+	dm := td.dm
+	ctx := td.ctx
+	rpc, rpcDone := newTestRPCServer(t, ctx, dm)
+	defer rpcDone()
 
-	assert.NotNil(t, dm.rpcModule)
+	_, contractAddr := registerTestSmartContract(t, td)
 
-	// Verify RPC handlers are registered
-	assert.NotNil(t, dm.rpcQueryTransactions())
-	assert.NotNil(t, dm.rpcGetDomain())
-	assert.NotNil(t, dm.rpcGetDomainByAddress())
-	assert.NotNil(t, dm.rpcQuerySmartContracts())
-	assert.NotNil(t, dm.rpcGetSmartContractByAddress())
+	var domainNames []string
+	err := rpc.CallRPC(ctx, &domainNames, "domain_listDomains")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"test1"}, domainNames)
+
+	var domain1 *pldapi.Domain
+	err = rpc.CallRPC(ctx, &domain1, "domain_getDomain", "test1")
+	require.NoError(t, err)
+	assert.Equal(t, "test1", domain1.Name)
+
+	err = rpc.CallRPC(ctx, &domain1, "domain_getDomain", "test2")
+	require.Regexp(t, "PD011600", err)
+
+	err = rpc.CallRPC(ctx, &domain1, "domain_getDomainByAddress", td.d.registryAddress.String())
+	require.NoError(t, err)
+	assert.Equal(t, "test1", domain1.Name)
+
+	err = rpc.CallRPC(ctx, &domain1, "domain_getDomainByAddress", pldtypes.RandAddress().String())
+	require.Regexp(t, "PD011600", err)
+
+	var dscs []*pldapi.DomainSmartContract
+	err = rpc.CallRPC(ctx, &dscs, "domain_querySmartContracts", query.NewQueryBuilder().Limit(1).Query())
+	require.NoError(t, err)
+	require.Len(t, dscs, 1)
+
+	var dsc *pldapi.DomainSmartContract
+	err = rpc.CallRPC(ctx, &dsc, "domain_getSmartContractByAddress", contractAddr.String())
+	require.NoError(t, err)
+	require.Equal(t, dscs[0], dsc)
+
+	err = rpc.CallRPC(ctx, &dsc, "domain_getSmartContractByAddress", pldtypes.RandAddress().String())
+	require.Regexp(t, "PD011609", err)
+}
+
+func newTestRPCServer(t *testing.T, ctx context.Context, dm *domainManager) (rpcclient.Client, func()) {
+
+	s, err := rpcserver.NewRPCServer(ctx, &pldconf.RPCServerConfig{
+		HTTP: pldconf.RPCServerConfigHTTP{
+			HTTPServerConfig: pldconf.HTTPServerConfig{Address: confutil.P("127.0.0.1"), Port: confutil.P(0)},
+		},
+		WS: pldconf.RPCServerConfigWS{Disabled: true},
+	})
+	require.NoError(t, err)
+	err = s.Start()
+	require.NoError(t, err)
+
+	s.Register(dm.RPCModule())
+
+	c := rpcclient.WrapRestyClient(resty.New().SetBaseURL(fmt.Sprintf("http://%s", s.HTTPAddr())))
+
+	return c, s.Stop
+
 }

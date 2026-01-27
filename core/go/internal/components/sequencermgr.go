@@ -76,13 +76,16 @@ type SequencerManager interface {
 	// Synchronous function to call an existing deployed smart contract
 	CallPrivateSmartContract(ctx context.Context, call *ResolvedTransaction) (*abi.ComponentValue, error)
 
+	// Callback for notification of the in-memory engine of completion of a private transaction
+	// MUST not perform expensive DB processing on the goroutine used to call it, rather generate background tasks
+	// for relevant state machines if such work exists.
+	PrivateTransactionConfirmed(ctx context.Context, receipt *TxCompletion)
+
 	// Events from the public transaction manager
 	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error
 	HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error
 	HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txnID uuid.UUID) error
 	HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, newPtxs []*pldapi.PublicTxToDistribute) error
-	HandleTransactionConfirmed(ctx context.Context, receipt *TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error
-	HandleTransactionConfirmedByChainedTransaction(ctx context.Context, receipt *TxCompletion) error
 	HandleTransactionFailed(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
 	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
 	WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
