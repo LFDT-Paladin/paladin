@@ -1301,6 +1301,10 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
 	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
 
+	// Mock GetTransactionCount which may be needed for nonce allocation
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
+		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
+
 	// Mock CheckTransactionCompleted to return an error by corrupting the DB connection
 	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
 		Return(ethclient.EstimateGasResult{GasLimit: pldtypes.HexUint64(30000)}, nil).Once()
