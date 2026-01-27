@@ -429,8 +429,8 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		}
 
 		for _, tx := range additional {
-			if tx.To != nil {
-				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.To.String(), tx.Binding.Transaction)
+			if tx.Binding.ContractAddress != "" {
+				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.Binding.ContractAddress, tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing TX collected to sequencer for %d: %s", tx.PublicTxnID, err)
 				}

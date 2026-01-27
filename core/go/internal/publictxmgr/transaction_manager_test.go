@@ -1346,8 +1346,9 @@ func TestMatchUpdateConfirmedTransactionsCompletionDBError(t *testing.T) {
 	var pubTxnID uint64
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		dbTx := &DBPublicTxn{
-			From: *testAddress,
-			Gas:  21000,
+			From:  *testAddress,
+			Gas:   21000,
+			Nonce: confutil.P(uint64(100)),
 		}
 		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
 		if err == nil {
