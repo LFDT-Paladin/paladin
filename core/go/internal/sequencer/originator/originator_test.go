@@ -42,6 +42,7 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	//ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -144,6 +145,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	config.DelegateTimeout = confutil.P("100ms")
 	builder.OverrideSequencerConfig(config)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	//ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -219,6 +221,7 @@ func TestOriginator_DelegateLoopStopsOnContextCancellation(t *testing.T) {
 	defer cancel()
 
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -266,6 +269,7 @@ func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T)
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Create a transaction event with a transaction ID that doesn't exist in the originator
 	unknownTxID := uuid.New()
@@ -299,6 +303,7 @@ func TestOriginator_PropagateEventToTransaction_UnknownTransaction_NoResponse(t 
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Create a ConfirmedSuccessEvent for an unknown transaction
 	unknownTxID := uuid.New()
@@ -324,6 +329,7 @@ func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, _ := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -355,6 +361,7 @@ func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -403,6 +410,7 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}

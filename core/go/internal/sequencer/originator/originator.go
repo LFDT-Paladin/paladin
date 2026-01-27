@@ -102,7 +102,7 @@ func NewOriginator(
 		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
 		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:                     metrics,
-		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		originatorEvents:            make(chan common.Event, 50),
 		stopEventLoop:               make(chan struct{}),
 		eventLoopStopped:            make(chan struct{}),
 		stopDelegateLoop:            make(chan struct{}),

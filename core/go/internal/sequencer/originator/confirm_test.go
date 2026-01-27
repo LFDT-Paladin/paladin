@@ -32,6 +32,7 @@ func TestConfirmTransaction_NilTransactionID(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	hash := pldtypes.RandBytes32()
 	from := pldtypes.RandAddress()
@@ -53,6 +54,7 @@ func TestConfirmTransaction_NilTransaction(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	hash := pldtypes.RandBytes32()
 	from := pldtypes.RandAddress()
@@ -76,6 +78,7 @@ func TestConfirmTransaction_TransactionNotFound(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	hash := pldtypes.RandBytes32()
 	from := pldtypes.RandAddress()
@@ -105,6 +108,7 @@ func TestConfirmTransaction_Success_EmptyRevertReason(t *testing.T) {
 	// Add the transaction to the originator using the builder
 	builder.Transactions(txn)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Get the submission hash from the transaction
 	submissionHash := txn.GetLatestSubmissionHash()
@@ -140,6 +144,7 @@ func TestConfirmTransaction_Success_WithRevertReason(t *testing.T) {
 	// Add the transaction to the originator using the builder
 	builder.Transactions(txn)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Get the submission hash from the transaction
 	submissionHash := txn.GetLatestSubmissionHash()
@@ -178,6 +183,7 @@ func TestConfirmTransaction_HandleEventError_ConfirmedSuccess(t *testing.T) {
 	// Add the transaction to the originator using the builder
 	builder.Transactions(txn)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Get the submission hash from the transaction
 	submissionHash := txn.GetLatestSubmissionHash()
@@ -220,6 +226,7 @@ func TestConfirmTransaction_HandleEventError_ConfirmedReverted(t *testing.T) {
 	// Add the transaction to the originator using the builder
 	builder.Transactions(txn)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Get the submission hash from the transaction
 	submissionHash := txn.GetLatestSubmissionHash()
@@ -245,4 +252,3 @@ func TestConfirmTransaction_HandleEventError_ConfirmedReverted(t *testing.T) {
 		assert.Contains(t, err.Error(), "error handling confirmed revert event")
 	}
 }
-

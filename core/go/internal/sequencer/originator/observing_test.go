@@ -33,6 +33,7 @@ func TestApplyHeartbeatReceived_BasicUpdate(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -62,6 +63,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionNotFound(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -90,6 +92,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithHash(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -141,6 +144,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithNonceOnly(t *testing.T)
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -182,6 +186,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionFromDifferentOriginator(t *
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -206,6 +211,7 @@ func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -247,6 +253,7 @@ func TestApplyHeartbeatReceived_HandleEventError_NonceAssignedEvent(t *testing.T
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -288,6 +295,7 @@ func TestGuard_HeartbeatThresholdExceeded_NilTime(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Ensure timeOfMostRecentHeartbeat is nil
 	o.timeOfMostRecentHeartbeat = nil
@@ -303,6 +311,7 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdExpired(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, mocks := builder.Build(ctx)
+	defer o.Stop()
 
 	// Set timeOfMostRecentHeartbeat to a time in the past (beyond threshold)
 	// For FakeClockForTesting, we need to advance the clock and then set an old time
@@ -323,6 +332,7 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdNotExpired(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, mocks := builder.Build(ctx)
+	defer o.Stop()
 
 	// Set timeOfMostRecentHeartbeat to a recent time (within threshold)
 	recentTime := mocks.Clock.Now()
