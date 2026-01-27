@@ -418,29 +418,20 @@ func eventAction_Collected(_ context.Context, t *Transaction, event common.Event
 func eventAction_NonceAllocated(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
-	if t.signerAddress == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s has no signer address, cannot send nonce to originator", t.pt.ID)
-	}
-	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, t.signerAddress, e.Nonce)
+	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
 }
 
 func eventAction_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash
-	if t.signerAddress == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s has no signer address, cannot send transaction submitted to originator", t.pt.ID)
-	}
-	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, t.signerAddress, &e.SubmissionHash)
+	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, &e.SubmissionHash)
 }
 
 func eventAction_Confirmed(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*ConfirmedEvent)
 	t.revertReason = e.RevertReason
-	if t.signerAddress == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s has no signer address, cannot send transaction confirmed to originator", t.pt.ID)
-	}
-	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, t.signerAddress, e.Nonce, e.RevertReason)
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason)
 }
 
 func eventAction_HeartbeatInterval(ctx context.Context, t *Transaction, _ common.Event) error {

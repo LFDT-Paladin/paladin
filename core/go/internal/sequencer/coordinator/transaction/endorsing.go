@@ -69,10 +69,6 @@ func (t *Transaction) applyEndorsementRejection(ctx context.Context, revertReaso
 	return nil
 }
 
-func (t *Transaction) isEndorsed(ctx context.Context) bool {
-	return !t.hasUnfulfilledEndorsementRequirements(ctx)
-}
-
 func (t *Transaction) hasUnfulfilledEndorsementRequirements(ctx context.Context) bool {
 	return len(t.unfulfilledEndorsementRequirements(ctx)) > 0
 }
