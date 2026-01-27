@@ -120,11 +120,12 @@ func main() {
 	oneEth := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 	genesis := &besugenesis.GenesisJSON{
 		Config: besugenesis.GenesisConfig{
-			ChainID:     1337,
-			LondonBlock: 0, // Enable EIP-1559 from genesis
-			CancunTime:  0,
-			ZeroBaseFee: ptrTo(zeroBaseFee),
-			MinGasPrice: minGasPrice,
+			ChainID:           1337,
+			LondonBlock:       0, // Enable EIP-1559 from genesis
+			CancunTime:        0,
+			ZeroBaseFee:       ptrTo(zeroBaseFee),
+			ContractSizeLimit: big.NewInt(24576 * 2), // to accommodate contracts in NotoNullifiers
+			MinGasPrice:       minGasPrice,
 			QBFT: &besugenesis.QBFTConfig{
 				BlockPeriodSeconds:      ptrTo(1), // this is overwritten by the BlockPeriodMilliseconds
 				EpochLength:             ptrTo(30000),
