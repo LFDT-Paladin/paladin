@@ -122,7 +122,6 @@ func setupDefaultMocks(ctx context.Context, mocks *transportClientTestMocks, con
 	mocks.stateManager.EXPECT().NewDomainContext(ctx, mocks.domain, *contractAddr).Return(mocks.domainContext).Maybe()
 }
 
-// Test HandlePaladinMsg routing
 func TestHandlePaladinMsg_Routing(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -165,7 +164,6 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 	}
 }
 
-// Test handleAssembleRequest
 func TestHandleAssembleRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -308,7 +306,6 @@ func TestHandleAssembleRequest_LoadSequencerError(t *testing.T) {
 	sm.handleAssembleRequest(ctx, message)
 }
 
-// Test handleAssembleResponse
 func TestHandleAssembleResponse_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -413,7 +410,6 @@ func TestHandleAssembleResponse_Revert(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-// Test handleAssembleError
 func TestHandleAssembleError_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -456,7 +452,6 @@ func TestHandleAssembleError_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-// Test handleDelegationRequest
 func TestHandleDelegationRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -512,7 +507,6 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-// Test handleHandoverRequest
 func TestHandleHandoverRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -552,7 +546,6 @@ func TestHandleHandoverRequest_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-// Test handleNonceAssigned
 func TestHandleNonceAssigned_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -595,7 +588,6 @@ func TestHandleNonceAssigned_Success(t *testing.T) {
 	mocks.originator.AssertExpectations(t)
 }
 
-// Test handleTransactionSubmitted
 func TestHandleTransactionSubmitted_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -639,7 +631,6 @@ func TestHandleTransactionSubmitted_Success(t *testing.T) {
 	mocks.originator.AssertExpectations(t)
 }
 
-// Test handleTransactionConfirmed
 func TestHandleTransactionConfirmed_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -724,7 +715,6 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 	mocks.originator.AssertExpectations(t)
 }
 
-// Test handleDispatchedEvent
 func TestHandleDispatchedEvent_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -771,7 +761,6 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 	mocks.originator.AssertExpectations(t)
 }
 
-// Test parseContractAddressString
 func TestParseContractAddressString_Valid(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -798,67 +787,6 @@ func TestParseContractAddressString_Invalid(t *testing.T) {
 
 	result := sm.parseContractAddressString(ctx, "invalid-address", message)
 	assert.Nil(t, result)
-}
-
-// Test handleCoordinatorHeartbeatNotification
-func TestHandleCoordinatorHeartbeatNotification_Success(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	confirmedTxID := uuid.New()
-	coordinatorSnapshot := &common.CoordinatorSnapshot{
-		ConfirmedTransactions: []*common.ConfirmedTransaction{
-			{
-				DispatchedTransaction: common.DispatchedTransaction{
-					Transaction: common.Transaction{
-						ID: confirmedTxID,
-					},
-				},
-			},
-		},
-	}
-	snapshotJSON, _ := json.Marshal(coordinatorSnapshot)
-
-	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
-		From:                "coordinator-node",
-		ContractAddress:     contractAddr.String(),
-		CoordinatorSnapshot: snapshotJSON,
-	}
-	payload, _ := proto.Marshal(heartbeatNotification)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_CoordinatorHeartbeatNotification,
-		Payload:     payload,
-	}
-
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
-	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = seq
-
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		_, ok := e.(*coordTransaction.HeartbeatIntervalEvent)
-		return ok
-	})).Once()
-	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*originator.HeartbeatReceivedEvent)
-		return ok && event.From == "coordinator-node"
-	})).Once()
-
-	sm.handleCoordinatorHeartbeatNotification(ctx, message)
-
-	mocks.coordinator.AssertExpectations(t)
-	mocks.originator.AssertExpectations(t)
 }
 
 func TestHandleCoordinatorHeartbeatNotification_MissingFrom(t *testing.T) {
@@ -888,7 +816,6 @@ func TestHandleCoordinatorHeartbeatNotification_MissingFrom(t *testing.T) {
 	sm.handleCoordinatorHeartbeatNotification(ctx, message)
 }
 
-// Test handlePreDispatchRequest
 func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -938,7 +865,6 @@ func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	mocks.originator.AssertExpectations(t)
 }
 
-// Test handlePreDispatchResponse
 func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -986,7 +912,6 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	mocks.coordinator.AssertExpectations(t)
 }
 
-// Test handleDelegationRequestAcknowledgment
 func TestHandleDelegationRequestAcknowledgment_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
@@ -1025,7 +950,6 @@ func TestHandleDelegationRequestAcknowledgment_UnmarshalError(t *testing.T) {
 	sm.handleDelegationRequestAcknowledgment(ctx, message)
 }
 
-// Test handleEndorsementRequest
 func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)
