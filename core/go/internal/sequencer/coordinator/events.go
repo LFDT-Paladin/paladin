@@ -40,6 +40,7 @@ func (*CoordinatorStateEventActivated) TypeString() string {
 
 type TransactionsDelegatedEvent struct {
 	common.BaseEvent
+	FromNode               string // Node name that sent the delegation request
 	Originator             string // Fully qualified identity locator for the originator
 	Transactions           []*components.PrivateTransaction
 	OriginatorsBlockHeight uint64
@@ -79,7 +80,7 @@ type TransactionConfirmedEvent struct {
 	common.BaseEvent
 	TxID         uuid.UUID
 	From         *pldtypes.EthAddress
-	Nonce        uint64
+	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
 }

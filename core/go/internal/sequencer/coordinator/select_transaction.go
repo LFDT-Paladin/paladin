@@ -31,7 +31,7 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 	}
 
 	transactionSelectedEvent := &transaction.SelectedEvent{}
-	transactionSelectedEvent.TransactionID = txn.ID
+	transactionSelectedEvent.TransactionID = txn.GetID()
 	err := txn.HandleEvent(ctx, transactionSelectedEvent)
 	return err
 
@@ -41,7 +41,7 @@ func (c *coordinator) AddTransactionToBackOfPool(ctx context.Context, txn *trans
 	// Check if transaction is already in the pool
 	// This makes the function safe to call multiple times, albeit not strictly idempotently
 	for _, pooledTxn := range c.pooledTransactions {
-		if pooledTxn.ID == txn.ID {
+		if pooledTxn.GetID() == txn.GetID() {
 			return
 		}
 	}

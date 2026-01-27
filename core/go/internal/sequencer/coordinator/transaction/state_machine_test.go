@@ -39,6 +39,7 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		transportWriter,
 		clock,
 		func(ctx context.Context, event common.Event) {
@@ -57,5 +58,5 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, txn)
 
-	assert.Equal(t, State_Initial, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, State_Initial, txn.stateMachine.CurrentState, "current state is %s", txn.stateMachine.CurrentState.String())
 }

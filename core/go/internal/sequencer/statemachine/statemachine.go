@@ -33,6 +33,7 @@
 //	)
 //
 //	type MyEntity struct {
+//	    sync.Mutex  // implements Lockable for thread-safe ProcessEvent
 //	    sm *statemachine.StateMachine[MyState]
 //	    counter int
 //	}
@@ -159,24 +160,28 @@ type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from
 
 // Processor handles event processing for a state machine.
 // It encapsulates the state definitions and processes events according to them.
-type Processor[S State, E any] struct {
+// The entity type E must implement Lockable; the processor holds the entity's lock
+// for the duration of each ProcessEvent call.
+type Processor[S State, E Lockable] struct {
 	definitions        StateDefinitions[S, E]
 	transitionCallback TransitionCallback[S, E]
 }
 
+// TODO AM: is anything using these?
 // ProcessorOption is a functional option for configuring a Processor
-type ProcessorOption[S State, E any] func(*Processor[S, E])
+type ProcessorOption[S State, E Lockable] func(*Processor[S, E])
 
 // WithTransitionCallback sets a callback that is invoked on state transitions
-func WithTransitionCallback[S State, E any](cb TransitionCallback[S, E]) ProcessorOption[S, E] {
+// TODO AM: rename to OnTransition
+func WithTransitionCallback[S State, E Lockable](cb TransitionCallback[S, E]) ProcessorOption[S, E] {
 	return func(p *Processor[S, E]) {
 		p.transitionCallback = cb
 	}
 }
 
 // NewProcessor creates a new state machine processor.
-// definitions: The state definitions map
-func NewProcessor[S State, E any](
+// definitions: The state definitions map. The entity type E must implement Lockable.
+func NewProcessor[S State, E Lockable](
 	definitions StateDefinitions[S, E],
 	opts ...ProcessorOption[S, E],
 ) *Processor[S, E] {
@@ -211,6 +216,9 @@ func (p *Processor[S, E]) ProcessEvent(
 	sm *StateMachine[S],
 	event common.Event,
 ) error {
+	entity.Lock()
+	defer entity.Unlock()
+
 	// Evaluate whether this event is relevant for the current state
 	eventHandler, err := p.evaluateEvent(ctx, entity, sm, event)
 	if err != nil || eventHandler == nil {
@@ -403,7 +411,8 @@ func NewProcessorEventLoop[S State, E Lockable](config ProcessorEventLoopConfig[
 	sm := &StateMachine[S]{}
 	Initialize(sm, config.InitialState)
 
-	// Create the processor with optional transition callback
+	// Create the processor with optional transition callback.
+	// The processor holds the entity's lock for the duration of each ProcessEvent call.
 	var processorOpts []ProcessorOption[S, E]
 	if config.TransitionCallback != nil {
 		processorOpts = append(processorOpts, WithTransitionCallback(config.TransitionCallback))
@@ -423,14 +432,12 @@ func NewProcessorEventLoop[S State, E Lockable](config ProcessorEventLoopConfig[
 	}
 
 	// Create the event processor function that delegates to the processor.
-	// The entity lock is held for the duration of event processing to ensure thread safety.
+	// PreProcess is called with its own lock scope; the processor holds the lock when it processes each event.
 	eventProcessor := func(ctx context.Context, event common.Event) error {
-		config.Entity.Lock()
-		defer config.Entity.Unlock()
-
-		// If PreProcess is defined, call it first
 		if config.PreProcess != nil {
+			config.Entity.Lock()
 			handled, err := config.PreProcess(ctx, config.Entity, event)
+			config.Entity.Unlock()
 			if err != nil {
 				return err
 			}

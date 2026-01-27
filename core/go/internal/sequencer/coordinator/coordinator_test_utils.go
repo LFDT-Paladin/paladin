@@ -218,7 +218,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 	}
 
 	for _, tx := range b.transactions {
-		coordinator.transactionsByID[tx.ID] = tx
+		coordinator.transactionsByID[tx.GetID()] = tx
 	}
 
 	coordinator.processorEventLoop.StateMachine().CurrentState = b.state

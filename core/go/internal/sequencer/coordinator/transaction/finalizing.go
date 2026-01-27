@@ -32,7 +32,7 @@ func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transa
 // during assembly) but the response was lost, and the transaction has since been removed from memory
 // on the originator after cleanup. The coordinator should clean up this transaction.
 func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", txn.ID)
+	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", txn.pt.ID)
 	return txn.finalizeAsUnknownByOriginator(ctx)
 }
 
@@ -41,13 +41,13 @@ func (t *Transaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
 
 	var tryFinalize func()
 	tryFinalize = func() {
-		t.syncPoints.QueueTransactionFinalize(ctx, t.Domain, pldtypes.EthAddress{}, t.originator, t.ID,
+		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID,
 			"originator reported transaction as unknown",
 			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized transaction %s after unknown response from originator", t.ID)
+				log.L(ctx).Debugf("finalized transaction %s after unknown response from originator", t.pt.ID)
 			},
 			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing transaction %s: %s", t.ID, err)
+				log.L(ctx).Errorf("error finalizing transaction %s: %s", t.pt.ID, err)
 				tryFinalize()
 			})
 	}

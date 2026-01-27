@@ -538,22 +538,6 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 		}
 
 		sequencer.GetCoordinator().QueueEvent(ctx, coordinatorNonceAllocatedEvent)
-
-		coordTx := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
-
-		if coordTx == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
-		}
-
-		// Forward the event to the originator
-		originatorNode := coordTx.OriginatorNode()
-		transportWriter := sequencer.GetTransportWriter()
-		err := transportWriter.SendNonceAssigned(ctx, txID, originatorNode, pldtypes.MustEthAddress(contractAddress), nonce)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	}
 
 	return nil
@@ -580,18 +564,6 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				SubmissionHash: *txHash,
 			}
 			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
-			sequencerTX := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
-
-			if sequencerTX != nil {
-				originatorNode := sequencerTX.OriginatorNode()
-
-				// Forward the event to the originator
-				transportWriter := sequencer.GetTransportWriter()
-				err = transportWriter.SendTransactionSubmitted(ctx, txID, originatorNode, pldtypes.MustEthAddress(contractAddress), txHash)
-				if err != nil {
-					return err
-				}
-			}
 		}
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
@@ -708,23 +680,12 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 				From:         from, // The base ledger signing address
 				Hash:         confirmedTxn.OnChain.TransactionHash,
 				RevertReason: confirmedTxn.RevertData,
-			}
-			confirmedEvent.EventTime = time.Now()
-
-			if nonce != nil {
 				// TODO on the coordinator node we have the nonce, but public TX distribution to other nodes currently happens pre-nonce allocation
 				// Should we distribute public transactions post nonce allocation?
-				confirmedEvent.Nonce = nonce.Uint64()
+				Nonce: nonce, // nil when nonce is not available
 			}
 
 			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
-
-			// Forward the event to the originating node. This is only to update the originator's state machine, not for DB confirmation
-			transportWriter := sequencer.GetTransportWriter()
-			err = transportWriter.SendTransactionConfirmed(ctx, confirmedTxn.TransactionID, mtx.OriginatorNode(), &contractAddress, nonce, confirmedTxn.RevertData)
-			if err != nil {
-				return err
-			}
 		}
 	}
 
@@ -779,13 +740,6 @@ func (sMgr *sequencerManager) HandleTransactionConfirmedByChainedTransaction(ctx
 			confirmedEvent.EventTime = time.Now()
 
 			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
-
-			// Forward the event to the originating node. This is only to update the originator's state machine, not for DB confirmation
-			transportWriter := sequencer.GetTransportWriter()
-			err = transportWriter.SendTransactionConfirmed(ctx, confirmedTxn.TransactionID, mtx.OriginatorNode(), &contractAddress, nil, confirmedTxn.RevertData)
-			if err != nil {
-				return err
-			}
 		}
 	}
 
@@ -835,26 +789,17 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
 			}
 
+			nonceVal := pldtypes.HexUint64(tx.Nonce)
 			failedEvent := &coordinator.TransactionConfirmedEvent{
 				TxID:         tx.TransactionID,
 				From:         tx.From,
 				Hash:         tx.Hash,
 				RevertReason: tx.RevertReason,
-				Nonce:        tx.Nonce,
+				Nonce:        &nonceVal,
 			}
 			failedEvent.EventTime = time.Now()
 
 			sequencer.GetCoordinator().QueueEvent(ctx, failedEvent)
-
-			// Forward the event to the originating node
-			transportWriter := sequencer.GetTransportWriter()
-			nonce := pldtypes.HexUint64(tx.Nonce)
-			err = transportWriter.SendTransactionConfirmed(ctx, tx.TransactionID, mtx.OriginatorNode(), contractAddress, &nonce, tx.RevertReason)
-			if err != nil {
-				// Log but continue for the other receipts
-				log.L(sMgr.ctx).Errorf("failed to send transaction confirmed event to originating node %s: %v", mtx.OriginatorNode(), err)
-			}
-
 		}
 	}
 

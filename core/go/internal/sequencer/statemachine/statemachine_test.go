@@ -18,6 +18,7 @@ package statemachine
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,8 +63,9 @@ const (
 	Event_Reset    common.EventType = 104
 )
 
-// Test entity
+// Test entity. Embeds sync.Mutex to implement Lockable for use with Processor.
 type TestEntity struct {
+	sync.Mutex
 	sm           *StateMachine[TestState]
 	counter      int
 	lastAction   string
@@ -584,4 +586,460 @@ func TestOnEventError(t *testing.T) {
 	assert.Equal(t, expectedErr, err)
 	// State should not change on error
 	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
+}
+
+func TestEventValidatorReturnsError(t *testing.T) {
+	validationErr := errors.New("validation failed")
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Validator: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+						return false, validationErr
+					},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	processor := NewProcessor(definitions)
+	entity := newTestEntity()
+	ctx := context.Background()
+
+	err := processor.ProcessEvent(ctx, entity, entity.sm, newTestEvent(Event_Start))
+	assert.Equal(t, validationErr, err)
+	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
+}
+
+func TestTransitionOnActionError(t *testing.T) {
+	transitionErr := errors.New("transition action failed")
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+						On: func(ctx context.Context, e *TestEntity) error {
+							return transitionErr
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	processor := NewProcessor(definitions)
+	entity := newTestEntity()
+	ctx := context.Background()
+
+	err := processor.ProcessEvent(ctx, entity, entity.sm, newTestEvent(Event_Start))
+	assert.Equal(t, transitionErr, err)
+	// State may have been updated before On ran; the important part is we returned the error
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState()) // state was already set before On
+}
+
+func TestStateEntryActionError(t *testing.T) {
+	entryErr := errors.New("entry action failed")
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: func(ctx context.Context, e *TestEntity) error {
+				return entryErr
+			},
+		},
+	}
+
+	processor := NewProcessor(definitions)
+	entity := newTestEntity()
+	ctx := context.Background()
+
+	err := processor.ProcessEvent(ctx, entity, entity.sm, newTestEvent(Event_Start))
+	assert.Equal(t, entryErr, err)
+	// State was updated before entry action ran
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+}
+
+func TestTransitionToStateWithNoEntryAction(t *testing.T) {
+	// Transition to a state that has no OnTransitionTo (or state not in definitions)
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete, // State_Complete has no entry in definitions
+					}},
+				},
+			},
+		},
+	}
+
+	processor := NewProcessor(definitions)
+	entity := newTestEntity()
+	ctx := context.Background()
+
+	err := processor.ProcessEvent(ctx, entity, entity.sm, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Complete, entity.sm.GetCurrentState())
+}
+
+// ProcessorEventLoop tests
+
+func TestNewProcessorEventLoop_Basic(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:   definitions,
+		Entity:       entity,
+	})
+
+	require.NotNil(t, pel)
+	assert.Equal(t, State_Idle, pel.GetCurrentState())
+	assert.NotNil(t, pel.StateMachine())
+	assert.NotNil(t, pel.Processor())
+	assert.NotNil(t, pel.EventLoop())
+}
+
+func TestProcessorEventLoop_StartStopAndMethods(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Process: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState:       State_Idle,
+		Definitions:       definitions,
+		Entity:             entity,
+		EventLoopBufferSize: 10,
+		Name:               "pel-test",
+	})
+
+	ctx := context.Background()
+
+	assert.False(t, pel.IsRunning())
+	assert.False(t, pel.IsStopped())
+
+	go pel.Start(ctx)
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	assert.True(t, pel.IsRunning())
+
+	pel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Active, pel.GetCurrentState())
+
+	ok := pel.TryQueueEvent(ctx, newTestEvent(Event_Process))
+	assert.True(t, ok)
+	syncEv3 := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv3)
+	<-syncEv3.Done
+
+	assert.Equal(t, State_Complete, pel.GetCurrentState())
+
+	pel.Stop()
+	assert.True(t, pel.IsStopped())
+	assert.False(t, pel.IsRunning())
+}
+
+func TestProcessorEventLoop_ProcessEventSync(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+
+	err := pel.ProcessEvent(ctx, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, pel.GetCurrentState())
+}
+
+func TestProcessorEventLoop_StopAsyncWaitForStop(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+
+	go pel.Start(ctx)
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	pel.StopAsync()
+	pel.WaitForStop()
+
+	assert.True(t, pel.IsStopped())
+}
+
+func TestProcessorEventLoop_WithOnStop(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		OnStop: func(ctx context.Context) common.Event {
+			return newTestEvent(Event_Reset)
+		},
+	})
+
+	ctx := context.Background()
+
+	go pel.Start(ctx)
+	pel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+	pel.Stop()
+
+	assert.True(t, pel.IsStopped())
+}
+
+func TestProcessorEventLoop_WithTransitionCallback(t *testing.T) {
+	var fromState, toState TestState
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		TransitionCallback: func(ctx context.Context, e *TestEntity, from, to TestState, event common.Event) {
+			fromState = from
+			toState = to
+		},
+	})
+
+	ctx := context.Background()
+
+	err := pel.ProcessEvent(ctx, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Idle, fromState)
+	assert.Equal(t, State_Active, toState)
+}
+
+func TestProcessorEventLoop_WithPreProcessHandled(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	var preHandled bool
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+			if event.Type() == Event_Start {
+				preHandled = true
+				return true, nil // fully handled, don't pass to processor
+			}
+			return false, nil
+		},
+	})
+
+	ctx := context.Background()
+
+	// PreProcess is used when events go through the event loop
+	go pel.Start(ctx)
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	pel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	pel.Stop()
+
+	assert.True(t, preHandled)
+	// State should still be Idle because PreProcess handled the event
+	assert.Equal(t, State_Idle, pel.GetCurrentState())
+}
+
+func TestProcessorEventLoop_WithPreProcessError(t *testing.T) {
+	preErr := errors.New("preprocess failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+			return false, preErr
+		},
+	})
+
+	ctx := context.Background()
+
+	// PreProcess error is surfaced when events go through the event loop
+	go pel.Start(ctx)
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	pel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	pel.Stop()
+
+	// Event loop processed the event; PreProcess returned error (logged, loop continues)
+	assert.True(t, pel.IsStopped())
+	assert.Equal(t, State_Idle, pel.GetCurrentState())
+}
+
+func TestProcessorEventLoop_ZeroBufferSizeUsesDefault(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity()
+	pel := NewProcessorEventLoop(ProcessorEventLoopConfig[TestState, *TestEntity]{
+		InitialState:       State_Idle,
+		Definitions:        definitions,
+		Entity:             entity,
+		EventLoopBufferSize: 0,
+	})
+
+	ctx := context.Background()
+	go pel.Start(ctx)
+	syncEv := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	pel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	pel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+	pel.Stop()
+
+	assert.Equal(t, State_Active, pel.GetCurrentState())
 }

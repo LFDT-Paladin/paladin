@@ -46,12 +46,12 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		InputStateIDs(transaction1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID)
 	transaction2 := transaction2Builder.Build()
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: transaction2.ID,
+			TransactionID: transaction2.pt.ID,
 		},
 		PostAssembly: transaction2Builder.BuildPostAssembly(),
 		PreAssembly:  transaction2Builder.BuildPreAssembly(),
@@ -75,12 +75,12 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		ReadStateIDs(transaction1.PostAssembly.OutputStates[0].ID)
+		ReadStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID)
 	transaction2 := transaction2Builder.Build()
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: transaction2.ID,
+			TransactionID: transaction2.pt.ID,
 		},
 		PostAssembly: transaction2Builder.BuildPostAssembly(),
 		PreAssembly:  transaction2Builder.BuildPreAssembly(),
@@ -112,12 +112,12 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		InputStateIDs(transaction1.PostAssembly.OutputStates[0].ID, transaction2.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID, transaction2.pt.PostAssembly.OutputStates[0].ID)
 	transaction3 := transaction3Builder.Build()
 
 	err := transaction3.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: transaction3.ID,
+			TransactionID: transaction3.pt.ID,
 		},
 		PostAssembly: transaction3Builder.BuildPostAssembly(),
 		PreAssembly:  transaction3Builder.BuildPreAssembly(),
@@ -127,8 +127,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
-	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.CurrentState)
+	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.CurrentState)
 
 	//move both dependencies forward
 	err = transaction1.HandleEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
@@ -137,36 +137,36 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	assert.NoError(t, err)
 
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
-	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.CurrentState)
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.CurrentState)
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//move one dependency to ready to dispatch
 	err = transaction1.HandleEvent(ctx, &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: transaction1.ID,
+			TransactionID: transaction1.pt.ID,
 		},
 		RequestID: transaction1.pendingPreDispatchRequest.IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.CurrentState)
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//finally move the last dependency to ready to dispatch
 	err = transaction2.HandleEvent(ctx, &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: transaction2.ID,
+			TransactionID: transaction2.pt.ID,
 		},
 		RequestID: transaction2.pendingPreDispatchRequest.IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.currentState)
-	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.currentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.CurrentState)
 	assert.False(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 }
@@ -186,7 +186,7 @@ func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 
 	transaction, _ := newTransactionForUnitTesting(t, grapher)
 
-	txn := grapher.TransactionByID(ctx, transaction.ID)
+	txn := grapher.TransactionByID(ctx, transaction.pt.ID)
 
 	assert.NotNil(t, txn)
 }
@@ -214,6 +214,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		mocks.transportWriter,
 		mocks.clock,
 		func(ctx context.Context, event common.Event) {
@@ -226,7 +227,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		5,
 		grapher,
 		nil,
-		func(ctx context.Context, txn *Transaction, from, to State) {}, // onStateTransition
+		func(ctx context.Context, _ uuid.UUID, to, from State) {}, // onStateTransition
 	)
 	require.NoError(t, err)
 

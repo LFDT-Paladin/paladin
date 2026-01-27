@@ -45,7 +45,7 @@ func TestGetSnapshot_IncludesPooledTransaction(t *testing.T) {
 		transaction.State_Confirming_Dispatchable,
 	} {
 		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
+		c.transactionsByID[txn.GetID()] = txn
 	}
 
 	snapshot := c.getSnapshot(ctx)
@@ -65,7 +65,7 @@ func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
 		transaction.State_Submitted,
 	} {
 		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.ID] = txn
+		c.transactionsByID[txn.GetID()] = txn
 	}
 
 	snapshot := c.getSnapshot(ctx)

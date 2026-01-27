@@ -32,9 +32,9 @@ import (
 func (t *Transaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
 	var tryFinalize func()
 	tryFinalize = func() {
-		t.syncPoints.QueueTransactionFinalize(ctx, t.Domain, pldtypes.EthAddress{}, t.originator, t.ID, revertReason,
+		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID, revertReason,
 			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized deployment transaction: %s", t.ID)
+				log.L(ctx).Debugf("finalized deployment transaction: %s", t.pt.ID)
 			},
 			func(ctx context.Context, err error) {
 				log.L(ctx).Errorf("error finalizing deployment: %s", err)
@@ -58,16 +58,16 @@ func (t *Transaction) cancelAssembleTimeoutSchedules() {
 func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly) error {
 
 	//TODO the response from the assembler actually contains outputStatesPotential so we need to write them to the store and then add the OutputState ids to the index
-	t.PostAssembly = postAssembly
+	t.pt.PostAssembly = postAssembly
 
 	t.cancelAssembleTimeoutSchedules()
 
-	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
+	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
 		t.revertTransactionFailedAssembly(ctx, *postAssembly.RevertReason)
 		return nil
 	}
-	if t.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
-		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.ID.String())
+	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
+		log.L(ctx).Debugf("assembly resulted in transaction %s parked", t.pt.ID.String())
 		return nil
 	}
 	for _, state := range postAssembly.OutputStates {
@@ -102,14 +102,14 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.ID, idempotencyKey, t.PreAssembly, stateLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, stateLocks, blockHeight)
 	})
 
 	// Schedule a short retry timeout for e.g. network blip
 	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
 		t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.ID,
+				TransactionID: t.pt.ID,
 			},
 		})
 	})
@@ -118,7 +118,7 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.assembleTimeout, func() {
 		t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.ID,
+				TransactionID: t.pt.ID,
 			},
 		})
 	})
@@ -137,17 +137,17 @@ func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
 		//strange situation to be in if we get to the point of this being nil, should immediately leave the state where we ever ask this question
 		// however we go here, the answer to the question is "false" because there is no pending request to timeout but log this as it is a strange situation
 		// and might be an indicator of another issue
-		log.L(ctx).Warnf("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.ID)
+		log.L(ctx).Warnf("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.pt.ID)
 		return false
 	}
-	log.L(ctx).Debugf("checking assemble timeout exceeded for transaction %s request idempotency key %s", t.ID.String(), t.pendingAssembleRequest.IdempotencyKey())
+	log.L(ctx).Debugf("checking assemble timeout exceeded for transaction %s request idempotency key %s", t.pt.ID.String(), t.pendingAssembleRequest.IdempotencyKey())
 	if t.pendingAssembleRequest.FirstRequestTime() == nil {
 		// No request has ever been sent so nothing to measure expiry against
 		return false
 	}
 	assembleTimedOut := t.clock.HasExpired(t.pendingAssembleRequest.FirstRequestTime(), t.assembleTimeout)
 	if assembleTimedOut {
-		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.ID)
+		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.pt.ID)
 	}
 	return assembleTimedOut
 
@@ -157,30 +157,17 @@ func (t *Transaction) isNotAssembled() bool {
 	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
 
-	return t.GetState() != State_Endorsement_Gathering &&
-		t.GetState() != State_Confirming_Dispatchable &&
-		t.GetState() != State_Ready_For_Dispatch &&
-		t.GetState() != State_Dispatched &&
-		t.GetState() != State_Submitted &&
-		t.GetState() != State_Confirmed
+	return t.stateMachine.CurrentState != State_Endorsement_Gathering &&
+		t.stateMachine.CurrentState != State_Confirming_Dispatchable &&
+		t.stateMachine.CurrentState != State_Ready_For_Dispatch &&
+		t.stateMachine.CurrentState != State_Dispatched &&
+		t.stateMachine.CurrentState != State_Submitted &&
+		t.stateMachine.CurrentState != State_Confirmed
 }
 
 func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	//this function is called when the transaction is successfully assembled
-	// and we have a duty to inform all the transactions that are ordered behind us
-	if t.nextTransaction != nil {
-		err := t.nextTransaction.HandleEvent(ctx, &DependencyAssembledEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.nextTransaction.ID,
-			},
-			DependencyID: t.ID,
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying next transaction %s of assembly of transaction %s: %s", t.nextTransaction.ID, t.ID, err)
-			return err
-		}
-	}
-
+	// and we have a duty to inform all the transactions that depend on us
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
@@ -190,12 +177,12 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 		}
 		err := dependent.HandleEvent(ctx, &DependencyAssembledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.nextTransaction.ID,
+				TransactionID: dependent.pt.ID,
 			},
-			DependencyID: t.ID,
+			DependencyID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of assembly of transaction %s: %s", dependent.ID, t.ID, err)
+			log.L(ctx).Errorf("error notifying dependent transaction %s of assembly of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
 			return err
 		}
 	}
@@ -207,8 +194,8 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 	// NOTE: at this point, we have not been assembled and therefore are not the minter of any state the only transactions that could possibly be dependent on us are those in the pool from the same originator
 
 	dependents := t.dependencies.PrereqOf
-	if t.PreAssembly.Dependencies != nil {
-		dependents = append(dependents, t.PreAssembly.Dependencies.PrereqOf...)
+	if t.pt.PreAssembly.Dependencies != nil {
+		dependents = append(dependents, t.pt.PreAssembly.Dependencies.PrereqOf...)
 	}
 
 	for _, dependentID := range dependents {
@@ -218,10 +205,10 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},
-				DependencyID: t.ID,
+				DependencyID: t.pt.ID,
 			})
 			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependentID, t.ID, err)
+				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependentID, t.pt.ID, err)
 				return err
 			}
 		} else {
@@ -241,18 +228,18 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
 	// this function calculates the dependencies relating to states and sets up the reverse association
 	// it is assumed that the other dependencies have already been set up when the transaction was first received by the coordinator TODO correct this comment line with more accurate description of when we expect the static dependencies to have been calculated.  Or make it more vague.
-	if t.PostAssembly == nil {
-		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PostAssembly", t.ID)
+	if t.pt.PostAssembly == nil {
+		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PostAssembly", t.pt.ID)
 		log.L(ctx).Error(msg)
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 	}
 
 	found := make(map[uuid.UUID]bool)
 	t.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
-		PrereqOf:  make([]uuid.UUID, 0, len(t.PostAssembly.InputStates)+len(t.PostAssembly.ReadStates)),
+		DependsOn: make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
+		PrereqOf:  make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
 	}
-	for _, state := range append(t.PostAssembly.InputStates, t.PostAssembly.ReadStates...) {
+	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
 		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
 		if err != nil {
 			errMsg := fmt.Sprintf("error looking up dependency for state %s: %s", state.ID, err)
@@ -265,19 +252,19 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 			//TODO should we validate this by checking the domain context? If not, explain why this is safe in the architecture doc
 			continue
 		}
-		if found[dependency.ID] {
+		if found[dependency.pt.ID] {
 			continue
 		}
-		found[dependency.ID] = true
-		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.ID)
+		found[dependency.pt.ID] = true
+		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.pt.ID)
 		//also set up the reverse association
-		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.ID)
+		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.pt.ID)
 	}
 	return nil
 }
 
 func (t *Transaction) writeLockStates(ctx context.Context) error {
-	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.PrivateTransaction)
+	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.pt)
 }
 
 func (t *Transaction) incrementAssembleErrors() error {
@@ -300,7 +287,7 @@ func action_SendAssembleRequest(ctx context.Context, txn *Transaction) error {
 }
 
 func action_NudgeAssembleRequest(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.ID.String())
+	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
 }
 
@@ -313,8 +300,8 @@ func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) erro
 }
 
 func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
-	txn.engineIntegration.ResetTransactions(ctx, txn.ID)
+	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
 	return nil
 }
 

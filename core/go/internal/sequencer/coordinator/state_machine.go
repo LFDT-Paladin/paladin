@@ -285,6 +285,10 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 
 func eventAction_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
+	// Update originator node pool (for heartbeat distribution)
+	// Anyone who delegates a transaction to us is a candidate originator
+	// and should be sent heartbeats for TX confirmation processing
+	c.updateOriginatorNodePoolInternal(e.FromNode)
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
 }
 
@@ -299,7 +303,7 @@ func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event
 	// MRW TODO ^^
 	isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, e.TxID, e.From, e.Nonce, e.Hash, e.RevertReason)
 	if err != nil {
-		log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %d, Hash: %v: %v", e.From, e.Nonce, e.Hash, err)
+		log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %v, Hash: %v: %v", e.From, e.Nonce, e.Hash, err)
 		return err
 	}
 	if !isDispatchedTransaction {
@@ -314,20 +318,20 @@ func eventAction_NewBlock(ctx context.Context, c *coordinator, event common.Even
 	return nil
 }
 
-func eventAction_EndorsementRequested(ctx context.Context, c *coordinator, event common.Event) error {
+func eventAction_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestedEvent)
 	c.activeCoordinatorNode = e.From
 	c.coordinatorActive(c.contractAddress, e.From)
-	c.UpdateOriginatorNodePool(ctx, e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	c.updateOriginatorNodePoolInternal(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	return nil
 }
 
-func eventAction_HeartbeatReceived(ctx context.Context, c *coordinator, event common.Event) error {
+func eventAction_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*HeartbeatReceivedEvent)
 	c.activeCoordinatorNode = e.From
 	c.activeCoordinatorBlockHeight = e.BlockHeight
 	c.coordinatorActive(c.contractAddress, e.From)
-	c.UpdateOriginatorNodePool(ctx, e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	c.updateOriginatorNodePoolInternal(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	for _, flushPoint := range e.FlushPoints {
 		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
@@ -412,9 +416,9 @@ func action_NudgeDispatchLoop(ctx context.Context, c *coordinator) error {
 	clear(c.inFlightTxns)
 	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
 	for _, txn := range dispatchingTransactions {
-		if txn.PreparedPrivateTransaction == nil {
+		if !txn.HasPreparedPrivateTransaction() {
 			// We don't count transactions that result in new private transactions
-			c.inFlightTxns[txn.ID] = txn
+			c.inFlightTxns[txn.GetID()] = txn
 		}
 	}
 	log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))

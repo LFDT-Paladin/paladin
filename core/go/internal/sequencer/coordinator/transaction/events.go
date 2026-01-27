@@ -228,7 +228,7 @@ func (*SubmittedEvent) TypeString() string {
 // ConfirmedEvent
 type ConfirmedEvent struct {
 	BaseCoordinatorEvent
-	Nonce        uint64
+	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
 }

@@ -26,10 +26,10 @@ import (
 func (t *Transaction) isNotReady() bool {
 	//test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
-	return t.GetState() != State_Confirmed &&
-		t.GetState() != State_Submitted &&
-		t.GetState() != State_Dispatched &&
-		t.GetState() != State_Ready_For_Dispatch
+	return t.stateMachine.CurrentState != State_Confirmed &&
+		t.stateMachine.CurrentState != State_Submitted &&
+		t.stateMachine.CurrentState != State_Dispatched &&
+		t.stateMachine.CurrentState != State_Ready_For_Dispatch
 }
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
@@ -40,13 +40,9 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
 
-	if t.previousTransaction != nil && t.previousTransaction.isNotReady() {
-		return true
-	}
-
 	dependencies := t.dependencies.DependsOn
-	if t.PreAssembly != nil && t.PreAssembly.Dependencies != nil && t.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies = append(dependencies, t.PreAssembly.Dependencies.DependsOn...)
+	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
+		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
 	}
 
 	for _, dependencyID := range dependencies {
@@ -67,13 +63,13 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 
 func (t *Transaction) traceDispatch(ctx context.Context) {
 	// Log transaction signatures
-	for _, signature := range t.PostAssembly.Signatures {
-		log.L(ctx).Tracef("Transaction %s has signature %+v", t.ID.String(), signature)
+	for _, signature := range t.pt.PostAssembly.Signatures {
+		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
 	}
 
 	// Log transaction endorsements
-	for _, endorsement := range t.PostAssembly.Endorsements {
-		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.ID.String(), endorsement)
+	for _, endorsement := range t.pt.PostAssembly.Endorsements {
+		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.pt.ID.String(), endorsement)
 	}
 }
 
@@ -94,12 +90,12 @@ func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
 		}
 		err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependent.ID,
+				TransactionID: dependent.pt.ID,
 			},
-			DependencyID: t.ID,
+			DependencyID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
+			log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
 			return err
 		}
 	}
@@ -115,16 +111,11 @@ func (t *Transaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*Tr
 
 	var ignore = func(t *Transaction) bool {
 		for _, ignoreTxn := range ignoreList {
-			if ignoreTxn.ID == t.ID {
+			if ignoreTxn.pt.ID == t.pt.ID {
 				return true
 			}
 		}
 		return false
-	}
-
-	// Dependencies as per the order provided when the transaction was delegated
-	if t.previousTransaction != nil && !ignore(t.previousTransaction) {
-		return true
 	}
 
 	// Dependencies calculated at the time of assembly based on the state(s) being spent
@@ -132,8 +123,8 @@ func (t *Transaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*Tr
 
 	//augment with the dependencies explicitly declared in the pre-assembly
 
-	if t.PreAssembly.Dependencies != nil && t.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies.DependsOn = append(dependencies.DependsOn, t.PreAssembly.Dependencies.DependsOn...)
+	if t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
+		dependencies.DependsOn = append(dependencies.DependsOn, t.pt.PreAssembly.Dependencies.DependsOn...)
 	}
 
 	for _, dependencyID := range dependencies.DependsOn {

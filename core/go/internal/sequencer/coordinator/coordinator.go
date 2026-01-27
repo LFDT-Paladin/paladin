@@ -42,21 +42,20 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-// SeqCoordinaor is the interface that consumers should use to interact with the coordinator.
+// Coordinaor is the interface that consumers should use to interact with the coordinator.
 // It should only expose the following types of function
 // - lifecycle functions (currently just stop)
 // - event queueing: this should be the only way consumers are able to modify the state of the coordinator
 // - getter functions: these can return the internal state of the coordinator but must be thread safe
 //
 // GetActiveCoordinatorNode and UpdateOriginatorNodePool are currently exceptions to this pattern and need to be removed
-type SeqCoordinator interface {
+type Coordinator interface {
 	// Asynchronously update the state machine by queueing an event to be processed
 	// This is the only interface by which consumers should update the state of the coordinator
 	QueueEvent(ctx context.Context, event common.Event)
 
 	// Query the state of the coordinator
 	GetCurrentState() State
-	GetTransactionsReadyToDispatch(ctx context.Context) ([]*components.PrivateTransaction, error)
 	GetTransactionByID(ctx context.Context, txID uuid.UUID) *transaction.Transaction
 	// The name of this function gives the impression that it is modifying state but it is actually
 	// using the existing state as the input to the algorithm that chooses the current active coordinator.
@@ -73,10 +72,10 @@ type SeqCoordinator interface {
 }
 
 type coordinator struct {
+	sync.RWMutex // Mutex for thread-safe event processing (implements statemachine.Lockable)
+
 	ctx       context.Context
 	cancelCtx context.CancelFunc
-
-	mutex sync.RWMutex // Mutex for thread-safe event processing (implements statemachine.Lockable)
 
 	/* State machine - using generic statemachine.ProcessorEventLoop */
 	processorEventLoop                         *statemachine.ProcessorEventLoop[State, *coordinator]
@@ -196,27 +195,18 @@ func NewCoordinator(
 	return c, nil
 }
 
-// Lock implements statemachine.Lockable interface.
-// Called by the ProcessorEventLoop before processing each event.
-func (c *coordinator) Lock() {
-	c.mutex.Lock()
-}
-
-// Unlock implements statemachine.Lockable interface.
-// Called by the ProcessorEventLoop after processing each event.
-func (c *coordinator) Unlock() {
-	c.mutex.Unlock()
-}
-
+// GetCurrentState returns the current state of the coordinator.
+// This method does NOT acquire a lock because:
+//  1. Reading a single int (State enum) is atomic on all modern architectures
+//  2. This method may be called from callbacks during event processing when the
+//     coordinator's mutex is already held, which would cause a deadlock with RLock()
 func (c *coordinator) GetCurrentState() State {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
 	return c.processorEventLoop.GetCurrentState()
 }
 
 func (c *coordinator) GetTransactionByID(_ context.Context, txnID uuid.UUID) *transaction.Transaction {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
+	c.RLock()
+	defer c.RUnlock()
 	return c.transactionsByID[txnID]
 }
 
@@ -256,8 +246,8 @@ func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, 
 			log.L(ctx).Warnf("no pool to select a coordinator from yet")
 			return "", nil
 		} else {
-			c.mutex.RLock()
-			defer c.mutex.RUnlock()
+			c.RLock()
+			defer c.RUnlock()
 			// Round block number down to the nearest block range (e.g. block 1012, 1013, 1014 etc. all become 1000 for hashing)
 			effectiveBlockNumber := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
 
@@ -282,8 +272,14 @@ func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, 
 // eligible to be chosen as the coordinator for ContractConfig_COORDINATOR_ENDORSER domains such as Pente
 func (c *coordinator) UpdateOriginatorNodePool(ctx context.Context, originatorNode string) {
 	log.L(ctx).Debugf("updating originator node pool for contract %s with node %s", c.contractAddress.String(), originatorNode)
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+	c.Lock()
+	defer c.Unlock()
+	c.updateOriginatorNodePoolInternal(originatorNode)
+}
+
+// updateOriginatorNodePoolInternal is the internal version called from within event processing
+// where the lock is already held. It must not acquire the lock.
+func (c *coordinator) updateOriginatorNodePoolInternal(originatorNode string) {
 	if !slices.Contains(c.originatorNodePool, originatorNode) {
 		c.originatorNodePool = append(c.originatorNodePool, originatorNode)
 	}
@@ -327,7 +323,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 	for {
 		select {
 		case tx := <-c.dispatchQueue:
-			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. In-flight count: %d, dispatched ahead: %d, max dispatch ahead: %d", tx.ID.String(), len(c.inFlightTxns), dispatchedAhead, c.maxDispatchAhead)
+			log.L(ctx).Debugf("coordinator pulled transaction %s from the dispatch queue. In-flight count: %d, dispatched ahead: %d, max dispatch ahead: %d", tx.GetID().String(), len(c.inFlightTxns), dispatchedAhead, c.maxDispatchAhead)
 
 			c.inFlightMutex.L.Lock()
 
@@ -337,18 +333,18 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			}
 
 			// Dispatch and then asynchronously update the state machine to State_Dispatched
-			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.ID.String())
+			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
 			c.readyForDispatch(ctx, tx)
 
 			// Dispatched transactions that result in a chained private transaction don't count towards max dispatch ahead
-			if tx.PreparedPrivateTransaction == nil {
+			if !tx.HasPreparedPrivateTransaction() {
 				dispatchedAhead++
 			}
 
 			// Update the TX state machine
 			c.QueueEvent(ctx, &transaction.DispatchedEvent{
 				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-					TransactionID: tx.ID,
+					TransactionID: tx.GetID(),
 				},
 			})
 
@@ -356,7 +352,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			// but if we hit the max dispatch ahead limit after dispatching this transaction we do, because we can't be sure
 			// in-flight will be accurate on the next loop round
 			if len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
-				for c.inFlightTxns[tx.ID] == nil {
+				for c.inFlightTxns[tx.GetID()] == nil {
 					c.inFlightMutex.Wait()
 				}
 				dispatchedAhead = 0
@@ -381,7 +377,6 @@ func (c *coordinator) sendHandoverRequest(ctx context.Context) {
 // record a decision record to explain why.  Every  time we come back to this point, we will be tempted to reverse that decision so we need to make sure we have a record of the known consequences.
 // originator must be a fully qualified identity locator otherwise an error will be returned
 func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction) error {
-	var previousTransaction *transaction.Transaction
 	for _, txn := range transactions {
 
 		if c.transactionsByID[txn.ID] != nil {
@@ -394,10 +389,22 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
+		// The newly delegated TX might be after the restart of an originator, for which we've already
+		// instantiated a chained TX
+		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
+		if err != nil {
+			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
+			return err
+		}
+		if hasChainedTransaction {
+			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
+		}
+
 		newTransaction, err := transaction.NewTransaction(
 			ctx,
 			originator,
 			txn,
+			hasChainedTransaction,
 			c.transportWriter,
 			c.clock,
 			c.QueueEvent,
@@ -408,10 +415,10 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.closingGracePeriod,
 			c.grapher,
 			c.metrics,
-			func(ctx context.Context, t *transaction.Transaction, to, from transaction.State) {
+			func(ctx context.Context, transactionID uuid.UUID, to, from transaction.State) {
 				// TX state changed - notify the coordinator state machine
 				c.QueueEvent(ctx, &TransactionStateTransitionEvent{
-					TransactionID: t.ID,
+					TransactionID: transactionID,
 					From:          from,
 					To:            to,
 				})
@@ -422,28 +429,12 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return err
 		}
 
-		if previousTransaction != nil {
-			newTransaction.SetPreviousTransaction(ctx, previousTransaction)
-			previousTransaction.SetNextTransaction(ctx, newTransaction)
-		}
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
-		previousTransaction = newTransaction
 
 		receivedEvent := &transaction.ReceivedEvent{}
 		receivedEvent.TransactionID = txn.ID
 
-		// The newly delegated TX might be after the restart of an originator, for which we've already
-		// instantiated a chained TX
-		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
-		if err != nil {
-			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
-			return err
-		}
-		if hasChainedTransaction {
-			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
-			newTransaction.SetChainedTxInProgress()
-		}
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
@@ -466,7 +457,7 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 	for _, txn := range c.transactionsByID {
 		err := txn.HandleEvent(ctx, event)
 		if err != nil {
-			log.L(ctx).Errorf("error handling event %v for transaction %s: %v", event.Type(), txn.ID.String(), err)
+			log.L(ctx).Errorf("error handling event %v for transaction %s: %v", event.Type(), txn.GetID().String(), err)
 			return err
 		}
 	}
@@ -485,8 +476,8 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	log.L(ctx).Tracef("checking %d transactions for those in states: %+v", len(c.transactionsByID), states)
 	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
 	for _, txn := range c.transactionsByID {
-		if matchingStates[txn.GetState()] {
-			log.L(ctx).Debugf("found transaction %s in state %s", txn.ID.String(), txn.GetState())
+		if matchingStates[txn.GetCurrentState()] {
+			log.L(ctx).Debugf("found transaction %s in state %s", txn.GetID().String(), txn.GetCurrentState())
 			matchingTxns = append(matchingTxns, txn)
 		}
 	}
@@ -500,10 +491,10 @@ func (c *coordinator) findTransactionBySignerNonce(ctx context.Context, signer *
 	// deferring until we have a comprehensive test suite to catch errors
 	for _, txn := range c.transactionsByID {
 		if txn != nil {
-			log.L(ctx).Tracef("Tracked TX ID %s", txn.ID.String())
+			log.L(ctx).Tracef("Tracked TX ID %s", txn.GetID().String())
 		}
 		if txn != nil && txn.GetSignerAddress() != nil {
-			log.L(ctx).Tracef("Tracked TX ID %s signer address '%s'", txn.ID.String(), txn.GetSignerAddress().String())
+			log.L(ctx).Tracef("Tracked TX ID %s signer address '%s'", txn.GetID().String(), txn.GetSignerAddress().String())
 		}
 		if txn.GetSignerAddress() != nil && *txn.GetSignerAddress() == *signer && txn.GetNonce() != nil && *(txn.GetNonce()) == nonce {
 			return txn
@@ -512,29 +503,29 @@ func (c *coordinator) findTransactionBySignerNonce(ctx context.Context, signer *
 	return nil
 }
 
-func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uuid.UUID, from *pldtypes.EthAddress, nonce uint64, hash pldtypes.Bytes32, revertReason pldtypes.HexBytes) (bool, error) {
+func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uuid.UUID, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64, hash pldtypes.Bytes32, revertReason pldtypes.HexBytes) (bool, error) {
 	log.L(ctx).Debugf("we currently have %d transactions to handle, confirming that dispatched TX %s is in our list", len(c.transactionsByID), txId.String())
 
-	// Confirming a transaction via its chained transaction, we won't hav a from address
-	if from != nil {
+	// Confirming a transaction via its chained transaction, we won't have a from address or nonce
+	if from != nil && nonce != nil {
 		// First check whether it is one that we have been coordinating
-		if dispatchedTransaction := c.findTransactionBySignerNonce(ctx, from, nonce); dispatchedTransaction != nil {
+		if dispatchedTransaction := c.findTransactionBySignerNonce(ctx, from, nonce.Uint64()); dispatchedTransaction != nil {
 			if dispatchedTransaction.GetLatestSubmissionHash() == nil || *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
 				// Is this not the transaction that we are looking for?
 				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
 				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected", dispatchedTransaction.ID.String())
+				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected", dispatchedTransaction.GetID().String())
 			}
 			event := &transaction.ConfirmedEvent{
 				Hash:         hash,
 				RevertReason: revertReason,
 				Nonce:        nonce,
 			}
-			event.TransactionID = dispatchedTransaction.ID
+			event.TransactionID = dispatchedTransaction.GetID()
 			event.EventTime = time.Now()
 			err := dispatchedTransaction.HandleEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.ID.String(), err)
+				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
 				return false, err
 			}
 			return true, nil
@@ -542,15 +533,15 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 	}
 
 	for _, dispatchedTransaction := range c.transactionsByID {
-		if dispatchedTransaction.ID == txId {
+		if dispatchedTransaction.GetID() == txId {
 			if dispatchedTransaction.GetLatestSubmissionHash() == nil {
 				// The transaction created a chained private transaction so there is no hash to compare
-				log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.ID.String(), hash.String())
+				log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), hash.String())
 			} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
 				// Is this not the transaction that we are looking for?
 				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
 				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.ID.String(), dispatchedTransaction.GetLatestSubmissionHash(), hash.String())
+				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), hash.String())
 			}
 			event := &transaction.ConfirmedEvent{
 				Hash:         hash,
@@ -563,7 +554,7 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 			log.L(ctx).Debugf("Confirming dispatched TX %s", txId.String())
 			err := dispatchedTransaction.HandleEvent(ctx, event)
 			if err != nil {
-				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.ID.String(), err)
+				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
 				return false, err
 			}
 			return true, nil
@@ -574,8 +565,11 @@ func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uui
 
 }
 
-func (c *coordinator) confirmMonitoredTransaction(_ context.Context, from *pldtypes.EthAddress, nonce uint64) {
-	if flushPoint := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", from.String(), nonce)]; flushPoint != nil {
+func (c *coordinator) confirmMonitoredTransaction(_ context.Context, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) {
+	if nonce == nil {
+		return
+	}
+	if flushPoint := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", from.String(), nonce.Uint64())]; flushPoint != nil {
 		//We do not remove the flushPoint from the list because there is a chance that the coordinator hasn't seen this confirmation themselves and
 		// when they send us the next heartbeat, it will contain this FlushPoint so it would get added back into the list and we would not see the confirmation again
 		flushPoint.Confirmed = true

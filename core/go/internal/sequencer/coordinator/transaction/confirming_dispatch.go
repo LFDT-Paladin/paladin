@@ -21,7 +21,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/sha3"
 )
 
 func (t *Transaction) applyDispatchConfirmation(_ context.Context, requestID uuid.UUID) error {
@@ -32,7 +34,7 @@ func (t *Transaction) applyDispatchConfirmation(_ context.Context, requestID uui
 func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 
 	if t.pendingPreDispatchRequest == nil {
-		hash, err := t.Hash(ctx)
+		hash, err := t.hash(ctx)
 		if err != nil {
 			log.L(ctx).Debugf("error hashing transaction for dispatch confirmation request: %s", err)
 			return err
@@ -42,14 +44,14 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 				ctx,
 				t.originatorNode,
 				idempotencyKey,
-				t.PreAssembly.TransactionSpecification,
+				t.pt.PreAssembly.TransactionSpecification,
 				hash,
 			)
 		})
 		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
 			t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: t.ID,
+					TransactionID: t.pt.ID,
 				},
 			})
 		})
@@ -68,6 +70,35 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 	return sendErr
 
 }
+
+// Hash method of Transaction
+func (t *Transaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
+	if t.pt == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
+	}
+	if t.pt.PostAssembly == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PostAssembly")
+	}
+
+	// MRW TODO - MUST DO - this was relying on only signatures being present, but Pente contracts reject transactions that have both signatures and endorsements.
+	// if len(t.pt.PostAssembly.Signatures) == 0 {
+	// 	return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without at least one Signature")
+	// }
+
+	hash := sha3.NewLegacyKeccak256()
+
+	if len(t.pt.PostAssembly.Signatures) != 0 {
+		for _, signature := range t.pt.PostAssembly.Signatures {
+			hash.Write(signature.Payload)
+		}
+	}
+
+	var h32 pldtypes.Bytes32
+	_ = hash.Sum(h32[0:0])
+	return &h32, nil
+
+}
+
 func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
 	if t.pendingPreDispatchRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgePreDispatchRequest called with no pending request")

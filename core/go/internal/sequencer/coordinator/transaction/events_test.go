@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBaseCoordinatorEvent_GetTransactionID(t *testing.T) {
@@ -517,7 +518,7 @@ func TestConfirmedEvent_GetTransactionID(t *testing.T) {
 
 func TestConfirmedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	nonce := uint64(42)
+	nonce := pldtypes.HexUint64(42)
 	hash := pldtypes.RandBytes32()
 	revertReason := pldtypes.HexBytes{0x01, 0x02, 0x03}
 
@@ -528,13 +529,14 @@ func TestConfirmedEvent_Fields(t *testing.T) {
 			},
 			TransactionID: txID,
 		},
-		Nonce:        nonce,
+		Nonce:        &nonce,
 		Hash:         hash,
 		RevertReason: revertReason,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, nonce, event.Nonce)
+	require.NotNil(t, event.Nonce, "Nonce should be set")
+	assert.Equal(t, uint64(42), event.Nonce.Uint64())
 	assert.Equal(t, hash, event.Hash)
 	assert.Equal(t, revertReason, event.RevertReason)
 }

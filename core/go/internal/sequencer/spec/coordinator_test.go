@@ -57,6 +57,7 @@ func TestCoordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState())
 
 	c.QueueEvent(ctx, &coordinator.TransactionsDelegatedEvent{
+		FromNode:     "testNode",
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -95,6 +96,7 @@ func TestCoordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 	defer c.Stop()
 
 	c.QueueEvent(ctx, &coordinator.TransactionsDelegatedEvent{
+		FromNode:     "testNode",
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -117,6 +119,7 @@ func TestCoordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 	defer c.Stop()
 
 	c.QueueEvent(ctx, &coordinator.TransactionsDelegatedEvent{
+		FromNode:     "testNode",
 		Originator:   originator,
 		Transactions: testutil.NewPrivateTransactionBuilderListForTesting(1).Address(builder.GetContractAddress()).BuildSparse(),
 	})
@@ -194,9 +197,10 @@ func TestCoordinator_Prepared_ToActive_OnTransactionConfirmed_IfFlushCompleted(t
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 
+	flushNonce := pldtypes.HexUint64(builder.GetFlushPointNonce())
 	c.QueueEvent(ctx, &coordinator.TransactionConfirmedEvent{
 		From:  builder.GetFlushPointSignerAddress(),
-		Nonce: builder.GetFlushPointNonce(),
+		Nonce: &flushNonce,
 		Hash:  builder.GetFlushPointHash(),
 	})
 
@@ -217,11 +221,11 @@ func TestCoordinator_PreparedNoTransition_OnTransactionConfirmed_IfNotFlushCompl
 	defer c.Stop()
 
 	otherHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	otherNonce := builder.GetFlushPointNonce() - 1
+	otherNonce := pldtypes.HexUint64(builder.GetFlushPointNonce() - 1)
 
 	c.QueueEvent(ctx, &coordinator.TransactionConfirmedEvent{
 		From:  builder.GetFlushPointSignerAddress(),
-		Nonce: otherNonce,
+		Nonce: &otherNonce,
 		Hash:  otherHash,
 	})
 
@@ -259,9 +263,10 @@ func TestCoordinator_ActiveNoTransition_OnTransactionConfirmed_IfNotTransactions
 		Build(ctx)
 	defer c.Stop()
 
+	delegation1Nonce := pldtypes.HexUint64(*delegation1.GetNonce())
 	c.QueueEvent(ctx, &coordinator.TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
-		Nonce: *delegation1.GetNonce(),
+		Nonce: &delegation1Nonce,
 		Hash:  *delegation1.GetLatestSubmissionHash(),
 	})
 
@@ -307,9 +312,10 @@ func TestCoordinator_Flush_ToClosing_OnTransactionConfirmed_IfFlushComplete(t *t
 		Build(ctx)
 	defer c.Stop()
 
+	delegation1Nonce := pldtypes.HexUint64(*delegation1.GetNonce())
 	c.QueueEvent(ctx, &coordinator.TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
-		Nonce: *delegation1.GetNonce(),
+		Nonce: &delegation1Nonce,
 		Hash:  *delegation1.GetLatestSubmissionHash(),
 	})
 
@@ -333,9 +339,10 @@ func TestCoordinator_FlushNoTransition_OnTransactionConfirmed_IfNotFlushComplete
 		Build(ctx)
 	defer c.Stop()
 
+	delegation1Nonce := pldtypes.HexUint64(*delegation1.GetNonce())
 	c.QueueEvent(ctx, &coordinator.TransactionConfirmedEvent{
 		From:  delegation1.GetSignerAddress(),
-		Nonce: *delegation1.GetNonce(),
+		Nonce: &delegation1Nonce,
 		Hash:  *delegation1.GetLatestSubmissionHash(),
 	})
 

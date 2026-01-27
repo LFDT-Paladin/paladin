@@ -39,19 +39,19 @@ func (_m *MockSequencer) EXPECT() *MockSequencer_Expecter {
 }
 
 // GetCoordinator provides a mock function for the type MockSequencer
-func (_mock *MockSequencer) GetCoordinator() coordinator.SeqCoordinator {
+func (_mock *MockSequencer) GetCoordinator() coordinator.Coordinator {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCoordinator")
 	}
 
-	var r0 coordinator.SeqCoordinator
-	if returnFunc, ok := ret.Get(0).(func() coordinator.SeqCoordinator); ok {
+	var r0 coordinator.Coordinator
+	if returnFunc, ok := ret.Get(0).(func() coordinator.Coordinator); ok {
 		r0 = returnFunc()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(coordinator.SeqCoordinator)
+			r0 = ret.Get(0).(coordinator.Coordinator)
 		}
 	}
 	return r0
@@ -74,12 +74,12 @@ func (_c *MockSequencer_GetCoordinator_Call) Run(run func()) *MockSequencer_GetC
 	return _c
 }
 
-func (_c *MockSequencer_GetCoordinator_Call) Return(seqCoordinator coordinator.SeqCoordinator) *MockSequencer_GetCoordinator_Call {
-	_c.Call.Return(seqCoordinator)
+func (_c *MockSequencer_GetCoordinator_Call) Return(coordinator1 coordinator.Coordinator) *MockSequencer_GetCoordinator_Call {
+	_c.Call.Return(coordinator1)
 	return _c
 }
 
-func (_c *MockSequencer_GetCoordinator_Call) RunAndReturn(run func() coordinator.SeqCoordinator) *MockSequencer_GetCoordinator_Call {
+func (_c *MockSequencer_GetCoordinator_Call) RunAndReturn(run func() coordinator.Coordinator) *MockSequencer_GetCoordinator_Call {
 	_c.Call.Return(run)
 	return _c
 }

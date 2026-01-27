@@ -265,6 +265,10 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		builder.latestSubmissionHash = &latestSubmissionHash
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
+	case State_SubmissionPrepared:
+		// Emulates having received CollectedEvent; signerAddress is required when processing SubmittedEvent (which sends to originator)
+		builder.signerAddress = pldtypes.RandAddress()
+		fallthrough
 	case State_Blocked:
 		fallthrough
 	case State_Confirming_Dispatchable:
@@ -380,6 +384,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		ctx,
 		b.originator.identityLocator,
 		privateTransaction,
+		false, // hasChainedTransaction
 		b.sentMessageRecorder,
 		b.fakeClock,
 		func(ctx context.Context, event common.Event) {
@@ -431,7 +436,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	b.txn.signerAddress = b.signerAddress
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
-	b.txn.stateMachine.currentState = b.state
+	b.txn.stateMachine.CurrentState = b.state
 	return b.txn
 
 }
@@ -440,7 +445,7 @@ func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *En
 
 	return &EndorsedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.GetID(),
 		},
 		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
 		Endorsement: b.privateTransactionBuilder.BuildEndorsement(endorserIndex),
@@ -453,7 +458,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 	attReqName := fmt.Sprintf("endorse-%d", endorserIndex)
 	return &EndorsedRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.GetID(),
 		},
 		RevertReason:           "some reason for rejection",
 		AttestationRequestName: attReqName,

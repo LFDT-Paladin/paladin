@@ -57,7 +57,7 @@ func NewGrapher(ctx context.Context) Grapher {
 }
 
 func (s *grapher) Add(ctx context.Context, txn *Transaction) {
-	s.transactionByID[txn.ID] = txn
+	s.transactionByID[txn.pt.ID] = txn
 }
 
 func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error) {
@@ -66,12 +66,12 @@ func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (
 
 func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error {
 	if txn, ok := s.transactionByOutputState[stateID.String()]; ok {
-		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn.ID.String(), transaction.ID.String())
+		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn.pt.ID.String(), transaction.pt.ID.String())
 		log.L(ctx).Error(msg)
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 	}
 	s.transactionByOutputState[stateID.String()] = transaction
-	s.outputStatesByMinter[transaction.ID] = append(s.outputStatesByMinter[transaction.ID], stateID.String())
+	s.outputStatesByMinter[transaction.pt.ID] = append(s.outputStatesByMinter[transaction.pt.ID], stateID.String())
 	return nil
 }
 

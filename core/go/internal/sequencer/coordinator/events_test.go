@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCoordinatorStateEventActivated_Type(t *testing.T) {
@@ -53,6 +54,7 @@ func TestTransactionsDelegatedEvent_GetEventTime(t *testing.T) {
 }
 
 func TestTransactionsDelegatedEvent_Fields(t *testing.T) {
+	fromNode := "testNode"
 	originator := "test@testNode"
 	blockHeight := uint64(100)
 	txID := uuid.New()
@@ -64,11 +66,13 @@ func TestTransactionsDelegatedEvent_Fields(t *testing.T) {
 		BaseEvent: common.BaseEvent{
 			EventTime: time.Now(),
 		},
+		FromNode:               fromNode,
 		Originator:             originator,
 		Transactions:           transactions,
 		OriginatorsBlockHeight: blockHeight,
 	}
 
+	assert.Equal(t, fromNode, event.FromNode)
 	assert.Equal(t, originator, event.Originator)
 	assert.Equal(t, transactions, event.Transactions)
 	assert.Equal(t, blockHeight, event.OriginatorsBlockHeight)
@@ -126,7 +130,7 @@ func TestTransactionConfirmedEvent_GetEventTime(t *testing.T) {
 func TestTransactionConfirmedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
 	from := pldtypes.RandAddress()
-	nonce := uint64(42)
+	nonce := pldtypes.HexUint64(42)
 	hash := pldtypes.RandBytes32()
 	revertReason := pldtypes.HexBytes{0x01, 0x02, 0x03}
 
@@ -136,14 +140,15 @@ func TestTransactionConfirmedEvent_Fields(t *testing.T) {
 		},
 		TxID:         txID,
 		From:         from,
-		Nonce:        nonce,
+		Nonce:        &nonce,
 		Hash:         hash,
 		RevertReason: revertReason,
 	}
 
 	assert.Equal(t, txID, event.TxID)
 	assert.Equal(t, from, event.From)
-	assert.Equal(t, nonce, event.Nonce)
+	require.NotNil(t, event.Nonce, "Nonce should be set")
+	assert.Equal(t, uint64(42), event.Nonce.Uint64())
 	assert.Equal(t, hash, event.Hash)
 	assert.Equal(t, revertReason, event.RevertReason)
 }

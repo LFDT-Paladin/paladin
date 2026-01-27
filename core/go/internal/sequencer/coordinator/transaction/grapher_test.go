@@ -46,7 +46,7 @@ func Test_SortTransactions_SingleTransaction(t *testing.T) {
 	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1})
 	assert.NoError(t, err)
 	require.Len(t, sortedTransactions, 1)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
+	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
 
 }
 
@@ -62,14 +62,14 @@ func Test_SortTransactions_SameOrder(t *testing.T) {
 
 	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
 	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1, txn2})
 	require.NoError(t, err)
 	require.Len(t, sortedTransactions, 2)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
-	assert.Equal(t, txn2.ID, sortedTransactions[1].ID)
+	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
+	assert.Equal(t, txn2.pt.ID, sortedTransactions[1].pt.ID)
 
 }
 
@@ -85,15 +85,15 @@ func Test_SortTransactions_ReverseOrder(t *testing.T) {
 
 	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
 	//Provide the transactions in reverse order to test sorting
 	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn1})
 	require.NoError(t, err)
 	require.Len(t, sortedTransactions, 2)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
-	assert.Equal(t, txn2.ID, sortedTransactions[1].ID)
+	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
+	assert.Equal(t, txn2.pt.ID, sortedTransactions[1].pt.ID)
 
 }
 
@@ -112,12 +112,12 @@ func Test_SortTransactions_EndlessLoopPrevention(t *testing.T) {
 
 	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
 	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
@@ -140,17 +140,17 @@ func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
 		NumberOfOutputStates(1)
 	txn1 := txnBuilder1.Build()
 
-	err := grapher.Forget(txn1.ID) // Simulate that the grapher has been instructed to forget the transaction as a result of it being confirmed
+	err := grapher.Forget(txn1.pt.ID) // Simulate that the grapher has been instructed to forget the transaction as a result of it being confirmed
 	assert.NoError(t, err)
 
 	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
 	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
@@ -160,7 +160,7 @@ func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
 	//Check both transactions are in the sorted transactions but we cannot guarantee the order since neither is dependent on the other
 	assert.Condition(t, func() bool {
 		for _, txn := range sortedTransactions {
-			if txn.ID == txn2.ID {
+			if txn.pt.ID == txn2.pt.ID {
 				return true // txn1 should not be in the sorted transactions
 			}
 		}
@@ -168,7 +168,7 @@ func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
 	}, "txn2 should be in the sorted transactions")
 	assert.Condition(t, func() bool {
 		for _, txn := range sortedTransactions {
-			if txn.ID == txn3.ID {
+			if txn.pt.ID == txn3.pt.ID {
 				return true // txn1 should not be in the sorted transactions
 			}
 		}
@@ -189,12 +189,12 @@ func Test_SortTransactions_CircularDependency(t *testing.T) {
 
 	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
 	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
@@ -226,17 +226,17 @@ func TestGrapher_AddMinter_DuplicateMinter(t *testing.T) {
 
 	minter, err := grapher.LookupMinter(ctx, stateID)
 	require.NoError(t, err)
-	assert.Equal(t, txn1.ID, minter.ID)
+	assert.Equal(t, txn1.pt.ID, minter.pt.ID)
 
 	err = grapher.AddMinter(ctx, stateID, txn2)
 	require.Error(t, err)
 
-	expectedMsg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn1.ID.String(), txn2.ID.String())
+	expectedMsg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn1.pt.ID.String(), txn2.pt.ID.String())
 	assert.ErrorContains(t, err, expectedMsg)
 
 	assert.Contains(t, err.Error(), msgs.MsgSequencerInternalError)
 
 	minter, err = grapher.LookupMinter(ctx, stateID)
 	require.NoError(t, err)
-	assert.Equal(t, txn1.ID, minter.ID, "First transaction should still be the minter")
+	assert.Equal(t, txn1.pt.ID, minter.pt.ID, "First transaction should still be the minter")
 }

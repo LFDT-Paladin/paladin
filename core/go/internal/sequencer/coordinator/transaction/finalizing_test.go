@@ -93,10 +93,10 @@ func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *t
 	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
 	mockSyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.Domain,
+		txn.pt.Domain,
 		pldtypes.EthAddress{},
 		txn.originator,
-		txn.ID,
+		txn.pt.ID,
 		"originator reported transaction as unknown",
 		mock.Anything, // onSuccess callback
 		mock.Anything, // onError callback

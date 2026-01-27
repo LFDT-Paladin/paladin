@@ -214,9 +214,9 @@ func TestGuard_FlushComplete_TransactionsInOtherStates(t *testing.T) {
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
-		tx3.ID: tx3,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
+		tx3.GetID(): tx3,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.True(t, result, "transactions in other states should return true")
@@ -228,7 +228,7 @@ func TestGuard_FlushComplete_TransactionInReadyForDispatchState(t *testing.T) {
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.False(t, result, "transaction in Ready_For_Dispatch should return false")
@@ -240,7 +240,7 @@ func TestGuard_FlushComplete_TransactionInDispatchedState(t *testing.T) {
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.False(t, result, "transaction in Dispatched should return false")
@@ -252,7 +252,7 @@ func TestGuard_FlushComplete_TransactionInSubmittedState(t *testing.T) {
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.False(t, result, "transaction in Submitted should return false")
@@ -266,9 +266,9 @@ func TestGuard_FlushComplete_MultipleTransactionsInFlushStates(t *testing.T) {
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
-		tx3.ID: tx3,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
+		tx3.GetID(): tx3,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.False(t, result, "transactions in flush states should return false")
@@ -281,8 +281,8 @@ func TestGuard_FlushComplete_MixOfFlushAndNonFlushStates(t *testing.T) {
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
 	}
 	result := guard_FlushComplete(ctx, c)
 	assert.False(t, result, "mix with flush state should return false")
@@ -304,8 +304,8 @@ func TestGuard_HasTransactionsInflight_OnlyConfirmedTransactions(t *testing.T) {
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "only confirmed should return true")
@@ -317,7 +317,7 @@ func TestGuard_HasTransactionsInflight_TransactionInPooledState(t *testing.T) {
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Pooled should return true")
@@ -329,7 +329,7 @@ func TestGuard_HasTransactionsInflight_TransactionInAssemblingState(t *testing.T
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Assembling should return true")
@@ -341,7 +341,7 @@ func TestGuard_HasTransactionsInflight_TransactionInReadyForDispatchState(t *tes
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Ready_For_Dispatch should return true")
@@ -353,7 +353,7 @@ func TestGuard_HasTransactionsInflight_TransactionInDispatchedState(t *testing.T
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Dispatched should return true")
@@ -365,7 +365,7 @@ func TestGuard_HasTransactionsInflight_TransactionInSubmittedState(t *testing.T)
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "transaction in Submitted should return true")
@@ -378,8 +378,8 @@ func TestGuard_HasTransactionsInflight_MixOfConfirmedAndInflight(t *testing.T) {
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
 	assert.True(t, result, "mix with inflight should return true")
@@ -450,7 +450,7 @@ func TestGuard_HasTransactionAssembling_TransactionInAssemblingState(t *testing.
 	c, _ := builder.Build(ctx)
 	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx.ID: tx,
+		tx.GetID(): tx,
 	}
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "transaction in Assembling should return true")
@@ -463,8 +463,8 @@ func TestGuard_HasTransactionAssembling_MultipleTransactionsInAssemblingState(t 
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
 	}
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "multiple transactions in Assembling should return true")
@@ -478,9 +478,9 @@ func TestGuard_HasTransactionAssembling_TransactionInOtherStates(t *testing.T) {
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
-		tx3.ID: tx3,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
+		tx3.GetID(): tx3,
 	}
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.False(t, result, "transactions in other states should return false")
@@ -493,8 +493,8 @@ func TestGuard_HasTransactionAssembling_MixOfAssemblingAndOtherStates(t *testing
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.Transaction{
-		tx1.ID: tx1,
-		tx2.ID: tx2,
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
 	}
 	result := guard_HasTransactionAssembling(ctx, c)
 	assert.True(t, result, "mix with Assembling should return true")

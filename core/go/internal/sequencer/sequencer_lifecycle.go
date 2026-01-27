@@ -41,12 +41,12 @@ import (
 // Components needing to interact with the sequencer can make certain calls into
 // the coordinator, the originator, or the transport writer
 type Sequencer interface {
-	GetCoordinator() coordinator.SeqCoordinator
+	GetCoordinator() coordinator.Coordinator
 	GetOriginator() originator.SeqOriginator
 	GetTransportWriter() transport.TransportWriter
 }
 
-func (seq *sequencer) GetCoordinator() coordinator.SeqCoordinator {
+func (seq *sequencer) GetCoordinator() coordinator.Coordinator {
 	return seq.coordinator
 }
 
@@ -63,7 +63,7 @@ type sequencer struct {
 	// The 3 main components of the sequencer
 	originator      originator.SeqOriginator
 	transportWriter transport.TransportWriter
-	coordinator     coordinator.SeqCoordinator
+	coordinator     coordinator.Coordinator
 
 	// Sequencer attributes
 	contractAddress string
@@ -260,38 +260,38 @@ func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *com
 // dispatch a new transaction. There might be several transactions still in flight to the base ledger and maxDispatchAhead can be used
 // to control how "optimistic" we are about submitting newly assembled and endorsed transactions.
 func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.Transaction, dCtx components.DomainContext, transportWriter transport.TransportWriter) {
-	domainAPI, err := sMgr.components.DomainManager().GetSmartContractByAddress(ctx, sMgr.components.Persistence().NOTX(), t.Address)
+	domainAPI, err := sMgr.components.DomainManager().GetSmartContractByAddress(ctx, sMgr.components.Persistence().NOTX(), t.GetContractAddress())
 	if err != nil {
-		log.L(ctx).Errorf("error getting domain API for contract %s: %s", t.Address.String(), err)
+		log.L(ctx).Errorf("error getting domain API for contract %s: %s", t.GetContractAddress().String(), err)
 		return
 	}
 
 	submitterSelection := domainAPI.ContractConfig().GetSubmitterSelection()
 
 	if submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.PostAssembly.Endorsements {
+		for _, endorsement := range t.GetPostAssembly().Endorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
-					t.Signer = endorsement.Verifier.Lookup
+					t.SetSigner(endorsement.Verifier.Lookup)
 					break
 				}
 			}
 		}
 	}
-	if t.Signer == "" {
+	if t.GetSigner() == "" {
 		if domainAPI.Domain().FixedSigningIdentity() != "" {
-			t.Signer = domainAPI.Domain().FixedSigningIdentity()
+			t.SetSigner(domainAPI.Domain().FixedSigningIdentity())
 		} else {
-			t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
+			t.SetSigner(fmt.Sprintf("domains.%s.submit.%s", t.GetContractAddress().String(), uuid.New()))
 		}
 	}
-	log.L(ctx).Debugf("Transaction %s signer %s", t.ID.String(), t.Signer)
+	log.L(ctx).Debugf("Transaction %s signer %s", t.GetID().String(), t.GetSigner())
 
 	// Prepare the public or private transaction
 	readTX := sMgr.components.Persistence().NOTX() // no DB transaction required here
-	err = domainAPI.PrepareTransaction(dCtx, readTX, t.PrivateTransaction)
+	err = domainAPI.PrepareTransaction(dCtx, readTX, t.GetPrivateTransaction())
 	if err != nil {
-		log.L(ctx).Errorf("Error preparing transaction %s: %s", t.ID.String(), err)
+		log.L(ctx).Errorf("Error preparing transaction %s: %s", t.GetID().String(), err)
 		return
 	}
 
@@ -300,24 +300,25 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 	}
 
 	preparedTxnDistributions := make([]*components.PreparedTransactionWithRefs, 0)
-	preparedTransaction := t.PrivateTransaction
+	preparedTransaction := t.GetPrivateTransaction()
 	publicTransactionsToSend := make([]*components.PrivateTransaction, 0)
 	sequence := &syncpoints.PublicDispatch{}
 	stateDistributions := make([]*components.StateDistribution, 0)
 	localStateDistributions := make([]*components.StateDistributionWithData, 0)
 
-	hasPublicTransaction := preparedTransaction.PreparedPublicTransaction != nil
-	hasPrivateTransaction := preparedTransaction.PreparedPrivateTransaction != nil
+	hasPublicTransaction := t.HasPreparedPublicTransaction()
+	hasPrivateTransaction := t.HasPreparedPrivateTransaction()
 	switch {
 	case preparedTransaction.Intent == prototk.TransactionSpecification_SEND_TRANSACTION && hasPublicTransaction && !hasPrivateTransaction:
-		log.L(ctx).Debugf("Result of transaction %s is a public transaction (gas=%d)", preparedTransaction.ID, *preparedTransaction.PreparedPublicTransaction.Gas)
+		log.L(ctx).Debugf("Result of transaction %s is a public transaction (gas=%d)", t.GetID(), *preparedTransaction.PreparedPublicTransaction.Gas)
 		publicTransactionsToSend = append(publicTransactionsToSend, preparedTransaction)
 		sequence.PrivateTransactionDispatches = append(sequence.PrivateTransactionDispatches, &syncpoints.DispatchPersisted{
-			PrivateTransactionID: t.ID.String(),
+			PrivateTransactionID: t.GetID().String(),
 		})
 	case preparedTransaction.Intent == prototk.TransactionSpecification_SEND_TRANSACTION && hasPrivateTransaction && !hasPublicTransaction:
 		log.L(ctx).Debugf("Result of transaction %s is a chained private transaction", preparedTransaction.ID)
-		validatedPrivateTx, err := sMgr.components.TxManager().PrepareChainedPrivateTransaction(ctx, sMgr.components.Persistence().NOTX(), t.PreAssembly.TransactionSpecification.From, t.ID, t.Domain, &t.Address, preparedTransaction.PreparedPrivateTransaction, pldapi.SubmitModeAuto)
+		addr := t.GetContractAddress()
+		validatedPrivateTx, err := sMgr.components.TxManager().PrepareChainedPrivateTransaction(ctx, sMgr.components.Persistence().NOTX(), t.GetOriginalSender(), t.GetID(), t.GetDomain(), &addr, preparedTransaction.PreparedPrivateTransaction, pldapi.SubmitModeAuto)
 		if err != nil {
 			log.L(ctx).Errorf("error preparing transaction %s: %s", preparedTransaction.ID, err)
 			// TODO: this is just an error situation for one transaction - this function is a batch function
@@ -337,7 +338,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		return
 	}
 
-	stateDistributionBuilder := common.NewStateDistributionBuilder(sMgr.components, t.PrivateTransaction)
+	stateDistributionBuilder := common.NewStateDistributionBuilder(sMgr.components, t.GetPrivateTransaction())
 	sds, err := stateDistributionBuilder.Build(ctx)
 	if err != nil {
 		log.L(ctx).Errorf("error getting state distributions: %s", err)
@@ -354,8 +355,9 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 
 	// we may or may not have any transactions to send depending on the submit mode
 	if len(publicTransactionsToSend) == 0 {
-		log.L(ctx).Debugf("No public transactions to send for TX %s", t.ID.String())
+		log.L(ctx).Debugf("No public transactions to send for TX %s", t.GetID().String())
 	} else {
+		contractAddr := t.GetContractAddress()
 		signers := make([]string, len(publicTransactionsToSend))
 		for i, pt := range publicTransactionsToSend {
 			unqualifiedSigner, err := pldtypes.PrivateIdentityLocator(pt.Signer).Identity(ctx)
@@ -381,7 +383,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
 				PublicTxInput: pldapi.PublicTxInput{
 					From:            resolvedAddrs[i],
-					To:              &t.Address,
+					To:              &contractAddr,
 					PublicTxOptions: pt.PreparedPublicTransaction.PublicTxOptions,
 				},
 			}
@@ -418,15 +420,15 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 	}
 
 	log.L(ctx).Debugf("Persisting & deploying batch. %d public transactions, %d private transactions, %d prepared transactions", len(dispatchBatch.PublicDispatches), len(dispatchBatch.PrivateDispatches), len(dispatchBatch.PreparedTransactions))
-	err = sMgr.syncPoints.PersistDispatchBatch(dCtx, t.Address, dispatchBatch, stateDistributions, preparedTxnDistributions)
+	err = sMgr.syncPoints.PersistDispatchBatch(dCtx, t.GetContractAddress(), dispatchBatch, stateDistributions, preparedTxnDistributions)
 	if err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return
 	}
 
-	err = transportWriter.SendDispatched(ctx, t.Originator(), uuid.New(), t.PreAssembly.TransactionSpecification)
+	err = transportWriter.SendDispatched(ctx, t.Originator(), uuid.New(), t.GetTransactionSpecification())
 	if err != nil {
-		log.L(ctx).Errorf("failed to send dispatched event for transaction %s: %s", t.ID, err)
+		log.L(ctx).Errorf("failed to send dispatched event for transaction %s: %s", t.GetID(), err)
 		return
 	}
 

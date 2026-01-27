@@ -21,7 +21,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/stretchr/testify/assert"
@@ -42,18 +41,15 @@ func TestEventLoopBasic(t *testing.T) {
 	el := NewEventLoop(processor, DefaultEventLoopConfig())
 	ctx := context.Background()
 
-	// Start event loop
 	go el.Start(ctx)
 
-	// Queue some events
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
 	el.QueueEvent(ctx, newTestEvent(Event_Process))
 	el.QueueEvent(ctx, newTestEvent(Event_Complete))
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done // blocks until all three events have been processed
 
-	// Give time for processing
-	time.Sleep(50 * time.Millisecond)
-
-	// Stop and wait
 	el.Stop()
 
 	mu.Lock()
@@ -85,7 +81,9 @@ func TestEventLoopWithOnStop(t *testing.T) {
 	go el.Start(ctx)
 
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
-	time.Sleep(50 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	el.Stop()
 
@@ -117,7 +115,9 @@ func TestEventLoopWithOnStopReturnsNil(t *testing.T) {
 	go el.Start(ctx)
 
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
-	time.Sleep(50 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	el.Stop()
 
@@ -138,7 +138,9 @@ func TestEventLoopWithName(t *testing.T) {
 	go el.Start(ctx)
 
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
-	time.Sleep(50 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	el.Stop()
 }
@@ -156,7 +158,9 @@ func TestEventLoopProcessorError(t *testing.T) {
 	go el.Start(ctx)
 
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
-	time.Sleep(50 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	el.Stop()
 	// Error is logged via log.L(ctx) - no assertion needed
@@ -171,7 +175,9 @@ func TestEventLoopStopIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	// Stop multiple times should not panic
 	el.Stop()
@@ -190,25 +196,46 @@ func TestEventLoopStopAsync(t *testing.T) {
 	ctx := context.Background()
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
-	// Async stop
 	el.StopAsync()
-
-	// Wait separately
 	el.WaitForStop()
 
 	assert.True(t, el.IsStopped())
 }
 
+func TestEventLoopStopAsyncWhenAlreadyStopped(t *testing.T) {
+	processor := func(ctx context.Context, event common.Event) error {
+		return nil
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig())
+	ctx := context.Background()
+
+	go el.Start(ctx)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+	el.Stop()
+
+	// StopAsync when already stopped hits "case <-el.loopStopped: return"
+	el.StopAsync()
+	el.StopAsync()
+
+	assert.True(t, el.IsStopped())
+}
+
 func TestEventLoopTryQueueEvent(t *testing.T) {
-	// Create a small buffer
 	config := EventLoopConfig{BufferSize: 2}
 
-	// Processor that blocks
-	blockCh := make(chan struct{})
+	processorPickedUp := make(chan struct{})
+	releaseProcessor := make(chan struct{})
+	var once sync.Once
 	processor := func(ctx context.Context, event common.Event) error {
-		<-blockCh // Block until signaled
+		once.Do(func() { close(processorPickedUp) })
+		<-releaseProcessor
 		return nil
 	}
 
@@ -216,22 +243,19 @@ func TestEventLoopTryQueueEvent(t *testing.T) {
 	ctx := context.Background()
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
 
-	// Queue events up to buffer limit (one will be picked up by the processor and block)
+	// One event will be picked up by the loop and block in processor
 	assert.True(t, el.TryQueueEvent(ctx, newTestEvent(Event_Start)))
-	time.Sleep(10 * time.Millisecond) // Let the first event be picked up
+	<-processorPickedUp
 
-	// Now the processor is blocking, fill the buffer
+	// Processor is blocking; fill the buffer (size 2: one slot may be taken by in-flight event)
 	assert.True(t, el.TryQueueEvent(ctx, newTestEvent(Event_Process)))
 	assert.True(t, el.TryQueueEvent(ctx, newTestEvent(Event_Complete)))
 
 	// Buffer should now be full
 	assert.False(t, el.TryQueueEvent(ctx, newTestEvent(Event_Fail)))
 
-	// Unblock processor
-	close(blockCh)
-
+	close(releaseProcessor)
 	el.Stop()
 }
 
@@ -244,13 +268,13 @@ func TestEventLoopContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
-	// Cancel context
 	cancel()
 
-	// Should stop
-	time.Sleep(50 * time.Millisecond)
+	<-el.StopChannel()
 	assert.True(t, el.IsStopped())
 }
 
@@ -265,7 +289,9 @@ func TestEventLoopIsRunning(t *testing.T) {
 	assert.False(t, el.IsRunning())
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
 	assert.True(t, el.IsRunning())
 
@@ -277,12 +303,16 @@ func TestEventLoopIsRunning(t *testing.T) {
 func TestEventLoopFIFOOrdering(t *testing.T) {
 	var processedOrder []int
 	var mu sync.Mutex
+	allProcessed := make(chan struct{})
 
 	processor := func(ctx context.Context, event common.Event) error {
 		mu.Lock()
-		defer mu.Unlock()
-		// Use event type as order indicator
 		processedOrder = append(processedOrder, int(event.Type()))
+		n := len(processedOrder)
+		mu.Unlock()
+		if n == 10 {
+			close(allProcessed)
+		}
 		return nil
 	}
 
@@ -291,18 +321,16 @@ func TestEventLoopFIFOOrdering(t *testing.T) {
 
 	go el.Start(ctx)
 
-	// Queue events with different "order" values encoded in event type
 	for i := 0; i < 10; i++ {
 		el.QueueEvent(ctx, newTestEvent(common.EventType(1000+i)))
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	<-allProcessed
 	el.Stop()
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Verify FIFO order
 	require.Equal(t, 10, len(processedOrder))
 	for i := 0; i < 10; i++ {
 		assert.Equal(t, 1000+i, processedOrder[i])
@@ -311,9 +339,14 @@ func TestEventLoopFIFOOrdering(t *testing.T) {
 
 func TestEventLoopConcurrentQueueing(t *testing.T) {
 	var count atomic.Int32
+	totalExpected := int32(10 * 100)
+	allProcessed := make(chan struct{})
 
 	processor := func(ctx context.Context, event common.Event) error {
-		count.Add(1)
+		n := count.Add(1)
+		if n == totalExpected {
+			close(allProcessed)
+		}
 		return nil
 	}
 
@@ -322,7 +355,6 @@ func TestEventLoopConcurrentQueueing(t *testing.T) {
 
 	go el.Start(ctx)
 
-	// Queue events from multiple goroutines
 	var wg sync.WaitGroup
 	numGoroutines := 10
 	eventsPerGoroutine := 100
@@ -338,10 +370,10 @@ func TestEventLoopConcurrentQueueing(t *testing.T) {
 	}
 
 	wg.Wait()
-	time.Sleep(200 * time.Millisecond)
+	<-allProcessed
 	el.Stop()
 
-	assert.Equal(t, int32(numGoroutines*eventsPerGoroutine), count.Load())
+	assert.Equal(t, totalExpected, count.Load())
 }
 
 func TestEventLoopDefaultConfig(t *testing.T) {
@@ -354,25 +386,27 @@ func TestEventLoopZeroBufferSize(t *testing.T) {
 		return nil
 	}
 
-	// Zero buffer size should use default
 	el := NewEventLoop(processor, EventLoopConfig{BufferSize: 0})
 	ctx := context.Background()
 
 	go el.Start(ctx)
-	time.Sleep(10 * time.Millisecond)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
 
-	// Should still work
 	el.QueueEvent(ctx, newTestEvent(Event_Start))
-	time.Sleep(50 * time.Millisecond)
+	syncEv2 := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
 
 	el.Stop()
 }
 
 func TestEventLoopEventChannel(t *testing.T) {
-	var processed bool
+	processed := make(chan struct{})
 
 	processor := func(ctx context.Context, event common.Event) error {
-		processed = true
+		close(processed)
 		return nil
 	}
 
@@ -381,11 +415,152 @@ func TestEventLoopEventChannel(t *testing.T) {
 
 	go el.Start(ctx)
 
-	// Use direct channel access
 	el.EventChannel() <- newTestEvent(Event_Start)
 
-	time.Sleep(50 * time.Millisecond)
+	<-processed
+	el.Stop()
+}
+
+func TestEventLoopStopChannel(t *testing.T) {
+	processor := func(ctx context.Context, event common.Event) error {
+		return nil
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig())
+	ctx := context.Background()
+
+	stopCh := el.StopChannel()
+	require.NotNil(t, stopCh)
+
+	go el.Start(ctx)
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	el.StopAsync()
+	<-stopCh
+	assert.True(t, el.IsStopped())
+}
+
+func TestEventLoopStopAsyncAlreadySignaled(t *testing.T) {
+	// Block processor until we've called StopAsync twice, so the loop never
+	// reads from stopLoop before the second StopAsync hits the "default" branch.
+	releaseProcessor := make(chan struct{})
+	processorBlocked := make(chan struct{})
+	processor := func(ctx context.Context, event common.Event) error {
+		close(processorBlocked) // signal that we're in the processor
+		<-releaseProcessor      // block until test has called StopAsync twice
+		return nil
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig())
+	ctx := context.Background()
+
+	go el.Start(ctx)
+	el.QueueEvent(ctx, newTestEvent(Event_Start))
+	<-processorBlocked // wait until loop is stuck in processor
+
+	// First StopAsync sends to stopLoop (buffer size 1)
+	el.StopAsync()
+	// Second StopAsync hits "already signaled" default (stopLoop buffer full)
+	el.StopAsync()
+
+	close(releaseProcessor)
+	el.WaitForStop()
+	assert.True(t, el.IsStopped())
+}
+
+func TestEventLoopStopAsyncConcurrentDoubleSignal(t *testing.T) {
+	// Multiple goroutines call StopAsync; one will send, the rest hit "already signaled" default.
+	releaseProcessor := make(chan struct{})
+	processorBlocked := make(chan struct{})
+	processor := func(ctx context.Context, event common.Event) error {
+		close(processorBlocked)
+		<-releaseProcessor
+		return nil
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig())
+	ctx := context.Background()
+
+	go el.Start(ctx)
+	el.QueueEvent(ctx, newTestEvent(Event_Start))
+	<-processorBlocked
+
+	// Many goroutines call StopAsync; first send succeeds, rest hit default
+	const concurrency = 20
+	var wg sync.WaitGroup
+	wg.Add(concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() { el.StopAsync(); wg.Done() }()
+	}
+	wg.Wait()
+
+	close(releaseProcessor)
+	el.WaitForStop()
+	assert.True(t, el.IsStopped())
+}
+
+func TestEventLoopOnStopFinalEventError(t *testing.T) {
+	finalEventErr := errors.New("final event failed")
+	processedFinal := make(chan struct{})
+
+	processor := func(ctx context.Context, event common.Event) error {
+		if event.Type() == Event_Reset {
+			close(processedFinal)
+			return finalEventErr
+		}
+		return nil
+	}
+
+	onStop := func(ctx context.Context) common.Event {
+		return newTestEvent(Event_Reset)
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig(), WithOnStop(onStop))
+	ctx := context.Background()
+
+	go el.Start(ctx)
+	el.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
 	el.Stop()
 
-	assert.True(t, processed)
+	<-processedFinal
+	assert.True(t, el.IsStopped())
+}
+
+func TestEventLoopSyncEvent(t *testing.T) {
+	var processed int
+	var mu sync.Mutex
+
+	processor := func(ctx context.Context, event common.Event) error {
+		mu.Lock()
+		processed++
+		mu.Unlock()
+		return nil
+	}
+
+	el := NewEventLoop(processor, DefaultEventLoopConfig())
+	ctx := context.Background()
+
+	go el.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	el.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	el.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	el.Stop()
+
+	mu.Lock()
+	n := processed
+	mu.Unlock()
+	assert.Equal(t, 1, n) // SyncEvents are not counted (handled specially)
 }

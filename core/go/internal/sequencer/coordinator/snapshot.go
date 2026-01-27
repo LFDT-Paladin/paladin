@@ -57,7 +57,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
 	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
 	for _, txn := range c.transactionsByID {
-		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.ID.String(), txn.GetCurrentState().String())
+		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.GetID().String(), txn.GetCurrentState().String())
 		switch txn.GetCurrentState() {
 		// pooled transactions are those that have been delegated but not yet dispatched, this includes the various states from being delegated up to being ready for dispatch
 		case transaction.State_Reverted:
@@ -74,7 +74,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 			fallthrough
 		case transaction.State_Pooled:
 			pooledTransactions = append(pooledTransactions, &common.Transaction{
-				ID: txn.ID,
+				ID: txn.GetID(),
 			})
 		case transaction.State_Ready_For_Dispatch:
 			//this is already past the point of no return.  It is as good as dispatched, just waiting for the the dispatcher thread to collect it so we include it in the dispatched transactions
@@ -86,7 +86,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 			fallthrough
 		case transaction.State_Dispatched:
 			dispatchedTransaction := &common.DispatchedTransaction{}
-			dispatchedTransaction.ID = txn.ID
+			dispatchedTransaction.ID = txn.GetID()
 			dispatchedTransaction.Originator = txn.Originator()
 			signerAddressPtr := txn.GetSignerAddress()
 			if signerAddressPtr != nil {
@@ -94,21 +94,21 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 				dispatchedTransaction.Nonce = txn.GetNonce()
 				dispatchedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
 			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
+				log.L(ctx).Warnf("Transaction %s has no signer address", txn.GetID())
 			}
 
 			dispatchedTransactions = append(dispatchedTransactions, dispatchedTransaction)
 
 		case transaction.State_Confirmed:
-			log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", txn.ID.String())
+			log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", txn.GetID().String())
 			confirmedTransaction := &common.ConfirmedTransaction{}
-			confirmedTransaction.ID = txn.ID
+			confirmedTransaction.ID = txn.GetID()
 
 			signerAddressPtr := txn.GetSignerAddress()
 			if signerAddressPtr != nil {
 				confirmedTransaction.Signer = *signerAddressPtr
 			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
+				log.L(ctx).Warnf("Transaction %s has no signer address", txn.GetID())
 			}
 			confirmedTransaction.Nonce = txn.GetNonce()
 			confirmedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
@@ -126,7 +126,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
-		CoordinatorState:       c.GetCurrentState().String(),
+		CoordinatorState:       c.processorEventLoop.GetCurrentState().String(),
 		BlockHeight:            c.currentBlockHeight,
 	}
 }
