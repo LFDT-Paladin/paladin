@@ -218,13 +218,14 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 	var functionName string
 	var paramsJSON []byte
 
-	// if useNullifier {
-	// 	encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	payload = encoded
-	// }
+	payload := sender.Payload
+	if useNullifier {
+		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = encoded
+	}
 
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault, types.NotoVariantNullifier:
@@ -234,7 +235,7 @@ func (h *burnCommon) baseLedgerInvokeBurn(ctx context.Context, tx *types.ParsedT
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(req.InputStates, useNullifier),
 			Outputs: endorsableStateIDs(req.OutputStates, false),
-			Proof:   sender.Payload,
+			Proof:   payload,
 			Data:    data,
 		}
 		paramsJSON, err = json.Marshal(params)

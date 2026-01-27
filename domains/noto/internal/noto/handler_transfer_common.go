@@ -229,13 +229,14 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 		return nil, err
 	}
 
-	// if useNullifier {
-	// 	encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	payload = encoded
-	// }
+	payload := signature.Payload
+	if useNullifier {
+		encoded, err := h.noto.encodeRootAndSignature(ctx, tx.ContractAddress.String(), req.StateQueryContext, payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = encoded
+	}
 
 	var interfaceABI abi.ABI
 	var functionName string
@@ -252,7 +253,7 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(req.InputStates, useNullifiers),
 			Outputs: endorsableStateIDs(req.OutputStates, false),
-			Proof:   signature.Payload,
+			Proof:   payload,
 			Data:    data,
 		}
 		paramsJSON, err = json.Marshal(params)
