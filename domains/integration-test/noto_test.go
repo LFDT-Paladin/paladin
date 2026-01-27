@@ -18,6 +18,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,10 +27,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -75,32 +78,34 @@ func toJSON(t *testing.T, v any) []byte {
 }
 
 func (s *notoTestSuite) TestNoto() {
-	ctx := context.Background()
 	t := s.T()
+	ctx := t.Context()
 	log.L(ctx).Infof("TestNoto")
 
 	waitForNoto, notoTestbed := newNotoDomain(t, pldtypes.MustEthAddress(s.factoryAddress))
-	done, _, tb, rpc := newTestbed(t, s.hdWalletSeed, map[string]*testbed.TestbedDomain{
+	done, _, _, _, paladinClient := newTestbed(t, s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		s.domainName: notoTestbed,
 	})
 	defer done()
 
 	notoDomain := <-waitForNoto
 
-	notaryKey, err := tb.ResolveKey(ctx, notaryName, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	notoReceipts := make(chan notoReceiptWithTXID)
+	subscribeAndSendNotoReceiptsToChannel(t, paladinClient, notoDomain.Name(), notoReceipts)
+
+	notaryKey, err := paladinClient.PTX().ResolveVerifier(ctx, notaryName, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
-	recipient1Key, err := tb.ResolveKey(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	recipient1Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
-	recipient2Key, err := tb.ResolveKey(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	recipient2Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Deploying an instance of Noto")
-	noto := helpers.DeployNoto(ctx, t, rpc, s.domainName, notary, nil)
+	noto := helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 
 	log.L(ctx).Infof("Mint 100 from notary to notary")
-	var invokeResult testbed.TransactionResult
-	rpcerr := rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr := paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     notaryName,
 			To:       noto.Address,
@@ -111,20 +116,25 @@ func (s *notoTestSuite) TestNoto() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	coins := findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	mintReceipt := <-notoReceipts
+	require.Len(t, mintReceipt.Transfers, 1)
+	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, notaryKey, mintReceipt.Transfers[0].To.String())
+
+	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(100), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, notaryKey.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, notaryKey, coins[0].Data.Owner.String())
 
 	// check balance
 	balanceOfResult := noto.BalanceOf(ctx, &types.BalanceOfParam{Account: notaryName}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "100", balanceOfResult["totalBalance"].(string), "Balance of notary should be 100")
 
 	log.L(ctx).Infof("Attempt mint from non-notary (should fail)")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
@@ -135,15 +145,15 @@ func (s *notoTestSuite) TestNoto() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NotNil(t, rpcerr)
 	assert.ErrorContains(t, rpcerr, "PD200009")
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 
 	log.L(ctx).Infof("Transfer 150 from notary (should fail)")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     notaryName,
 			To:       noto.Address,
@@ -155,14 +165,14 @@ func (s *notoTestSuite) TestNoto() {
 		},
 		ABI: types.NotoABI,
 	}, true)
-	require.NotNil(t, rpcerr)
+	require.NotNil(t, false)
 	assert.ErrorContains(t, rpcerr, "assemble result was REVERT")
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 
 	log.L(ctx).Infof("Transfer 50 from notary to recipient1")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     notaryName,
 			To:       noto.Address,
@@ -173,10 +183,15 @@ func (s *notoTestSuite) TestNoto() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	transferReceipt := <-notoReceipts
+	require.Len(t, transferReceipt.Transfers, 1)
+	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient1Key, transferReceipt.Transfers[0].To.String())
+
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.NoError(t, err)
 	require.Len(t, coins, 2)
 
@@ -187,12 +202,12 @@ func (s *notoTestSuite) TestNoto() {
 	assert.Equal(t, "50", balanceOfResult["totalBalance"].(string), "Balance of recipient1 should be 50")
 
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient1Key.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, recipient1Key, coins[0].Data.Owner.String())
 	assert.Equal(t, int64(50), coins[1].Data.Amount.Int().Int64())
-	assert.Equal(t, notaryKey.Verifier.Verifier, coins[1].Data.Owner.String())
+	assert.Equal(t, notaryKey, coins[1].Data.Owner.String())
 
 	log.L(ctx).Infof("Transfer 50 from recipient1 to recipient2")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
@@ -203,17 +218,22 @@ func (s *notoTestSuite) TestNoto() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	transferReceipt = <-notoReceipts
+	require.Len(t, transferReceipt.Transfers, 1)
+	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient2Key, transferReceipt.Transfers[0].To.String())
+
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.NoError(t, err)
 	require.Len(t, coins, 2)
 
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, notaryKey.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, notaryKey, coins[0].Data.Owner.String())
 	assert.Equal(t, int64(50), coins[1].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient2Key.Verifier.Verifier, coins[1].Data.Owner.String())
+	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
 
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "0", balanceOfResult["totalBalance"].(string), "Balance of recipient1 should be 0")
@@ -222,7 +242,7 @@ func (s *notoTestSuite) TestNoto() {
 	assert.Equal(t, "50", balanceOfResult["totalBalance"].(string), "Balance of recipient2 should be 50")
 
 	log.L(ctx).Infof("Burn 25 from recipient2")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient2Name,
 			To:       noto.Address,
@@ -232,10 +252,16 @@ func (s *notoTestSuite) TestNoto() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	burnReceipt := <-notoReceipts
+	require.Len(t, burnReceipt.Transfers, 1)
+	assert.Equal(t, int64(25), burnReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient2Key, burnReceipt.Transfers[0].From.String())
+	assert.Nil(t, burnReceipt.Transfers[0].To)
+
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.NoError(t, err)
 	require.Len(t, coins, 2)
 
@@ -243,37 +269,38 @@ func (s *notoTestSuite) TestNoto() {
 	assert.Equal(t, "25", balanceOfResult["totalBalance"].(string), "Balance of recipient should be 25")
 
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, notaryKey.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, notaryKey, coins[0].Data.Owner.String())
 	assert.Equal(t, int64(25), coins[1].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient2Key.Verifier.Verifier, coins[1].Data.Owner.String())
+	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
 }
 
 func (s *notoTestSuite) TestNotoLock() {
-	ctx := context.Background()
 	t := s.T()
+	ctx := t.Context()
 	log.L(ctx).Infof("TestNotoLock")
 
 	waitForNoto, notoTestbed := newNotoDomain(t, pldtypes.MustEthAddress(s.factoryAddress))
-	done, _, tb, rpc := newTestbed(t, s.hdWalletSeed, map[string]*testbed.TestbedDomain{
+	done, _, _, _, paladinClient := newTestbed(t, s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		s.domainName: notoTestbed,
 	})
 	defer done()
-	pld := helpers.NewPaladinClient(t, ctx, tb)
 
 	notoDomain := <-waitForNoto
 
-	recipient1Key, err := tb.ResolveKey(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	notoReceipts := make(chan notoReceiptWithTXID)
+	subscribeAndSendNotoReceiptsToChannel(t, paladinClient, notoDomain.Name(), notoReceipts)
+
+	recipient1Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
-	recipient2Key, err := tb.ResolveKey(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	recipient2Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Deploying an instance of Noto")
-	noto := helpers.DeployNoto(ctx, t, rpc, s.domainName, notary, nil)
+	noto := helpers.DeployNoto(ctx, t, paladinClient, s.domainName, notary, nil)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 
 	log.L(ctx).Infof("Mint 100 from notary to recipient1")
-	var invokeResult testbed.TransactionResult
-	rpcerr := rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr := paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     notaryName,
 			To:       noto.Address,
@@ -284,16 +311,21 @@ func (s *notoTestSuite) TestNotoLock() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	coins := findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	mintReceipt := <-notoReceipts
+	require.Len(t, mintReceipt.Transfers, 1)
+	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient1Key, mintReceipt.Transfers[0].To.String())
+
+	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(100), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient1Key.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, recipient1Key, coins[0].Data.Owner.String())
 
 	log.L(ctx).Infof("Lock 50 from recipient1")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
@@ -303,29 +335,27 @@ func (s *notoTestSuite) TestNotoLock() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
+
+	lockReceipt := <-notoReceipts
+	require.NotNil(t, lockReceipt.LockInfo)
+	require.NotEmpty(t, lockReceipt.LockInfo.LockID)
 
 	balanceOfResult := noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "50", balanceOfResult["totalBalance"].(string), "Balance of recipient should be 50")
 
-	var lockReceipt types.NotoDomainReceipt
-	err = json.Unmarshal(invokeResult.DomainReceipt, &lockReceipt)
-	require.NoError(t, err)
-	require.NotNil(t, lockReceipt.LockInfo)
-	require.NotEmpty(t, lockReceipt.LockInfo.LockID)
-
-	lockedCoins := findAvailableCoins[types.NotoLockedCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	lockedCoins := findAvailableCoins[types.NotoLockedCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, lockedCoins, 1)
 	assert.Equal(t, int64(50), lockedCoins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient1Key.Verifier.Verifier, lockedCoins[0].Data.Owner.String())
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	assert.Equal(t, recipient1Key, lockedCoins[0].Data.Owner.String())
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient1Key.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, recipient1Key, coins[0].Data.Owner.String())
 
 	log.L(ctx).Infof("Transfer 50 from recipient1 to recipient2 (succeeds but does not use locked state)")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
@@ -336,23 +366,28 @@ func (s *notoTestSuite) TestNotoLock() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
+
+	transferReceipt := <-notoReceipts
+	require.Len(t, transferReceipt.Transfers, 1)
+	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient2Key, transferReceipt.Transfers[0].To.String())
 
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "0", balanceOfResult["totalBalance"].(string), "Balance of recipient should be 0")
 
-	lockedCoins = findAvailableCoins[types.NotoLockedCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	lockedCoins = findAvailableCoins[types.NotoLockedCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, lockedCoins, 1)
 	assert.Equal(t, int64(50), lockedCoins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient1Key.Verifier.Verifier, lockedCoins[0].Data.Owner.String())
-	coins = findAvailableCoins[types.NotoCoinState](t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
+	assert.Equal(t, recipient1Key, lockedCoins[0].Data.Owner.String())
+	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient2Key.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, recipient2Key, coins[0].Data.Owner.String())
 
 	log.L(ctx).Infof("Prepare unlock that will send all 50 to recipient2")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
@@ -368,52 +403,125 @@ func (s *notoTestSuite) TestNotoLock() {
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
 
-	var unlockReceipt types.NotoDomainReceipt
-	err = json.Unmarshal(invokeResult.DomainReceipt, &unlockReceipt)
-	require.NoError(t, err)
+	prepareUnlockReceipt := <-notoReceipts
+
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo)
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams)
+	require.NotEmpty(t, prepareUnlockReceipt.LockInfo.UnlockParams.TxId)
 
 	log.L(ctx).Infof("Delegate lock to recipient2")
-	rpcerr = rpc.CallRPC(ctx, &invokeResult, "testbed_invoke", &pldapi.TransactionInput{
+	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
 			Function: "delegateLock",
 			Data: toJSON(t, &types.DelegateLockParams{
-				LockID:   unlockReceipt.LockInfo.LockID,
-				Unlock:   unlockReceipt.LockInfo.UnlockParams,
-				Delegate: pldtypes.MustEthAddress(recipient2Key.Verifier.Verifier),
+				LockID:   prepareUnlockReceipt.LockInfo.LockID,
+				Unlock:   prepareUnlockReceipt.LockInfo.UnlockParams,
+				Delegate: pldtypes.MustEthAddress(recipient2Key),
 			}),
 		},
 		ABI: types.NotoABI,
-	}, true)
+	}, false)
 	require.NoError(t, rpcerr)
+
+	delegateLockReceipt := <-notoReceipts
+	require.NotEmpty(t, delegateLockReceipt.LockInfo)
+	assert.Equal(t, prepareUnlockReceipt.LockInfo.LockID, delegateLockReceipt.LockInfo.LockID)
+	assert.Equal(t, recipient2Key, delegateLockReceipt.LockInfo.Delegate.String())
 
 	log.L(ctx).Infof("Unlock from recipient2")
 	notoBuild := solutils.MustLoadBuild(helpers.NotoInterfaceJSON)
-	tx := pld.ForABI(ctx, notoBuild.ABI).
+	tx := paladinClient.ForABI(ctx, notoBuild.ABI).
 		Public().
 		From(recipient2Name).
 		To(noto.Address).
 		Function("unlock").
-		Inputs(unlockReceipt.LockInfo.UnlockParams).
+		Inputs(prepareUnlockReceipt.LockInfo.UnlockParams).
 		Send().
 		Wait(3 * time.Second)
 	require.NoError(t, tx.Error())
 
+	unlockReceipt := <-notoReceipts
+	require.Equal(t, prepareUnlockReceipt.LockInfo.UnlockParams.TxId, pldtypes.Bytes32UUIDFirst16(unlockReceipt.txID).String())
+	require.Len(t, unlockReceipt.Transfers, 1)
+	assert.Equal(t, int64(50), unlockReceipt.Transfers[0].Amount.Int().Int64())
+	assert.Equal(t, recipient2Key, unlockReceipt.Transfers[0].To.String())
+
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient2Name}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "100", balanceOfResult["totalBalance"].(string), "Balance of recipient should be 100")
 
-	findAvailableCoins(t, ctx, rpc, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoLockedCoinState) bool {
+	findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.LockedCoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoLockedCoinState) bool {
 		return len(coins) == 0
 	})
-	coins = findAvailableCoins(t, ctx, rpc, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoCoinState) bool {
+	coins = findAvailableCoins(t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil, func(coins []*types.NotoCoinState) bool {
 		return len(coins) == 2
 	})
 	assert.Equal(t, int64(50), coins[0].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient2Key.Verifier.Verifier, coins[0].Data.Owner.String())
+	assert.Equal(t, recipient2Key, coins[0].Data.Owner.String())
 	assert.Equal(t, int64(50), coins[1].Data.Amount.Int().Int64())
-	assert.Equal(t, recipient2Key.Verifier.Verifier, coins[1].Data.Owner.String())
+	assert.Equal(t, recipient2Key, coins[1].Data.Owner.String())
+}
+
+type notoReceiptWithTXID struct {
+	types.NotoDomainReceipt
+	txID uuid.UUID
+}
+
+func subscribeAndSendNotoReceiptsToChannel(t *testing.T, wsClient pldclient.PaladinWSClient, domainName string, receipts chan notoReceiptWithTXID) {
+	ctx := t.Context()
+
+	privateType := pldtypes.Enum[pldapi.TransactionType](pldapi.TransactionTypePrivate)
+	listenerName := fmt.Sprintf("listener-%s", domainName)
+	_, err := wsClient.PTX().CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: listenerName,
+		Filters: pldapi.TransactionReceiptFilters{
+			Type:   &privateType,
+			Domain: domainName,
+		},
+		Options: pldapi.TransactionReceiptListenerOptions{
+			DomainReceipts: true,
+		},
+	})
+	require.NoError(t, err)
+
+	sub, err := wsClient.PTX().SubscribeReceipts(ctx, listenerName)
+	require.NoError(t, err)
+	go func() {
+		// No test assertions in this routine, if there's an error, no receipts are sent and the test will fail
+		for {
+			select {
+			case subNotification, ok := <-sub.Notifications():
+				if ok {
+					notoReceipts := make([]notoReceiptWithTXID, 0)
+					var batch pldapi.TransactionReceiptBatch
+					_ = json.Unmarshal(subNotification.GetResult(), &batch)
+					for _, r := range batch.Receipts {
+						if r.DomainReceipt == nil {
+							continue
+						}
+						var notoReceipt types.NotoDomainReceipt
+						err = json.Unmarshal(r.DomainReceipt, &notoReceipt)
+						if err == nil {
+							notoReceipts = append(notoReceipts, notoReceiptWithTXID{
+								NotoDomainReceipt: notoReceipt,
+								txID:              r.ID,
+							})
+						}
+					}
+					_ = subNotification.Ack(ctx)
+					// send after the ack otherwise the main test can complete when it receives the last values and the websocket is closed before the ack
+					// can be sent
+					for _, n := range notoReceipts {
+						receipts <- n
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }

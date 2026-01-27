@@ -32,7 +32,9 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -366,4 +368,155 @@ func TestWaitForTransactionTimeout(t *testing.T) {
 	cancel()
 	err := dm.ExecAndWaitTransaction(cancelled, uuid.New(), func() error { return nil })
 	assert.Regexp(t, "PD020100", err)
+}
+
+func TestPopulateContractConfig(t *testing.T) {
+	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	result := &pldapi.DomainSmartContract{}
+
+	// Test with nil config
+	dm.populateContractConfig(result, nil)
+	assert.Nil(t, result.Config)
+
+	// Test with empty config
+	dm.populateContractConfig(result, &prototk.ContractConfig{})
+	assert.NotNil(t, result.Config)
+	assert.Nil(t, result.Config.ContractConfig)
+
+	// Test with contract config JSON
+	result = &pldapi.DomainSmartContract{}
+	dm.populateContractConfig(result, &prototk.ContractConfig{
+		ContractConfigJson: `{"key":"value"}`,
+	})
+	assert.NotNil(t, result.Config)
+	assert.Equal(t, pldtypes.RawJSON(`{"key":"value"}`), result.Config.ContractConfig)
+
+	// Test with empty JSON string
+	result = &pldapi.DomainSmartContract{}
+	dm.populateContractConfig(result, &prototk.ContractConfig{
+		ContractConfigJson: "",
+	})
+	assert.NotNil(t, result.Config)
+	assert.Nil(t, result.Config.ContractConfig)
+}
+
+func TestGetSmartContractByAddressCached(t *testing.T) {
+	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{},
+	})
+	defer done()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// Create a minimal mock domain
+	mockDomain := &domain{
+		dm:              dm,
+		name:            "test",
+		registryAddress: contractAddr,
+	}
+
+	// Create a mock domain contract and put it in the cache
+	mockContract := &domainContract{
+		dm: dm,
+		d:  mockDomain,
+		info: &PrivateSmartContract{
+			Address: *contractAddr,
+		},
+		config: &prototk.ContractConfig{
+			ContractConfigJson: `{"cached":"true"}`,
+		},
+	}
+	dm.contractCache.Set(*contractAddr, mockContract)
+
+	// Get the contract - should return from cache
+	sc, err := dm.GetSmartContractByAddress(ctx, dm.persistence.NOTX(), *contractAddr)
+	require.NoError(t, err)
+	require.NotNil(t, sc)
+	assert.Equal(t, *contractAddr, sc.Address())
+	assert.Equal(t, `{"cached":"true"}`, sc.ContractConfig().ContractConfigJson)
+}
+
+func TestGetSigner(t *testing.T) {
+	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	signer := dm.GetSigner()
+	assert.NotNil(t, signer)
+	assert.Equal(t, dm.domainSigner, signer)
+}
+
+func TestQuerySmartContractsNoLimit(t *testing.T) {
+	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	_, err := dm.querySmartContracts(ctx, &query.QueryJSON{})
+	assert.Regexp(t, "PD010721", err)
+}
+
+func TestQuerySmartContractsDBError(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	limit := 50
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(assert.AnError)
+
+	_, err := dm.querySmartContracts(ctx, &query.QueryJSON{Limit: &limit})
+	assert.Error(t, err)
+}
+
+func TestQuerySmartContractsWithDomainNotConfigured(t *testing.T) {
+	domainAddr := pldtypes.RandAddress()
+	unconfiguredDomainAddr := pldtypes.RandAddress()
+	contractAddr := pldtypes.RandAddress()
+
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: domainAddr.String(),
+			},
+		},
+	})
+	defer done()
+
+	limit := 50
+	// Mock DB query that returns a contract from an unconfigured domain
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows([]string{
+		"deploy_tx", "domain_address", "address", "config_bytes",
+	}).AddRow(
+		uuid.New(), *unconfiguredDomainAddr, *contractAddr, []byte(`{}`),
+	))
+
+	// Query smart contracts - should return the contract but without domain info
+	results, err := dm.querySmartContracts(ctx, &query.QueryJSON{Limit: &limit})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "", results[0].DomainName)
+	assert.Equal(t, unconfiguredDomainAddr, results[0].DomainAddress)
+	assert.Equal(t, *contractAddr, results[0].Address)
 }

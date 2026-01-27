@@ -6,7 +6,7 @@ Paladin provides programmable privacy for EVM.
 
 Paladin gives enterprises control of sensitive information without compromising transparency or scalability.
 
-[READ THE LAUNCH BLOG](https://www.lfdecentralizedtrust.org/blog/announcing-paladin-an-lf-decentralized-trust-lab-for-programmable-privacy-on-evm)
+[READ THE FULL OVERVIEW HERE](https://www.lfdecentralizedtrust.org/blog/paladin-a-unified-programmable-privacy-framework-for-evm-becomes-newest-lf-decentralized-trust-project)
 
 Paladin is Apache 2.0 open source, with open governance through [Linux Foundation Decentralized Trust](https://www.lfdecentralizedtrust.org).
 

@@ -377,7 +377,6 @@ message EndorsableState {
 enum AttestationType {
   SIGN = 0; // Occurs before the transaction is considered fully assembled - gathers a signature against the state inputs+outputs of the transaction, including proof of knowledge of the private data. Use to authenticate an action, such as a transfer, that will be endorsed by other parties
   ENDORSE = 1; // A verification of the validity of the transaction that occurs with a full copy of all the data, by one or more parties.
-  GENERATE_PROOF = 2; // The generation of a cyprographic zero-knowledge proof (ZKP) using a full copy of all the data, that allows verification of the transaction by any party without that private data
 }
 
 message AttestationRequest {

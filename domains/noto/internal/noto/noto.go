@@ -196,6 +196,7 @@ type NotoLock_Event struct {
 }
 
 type NotoUnlock_Event struct {
+	TxId          pldtypes.Bytes32     `json:"txId"` // This was an unversioned addition to this version of Noto- it can be checked for but not relied upon
 	Sender        *pldtypes.EthAddress `json:"sender"`
 	LockedInputs  []pldtypes.Bytes32   `json:"lockedInputs"`
 	LockedOutputs []pldtypes.Bytes32   `json:"lockedOutputs"`

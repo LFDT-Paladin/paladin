@@ -40,7 +40,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				if err != nil {
 					return nil, err
 				}
-				n.recordTransactionInfo(ev, txData, &res)
+				n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, &res)
 				res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Inputs)...)
 				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, transfer.Outputs)...)
 			} else {
@@ -55,7 +55,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				if err != nil {
 					return nil, err
 				}
-				n.recordTransactionInfo(ev, txData, &res)
+				n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, &res)
 				res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
 				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
 				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
@@ -71,10 +71,26 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				if err != nil {
 					return nil, err
 				}
-				n.recordTransactionInfo(ev, txData, &res)
-				res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedInputs)...)
-				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.LockedOutputs)...)
-				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txData.TransactionID, unlock.Outputs)...)
+				// If the event has been emitted from a newer Noto contract, it will include the transaction ID that was selected
+				// when the domain receipt was built for the prepareUnlock transaction. (Noting that this ID is generated on the
+				// fly each time the domain receipt is built, so will differ if repeat ptx_getDomainReceipt calls are made.)
+
+				// txData.TransactionID will always be set to a fallback value since the transaction ID is not encoded into the
+				// data parameter of the calldata for the unlock function. This means that for older contracts it is not possible
+				// to correlate between the unlock transaction included in the domain receipt for the prepareUnlock and receipt that gets
+				// inserted when the unlock is indexed.
+
+				// Some of the other Noto Events include a transaction ID in newer contracts, but since the transaction ID is always
+				// available from the transaction data, it doesn't make sense to start checking the event as well. A future version of
+				// Noto will move towards greater consistency and less duplication.
+				txID := txData.TransactionID
+				if !unlock.TxId.IsZero() {
+					txID = unlock.TxId
+				}
+				n.recordTransactionInfo(ev, txID, txData.InfoStates, &res)
+				res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(txID, unlock.LockedInputs)...)
+				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txID, unlock.LockedOutputs)...)
+				res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(txID, unlock.Outputs)...)
 
 				var domainConfig *types.NotoParsedConfig
 				err = json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)
@@ -103,7 +119,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				if err != nil {
 					return nil, err
 				}
-				n.recordTransactionInfo(ev, txData, &res)
+				n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, &res)
 				res.ReadStates = append(res.ReadStates, n.parseStatesFromEvent(txData.TransactionID, unlockPrepared.LockedInputs)...)
 			} else {
 				log.L(ctx).Warnf("Ignoring malformed NotoUnlockPrepared event in batch %s: %s", req.BatchId, err)
@@ -117,7 +133,7 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 				if err != nil {
 					return nil, err
 				}
-				n.recordTransactionInfo(ev, txData, &res)
+				n.recordTransactionInfo(ev, txData.TransactionID, txData.InfoStates, &res)
 			} else {
 				log.L(ctx).Warnf("Ignoring malformed NotoLockDelegated event in batch %s: %s", req.BatchId, err)
 			}
@@ -219,15 +235,15 @@ func (n *Noto) parseStatesFromEvent(txID pldtypes.Bytes32, states []pldtypes.Byt
 	return refs
 }
 
-func (n *Noto) recordTransactionInfo(ev *prototk.OnChainEvent, txData *types.NotoTransactionData_V0, res *prototk.HandleEventBatchResponse) {
+func (n *Noto) recordTransactionInfo(ev *prototk.OnChainEvent, txID pldtypes.Bytes32, infoStates []pldtypes.Bytes32, res *prototk.HandleEventBatchResponse) {
 	res.TransactionsComplete = append(res.TransactionsComplete, &prototk.CompletedTransaction{
-		TransactionId: txData.TransactionID.String(),
+		TransactionId: txID.String(),
 		Location:      ev.Location,
 	})
-	for _, state := range txData.InfoStates {
+	for _, state := range infoStates {
 		res.InfoStates = append(res.InfoStates, &prototk.StateUpdate{
 			Id:            state.String(),
-			TransactionId: txData.TransactionID.String(),
+			TransactionId: txID.String(),
 		})
 	}
 }
