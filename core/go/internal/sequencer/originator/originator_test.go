@@ -190,7 +190,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 // 	mocks.SentMessageRecorder.Reset(ctx)
 // 	cancel()
 
-// 	// With a single shared context, the processor event loop also exits when ctx is cancelled,
+// 	// With a single shared context, the state machine event loop also exits when ctx is cancelled,
 // 	// so we cannot use QueueEvent + Eventually to assert "originator still processes events".
 // 	// This test verifies the shutdown scenario: after cancel, originator remains in a consistent state.
 // 	require.Equal(t, State_Observing, s.GetCurrentState(), "Originator should remain in Observing after context cancellation")

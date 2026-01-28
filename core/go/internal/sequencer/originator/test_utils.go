@@ -166,7 +166,7 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 	for _, tx := range b.transactions {
 		txID := tx.GetID()
 		originator.transactionsByID[txID] = tx
-		originator.transactionsOrdered = append(originator.transactionsOrdered, &txID)
+		originator.transactionsOrdered = append(originator.transactionsOrdered, tx)
 		switch tx.GetCurrentState() {
 		case transaction.State_Submitted:
 			originator.submittedTransactionsByHash[*tx.GetLatestSubmissionHash()] = &txID
@@ -177,7 +177,7 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		panic(err)
 	}
 
-	originator.processorEventLoop.StateMachine().CurrentState = b.state
+	originator.stateMachineEventLoop.StateMachine().CurrentState = b.state
 	switch b.state {
 	// Any state specific setup can be done here
 	}

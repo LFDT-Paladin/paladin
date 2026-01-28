@@ -157,12 +157,12 @@ func (t *Transaction) isNotAssembled() bool {
 	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
 
-	return t.stateMachine.CurrentState != State_Endorsement_Gathering &&
-		t.stateMachine.CurrentState != State_Confirming_Dispatchable &&
-		t.stateMachine.CurrentState != State_Ready_For_Dispatch &&
-		t.stateMachine.CurrentState != State_Dispatched &&
-		t.stateMachine.CurrentState != State_Submitted &&
-		t.stateMachine.CurrentState != State_Confirmed
+	return t.stateMachine.GetCurrentState() != State_Endorsement_Gathering &&
+		t.stateMachine.GetCurrentState() != State_Confirming_Dispatchable &&
+		t.stateMachine.GetCurrentState() != State_Ready_For_Dispatch &&
+		t.stateMachine.GetCurrentState() != State_Dispatched &&
+		t.stateMachine.GetCurrentState() != State_Submitted &&
+		t.stateMachine.GetCurrentState() != State_Confirmed
 }
 
 func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {

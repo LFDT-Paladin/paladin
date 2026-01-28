@@ -26,10 +26,10 @@ import (
 func (t *Transaction) isNotReady() bool {
 	//test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
-	return t.stateMachine.CurrentState != State_Confirmed &&
-		t.stateMachine.CurrentState != State_Submitted &&
-		t.stateMachine.CurrentState != State_Dispatched &&
-		t.stateMachine.CurrentState != State_Ready_For_Dispatch
+	return t.stateMachine.GetCurrentState() != State_Confirmed &&
+		t.stateMachine.GetCurrentState() != State_Submitted &&
+		t.stateMachine.GetCurrentState() != State_Dispatched &&
+		t.stateMachine.GetCurrentState() != State_Ready_For_Dispatch
 }
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch

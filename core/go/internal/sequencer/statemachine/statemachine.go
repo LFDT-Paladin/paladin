@@ -115,7 +115,7 @@ type ActionRule[E any] struct {
 type Transition[S State, E any] struct {
 	To S         // Target state
 	If Guard[E]  // Guard condition (optional)
-	On Action[E] // Transition-specific action (optional)
+	On Action[E] // Transition-specific action (optional) // TODO AM: call this Action
 }
 
 // Validator is a function that validates whether an event is valid for the current

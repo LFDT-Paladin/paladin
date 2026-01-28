@@ -60,77 +60,68 @@ type (
 	StateDefinitions = statemachine.StateDefinitions[State, *originator]
 )
 
-var stateDefinitionsMap StateDefinitions
-
-func init() {
-	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = StateDefinitions{
-		State_Idle: {
-			Events: map[EventType]EventHandler{
-				Event_HeartbeatReceived: {
-					OnEvent:     eventAction_HeartbeatReceived,
-					Transitions: []Transition{{To: State_Observing}},
-				},
-				Event_TransactionCreated: {
-					Validator:   validator_TransactionDoesNotExist,
-					OnEvent:     eventAction_TransactionCreated,
-					Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
-				},
-				// // TODO AM: this shouldn't be needed in all states
-				// Event_OriginatorTransactionStateTransition: {
-				// 	OnEvent: eventAction_OriginatorTransactionStateTransition,
-				// },
+var stateDefinitionsMap = StateDefinitions{
+	State_Idle: {
+		Events: map[EventType]EventHandler{
+			Event_HeartbeatReceived: {
+				OnEvent:     eventAction_HeartbeatReceived,
+				Transitions: []Transition{{To: State_Observing}},
+			},
+			Event_TransactionCreated: {
+				Validator:   validator_TransactionDoesNotExist,
+				OnEvent:     eventAction_TransactionCreated,
+				Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
 			},
 		},
-		State_Observing: {
-			Events: map[EventType]EventHandler{
-				Event_HeartbeatInterval: {
-					Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
-				},
-				Event_TransactionCreated: {
-					Validator:   validator_TransactionDoesNotExist,
-					OnEvent:     eventAction_TransactionCreated,
-					Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
-				},
-				Event_NewBlock:          {},
-				Event_HeartbeatReceived: {OnEvent: eventAction_HeartbeatReceived},
-				common.Event_TransactionStateTransition: {
-					OnEvent: eventAction_OriginatorTransactionStateTransition,
-				},
+	},
+	State_Observing: {
+		Events: map[EventType]EventHandler{
+			Event_HeartbeatInterval: {
+				Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
+			},
+			Event_TransactionCreated: {
+				Validator:   validator_TransactionDoesNotExist,
+				OnEvent:     eventAction_TransactionCreated,
+				Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
+			},
+			Event_NewBlock:          {},
+			Event_HeartbeatReceived: {OnEvent: eventAction_HeartbeatReceived},
+			common.Event_TransactionStateTransition: {
+				OnEvent: eventAction_OriginatorTransactionStateTransition,
 			},
 		},
-		State_Sending: {
-			Events: map[EventType]EventHandler{
-				Event_TransactionConfirmed: {
-					OnEvent:     eventAction_TransactionConfirmed,
-					Transitions: []Transition{{To: State_Observing, If: guard_Not(guard_HasUnconfirmedTransactions)}},
-				},
-				Event_TransactionCreated: {
-					Validator: validator_TransactionDoesNotExist,
-					OnEvent:   eventAction_TransactionCreated,
-					Actions:   []ActionRule{{Action: action_SendDelegationRequest}},
-				},
-				Event_NewBlock: {},
-				Event_HeartbeatReceived: {
-					OnEvent: eventAction_HeartbeatReceived,
-					Actions: []ActionRule{{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest}},
-				},
-				Event_Base_Ledger_Transaction_Reverted: {
-					Actions: []ActionRule{{Action: action_SendDelegationRequest}},
-				},
-				Event_Delegate_Timeout: {
-					Actions: []ActionRule{{Action: action_ResendTimedOutDelegationRequest}},
-				},
-				common.Event_TransactionStateTransition: {
-					OnEvent: eventAction_OriginatorTransactionStateTransition,
-				},
+	},
+	State_Sending: {
+		Events: map[EventType]EventHandler{
+			Event_TransactionConfirmed: {
+				OnEvent:     eventAction_TransactionConfirmed,
+				Transitions: []Transition{{To: State_Observing, If: guard_Not(guard_HasUnconfirmedTransactions)}},
+			},
+			Event_TransactionCreated: {
+				Validator: validator_TransactionDoesNotExist,
+				OnEvent:   eventAction_TransactionCreated,
+				Actions:   []ActionRule{{Action: action_SendDelegationRequest}},
+			},
+			Event_NewBlock: {},
+			Event_HeartbeatReceived: {
+				OnEvent: eventAction_HeartbeatReceived,
+				Actions: []ActionRule{{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest}},
+			},
+			Event_Base_Ledger_Transaction_Reverted: {
+				Actions: []ActionRule{{Action: action_SendDelegationRequest}},
+			},
+			Event_Delegate_Timeout: {
+				Actions: []ActionRule{{Action: action_ResendTimedOutDelegationRequest}},
+			},
+			common.Event_TransactionStateTransition: {
+				OnEvent: eventAction_OriginatorTransactionStateTransition,
 			},
 		},
-	}
+	},
 }
 
-func (o *originator) initializeProcessorEventLoop(initialState State) {
-	o.processorEventLoop = statemachine.NewProcessorEventLoop(statemachine.ProcessorEventLoopConfig[State, *originator]{
+func (o *originator) initializeStateMachineEventLoop(initialState State) {
+	o.stateMachineEventLoop = statemachine.NewStateMachineEventLoop(statemachine.StateMachineEventLoopConfig[State, *originator]{
 		InitialState:        initialState,
 		Definitions:         stateDefinitionsMap,
 		Entity:              o,
@@ -206,16 +197,8 @@ func (o *originator) GetCurrentCoordinator() string {
 func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error) {
 	o.RLock()
 	defer o.RUnlock()
-	// TODO AM: take the transaction read lock here as well?
 	if txn, ok := o.transactionsByID[txID]; ok {
-		endorsements := txn.GetEndorsementStatus(ctx)
-		return components.PrivateTxStatus{
-			TxID:         txID.String(),
-			Status:       txn.GetCurrentState().String(),
-			LatestEvent:  txn.GetLatestEvent(),
-			Endorsements: endorsements,
-			Transaction:  txn.GetPrivateTransaction(),
-		}, nil
+		return txn.GetStatus(ctx), nil
 	}
 	return components.PrivateTxStatus{
 		TxID:   txID.String(),

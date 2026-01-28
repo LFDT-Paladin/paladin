@@ -45,7 +45,7 @@ const (
 )
 
 const (
-	Event_Activated EventType = iota + common.Event_HeartbeatInterval + 1 //
+	Event_Activated EventType = iota + common.Event_TransactionStateTransition + 1
 	Event_Nominated
 	Event_Flushed
 	Event_Closed
@@ -71,175 +71,169 @@ type (
 	StateDefinitions = statemachine.StateDefinitions[State, *coordinator]
 )
 
-var stateDefinitionsMap StateDefinitions
-
-func init() {
-	// TODO AM: check this is actually necessary
-	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = StateDefinitions{
-		State_Idle: {
-			OnTransitionTo: action_Idle,
-			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-					Transitions: []Transition{{
-						To: State_Active,
-					}},
-				},
-				Event_HeartbeatReceived: {
-					OnEvent: eventAction_HeartbeatReceived,
-					Transitions: []Transition{{
-						To: State_Observing,
-					}},
-				},
-				Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
-					OnEvent: eventAction_EndorsementRequested,
-					Transitions: []Transition{{
-						To: State_Observing,
-					}},
-				},
+var stateDefinitionsMap = StateDefinitions{
+	State_Idle: {
+		OnTransitionTo: action_Idle,
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+				Transitions: []Transition{{
+					To: State_Active,
+				}},
+			},
+			Event_HeartbeatReceived: {
+				OnEvent: eventAction_HeartbeatReceived,
+				Transitions: []Transition{{
+					To: State_Observing,
+				}},
+			},
+			Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
+				OnEvent: eventAction_EndorsementRequested,
+				Transitions: []Transition{{
+					To: State_Observing,
+				}},
 			},
 		},
-		State_Observing: {
-			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-					Transitions: []Transition{
-						{
-							To: State_Standby,
-							If: guard_Behind,
-						},
-						{
-							To: State_Elect,
-							If: guard_Not(guard_Behind),
-						},
+	},
+	State_Observing: {
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+				Transitions: []Transition{
+					{
+						To: State_Standby,
+						If: guard_Behind,
+					},
+					{
+						To: State_Elect,
+						If: guard_Not(guard_Behind),
 					},
 				},
 			},
 		},
-		State_Standby: {
-			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-				},
-				Event_NewBlock: {
-					OnEvent: eventAction_NewBlock,
-					Transitions: []Transition{{
-						To: State_Elect,
-						If: guard_Not(guard_Behind),
-					}},
-				},
+	},
+	State_Standby: {
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+			},
+			Event_NewBlock: {
+				OnEvent: eventAction_NewBlock,
+				Transitions: []Transition{{
+					To: State_Elect,
+					If: guard_Not(guard_Behind),
+				}},
 			},
 		},
-		State_Elect: {
-			OnTransitionTo: action_SendHandoverRequest,
-			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-				},
-				Event_HandoverReceived: {
-					Transitions: []Transition{{
-						To: State_Prepared,
-					}},
-				},
+	},
+	State_Elect: {
+		OnTransitionTo: action_SendHandoverRequest,
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+			},
+			Event_HandoverReceived: {
+				Transitions: []Transition{{
+					To: State_Prepared,
+				}},
 			},
 		},
-		State_Prepared: {
-			Events: map[EventType]EventHandler{
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-				},
-				Event_HeartbeatReceived: {
-					OnEvent: eventAction_HeartbeatReceived,
-					Transitions: []Transition{{
-						To: State_Active,
-						If: guard_ActiveCoordinatorFlushComplete,
-					}},
-				},
+	},
+	State_Prepared: {
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+			},
+			Event_HeartbeatReceived: {
+				OnEvent: eventAction_HeartbeatReceived,
+				Transitions: []Transition{{
+					To: State_Active,
+					If: guard_ActiveCoordinatorFlushComplete,
+				}},
 			},
 		},
-		State_Active: {
-			OnTransitionTo: action_SelectTransaction,
-			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {
-					OnEvent: eventAction_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
-					Transitions: []Transition{{
-						To: State_Idle,
-						If: guard_Not(guard_HasTransactionsInflight),
-					}},
-				},
-				Event_TransactionsDelegated: {
-					OnEvent: eventAction_TransactionsDelegated,
-					// if this is the first transaction we have received, it needs to move into pooled state before
-					// it can be selected and there is a separate event for that
-				},
-				Event_TransactionConfirmed: {
-					OnEvent: eventAction_TransactionConfirmed,
-				},
-				Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
-					Transitions: []Transition{{
-						To: State_Flush,
-					}},
-				},
-				common.Event_TransactionStateTransition: {
-					OnEvent: eventAction_TransactionStateTransition,
-					Actions: []ActionRule{{
-						Action: action_NudgeDispatchLoop,
-					}, {
-						Action: action_SelectTransaction,
-						If:     guard_Not(guard_HasTransactionAssembling),
-					}},
-				},
+	},
+	State_Active: {
+		OnTransitionTo: action_SelectTransaction,
+		Events: map[EventType]EventHandler{
+			common.Event_HeartbeatInterval: {
+				OnEvent: eventAction_HeartbeatInterval,
+				Actions: []ActionRule{{
+					Action: action_SendHeartbeat,
+				}},
+				Transitions: []Transition{{
+					To: State_Idle,
+					If: guard_Not(guard_HasTransactionsInflight),
+				}},
+			},
+			Event_TransactionsDelegated: {
+				OnEvent: eventAction_TransactionsDelegated,
+				// if this is the first transaction we have received, it needs to move into pooled state before
+				// it can be selected and there is a separate event for that
+			},
+			Event_TransactionConfirmed: {
+				OnEvent: eventAction_TransactionConfirmed,
+			},
+			Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
+				Transitions: []Transition{{
+					To: State_Flush,
+				}},
+			},
+			common.Event_TransactionStateTransition: {
+				OnEvent: eventAction_TransactionStateTransition,
+				Actions: []ActionRule{{
+					Action: action_NudgeDispatchLoop,
+				}, {
+					Action: action_SelectTransaction,
+					If:     guard_Not(guard_HasTransactionAssembling),
+				}},
 			},
 		},
-		State_Flush: {
-			//TODO: should the dispatch loop stop dispatching transactions while in flush?
-			//TODO should we move to active if we get delegated transactions while in flush?
-			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {
-					OnEvent: eventAction_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
-				},
-				Event_TransactionConfirmed: {
-					OnEvent: eventAction_TransactionConfirmed,
-					Transitions: []Transition{{
-						To: State_Closing,
-						If: guard_FlushComplete,
-					}},
-				},
-				common.Event_TransactionStateTransition: {
-					OnEvent: eventAction_TransactionStateTransition,
-				},
+	},
+	State_Flush: {
+		//TODO: should the dispatch loop stop dispatching transactions while in flush?
+		//TODO should we move to active if we get delegated transactions while in flush?
+		Events: map[EventType]EventHandler{
+			common.Event_HeartbeatInterval: {
+				OnEvent: eventAction_HeartbeatInterval,
+				Actions: []ActionRule{{
+					Action: action_SendHeartbeat,
+				}},
+			},
+			Event_TransactionConfirmed: {
+				OnEvent: eventAction_TransactionConfirmed,
+				Transitions: []Transition{{
+					To: State_Closing,
+					If: guard_FlushComplete,
+				}},
+			},
+			common.Event_TransactionStateTransition: {
+				OnEvent: eventAction_TransactionStateTransition,
 			},
 		},
-		State_Closing: {
-			//TODO should we move to active if we get delegated transactions while in closing?
-			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {
-					OnEvent: eventAction_HeartbeatInterval,
-					Actions: []ActionRule{{
-						Action: action_SendHeartbeat,
-					}},
-					Transitions: []Transition{{
-						To: State_Idle,
-						If: guard_ClosingGracePeriodExpired,
-					}},
-				},
-				common.Event_TransactionStateTransition: {
-					OnEvent: eventAction_TransactionStateTransition,
-				},
+	},
+	State_Closing: {
+		//TODO should we move to active if we get delegated transactions while in closing?
+		Events: map[EventType]EventHandler{
+			common.Event_HeartbeatInterval: {
+				OnEvent: eventAction_HeartbeatInterval,
+				Actions: []ActionRule{{
+					Action: action_SendHeartbeat,
+				}},
+				Transitions: []Transition{{
+					To: State_Idle,
+					If: guard_ClosingGracePeriodExpired,
+				}},
+			},
+			common.Event_TransactionStateTransition: {
+				OnEvent: eventAction_TransactionStateTransition,
 			},
 		},
-	}
+	},
 }
 
-func (c *coordinator) initializeProcessorEventLoop(initialState State) {
-	c.processorEventLoop = statemachine.NewProcessorEventLoop(statemachine.ProcessorEventLoopConfig[State, *coordinator]{
+func (c *coordinator) initializeStateMachineEventLoop(initialState State) {
+	c.stateMachineEventLoop = statemachine.NewStateMachineEventLoop(statemachine.StateMachineEventLoopConfig[State, *coordinator]{
 		InitialState:        initialState,
 		Definitions:         stateDefinitionsMap,
 		Entity:              c,
@@ -255,7 +249,7 @@ func (c *coordinator) initializeProcessorEventLoop(initialState State) {
 }
 
 // preProcessEvent handles events that should be processed before the state machine.
-// Returns (true, nil) if the event was fully handled and should not be passed to the processor.
+// Returns (true, nil) if the event was fully handled and should not be passed to the state machine.
 func (c *coordinator) preProcessEvent(ctx context.Context, entity *coordinator, event common.Event) (bool, error) {
 	// Transaction events are propagated to the transaction state machine, not the coordinator state machine
 	if transactionEvent, ok := event.(transaction.Event); ok {
@@ -277,7 +271,7 @@ func (c *coordinator) onStateTransition(ctx context.Context, entity *coordinator
 // Should be called by most Paladin components to ensure memory integrity of
 // sequencer state machine and transactions.
 func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
-	c.processorEventLoop.QueueEvent(ctx, event)
+	c.stateMachineEventLoop.QueueEvent(ctx, event)
 }
 
 // Event action functions - these apply event-specific data to the coordinator's internal state

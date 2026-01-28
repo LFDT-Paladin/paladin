@@ -70,8 +70,8 @@ type coordinator struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
-	/* State machine - using generic statemachine.ProcessorEventLoop */
-	processorEventLoop                         *statemachine.ProcessorEventLoop[State, *coordinator]
+	/* State machine - using generic statemachine.StateMachineEventLoop */
+	stateMachineEventLoop                      *statemachine.StateMachineEventLoop[State, *coordinator]
 	activeCoordinatorNode                      string
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
@@ -159,8 +159,8 @@ func NewCoordinator(
 	}
 	c.originatorNodePool = make([]string, 0)
 
-	// Initialize the processor event loop (state machine + event loop combined)
-	c.initializeProcessorEventLoop(State_Idle)
+	// Initialize the state machine event loop (state machine + event loop combined)
+	c.initializeStateMachineEventLoop(State_Idle)
 
 	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
@@ -176,8 +176,8 @@ func NewCoordinator(
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
-	// Start the processor event loop
-	go c.processorEventLoop.Start(ctx)
+	// Start the state machine event loop
+	go c.stateMachineEventLoop.Start(ctx)
 
 	// Start dispatch queue loop
 	go c.dispatchLoop(ctx)
@@ -194,7 +194,7 @@ func NewCoordinator(
 //  2. This method may be called from callbacks during event processing when the
 //     coordinator's mutex is already held, which would cause a deadlock with RLock()
 func (c *coordinator) GetCurrentState() State {
-	return c.processorEventLoop.GetCurrentState()
+	return c.stateMachineEventLoop.GetCurrentState()
 }
 
 func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string {
@@ -287,12 +287,12 @@ func (c *coordinator) Stop() {
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
 	// Make Stop() idempotent - check if already stopped
-	if c.processorEventLoop.IsStopped() {
+	if c.stateMachineEventLoop.IsStopped() {
 		return
 	}
 
-	// Stop the processor event loop (will process final CoordinatorClosedEvent)
-	c.processorEventLoop.Stop()
+	// Stop the state machine event loop (will process final CoordinatorClosedEvent)
+	c.stateMachineEventLoop.Stop()
 
 	// Stop the dispatch loop
 	c.stopDispatchLoop <- struct{}{}

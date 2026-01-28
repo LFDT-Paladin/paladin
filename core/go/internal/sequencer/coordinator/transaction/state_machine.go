@@ -83,259 +83,252 @@ type (
 	EventHandler     = statemachine.EventHandler[State, *Transaction]
 	StateDefinition  = statemachine.StateDefinition[State, *Transaction]
 	StateDefinitions = statemachine.StateDefinitions[State, *Transaction]
-	StateMachine     = statemachine.StateMachine[State]
+	StateMachine     = statemachine.StateMachine[State, *Transaction]
 )
 
-var stateDefinitionsMap StateDefinitions
-
-// TODO AM: this is a problem- it's shared
-var processor *statemachine.Processor[State, *Transaction]
-
-func init() {
-	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = StateDefinitions{
-		State_Initial: {
-			Events: map[EventType]EventHandler{
-				Event_Received: { //TODO rename this event type because it is the first one we see in this struct and it seems like we are saying this is a definition related to receiving an event (at one level that is correct but it is not what is meant by Event_Received)
-					Transitions: []Transition{
-						{
-							To: State_Submitted,
-							If: guard_HasChainedTxInProgress,
-						},
-						{
-							To: State_Pooled,
-							If: guard_And(guard_Not(guard_HasUnassembledDependencies), guard_Not(guard_HasUnknownDependencies)),
-						},
-						{
-							To: State_PreAssembly_Blocked,
-							If: guard_Or(guard_HasUnassembledDependencies, guard_HasUnknownDependencies),
-						},
+var stateDefinitionsMap = StateDefinitions{
+	State_Initial: {
+		Events: map[EventType]EventHandler{
+			Event_Received: { //TODO rename this event type because it is the first one we see in this struct and it seems like we are saying this is a definition related to receiving an event (at one level that is correct but it is not what is meant by Event_Received)
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+						If: guard_HasChainedTxInProgress,
 					},
-				},
-			},
-		},
-		State_PreAssembly_Blocked: {
-			Events: map[EventType]EventHandler{
-				Event_DependencyAssembled: {
-					Transitions: []Transition{{
+					{
 						To: State_Pooled,
-						If: guard_Not(guard_HasUnassembledDependencies),
-					}},
-				},
-			},
-		},
-		State_Pooled: {
-			OnTransitionTo: action_initializeDependencies,
-			Events: map[EventType]EventHandler{
-				Event_Selected: {
-					Transitions: []Transition{
-						{
-							To: State_Assembling,
-						}},
-				},
-				Event_DependencyReverted: {
-					Transitions: []Transition{{
+						If: statemachine.And(statemachine.Not(guard_HasUnassembledDependencies), statemachine.Not(guard_HasUnknownDependencies)),
+					},
+					{
 						To: State_PreAssembly_Blocked,
-					}},
-				},
-			},
-		},
-		State_Assembling: {
-			OnTransitionTo: action_SendAssembleRequest,
-			Events: map[EventType]EventHandler{
-				Event_Assemble_Success: {
-					Validator: validator_MatchesPendingAssembleRequest,
-					OnEvent:   eventAction_AssembleSuccess,
-					Transitions: []Transition{
-						{
-							To: State_Endorsement_Gathering,
-							On: action_NotifyDependentsOfAssembled,
-							If: guard_Not(guard_AttestationPlanFulfilled),
-						},
-						{
-							To: State_Confirming_Dispatchable,
-							If: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady)),
-						}},
-				},
-				Event_RequestTimeoutInterval: {
-					Actions: []ActionRule{{
-						Action: action_NudgeAssembleRequest,
-						If:     guard_Not(guard_AssembleTimeoutExceeded),
-					}},
-					Transitions: []Transition{{
-						To: State_Pooled,
-						If: guard_AssembleTimeoutExceeded,
-						On: action_IncrementAssembleErrors,
-					}},
-				},
-				Event_Assemble_Revert_Response: {
-					Validator: validator_MatchesPendingAssembleRequest,
-					OnEvent:   eventAction_AssembleRevertResponse,
-					Transitions: []Transition{{
-						To: State_Reverted,
-					}},
-				},
-				// Handle response from originator indicating it doesn't recognize this transaction.
-				// The most likely cause is that the transaction reached a terminal state (e.g., reverted
-				// during assembly) but the response was lost, and the transaction has since been removed
-				// from memory on the originator after cleanup. The coordinator should clean up this transaction.
-				Event_TransactionUnknownByOriginator: {
-					Transitions: []Transition{{
-						To: State_Final,
-						On: action_FinalizeAsUnknownByOriginator,
-					}},
-				},
-			},
-		},
-		State_Endorsement_Gathering: {
-			OnTransitionTo: action_SendEndorsementRequests,
-			Events: map[EventType]EventHandler{
-				Event_Endorsed: {
-					OnEvent: eventAction_Endorsed,
-					Transitions: []Transition{
-						{
-							To: State_Confirming_Dispatchable,
-							If: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady)),
-						},
-						{
-							To: State_Blocked,
-							If: guard_And(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
-						},
+						If: statemachine.Or(guard_HasUnassembledDependencies, guard_HasUnknownDependencies),
 					},
 				},
-				Event_EndorsedRejected: {
-					OnEvent: eventAction_EndorsedRejected,
-					Transitions: []Transition{
-						{
-							To: State_Pooled,
-							On: action_IncrementAssembleErrors,
-						},
-					},
-				},
-				Event_RequestTimeoutInterval: {
-					Actions: []ActionRule{{
-						Action: action_NudgeEndorsementRequests,
-					}},
-				},
 			},
 		},
-		State_Blocked: {
-			Events: map[EventType]EventHandler{
-				Event_DependencyReady: {
-					Transitions: []Transition{{
+	},
+	State_PreAssembly_Blocked: {
+		Events: map[EventType]EventHandler{
+			Event_DependencyAssembled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+					If: statemachine.Not(guard_HasUnassembledDependencies),
+				}},
+			},
+		},
+	},
+	State_Pooled: {
+		OnTransitionTo: action_initializeDependencies,
+		Events: map[EventType]EventHandler{
+			Event_Selected: {
+				Transitions: []Transition{
+					{
+						To: State_Assembling,
+					}},
+			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_PreAssembly_Blocked,
+				}},
+			},
+		},
+	},
+	State_Assembling: {
+		OnTransitionTo: action_SendAssembleRequest,
+		Events: map[EventType]EventHandler{
+			Event_Assemble_Success: {
+				Validator: validator_MatchesPendingAssembleRequest,
+				OnEvent:   eventAction_AssembleSuccess,
+				Transitions: []Transition{
+					{
+						To: State_Endorsement_Gathering,
+						On: action_NotifyDependentsOfAssembled,
+						If: statemachine.Not(guard_AttestationPlanFulfilled),
+					},
+					{
 						To: State_Confirming_Dispatchable,
-						If: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady)),
+						If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
 					}},
-				},
+			},
+			Event_RequestTimeoutInterval: {
+				Actions: []ActionRule{{
+					Action: action_NudgeAssembleRequest,
+					If:     statemachine.Not(guard_AssembleTimeoutExceeded),
+				}},
+				Transitions: []Transition{{
+					To: State_Pooled,
+					If: guard_AssembleTimeoutExceeded,
+					On: action_IncrementAssembleErrors,
+				}},
+			},
+			Event_Assemble_Revert_Response: {
+				Validator: validator_MatchesPendingAssembleRequest,
+				OnEvent:   eventAction_AssembleRevertResponse,
+				Transitions: []Transition{{
+					To: State_Reverted,
+				}},
+			},
+			// Handle response from originator indicating it doesn't recognize this transaction.
+			// The most likely cause is that the transaction reached a terminal state (e.g., reverted
+			// during assembly) but the response was lost, and the transaction has since been removed
+			// from memory on the originator after cleanup. The coordinator should clean up this transaction.
+			Event_TransactionUnknownByOriginator: {
+				Transitions: []Transition{{
+					To: State_Final,
+					On: action_FinalizeAsUnknownByOriginator,
+				}},
 			},
 		},
-		State_Confirming_Dispatchable: {
-			OnTransitionTo: action_SendPreDispatchRequest,
-			Events: map[EventType]EventHandler{
-				Event_DispatchRequestApproved: {
-					Validator: validator_MatchesPendingPreDispatchRequest,
-					OnEvent:   eventAction_DispatchRequestApproved,
-					Transitions: []Transition{
-						{
-							To: State_Ready_For_Dispatch,
-						}},
+	},
+	State_Endorsement_Gathering: {
+		OnTransitionTo: action_SendEndorsementRequests,
+		Events: map[EventType]EventHandler{
+			Event_Endorsed: {
+				OnEvent: eventAction_Endorsed,
+				Transitions: []Transition{
+					{
+						To: State_Confirming_Dispatchable,
+						If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
+					},
+					{
+						To: State_Blocked,
+						If: statemachine.And(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+					},
 				},
-				Event_RequestTimeoutInterval: {
-					Actions: []ActionRule{{
-						Action: action_NudgePreDispatchRequest,
+			},
+			Event_EndorsedRejected: {
+				OnEvent: eventAction_EndorsedRejected,
+				Transitions: []Transition{
+					{
+						To: State_Pooled,
+						On: action_IncrementAssembleErrors,
+					},
+				},
+			},
+			Event_RequestTimeoutInterval: {
+				Actions: []ActionRule{{
+					Action: action_NudgeEndorsementRequests,
+				}},
+			},
+		},
+	},
+	State_Blocked: {
+		Events: map[EventType]EventHandler{
+			Event_DependencyReady: {
+				Transitions: []Transition{{
+					To: State_Confirming_Dispatchable,
+					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
+				}},
+			},
+		},
+	},
+	State_Confirming_Dispatchable: {
+		OnTransitionTo: action_SendPreDispatchRequest,
+		Events: map[EventType]EventHandler{
+			Event_DispatchRequestApproved: {
+				Validator: validator_MatchesPendingPreDispatchRequest,
+				OnEvent:   eventAction_DispatchRequestApproved,
+				Transitions: []Transition{
+					{
+						To: State_Ready_For_Dispatch,
 					}},
-				},
+			},
+			Event_RequestTimeoutInterval: {
+				Actions: []ActionRule{{
+					Action: action_NudgePreDispatchRequest,
+				}},
 			},
 		},
-		State_Ready_For_Dispatch: {
-			OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
-			Events: map[EventType]EventHandler{
-				Event_Dispatched: {
-					Transitions: []Transition{
-						{
-							To: State_Dispatched,
-						}},
-				},
+	},
+	State_Ready_For_Dispatch: {
+		OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+		Events: map[EventType]EventHandler{
+			Event_Dispatched: {
+				Transitions: []Transition{
+					{
+						To: State_Dispatched,
+					}},
 			},
 		},
-		State_Dispatched: {
-			Events: map[EventType]EventHandler{
-				Event_Collected: {
-					OnEvent: eventAction_Collected,
-					Transitions: []Transition{
-						{
-							To: State_SubmissionPrepared,
-						}},
-				},
+	},
+	State_Dispatched: {
+		Events: map[EventType]EventHandler{
+			Event_Collected: {
+				OnEvent: eventAction_Collected,
+				Transitions: []Transition{
+					{
+						To: State_SubmissionPrepared,
+					}},
 			},
 		},
-		State_SubmissionPrepared: {
-			Events: map[EventType]EventHandler{
-				Event_Submitted: {
-					OnEvent: eventAction_Submitted,
-					Transitions: []Transition{
-						{
-							To: State_Submitted,
-						}},
-				},
-				Event_NonceAllocated: {
-					OnEvent: eventAction_NonceAllocated,
-				},
+	},
+	State_SubmissionPrepared: {
+		Events: map[EventType]EventHandler{
+			Event_Submitted: {
+				OnEvent: eventAction_Submitted,
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+					}},
+			},
+			Event_NonceAllocated: {
+				OnEvent: eventAction_NonceAllocated,
 			},
 		},
-		State_Submitted: {
-			Events: map[EventType]EventHandler{
-				Event_Confirmed: {
-					OnEvent: eventAction_Confirmed,
-					Transitions: []Transition{
-						{
-							If: guard_Not(guard_HasRevertReason),
-							To: State_Confirmed,
-						},
-						{
-							// MRW TODO - we're re-pooling this transaction. Should we discard other
-							// assembled transactions i.e. re-pool everything this coordinator is tracking?
-							On: action_recordRevert,
-							If: guard_HasRevertReason,
-							To: State_Pooled,
-						},
+	},
+	State_Submitted: {
+		Events: map[EventType]EventHandler{
+			Event_Confirmed: {
+				OnEvent: eventAction_Confirmed,
+				Transitions: []Transition{
+					{
+						If: statemachine.Not(guard_HasRevertReason),
+						To: State_Confirmed,
+					},
+					{
+						// MRW TODO - we're re-pooling this transaction. Should we discard other
+						// assembled transactions i.e. re-pool everything this coordinator is tracking?
+						On: action_recordRevert,
+						If: guard_HasRevertReason,
+						To: State_Pooled,
 					},
 				},
 			},
 		},
-		State_Reverted: {
-			OnTransitionTo: action_NotifyDependentsOfRevert,
-			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {
-					OnEvent: eventAction_HeartbeatInterval,
-					Transitions: []Transition{
-						{
-							If: guard_HasGracePeriodPassedSinceStateChange,
-							To: State_Final,
-						}},
-				},
+	},
+	State_Reverted: {
+		OnTransitionTo: action_NotifyDependentsOfRevert,
+		Events: map[EventType]EventHandler{
+			common.Event_HeartbeatInterval: {
+				OnEvent: eventAction_HeartbeatInterval,
+				Transitions: []Transition{
+					{
+						If: guard_HasGracePeriodPassedSinceStateChange,
+						To: State_Final,
+					}},
 			},
 		},
-		State_Confirmed: {
-			OnTransitionTo: action_NotifyOfConfirmation,
-			Events: map[EventType]EventHandler{
-				common.Event_HeartbeatInterval: {
-					OnEvent: eventAction_HeartbeatInterval,
-					Transitions: []Transition{
-						{
-							If: guard_HasGracePeriodPassedSinceStateChange,
-							To: State_Final,
-						}},
-				},
+	},
+	State_Confirmed: {
+		OnTransitionTo: action_NotifyOfConfirmation,
+		Events: map[EventType]EventHandler{
+			common.Event_HeartbeatInterval: {
+				OnEvent: eventAction_HeartbeatInterval,
+				Transitions: []Transition{
+					{
+						If: guard_HasGracePeriodPassedSinceStateChange,
+						To: State_Final,
+					}},
 			},
 		},
-		State_Final: {
-			// Cleanup is handled by the coordinator in response to the state transition event
-		},
-	}
+	},
+	State_Final: {
+		// Cleanup is handled by the coordinator in response to the state transition event
+	},
+}
 
-	// Create the processor with a transition callback that notifies the coordinator
-	processor = statemachine.NewProcessor(stateDefinitionsMap,
+func (t *Transaction) initializeStateMachine(initialState State) {
+	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
@@ -346,7 +339,7 @@ func init() {
 				t.pt.Address.String()[0:8], t.pt.ID.String()[0:8], event, from.String(), to.String())
 
 			// Record metrics
-			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.LastStateChange).Milliseconds()))
+			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))
 
 			// Queue state transition event for the coordinator
 			if t.queueEventForCoordinator != nil {
@@ -361,15 +354,9 @@ func init() {
 	)
 }
 
-func (t *Transaction) initializeStateMachine(initialState State) {
-	t.stateMachine = &StateMachine{}
-	statemachine.Initialize(t.stateMachine, initialState)
-}
-
-// TODO AM: external
 func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX originator %s, TX address %+v)", t.pt.ID.String(), t.originator, t.pt.Address.HexString())
-	return processor.ProcessEvent(ctx, t, t.stateMachine, event)
+	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
 // Event action functions - these apply event-specific data to the transaction state
@@ -445,34 +432,6 @@ func eventAction_HeartbeatInterval(ctx context.Context, t *Transaction, _ common
 	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.pt.ID.String(), t.stateMachine.CurrentState.String(), t.heartbeatIntervalsSinceStateChange+1)
 	t.heartbeatIntervalsSinceStateChange++
 	return nil
-}
-
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, txn *Transaction) bool {
-		return !guard(ctx, txn)
-	}
-}
-
-func guard_And(guards ...Guard) Guard {
-	return func(ctx context.Context, txn *Transaction) bool {
-		for _, guard := range guards {
-			if !guard(ctx, txn) {
-				return false
-			}
-		}
-		return true
-	}
-}
-
-func guard_Or(guards ...Guard) Guard {
-	return func(ctx context.Context, txn *Transaction) bool {
-		for _, guard := range guards {
-			if guard(ctx, txn) {
-				return true
-			}
-		}
-		return false
-	}
 }
 
 func (s State) String() string {

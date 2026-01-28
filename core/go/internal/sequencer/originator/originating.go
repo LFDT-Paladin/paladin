@@ -28,16 +28,10 @@ import (
 )
 
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
-	transactions, err := o.transactionsOrderedByCreatedTime(ctx)
-	if err != nil {
-		log.L(ctx).Errorf("failed to get transactions ordered by created time: %v", err)
-		return err
-	}
-
 	// Find pending transactions only and (optionally) already delegated transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	transactionsToDelegate := make([]*transaction.Transaction, 0)
-	for _, txn := range transactions {
+	for _, txn := range o.transactionsOrdered {
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
 			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
@@ -86,7 +80,7 @@ func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
 	//NOTE: "dropped" is not a state in the transaction state machine, but rather a state in the originator's view of the world.
 	// Reason for this is that it is not really a state of the transaction, it is a property of the heartbeat event and as such,
 	// is reconciled as part of handling that event so immediately, the transaction is in Delegated state again
-	for _, txn := range o.getTransactionsInStates(ctx, []transaction.State{transaction.State_Delegated}) {
+	for _, txn := range o.getTransactionsInStates([]transaction.State{transaction.State_Delegated}) {
 		dropped := true
 		for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
 			if dispatchedTransaction.ID == txn.GetID() {

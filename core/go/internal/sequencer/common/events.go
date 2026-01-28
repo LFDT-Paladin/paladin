@@ -27,7 +27,7 @@ type EventType int
 type EmitEvent func(event Event)
 
 const (
-	Event_HeartbeatInterval           EventType = iota // emitted on a regular basis, interval defined by the sequencer config a
+	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config a
 	Event_TransactionStateTransition                  // transaction state machine transition; originator/coordinator handle cleanup and side effects
 )
 
@@ -58,7 +58,7 @@ func (*HeartbeatIntervalEvent) TypeString() string {
 }
 
 // TransactionStateTransitionEvent is queued by a transaction state machine when it transitions state.
-// S is the state type (comparable, typically int-based enum); each processor uses its own State type parameter.
+// S is the state type (comparable, typically int-based enum); each state machine uses its own State type parameter.
 type TransactionStateTransitionEvent[S comparable] struct {
 	BaseEvent
 	TransactionID uuid.UUID

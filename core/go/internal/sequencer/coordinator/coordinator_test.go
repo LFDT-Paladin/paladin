@@ -622,7 +622,7 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	c, _ := builder.Build(ctx)
 
 	// Verify event loop is running
-	require.False(t, c.processorEventLoop.IsStopped(), "event loop should not be stopped initially")
+	require.False(t, c.stateMachineEventLoop.IsStopped(), "event loop should not be stopped initially")
 
 	select {
 	case <-c.dispatchLoopStopped:
@@ -634,7 +634,7 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	c.Stop()
 
 	// Verify both loops have stopped
-	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
+	require.True(t, c.stateMachineEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
@@ -677,7 +677,7 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 	c.Stop()
 
 	// Verify both loops have stopped
-	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
+	require.True(t, c.stateMachineEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:
@@ -700,7 +700,7 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	c.Stop()
 
 	// Verify both loops have stopped
-	require.True(t, c.processorEventLoop.IsStopped(), "event loop should be stopped")
+	require.True(t, c.stateMachineEventLoop.IsStopped(), "event loop should be stopped")
 
 	select {
 	case _, ok := <-c.dispatchLoopStopped:

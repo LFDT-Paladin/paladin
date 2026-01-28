@@ -221,7 +221,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		coordinator.transactionsByID[tx.GetID()] = tx
 	}
 
-	coordinator.processorEventLoop.StateMachine().CurrentState = b.state
+	coordinator.stateMachineEventLoop.StateMachine().CurrentState = b.state
 	switch b.state {
 	case State_Observing:
 		fallthrough

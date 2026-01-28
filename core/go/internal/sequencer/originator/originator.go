@@ -55,8 +55,8 @@ type SeqOriginator interface {
 type originator struct {
 	sync.RWMutex // Implements statemachine.Lockable for thread-safe event processing
 
-	/* State machine - using generic statemachine.ProcessorEventLoop */
-	processorEventLoop *statemachine.ProcessorEventLoop[State, *originator]
+	/* State machine - using generic statemachine.StateMachineEventLoop */
+	stateMachineEventLoop *statemachine.StateMachineEventLoop[State, *originator]
 	// activeCoordinatorNode is protected independently of the statemachine loop since there
 	// is a possible deadlock when a node is both originator and coordinator where processing a message
 	// from the loopback writer queue needs to call GetCurrentCoordinator, but the event loop is holding the
@@ -67,7 +67,7 @@ type originator struct {
 	timeOfMostRecentHeartbeat   common.Time
 	transactionsByID            map[uuid.UUID]*transaction.Transaction
 	submittedTransactionsByHash map[pldtypes.Bytes32]*uuid.UUID
-	transactionsOrdered         []*uuid.UUID
+	transactionsOrdered         []*transaction.Transaction
 	currentBlockHeight          uint64
 	latestCoordinatorSnapshot   *common.CoordinatorSnapshot
 
@@ -116,9 +116,9 @@ func NewOriginator(
 		stopDelegateLoop:            make(chan struct{}),
 		delegateLoopStopped:         make(chan struct{}),
 	}
-	o.initializeProcessorEventLoop(State_Idle)
+	o.initializeStateMachineEventLoop(State_Idle)
 
-	go o.processorEventLoop.Start(ctx)
+	go o.stateMachineEventLoop.Start(ctx)
 	go o.delegateLoop(ctx)
 
 	return o, nil
@@ -130,23 +130,23 @@ func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
 
 	// Make Stop() idempotent - make sure we've not already been stopped
-	if o.processorEventLoop.IsStopped() {
+	if o.stateMachineEventLoop.IsStopped() {
 		return
 	}
 
 	o.stopDelegateLoop <- struct{}{}
 	<-o.delegateLoopStopped
 
-	o.processorEventLoop.Stop()
+	o.stateMachineEventLoop.Stop()
 }
 
 func (o *originator) GetCurrentState() State {
-	return o.processorEventLoop.GetCurrentState()
+	return o.stateMachineEventLoop.GetCurrentState()
 }
 
 func (o *originator) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("Pushing originator event onto event queue: %s", event.TypeString())
-	o.processorEventLoop.QueueEvent(ctx, event)
+	o.stateMachineEventLoop.QueueEvent(ctx, event)
 	log.L(ctx).Tracef("Pushed originator event onto event queue: %s", event.TypeString())
 }
 
@@ -167,7 +167,7 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
-			o.processorEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
+			o.stateMachineEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
 		case <-o.stopDelegateLoop:
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
 			return
@@ -215,7 +215,7 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 		return err
 	}
 	o.transactionsByID[txn.ID] = newTxn
-	o.transactionsOrdered = append(o.transactionsOrdered, &txn.ID)
+	o.transactionsOrdered = append(o.transactionsOrdered, newTxn)
 	createdEvent := &transaction.CreatedEvent{}
 	createdEvent.TransactionID = txn.ID
 	err = newTxn.HandleEvent(ctx, createdEvent)
@@ -233,8 +233,8 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 	delete(o.transactionsByID, txnID)
 
 	// Remove from transactionsOrdered
-	for i, id := range o.transactionsOrdered {
-		if *id == txnID {
+	for i, txn := range o.transactionsOrdered {
+		if txn.GetID() == txnID {
 			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
 			break
 		}
@@ -243,16 +243,7 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
 }
 
-func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {
-	//TODO AM are we actually saving anything by transactionsOrdered being an array of IDs rather than an array of *transaction.Transaction
-	ordered := make([]*transaction.Transaction, len(o.transactionsOrdered))
-	for i, id := range o.transactionsOrdered {
-		ordered[i] = o.transactionsByID[*id]
-	}
-	return ordered, nil
-}
-
-func (o *originator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.Transaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	matchingStates := make(map[transaction.State]bool)
@@ -268,7 +259,7 @@ func (o *originator) getTransactionsInStates(ctx context.Context, states []trans
 	return matchingTxns
 }
 
-func (o *originator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsNotInStates(states []transaction.State) []*transaction.Transaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	nonMatchingStates := make(map[transaction.State]bool)

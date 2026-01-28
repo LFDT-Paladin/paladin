@@ -44,7 +44,7 @@ const (
 )
 
 // Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
-// It implements statemachine.Lockable; the processor holds this lock for the duration of each ProcessEvent call.
+// It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications go through this package.
 type Transaction struct {
 	sync.RWMutex
@@ -136,7 +136,7 @@ func NewTransaction(
 
 // This function is external but doesn't not need a lock as ints are atomic
 func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.CurrentState
+	return t.stateMachine.GetCurrentState()
 }
 
 // These functions are all called externally and return data that can change so always take

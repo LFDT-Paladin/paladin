@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -40,12 +39,11 @@ type assembleRequestFromCoordinator struct {
 }
 
 // Transaction tracks the state of a transaction that is being sent by the local node in originator state.
-// It implements statemachine.Lockable; the processor holds this lock for the duration of each ProcessEvent call.
+// It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications must go through this package.
 type Transaction struct {
 	sync.RWMutex
 	stateMachine                     *StateMachine
-	processor                        *statemachine.Processor[State, *Transaction]
 	pt                               *components.PrivateTransaction
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
@@ -98,6 +96,22 @@ func (t *Transaction) GetPrivateTransaction() *components.PrivateTransaction {
 	return t.pt
 }
 
+// GetStatus returns the transaction status for external use. Caller may call from any goroutine.
+func (t *Transaction) GetStatus(ctx context.Context) components.PrivateTxStatus {
+	t.RLock()
+	defer t.RUnlock()
+	if t.pt == nil {
+		return components.PrivateTxStatus{TxID: "", Status: "unknown"}
+	}
+	return components.PrivateTxStatus{
+		TxID:         t.pt.ID.String(),
+		Status:       t.stateMachine.GetCurrentState().String(),
+		LatestEvent:  t.stateMachine.GetLatestEvent(),
+		Endorsements: t.getEndorsementStatus(ctx),
+		Transaction:  t.pt,
+	}
+}
+
 func (t *Transaction) GetHash(ctx context.Context) (*pldtypes.Bytes32, error) {
 	t.RLock()
 	defer t.RUnlock()
@@ -130,9 +144,10 @@ func (t *Transaction) hashInternal(ctx context.Context) (*pldtypes.Bytes32, erro
 	return &h32, nil
 }
 
-func (t *Transaction) GetEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
-	t.RLock()
-	defer t.RUnlock()
+func (t *Transaction) getEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
+	if t.pt == nil || t.pt.PostAssembly == nil {
+		return nil
+	}
 	endorsementRequestStates := make([]components.PrivateTxEndorsementStatus, len(t.pt.PostAssembly.AttestationPlan))
 	for i, attRequest := range t.pt.PostAssembly.AttestationPlan {
 		if attRequest.AttestationType == prototk.AttestationType_ENDORSE {
