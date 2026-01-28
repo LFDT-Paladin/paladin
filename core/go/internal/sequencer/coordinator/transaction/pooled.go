@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
@@ -98,13 +99,13 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 
 }
 
-func action_recordRevert(_ context.Context, txn *Transaction) error {
+func action_recordRevert(_ context.Context, txn *Transaction, _ common.Event) error {
 	now := pldtypes.TimestampNow()
 	txn.revertTime = &now
 	return nil
 }
 
-func action_initializeDependencies(ctx context.Context, txn *Transaction) error {
+func action_initializeDependencies(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.initializeDependencies(ctx)
 }
 

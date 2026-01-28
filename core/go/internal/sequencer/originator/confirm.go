@@ -22,10 +22,17 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
+func action_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*TransactionConfirmedEvent)
+	return o.confirmTransaction(ctx, e.From, e.Nonce, e.Hash, e.RevertReason)
+}
+
+// TODO AM: remove the unused paramters
 func (o *originator) confirmTransaction(
 	ctx context.Context,
 	From *pldtypes.EthAddress,

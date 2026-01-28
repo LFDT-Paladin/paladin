@@ -115,10 +115,15 @@ func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transa
 	return false, nil
 }
 
-func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction) error {
+func action_DispatchRequestApproved(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*DispatchRequestApprovedEvent)
+	return t.applyDispatchConfirmation(ctx, e.RequestID)
+}
+
+func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.sendPreDispatchRequest(ctx)
 }
 
-func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction) error {
+func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
 }

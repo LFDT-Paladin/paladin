@@ -61,7 +61,7 @@ func TestAction_ResendAssembleSuccessResponse_Success(t *testing.T) {
 	mocks.SentMessageRecorder.Reset(ctx)
 
 	// Execute the action
-	err := action_ResendAssembleSuccessResponse(ctx, txn)
+	err := action_ResendAssembleSuccessResponse(ctx, txn, nil)
 
 	// Verify no error
 	assert.NoError(t, err)
@@ -109,7 +109,7 @@ func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 	txn.transportWriter = mockTransport
 
 	// Execute the action
-	err := action_ResendAssembleSuccessResponse(ctx, txn)
+	err := action_ResendAssembleSuccessResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
@@ -148,7 +148,7 @@ func TestAction_ResendAssembleRevertResponse_Success(t *testing.T) {
 	mocks.SentMessageRecorder.Reset(ctx)
 
 	// Execute the action
-	err := action_ResendAssembleRevertResponse(ctx, txn)
+	err := action_ResendAssembleRevertResponse(ctx, txn, nil)
 
 	// Verify no error
 	assert.NoError(t, err)
@@ -197,7 +197,7 @@ func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 	txn.transportWriter = mockTransport
 
 	// Execute the action
-	err := action_ResendAssembleRevertResponse(ctx, txn)
+	err := action_ResendAssembleRevertResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
@@ -235,7 +235,7 @@ func TestAction_ResendAssembleParkResponse_Success(t *testing.T) {
 	mocks.SentMessageRecorder.Reset(ctx)
 
 	// Execute the action
-	err := action_ResendAssembleParkResponse(ctx, txn)
+	err := action_ResendAssembleParkResponse(ctx, txn, nil)
 
 	// Verify no error
 	assert.NoError(t, err)
@@ -283,7 +283,7 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	txn.transportWriter = mockTransport
 
 	// Execute the action
-	err := action_ResendAssembleParkResponse(ctx, txn)
+	err := action_ResendAssembleParkResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)

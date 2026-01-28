@@ -17,11 +17,27 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_SendPreDispatchResponse(ctx context.Context, txn *Transaction) error {
+func action_Delegated(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*DelegatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
+	}
+	t.currentDelegate = e.Coordinator
+	t.updateLastDelegatedTime()
+	return nil
+}
+
+func (t *Transaction) updateLastDelegatedTime() {
+	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
+}
+
+func action_SendPreDispatchResponse(ctx context.Context, txn *Transaction, _ common.Event) error {
 	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
 	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
 	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)

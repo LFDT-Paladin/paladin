@@ -52,7 +52,7 @@ func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	// Execute the action
-	err := action_SendPreDispatchResponse(ctx, txn)
+	err := action_SendPreDispatchResponse(ctx, txn, nil)
 
 	// Verify no error
 	assert.NoError(t, err)
@@ -98,7 +98,7 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 	txn.transportWriter = mockTransport
 
 	// Execute the action
-	err := action_SendPreDispatchResponse(ctx, txn)
+	err := action_SendPreDispatchResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)
@@ -215,7 +215,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testi
 
 	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when coordinator and hash match")
-	// Note: request ID is stored by eventAction_PreDispatchRequestReceived (OnEvent) when the event is processed via HandleEvent
+	// Note: request ID is stored by action_PreDispatchRequestReceived (first action) when the event is processed via HandleEvent
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator(t *testing.T) {

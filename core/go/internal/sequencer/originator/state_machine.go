@@ -51,7 +51,6 @@ const (
 // Type aliases for the generic statemachine types, specialized for originator
 type (
 	Action           = statemachine.Action[*originator]
-	EventAction      = statemachine.EventAction[*originator]
 	Guard            = statemachine.Guard[*originator]
 	ActionRule       = statemachine.ActionRule[*originator]
 	Transition       = statemachine.Transition[State, *originator]
@@ -64,13 +63,13 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Idle: {
 		Events: map[EventType]EventHandler{
 			Event_HeartbeatReceived: {
-				OnEvent:     eventAction_HeartbeatReceived,
+				Actions:     []ActionRule{{Action: action_HeartbeatReceived}},
 				Transitions: []Transition{{To: State_Observing}},
 			},
 			Event_TransactionCreated: {
 				Validator:   validator_TransactionDoesNotExist,
-				OnEvent:     eventAction_TransactionCreated,
-				Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
+				Actions:     []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
 			},
 		},
 	},
@@ -81,31 +80,35 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_TransactionCreated: {
 				Validator:   validator_TransactionDoesNotExist,
-				OnEvent:     eventAction_TransactionCreated,
-				Transitions: []Transition{{To: State_Sending, On: action_SendDelegationRequest}},
+				Actions:     []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
 			},
 			Event_NewBlock:          {},
-			Event_HeartbeatReceived: {OnEvent: eventAction_HeartbeatReceived},
+			Event_HeartbeatReceived: {Actions: []ActionRule{{Action: action_HeartbeatReceived}}},
 			common.Event_TransactionStateTransition: {
-				OnEvent: eventAction_OriginatorTransactionStateTransition,
+				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
 			},
 		},
 	},
 	State_Sending: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionConfirmed: {
-				OnEvent:     eventAction_TransactionConfirmed,
+				Actions:     []ActionRule{{Action: action_TransactionConfirmed}},
 				Transitions: []Transition{{To: State_Observing, If: guard_Not(guard_HasUnconfirmedTransactions)}},
 			},
 			Event_TransactionCreated: {
 				Validator: validator_TransactionDoesNotExist,
-				OnEvent:   eventAction_TransactionCreated,
-				Actions:   []ActionRule{{Action: action_SendDelegationRequest}},
+				Actions: []ActionRule{
+					{Action: action_TransactionCreated},
+					{Action: action_SendDelegationRequest},
+				},
 			},
 			Event_NewBlock: {},
 			Event_HeartbeatReceived: {
-				OnEvent: eventAction_HeartbeatReceived,
-				Actions: []ActionRule{{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest}},
+				Actions: []ActionRule{
+					{Action: action_HeartbeatReceived},
+					{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest},
+				},
 			},
 			Event_Base_Ledger_Transaction_Reverted: {
 				Actions: []ActionRule{{Action: action_SendDelegationRequest}},
@@ -114,7 +117,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_ResendTimedOutDelegationRequest}},
 			},
 			common.Event_TransactionStateTransition: {
-				OnEvent: eventAction_OriginatorTransactionStateTransition,
+				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
 			},
 		},
 	},
@@ -145,23 +148,12 @@ func (o *originator) onStateTransition(ctx context.Context, entity *originator, 
 		"orig     | %s   | %T | %s -> %s", o.contractAddress.String()[0:8], event, from.String(), to.String())
 }
 
-// Event action functions - apply event-specific data to the originator's internal state
-func eventAction_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
+func action_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*HeartbeatReceivedEvent)
 	return o.applyHeartbeatReceived(ctx, e)
 }
 
-func eventAction_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*TransactionCreatedEvent)
-	return o.createTransaction(ctx, e.Transaction)
-}
-
-func eventAction_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*TransactionConfirmedEvent)
-	return o.confirmTransaction(ctx, e.From, e.Nonce, e.Hash, e.RevertReason)
-}
-
-func eventAction_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
+func action_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	switch e.To {
 	case transaction.State_Final:
@@ -206,6 +198,7 @@ func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status co
 	}, nil
 }
 
+// TODO AM: replace with the common one- also review the functions in this file and the ordering
 func guard_Not(guard Guard) Guard {
 	return func(ctx context.Context, o *originator) bool {
 		return !guard(ctx, o)

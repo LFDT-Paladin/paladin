@@ -282,30 +282,56 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Transacti
 	return false, nil
 }
 
-func action_SendAssembleRequest(ctx context.Context, txn *Transaction) error {
+func action_AssembleSuccess(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleSuccessEvent)
+	err := t.applyPostAssembly(ctx, e.PostAssembly)
+	if err == nil {
+		err = t.writeLockStates(ctx)
+		if err != nil {
+			// Internal error. Only option is to revert the transaction
+			seqRevertEvent := &AssembleRevertResponseEvent{}
+			seqRevertEvent.RequestID = e.RequestID // Must match what the state machine thinks the current assemble request ID is
+			seqRevertEvent.TransactionID = t.pt.ID
+			t.queueEventForCoordinator(ctx, seqRevertEvent)
+			t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+			// Return the original error
+			return err
+		}
+	}
+	// Assembling resolves the required verifiers which will need passing on for the endorse step
+	t.pt.PreAssembly.Verifiers = e.PreAssembly.Verifiers
+	return err
+}
+
+func action_AssembleRevertResponse(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleRevertResponseEvent)
+	return t.applyPostAssembly(ctx, e.PostAssembly)
+}
+
+func action_SendAssembleRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
 }
 
-func action_NudgeAssembleRequest(ctx context.Context, txn *Transaction) error {
+func action_NudgeAssembleRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
 }
 
-func action_NotifyDependentsOfAssembled(ctx context.Context, txn *Transaction) error {
+func action_NotifyDependentsOfAssembled(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.notifyDependentsOfAssembled(ctx)
 }
 
-func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) error {
+func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.notifyDependentsOfRevert(ctx)
 }
 
-func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
+func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction, _ common.Event) error {
 	log.L(ctx).Infof("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
 	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
 	return nil
 }
 
-func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction) error {
+func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction, _ common.Event) error {
 	txn.resetEndorsementRequests(ctx)
 	return txn.incrementAssembleErrors()
 }

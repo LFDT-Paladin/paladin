@@ -220,7 +220,7 @@ func TestActionsOnTransition(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						On: func(ctx context.Context, e *TestEntity) error {
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 							actionCalled = true
 							e.lastAction = "transition_action"
 							return nil
@@ -230,7 +230,7 @@ func TestActionsOnTransition(t *testing.T) {
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity) error {
+			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
 				entryActionCalled = true
 				e.lastAction = "entry_action"
 				return nil
@@ -257,13 +257,13 @@ func TestEventHandlerActions(t *testing.T) {
 				Event_Start: {
 					Actions: []ActionRule[*TestEntity]{
 						{
-							Action: func(ctx context.Context, e *TestEntity) error {
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 								e.counter++
 								return nil
 							},
 						},
 						{
-							Action: func(ctx context.Context, e *TestEntity) error {
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 								e.counter += 10
 								return nil
 							},
@@ -330,15 +330,17 @@ func TestEventValidator(t *testing.T) {
 	assert.Equal(t, State_Idle, entity2.sm.GetCurrentState()) // No transition
 }
 
-func TestOnEventAppliesEventData(t *testing.T) {
+func TestFirstActionAppliesEventData(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
 				Event_Start: {
-					OnEvent: func(ctx context.Context, e *TestEntity, event common.Event) error {
-						e.applyCounter++
-						return nil
-					},
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.applyCounter++
+							return nil
+						},
+					}},
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
 					}},
@@ -419,7 +421,7 @@ func TestActionError(t *testing.T) {
 				Event_Start: {
 					Actions: []ActionRule[*TestEntity]{
 						{
-							Action: func(ctx context.Context, e *TestEntity) error {
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 								return expectedErr
 							},
 						},
@@ -466,19 +468,20 @@ func TestStateMachineMetadata(t *testing.T) {
 	assert.True(t, entity.sm.GetLastStateChange().After(beforeTransition) || entity.sm.GetLastStateChange().Equal(beforeTransition))
 }
 
-func TestOnEventAction(t *testing.T) {
-	// Test that OnEvent is called and can access event data
+func TestEventHandlerFirstAction(t *testing.T) {
+	// Test that first action is called and can access event data
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
 				Event_Start: {
-					OnEvent: func(ctx context.Context, e *TestEntity, event common.Event) error {
-						// Access event-specific data
-						te := event.(*testEvent)
-						e.lastAction = "onEvent_" + te.data
-						e.counter = 100
-						return nil
-					},
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							te := event.(*testEvent)
+							e.lastAction = "first_" + te.data
+							e.counter = 100
+							return nil
+						},
+					}},
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
 					}},
@@ -500,31 +503,32 @@ func TestOnEventAction(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
-	assert.Equal(t, "onEvent_test_data", entity.lastAction)
+	assert.Equal(t, "first_test_data", entity.lastAction)
 	assert.Equal(t, 100, entity.counter)
 }
 
-func TestOnEventBeforeActions(t *testing.T) {
-	// Test that OnEvent runs before guarded Actions
+func TestFirstActionBeforeGuardedActions(t *testing.T) {
+	// Test that first action runs before guarded Actions
 	var callOrder []string
 
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
 				Event_Start: {
-					OnEvent: func(ctx context.Context, e *TestEntity, event common.Event) error {
-						callOrder = append(callOrder, "onEvent")
-						e.counter = 50 // Set a value that the guard can check
-						return nil
-					},
 					Actions: []ActionRule[*TestEntity]{
 						{
-							Action: func(ctx context.Context, e *TestEntity) error {
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+								callOrder = append(callOrder, "first")
+								e.counter = 50 // Set a value that the guard can check
+								return nil
+							},
+						},
+						{
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 								callOrder = append(callOrder, "action")
 								return nil
 							},
 							If: func(ctx context.Context, e *TestEntity) bool {
-								// This guard should see the counter set by OnEvent
 								return e.counter == 50
 							},
 						},
@@ -543,20 +547,21 @@ func TestOnEventBeforeActions(t *testing.T) {
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
 	require.NoError(t, err)
 
-	// OnEvent should run first, then the action (whose guard passes because OnEvent set counter)
-	assert.Equal(t, []string{"onEvent", "action"}, callOrder)
+	assert.Equal(t, []string{"first", "action"}, callOrder)
 }
 
-func TestOnEventError(t *testing.T) {
-	expectedErr := errors.New("onEvent failed")
+func TestFirstActionError(t *testing.T) {
+	expectedErr := errors.New("first action failed")
 
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
 				Event_Start: {
-					OnEvent: func(ctx context.Context, e *TestEntity, event common.Event) error {
-						return expectedErr
-					},
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return expectedErr
+						},
+					}},
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
 					}},
@@ -609,7 +614,7 @@ func TestTransitionOnActionError(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						On: func(ctx context.Context, e *TestEntity) error {
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
 							return transitionErr
 						},
 					}},
@@ -623,8 +628,7 @@ func TestTransitionOnActionError(t *testing.T) {
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
 	assert.Equal(t, transitionErr, err)
-	// State may have been updated before On ran; the important part is we returned the error
-	assert.Equal(t, State_Active, entity.sm.GetCurrentState()) // state was already set before On
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
 }
 
 func TestStateEntryActionError(t *testing.T) {
@@ -641,7 +645,7 @@ func TestStateEntryActionError(t *testing.T) {
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity) error {
+			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
 				return entryErr
 			},
 		},
@@ -652,7 +656,6 @@ func TestStateEntryActionError(t *testing.T) {
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
 	assert.Equal(t, entryErr, err)
-	// State was updated before entry action ran
 	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
 }
 

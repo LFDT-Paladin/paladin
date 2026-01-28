@@ -203,11 +203,21 @@ func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState
 	return endorsableList
 }
 
-func action_SendEndorsementRequests(ctx context.Context, txn *Transaction) error {
+func action_Endorsed(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*EndorsedEvent)
+	return t.applyEndorsement(ctx, e.Endorsement, e.RequestID)
+}
+
+func action_EndorsedRejected(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*EndorsedRejectedEvent)
+	return t.applyEndorsementRejection(ctx, e.RevertReason, e.Party, e.AttestationRequestName)
+}
+
+func action_SendEndorsementRequests(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }
 
-func action_NudgeEndorsementRequests(ctx context.Context, txn *Transaction) error {
+func action_NudgeEndorsementRequests(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }
 

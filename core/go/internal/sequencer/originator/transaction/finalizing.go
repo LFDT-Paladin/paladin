@@ -42,9 +42,26 @@ func (e *FinalizeEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
+func action_NonceAssigned(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*NonceAssignedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
+	return nil
+}
+
+func action_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*SubmittedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
+	t.latestSubmissionHash = &e.LatestSubmissionHash
+	return nil
+}
+
 // action_QueueFinalizeEvent queues a FinalizeEvent to the originator; the originator routes it back to this transaction.
 // This is called when entering State_Confirmed or State_Reverted.
-func action_QueueFinalizeEvent(ctx context.Context, txn *Transaction) error {
+func action_QueueFinalizeEvent(ctx context.Context, txn *Transaction, _ common.Event) error {
 	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.pt.ID.String())
 	event := &FinalizeEvent{
 		TransactionID: txn.pt.ID,

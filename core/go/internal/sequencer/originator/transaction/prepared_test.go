@@ -54,7 +54,7 @@ func TestAction_ResendPreDispatchResponse_Success(t *testing.T) {
 	mocks.SentMessageRecorder.Reset(ctx)
 
 	// Execute the action
-	err := action_ResendPreDispatchResponse(ctx, txn)
+	err := action_ResendPreDispatchResponse(ctx, txn, nil)
 
 	// Verify no error
 	assert.NoError(t, err)
@@ -100,7 +100,7 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 	txn.transportWriter = mockTransport
 
 	// Execute the action
-	err := action_ResendPreDispatchResponse(ctx, txn)
+	err := action_ResendPreDispatchResponse(ctx, txn, nil)
 
 	// Verify error is returned
 	assert.Error(t, err)

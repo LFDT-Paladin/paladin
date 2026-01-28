@@ -103,7 +103,7 @@ func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *t
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify QueueTransactionFinalize was called
@@ -127,7 +127,7 @@ func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t 
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify the cancel function was called

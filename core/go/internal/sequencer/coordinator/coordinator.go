@@ -366,7 +366,12 @@ func (c *coordinator) sendHandoverRequest(ctx context.Context) {
 // included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
 // been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
 // in the request.
-//
+func action_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*TransactionsDelegatedEvent)
+	c.updateOriginatorNodePoolInternal(e.FromNode)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
+}
+
 // originator must be a fully qualified identity locator otherwise an error will be returned
 func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction) error {
 	for _, txn := range transactions {

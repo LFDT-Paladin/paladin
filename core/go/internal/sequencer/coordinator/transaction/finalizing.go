@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -31,7 +32,7 @@ func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transa
 // a transaction. The most likely cause is that the transaction reached a terminal state (e.g. reverted
 // during assembly) but the response was lost, and the transaction has since been removed from memory
 // on the originator after cleanup. The coordinator should clean up this transaction.
-func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *Transaction) error {
+func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *Transaction, _ common.Event) error {
 	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", txn.pt.ID)
 	return txn.finalizeAsUnknownByOriginator(ctx)
 }

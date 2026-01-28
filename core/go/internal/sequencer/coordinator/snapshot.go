@@ -24,7 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func action_SendHeartbeat(ctx context.Context, c *coordinator) error {
+func action_SendHeartbeat(ctx context.Context, c *coordinator, _ common.Event) error {
 	return c.sendHeartbeat(ctx, c.contractAddress)
 }
 

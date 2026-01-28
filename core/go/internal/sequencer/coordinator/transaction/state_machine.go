@@ -20,9 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
@@ -75,7 +73,6 @@ const (
 // Type aliases for the generic statemachine types, specialized for Transaction
 type (
 	Action           = statemachine.Action[*Transaction]
-	EventAction      = statemachine.EventAction[*Transaction]
 	Guard            = statemachine.Guard[*Transaction]
 	ActionRule       = statemachine.ActionRule[*Transaction]
 	Transition       = statemachine.Transition[State, *Transaction]
@@ -138,12 +135,12 @@ var stateDefinitionsMap = StateDefinitions{
 		Events: map[EventType]EventHandler{
 			Event_Assemble_Success: {
 				Validator: validator_MatchesPendingAssembleRequest,
-				OnEvent:   eventAction_AssembleSuccess,
+				Actions:   []ActionRule{{Action: action_AssembleSuccess}},
 				Transitions: []Transition{
 					{
-						To: State_Endorsement_Gathering,
-						On: action_NotifyDependentsOfAssembled,
-						If: statemachine.Not(guard_AttestationPlanFulfilled),
+						To:     State_Endorsement_Gathering,
+						Action: action_NotifyDependentsOfAssembled,
+						If:     statemachine.Not(guard_AttestationPlanFulfilled),
 					},
 					{
 						To: State_Confirming_Dispatchable,
@@ -156,14 +153,14 @@ var stateDefinitionsMap = StateDefinitions{
 					If:     statemachine.Not(guard_AssembleTimeoutExceeded),
 				}},
 				Transitions: []Transition{{
-					To: State_Pooled,
-					If: guard_AssembleTimeoutExceeded,
-					On: action_IncrementAssembleErrors,
+					To:     State_Pooled,
+					If:     guard_AssembleTimeoutExceeded,
+					Action: action_IncrementAssembleErrors,
 				}},
 			},
 			Event_Assemble_Revert_Response: {
 				Validator: validator_MatchesPendingAssembleRequest,
-				OnEvent:   eventAction_AssembleRevertResponse,
+				Actions:   []ActionRule{{Action: action_AssembleRevertResponse}},
 				Transitions: []Transition{{
 					To: State_Reverted,
 				}},
@@ -174,8 +171,8 @@ var stateDefinitionsMap = StateDefinitions{
 			// from memory on the originator after cleanup. The coordinator should clean up this transaction.
 			Event_TransactionUnknownByOriginator: {
 				Transitions: []Transition{{
-					To: State_Final,
-					On: action_FinalizeAsUnknownByOriginator,
+					To:     State_Final,
+					Action: action_FinalizeAsUnknownByOriginator,
 				}},
 			},
 		},
@@ -184,7 +181,7 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_SendEndorsementRequests,
 		Events: map[EventType]EventHandler{
 			Event_Endorsed: {
-				OnEvent: eventAction_Endorsed,
+				Actions: []ActionRule{{Action: action_Endorsed}},
 				Transitions: []Transition{
 					{
 						To: State_Confirming_Dispatchable,
@@ -197,11 +194,11 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_EndorsedRejected: {
-				OnEvent: eventAction_EndorsedRejected,
+				Actions: []ActionRule{{Action: action_EndorsedRejected}},
 				Transitions: []Transition{
 					{
-						To: State_Pooled,
-						On: action_IncrementAssembleErrors,
+						To:     State_Pooled,
+						Action: action_IncrementAssembleErrors,
 					},
 				},
 			},
@@ -227,7 +224,7 @@ var stateDefinitionsMap = StateDefinitions{
 		Events: map[EventType]EventHandler{
 			Event_DispatchRequestApproved: {
 				Validator: validator_MatchesPendingPreDispatchRequest,
-				OnEvent:   eventAction_DispatchRequestApproved,
+				Actions:   []ActionRule{{Action: action_DispatchRequestApproved}},
 				Transitions: []Transition{
 					{
 						To: State_Ready_For_Dispatch,
@@ -254,7 +251,7 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Dispatched: {
 		Events: map[EventType]EventHandler{
 			Event_Collected: {
-				OnEvent: eventAction_Collected,
+				Actions: []ActionRule{{Action: action_Collected}},
 				Transitions: []Transition{
 					{
 						To: State_SubmissionPrepared,
@@ -265,21 +262,21 @@ var stateDefinitionsMap = StateDefinitions{
 	State_SubmissionPrepared: {
 		Events: map[EventType]EventHandler{
 			Event_Submitted: {
-				OnEvent: eventAction_Submitted,
+				Actions: []ActionRule{{Action: action_Submitted}},
 				Transitions: []Transition{
 					{
 						To: State_Submitted,
 					}},
 			},
 			Event_NonceAllocated: {
-				OnEvent: eventAction_NonceAllocated,
+				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
 		},
 	},
 	State_Submitted: {
 		Events: map[EventType]EventHandler{
 			Event_Confirmed: {
-				OnEvent: eventAction_Confirmed,
+				Actions: []ActionRule{{Action: action_Confirmed}},
 				Transitions: []Transition{
 					{
 						If: statemachine.Not(guard_HasRevertReason),
@@ -288,9 +285,9 @@ var stateDefinitionsMap = StateDefinitions{
 					{
 						// MRW TODO - we're re-pooling this transaction. Should we discard other
 						// assembled transactions i.e. re-pool everything this coordinator is tracking?
-						On: action_recordRevert,
-						If: guard_HasRevertReason,
-						To: State_Pooled,
+						Action: action_recordRevert,
+						If:     guard_HasRevertReason,
+						To:     State_Pooled,
 					},
 				},
 			},
@@ -300,7 +297,7 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_NotifyDependentsOfRevert,
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				OnEvent: eventAction_HeartbeatInterval,
+				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
 				Transitions: []Transition{
 					{
 						If: guard_HasGracePeriodPassedSinceStateChange,
@@ -313,7 +310,7 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_NotifyOfConfirmation,
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				OnEvent: eventAction_HeartbeatInterval,
+				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
 				Transitions: []Transition{
 					{
 						If: guard_HasGracePeriodPassedSinceStateChange,
@@ -359,76 +356,33 @@ func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error
 	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
-// Event action functions - these apply event-specific data to the transaction state
-// before guards and transitions are evaluated
-
-func eventAction_AssembleSuccess(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*AssembleSuccessEvent)
-	err := t.applyPostAssembly(ctx, e.PostAssembly)
-	if err == nil {
-		err = t.writeLockStates(ctx)
-		if err != nil {
-			// Internal error. Only option is to revert the transaction
-			seqRevertEvent := &AssembleRevertResponseEvent{}
-			seqRevertEvent.RequestID = e.RequestID // Must match what the state machine thinks the current assemble request ID is
-			seqRevertEvent.TransactionID = t.pt.ID
-			t.queueEventForCoordinator(ctx, seqRevertEvent)
-			t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
-			// Return the original error
-			return err
-		}
-	}
-	// Assembling resolves the required verifiers which will need passing on for the endorse step
-	t.pt.PreAssembly.Verifiers = e.PreAssembly.Verifiers
-	return err
-}
-
-func eventAction_AssembleRevertResponse(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*AssembleRevertResponseEvent)
-	return t.applyPostAssembly(ctx, e.PostAssembly)
-}
-
-func eventAction_Endorsed(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*EndorsedEvent)
-	return t.applyEndorsement(ctx, e.Endorsement, e.RequestID)
-}
-
-func eventAction_EndorsedRejected(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*EndorsedRejectedEvent)
-	return t.applyEndorsementRejection(ctx, e.RevertReason, e.Party, e.AttestationRequestName)
-}
-
-func eventAction_DispatchRequestApproved(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*DispatchRequestApprovedEvent)
-	return t.applyDispatchConfirmation(ctx, e.RequestID)
-}
-
-func eventAction_Collected(_ context.Context, t *Transaction, event common.Event) error {
+// Action functions - first actions often apply event-specific data to the transaction state
+func action_Collected(_ context.Context, t *Transaction, event common.Event) error {
 	e := event.(*CollectedEvent)
 	t.signerAddress = &e.SignerAddress
 	return nil
 }
 
-func eventAction_NonceAllocated(ctx context.Context, t *Transaction, event common.Event) error {
+func action_NonceAllocated(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
 	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
 }
 
-func eventAction_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
+func action_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash
 	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, &e.SubmissionHash)
 }
 
-func eventAction_Confirmed(ctx context.Context, t *Transaction, event common.Event) error {
+func action_Confirmed(ctx context.Context, t *Transaction, event common.Event) error {
 	e := event.(*ConfirmedEvent)
 	t.revertReason = e.RevertReason
 	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason)
 }
 
-func eventAction_HeartbeatInterval(ctx context.Context, t *Transaction, _ common.Event) error {
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *Transaction, _ common.Event) error {
 	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.pt.ID.String(), t.stateMachine.CurrentState.String(), t.heartbeatIntervalsSinceStateChange+1)
 	t.heartbeatIntervalsSinceStateChange++
 	return nil

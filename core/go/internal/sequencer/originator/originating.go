@@ -27,6 +27,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
 
+func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*TransactionCreatedEvent)
+	return o.createTransaction(ctx, e.Transaction)
+}
+
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
 	// Find pending transactions only and (optionally) already delegated transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
@@ -63,15 +68,15 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, privateTransactions, o.currentBlockHeight)
 }
 
-func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator) error {
+func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, true, true)
 }
 
-func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator) error {
+func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, true, false)
 }
 
-func action_SendDelegationRequest(ctx context.Context, o *originator) error {
+func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, false, false)
 }
 

@@ -710,7 +710,8 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	}
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionBySignerAndNonce(t *testing.T) {
+// TODO AM: is this valid test now? - no there's a bunch that need review
+func TestCoordinator_Action_TransactionConfirmed_FindsTransactionBySignerAndNonce(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -744,7 +745,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionBySignerAn
 	// Process TransactionConfirmed event (nil RevertReason so guard transitions to State_Confirmed not State_Pooled)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonceHex := pldtypes.HexUint64(nonce)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -755,7 +756,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionBySignerAn
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -769,7 +770,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhen
 
 	// Process TransactionConfirmed event with nil from (chained transaction scenario); nil RevertReason for success path
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  nil,
 		Nonce: nil,
@@ -780,7 +781,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhen
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -796,7 +797,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhen
 	nonMatchingSigner := pldtypes.RandAddress()
 	nonMatchingNonce := pldtypes.HexUint64(999)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  nonMatchingSigner,
 		Nonce: &nonMatchingNonce,
@@ -807,7 +808,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhen
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be found by TxID and confirmed")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_ReturnsNilWhenTransactionNotFound(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_ReturnsNilWhenTransactionNotFound(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -817,7 +818,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_ReturnsNilWhenTransactionN
 	signerAddress := pldtypes.RandAddress()
 	nonceHex := pldtypes.HexUint64(42)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  nonExistentTxID,
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -828,7 +829,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_ReturnsNilWhenTransactionN
 	assert.Empty(t, c.transactionsByID, "coordinator should have no transactions")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_HandlesMatchingHashCorrectly(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_HandlesMatchingHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -870,7 +871,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesMatchingHashCorrect
 
 	// Process TransactionConfirmed with matching hash; nil RevertReason for success path
 	nonceHex := pldtypes.HexUint64(nonce)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -881,7 +882,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesMatchingHashCorrect
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_HandlesDifferentHashCorrectly(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_HandlesDifferentHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -924,7 +925,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesDifferentHashCorrec
 	// Process TransactionConfirmed with different hash (should still confirm, logs a warning); nil RevertReason for success path
 	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonceHex := pldtypes.HexUint64(nonce)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -935,7 +936,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesDifferentHashCorrec
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed even with different hash")
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_HandlesNilSubmissionHashCorrectly(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_HandlesNilSubmissionHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -970,7 +971,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesNilSubmissionHashCo
 	// Process TransactionConfirmed with a hash (chained transaction scenario); nil RevertReason for success path
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonceHex := pldtypes.HexUint64(nonce)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -982,7 +983,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesNilSubmissionHashCo
 	// Builder for State_Submitted may set latestSubmissionHash; test validates confirmation path for chained-tx-style event
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_ReturnsErrorWhenHandleEventFails(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_ReturnsErrorWhenHandleEventFails(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -1018,7 +1019,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_ReturnsErrorWhenHandleEven
 	// Process TransactionConfirmed - HandleEvent may fail because transaction is in State_Pooled
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonceHex := pldtypes.HexUint64(nonce)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn.GetID(),
 		From:  signerAddress,
 		Nonce: &nonceHex,
@@ -1031,7 +1032,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_ReturnsErrorWhenHandleEven
 	}
 }
 
-func TestCoordinator_EventAction_TransactionConfirmed_HandlesMultipleTransactionsCorrectly(t *testing.T) {
+func TestCoordinator_Action_TransactionConfirmed_HandlesMultipleTransactionsCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -1086,7 +1087,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesMultipleTransaction
 	// Process TransactionConfirmed for first transaction; nil RevertReason for success path
 	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonce1Hex := pldtypes.HexUint64(nonce1)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn1.GetID(),
 		From:  signerAddress1,
 		Nonce: &nonce1Hex,
@@ -1098,7 +1099,7 @@ func TestCoordinator_EventAction_TransactionConfirmed_HandlesMultipleTransaction
 	// Process TransactionConfirmed for second transaction
 	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonce2Hex := pldtypes.HexUint64(nonce2)
-	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID:  txn2.GetID(),
 		From:  signerAddress2,
 		Nonce: &nonce2Hex,

@@ -34,7 +34,7 @@ func TestAction_RecordRevert(t *testing.T) {
 	assert.Nil(t, txn.revertTime)
 
 	// Call action_recordRevert
-	err := action_recordRevert(ctx, txn)
+	err := action_recordRevert(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify revertTime is set
@@ -65,7 +65,7 @@ func TestAction_InitializeDependencies(t *testing.T) {
 	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
 
 	// Call action_initializeDependencies
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify that the dependency transaction has been updated with this transaction as a dependent
@@ -81,7 +81,7 @@ func TestAction_InitializeDependencies_NoPreAssembly(t *testing.T) {
 	txn.pt.PreAssembly = nil
 
 	// Call action_initializeDependencies - should return error
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	assert.Error(t, err)
 }
 
@@ -97,7 +97,7 @@ func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
 	txn := txnBuilder.Build()
 
 	// Call action_initializeDependencies - should not error, just log
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	require.NoError(t, err)
 }
 

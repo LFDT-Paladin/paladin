@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
 func (t *Transaction) isNotReady() bool {
@@ -102,7 +103,7 @@ func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
 	return nil
 }
 
-func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction) error {
+func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction, _ common.Event) error {
 	return txn.notifyDependentsOfReadiness(ctx)
 }
 

@@ -62,7 +62,6 @@ const (
 // Type aliases for the generic statemachine types, specialized for coordinator
 type (
 	Action           = statemachine.Action[*coordinator]
-	EventAction      = statemachine.EventAction[*coordinator]
 	Guard            = statemachine.Guard[*coordinator]
 	ActionRule       = statemachine.ActionRule[*coordinator]
 	Transition       = statemachine.Transition[State, *coordinator]
@@ -76,19 +75,19 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_Idle,
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 				Transitions: []Transition{{
 					To: State_Active,
 				}},
 			},
 			Event_HeartbeatReceived: {
-				OnEvent: eventAction_HeartbeatReceived,
+				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
 				Transitions: []Transition{{
 					To: State_Observing,
 				}},
 			},
 			Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
-				OnEvent: eventAction_EndorsementRequested,
+				Actions: []ActionRule{{Action: action_EndorsementRequested}},
 				Transitions: []Transition{{
 					To: State_Observing,
 				}},
@@ -98,7 +97,7 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Observing: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 				Transitions: []Transition{
 					{
 						To: State_Standby,
@@ -115,10 +114,10 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Standby: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 			},
 			Event_NewBlock: {
-				OnEvent: eventAction_NewBlock,
+				Actions: []ActionRule{{Action: action_NewBlock}},
 				Transitions: []Transition{{
 					To: State_Elect,
 					If: guard_Not(guard_Behind),
@@ -130,7 +129,7 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_SendHandoverRequest,
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 			},
 			Event_HandoverReceived: {
 				Transitions: []Transition{{
@@ -142,10 +141,10 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Prepared: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 			},
 			Event_HeartbeatReceived: {
-				OnEvent: eventAction_HeartbeatReceived,
+				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
 				Transitions: []Transition{{
 					To: State_Active,
 					If: guard_ActiveCoordinatorFlushComplete,
@@ -157,22 +156,22 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_SelectTransaction,
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				OnEvent: eventAction_HeartbeatInterval,
-				Actions: []ActionRule{{
-					Action: action_SendHeartbeat,
-				}},
+				Actions: []ActionRule{
+					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
+					{Action: action_SendHeartbeat},
+				},
 				Transitions: []Transition{{
 					To: State_Idle,
 					If: guard_Not(guard_HasTransactionsInflight),
 				}},
 			},
 			Event_TransactionsDelegated: {
-				OnEvent: eventAction_TransactionsDelegated,
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 				// if this is the first transaction we have received, it needs to move into pooled state before
 				// it can be selected and there is a separate event for that
 			},
 			Event_TransactionConfirmed: {
-				OnEvent: eventAction_TransactionConfirmed,
+				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
 			},
 			Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 				Transitions: []Transition{{
@@ -180,13 +179,11 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				OnEvent: eventAction_TransactionStateTransition,
-				Actions: []ActionRule{{
-					Action: action_NudgeDispatchLoop,
-				}, {
-					Action: action_SelectTransaction,
-					If:     guard_Not(guard_HasTransactionAssembling),
-				}},
+				Actions: []ActionRule{
+					{Action: action_TransactionStateTransition},
+					{Action: action_NudgeDispatchLoop},
+					{Action: action_SelectTransaction, If: guard_Not(guard_HasTransactionAssembling)},
+				},
 			},
 		},
 	},
@@ -195,20 +192,20 @@ var stateDefinitionsMap = StateDefinitions{
 		//TODO should we move to active if we get delegated transactions while in flush?
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				OnEvent: eventAction_HeartbeatInterval,
-				Actions: []ActionRule{{
-					Action: action_SendHeartbeat,
-				}},
+				Actions: []ActionRule{
+					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
+					{Action: action_SendHeartbeat},
+				},
 			},
 			Event_TransactionConfirmed: {
-				OnEvent: eventAction_TransactionConfirmed,
+				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
 				Transitions: []Transition{{
 					To: State_Closing,
 					If: guard_FlushComplete,
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				OnEvent: eventAction_TransactionStateTransition,
+				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
 			},
 		},
 	},
@@ -216,17 +213,17 @@ var stateDefinitionsMap = StateDefinitions{
 		//TODO should we move to active if we get delegated transactions while in closing?
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				OnEvent: eventAction_HeartbeatInterval,
-				Actions: []ActionRule{{
-					Action: action_SendHeartbeat,
-				}},
+				Actions: []ActionRule{
+					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
+					{Action: action_SendHeartbeat},
+				},
 				Transitions: []Transition{{
 					To: State_Idle,
 					If: guard_ClosingGracePeriodExpired,
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				OnEvent: eventAction_TransactionStateTransition,
+				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
 			},
 		},
 	},
@@ -274,19 +271,8 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	c.stateMachineEventLoop.QueueEvent(ctx, event)
 }
 
-// Event action functions - these apply event-specific data to the coordinator's internal state
-// They are defined in the state machine definitions via the OnEvent field
-// TODO AM: let's rehome all of these to the appropriate files
-func eventAction_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*TransactionsDelegatedEvent)
-	// Update originator node pool (for heartbeat distribution)
-	// Anyone who delegates a transaction to us is a candidate originator
-	// and should be sent heartbeats for TX confirmation processing
-	c.updateOriginatorNodePoolInternal(e.FromNode)
-	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
-}
-
-func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
+// Action functions - first actions often apply event-specific data to the coordinator's internal state
+func action_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
 	// An earlier version of this code had handling for receiving a confirmation event and using it to monitor
 	// transactions that another coordinator is coordinating, so that flush points could be updated and checked
 	// in the case of a handover, rather than relying solely on heartbeats. But that same code version only queued
@@ -300,7 +286,7 @@ func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event
 	e := event.(*TransactionConfirmedEvent)
 
 	if _, ok := c.transactionsByID[e.TxID]; !ok {
-		log.L(ctx).Warnf("eventAction_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
+		log.L(ctx).Warnf("action_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
 		return nil
 	}
 
@@ -309,7 +295,7 @@ func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event
 	dispatchedTransaction, ok := c.transactionsByID[e.TxID]
 
 	if !ok {
-		log.L(ctx).Debugf("eventAction_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
+		log.L(ctx).Debugf("action_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
 		return nil
 	}
 
@@ -339,13 +325,13 @@ func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event
 	return nil
 }
 
-func eventAction_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
+func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*NewBlockEvent)
 	c.currentBlockHeight = e.BlockHeight
 	return nil
 }
 
-func eventAction_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
+func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestedEvent)
 	c.activeCoordinatorNode = e.From
 	c.coordinatorActive(c.contractAddress, e.From)
@@ -353,7 +339,7 @@ func eventAction_EndorsementRequested(_ context.Context, c *coordinator, event c
 	return nil
 }
 
-func eventAction_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
+func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*HeartbeatReceivedEvent)
 	c.activeCoordinatorNode = e.From
 	c.activeCoordinatorBlockHeight = e.BlockHeight
@@ -365,12 +351,12 @@ func eventAction_HeartbeatReceived(_ context.Context, c *coordinator, event comm
 	return nil
 }
 
-func eventAction_HeartbeatInterval(ctx context.Context, c *coordinator, event common.Event) error {
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *coordinator, event common.Event) error {
 	c.heartbeatIntervalsSinceStateChange++
 	return nil
 }
 
-func eventAction_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
+func action_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 
 	// If a transaction has transitioned to Pooled, add it to the pool queue
@@ -407,12 +393,12 @@ func eventAction_TransactionStateTransition(ctx context.Context, c *coordinator,
 	return nil
 }
 
-func action_SendHandoverRequest(ctx context.Context, c *coordinator) error {
+func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
 	c.sendHandoverRequest(ctx)
 	return nil
 }
 
-func action_SelectTransaction(ctx context.Context, c *coordinator) error {
+func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
 	c.coordinatorActive(c.contractAddress, c.nodeName)
@@ -428,7 +414,7 @@ func action_SelectTransaction(ctx context.Context, c *coordinator) error {
 	return c.selectNextTransactionToAssemble(ctx)
 }
 
-func action_Idle(ctx context.Context, c *coordinator) error {
+func action_Idle(ctx context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
 	if c.heartbeatCancel != nil {
 		c.heartbeatCancel()
@@ -436,7 +422,7 @@ func action_Idle(ctx context.Context, c *coordinator) error {
 	return nil
 }
 
-func action_NudgeDispatchLoop(ctx context.Context, c *coordinator) error {
+func action_NudgeDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
 	c.inFlightMutex.L.Lock()
 	defer c.inFlightMutex.L.Unlock()

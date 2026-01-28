@@ -426,7 +426,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	//enter the current state
 	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
 	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn)
+		err := onTransitionFunction(ctx, b.txn, nil)
 		if err != nil {
 			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
 		}
