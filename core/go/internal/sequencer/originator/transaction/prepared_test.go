@@ -42,13 +42,13 @@ func TestAction_ResendPreDispatchResponse_Success(t *testing.T) {
 
 	// Ensure PreAssembly has TransactionSpecification
 	transactionSpec := &prototk.TransactionSpecification{
-		TransactionId: txn.ID.String(),
+		TransactionId: txn.GetID().String(),
 		From:          "originator@node1",
 	}
-	if txn.PreAssembly == nil {
-		txn.PreAssembly = &components.TransactionPreAssembly{}
+	if txn.pt.PreAssembly == nil {
+		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	txn.PreAssembly.TransactionSpecification = transactionSpec
+	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	// Reset the recorder to ensure clean state
 	mocks.SentMessageRecorder.Reset(ctx)
@@ -77,13 +77,13 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 
 	// Ensure PreAssembly has TransactionSpecification
 	transactionSpec := &prototk.TransactionSpecification{
-		TransactionId: txn.ID.String(),
+		TransactionId: txn.GetID().String(),
 		From:          "originator@node1",
 	}
-	if txn.PreAssembly == nil {
-		txn.PreAssembly = &components.TransactionPreAssembly{}
+	if txn.pt.PreAssembly == nil {
+		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	txn.PreAssembly.TransactionSpecification = transactionSpec
+	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	// Create a mock transport writer that returns an error
 	mockTransport := transport.NewMockTransportWriter(t)

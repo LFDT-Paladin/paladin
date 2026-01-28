@@ -17,12 +17,10 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"hash/fnv"
 	"slices"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -56,11 +54,6 @@ type Coordinator interface {
 
 	// Query the state of the coordinator
 	GetCurrentState() State
-	GetTransactionByID(ctx context.Context, txID uuid.UUID) *transaction.Transaction
-	// The name of this function gives the impression that it is modifying state but it is actually
-	// using the existing state as the input to the algorithm that chooses the current active coordinator.
-	// It returns the name of this node, but doesn't make it the active coordinator
-	SelectActiveCoordinatorNode(ctx context.Context) (string, error)
 
 	// DANGEROUS- THIS FUNCTIONS MODIFIES STATE OUTSIDE OF THE STATE MACHINE WHEN initIfNoActiveCoordinator IS TRUE
 	GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string
@@ -204,16 +197,10 @@ func (c *coordinator) GetCurrentState() State {
 	return c.processorEventLoop.GetCurrentState()
 }
 
-func (c *coordinator) GetTransactionByID(_ context.Context, txnID uuid.UUID) *transaction.Transaction {
-	c.RLock()
-	defer c.RUnlock()
-	return c.transactionsByID[txnID]
-}
-
 func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string {
 	if initIfNoActiveCoordinator && c.activeCoordinatorNode == "" {
 		// If we don't yet have an active coordinator, select one based on the appropriate algorithm for the contract type
-		activeCoordinator, err := c.SelectActiveCoordinatorNode(ctx)
+		activeCoordinator, err := c.selectActiveCoordinatorNode(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("error selecting next active coordinator: %v", err)
 			return ""
@@ -223,7 +210,10 @@ func (c *coordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActi
 	return c.activeCoordinatorNode
 }
 
-func (c *coordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, error) {
+// The name of this function gives the impression that it is modifying state but it is actually
+// using the existing state as the input to the algorithm that chooses the current active coordinator.
+// It returns the name of this node, but doesn't make it the active coordinator
+func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, error) {
 	coordinatorNode := ""
 	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {
 		// E.g. Noto
@@ -372,9 +362,11 @@ func (c *coordinator) sendHandoverRequest(ctx context.Context) {
 	}
 }
 
-// TODO consider renaming to setDelegatedTransactionsForOriginator to make it clear that we expect originators to include all inflight transactions in every delegation request and therefore this is
-// a replace, not an add.  Need to finalize the decision about whether we expect the originator to include all inflight delegated transactions in every delegation request. Currently the code assumes we do so need to make the spec clear on that point and
-// record a decision record to explain why.  Every  time we come back to this point, we will be tempted to reverse that decision so we need to make sure we have a record of the known consequences.
+// Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
+// included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
+// been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
+// in the request.
+//
 // originator must be a fully qualified identity locator otherwise an error will be returned
 func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction) error {
 	for _, txn := range transactions {
@@ -415,14 +407,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.closingGracePeriod,
 			c.grapher,
 			c.metrics,
-			func(ctx context.Context, transactionID uuid.UUID, to, from transaction.State) {
-				// TX state changed - notify the coordinator state machine
-				c.QueueEvent(ctx, &TransactionStateTransitionEvent{
-					TransactionID: transactionID,
-					From:          from,
-					To:            to,
-				})
-			},
 		)
 		if err != nil {
 			log.L(ctx).Errorf("error creating transaction: %v", err)
@@ -483,97 +467,6 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	}
 	log.L(ctx).Tracef("%d transactions in states: %+v", len(matchingTxns), states)
 	return matchingTxns
-}
-
-// MRW TODO - is there a reason we need to find by nonce and not by TX ID?
-func (c *coordinator) findTransactionBySignerNonce(ctx context.Context, signer *pldtypes.EthAddress, nonce uint64) *transaction.Transaction {
-	//TODO this would be more efficient by maintaining a separate index but that is error prone so
-	// deferring until we have a comprehensive test suite to catch errors
-	for _, txn := range c.transactionsByID {
-		if txn != nil {
-			log.L(ctx).Tracef("Tracked TX ID %s", txn.GetID().String())
-		}
-		if txn != nil && txn.GetSignerAddress() != nil {
-			log.L(ctx).Tracef("Tracked TX ID %s signer address '%s'", txn.GetID().String(), txn.GetSignerAddress().String())
-		}
-		if txn.GetSignerAddress() != nil && *txn.GetSignerAddress() == *signer && txn.GetNonce() != nil && *(txn.GetNonce()) == nonce {
-			return txn
-		}
-	}
-	return nil
-}
-
-func (c *coordinator) confirmDispatchedTransaction(ctx context.Context, txId uuid.UUID, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64, hash pldtypes.Bytes32, revertReason pldtypes.HexBytes) (bool, error) {
-	log.L(ctx).Debugf("we currently have %d transactions to handle, confirming that dispatched TX %s is in our list", len(c.transactionsByID), txId.String())
-
-	// Confirming a transaction via its chained transaction, we won't have a from address or nonce
-	if from != nil && nonce != nil {
-		// First check whether it is one that we have been coordinating
-		if dispatchedTransaction := c.findTransactionBySignerNonce(ctx, from, nonce.Uint64()); dispatchedTransaction != nil {
-			if dispatchedTransaction.GetLatestSubmissionHash() == nil || *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
-				// Is this not the transaction that we are looking for?
-				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected", dispatchedTransaction.GetID().String())
-			}
-			event := &transaction.ConfirmedEvent{
-				Hash:         hash,
-				RevertReason: revertReason,
-				Nonce:        nonce,
-			}
-			event.TransactionID = dispatchedTransaction.GetID()
-			event.EventTime = time.Now()
-			err := dispatchedTransaction.HandleEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
-				return false, err
-			}
-			return true, nil
-		}
-	}
-
-	for _, dispatchedTransaction := range c.transactionsByID {
-		if dispatchedTransaction.GetID() == txId {
-			if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-				// The transaction created a chained private transaction so there is no hash to compare
-				log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), hash.String())
-			} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != hash {
-				// Is this not the transaction that we are looking for?
-				// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-				// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-				log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), hash.String())
-			}
-			event := &transaction.ConfirmedEvent{
-				Hash:         hash,
-				RevertReason: revertReason,
-				Nonce:        nonce,
-			}
-			event.TransactionID = txId
-			event.EventTime = time.Now()
-
-			log.L(ctx).Debugf("Confirming dispatched TX %s", txId.String())
-			err := dispatchedTransaction.HandleEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
-				return false, err
-			}
-			return true, nil
-		}
-	}
-	log.L(ctx).Infof("failed to find a transaction submitted by signer %s", from.String())
-	return false, nil
-
-}
-
-func (c *coordinator) confirmMonitoredTransaction(_ context.Context, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) {
-	if nonce == nil {
-		return
-	}
-	if flushPoint := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", from.String(), nonce.Uint64())]; flushPoint != nil {
-		//We do not remove the flushPoint from the list because there is a chance that the coordinator hasn't seen this confirmation themselves and
-		// when they send us the next heartbeat, it will contain this FlushPoint so it would get added back into the list and we would not see the confirmation again
-		flushPoint.Confirmed = true
-	}
 }
 
 func ptrTo[T any](v T) *T {

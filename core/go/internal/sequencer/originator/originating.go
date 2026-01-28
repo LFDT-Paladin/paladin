@@ -35,32 +35,31 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	}
 
 	// Find pending transactions only and (optionally) already delegated transactions
-	// TODO - this is another place where we are checking state outside the state machine
 	privateTransactions := make([]*components.PrivateTransaction, 0)
+	transactionsToDelegate := make([]*transaction.Transaction, 0)
 	for _, txn := range transactions {
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
-			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
-			txn.UpdateLastDelegatedTime()
+			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
 
 		if txn.GetCurrentState() == transaction.State_Pending {
-			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
-			txn.UpdateLastDelegatedTime()
+			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
-
 	}
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
-	for _, txn := range transactions {
+	for _, txn := range transactionsToDelegate {
 		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 			Coordinator: o.activeCoordinatorNode,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
@@ -90,13 +89,13 @@ func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
 	for _, txn := range o.getTransactionsInStates(ctx, []transaction.State{transaction.State_Delegated}) {
 		dropped := true
 		for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
-			if dispatchedTransaction.ID == txn.ID {
+			if dispatchedTransaction.ID == txn.GetID() {
 				dropped = false
 				break
 			}
 		}
 		if dropped {
-			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.ID)
+			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.GetID())
 			return true
 		}
 	}

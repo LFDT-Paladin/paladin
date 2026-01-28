@@ -42,7 +42,7 @@ func TestTransaction_UpdateLastDelegatedTime_SetsTime(t *testing.T) {
 	require.Nil(t, txn.GetLastDelegatedTime(), "LastDelegatedTime should be nil initially")
 
 	// Update the time
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 
 	// Verify that the time is now set
 	lastDelegatedTime := txn.GetLastDelegatedTime()
@@ -60,7 +60,7 @@ func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// First update
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 	firstTime := txn.GetLastDelegatedTime()
 	require.NotNil(t, firstTime, "First update should set a time")
 
@@ -68,7 +68,7 @@ func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Second update
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 	secondTime := txn.GetLastDelegatedTime()
 	require.NotNil(t, secondTime, "Second update should set a time")
 
@@ -84,7 +84,7 @@ func TestTransaction_GetLastDelegatedTime_ReturnsUpdatedTime(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// Update the time
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 
 	// Get the time multiple times and verify it returns the same value
 	time1 := txn.GetLastDelegatedTime()
@@ -100,13 +100,13 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 
 	// Create a transaction with nil PrivateTransaction by manually constructing it
 	txn := &Transaction{
-		PrivateTransaction: nil,
+		pt: nil,
 		stateMachine: &StateMachine{
-			currentState: State_Initial,
+			CurrentState: State_Initial,
 		},
 	}
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 
 	assert.Error(t, err, "Hash should return an error when PrivateTransaction is nil")
 	assert.Nil(t, hash, "Hash should return nil hash when PrivateTransaction is nil")
@@ -122,9 +122,9 @@ func TestTransaction_Hash_ErrorWhenPostAssemblyIsNil(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// Set PostAssembly to nil to test the error case
-	txn.PostAssembly = nil
+	txn.pt.PostAssembly = nil
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 
 	assert.Error(t, err, "Hash should return an error when PostAssembly is nil")
 	assert.Nil(t, hash, "Hash should return nil hash when PostAssembly is nil")
@@ -178,7 +178,7 @@ func TestTransaction_GetLatestEvent_ReturnsSetEvent(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	expectedEvent := "test-event"
-	txn.stateMachine.latestEvent = expectedEvent
+	txn.stateMachine.LatestEvent = expectedEvent
 
 	event := txn.GetLatestEvent()
 	assert.Equal(t, expectedEvent, event, "GetLatestEvent should return the event that was set")

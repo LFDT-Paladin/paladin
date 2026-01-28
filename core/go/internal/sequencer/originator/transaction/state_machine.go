@@ -19,8 +19,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
 
 type State int
@@ -73,45 +76,25 @@ const (
 	Event_Finalize                                    // internal event to trigger transition from terminal states (Confirmed/Reverted) to State_Final for cleanup
 )
 
-type StateMachine struct {
-	currentState    State
-	lastStateChange time.Time
-	latestEvent     string
-}
+// Type aliases for the generic statemachine types, specialized for Transaction
+type (
+	Action           = statemachine.Action[*Transaction]
+	EventAction      = statemachine.EventAction[*Transaction]
+	Guard            = statemachine.Guard[*Transaction]
+	ActionRule       = statemachine.ActionRule[*Transaction]
+	Transition       = statemachine.Transition[State, *Transaction]
+	Validator        = statemachine.Validator[*Transaction]
+	EventHandler     = statemachine.EventHandler[State, *Transaction]
+	StateDefinition  = statemachine.StateDefinition[State, *Transaction]
+	StateDefinitions = statemachine.StateDefinitions[State, *Transaction]
+	StateMachine     = statemachine.StateMachine[State]
+)
 
-// Actions can be specified for transition to a state either as the OnTransitionTo function that will run for all transitions to that state or as the On field in the Transition struct if the action applies
-// for a specific transition
-type Action func(ctx context.Context, txn *Transaction) error
-
-type Guard func(ctx context.Context, txn *Transaction) bool
-
-type Transition struct {
-	To State // State to transition to if the guard condition is met
-	If Guard // Condition to evaluate the transaction against to determine if this transition should be taken
-	On Action
-}
-
-type ActionRule struct {
-	Action Action
-	If     Guard
-}
-
-type EventHandler struct {
-	Validator   func(ctx context.Context, txn *Transaction, event common.Event) (bool, error) // function to validate whether the event is valid for the current state of the transaction.  This is optional.  If not defined, the event is always considered valid.
-	Actions     []ActionRule                                                                  // list of actions to be taken when this event is received.  These actions are run before any transition specific actions
-	Transitions []Transition                                                                  // list of transitions that this event could trigger.  The list is ordered so the first matching transition is the one that will be taken.
-}
-
-type StateDefinition struct {
-	OnTransitionTo Action                     // function to be invoked when transitioning into this state.  This is invoked after any transition specific actions have been invoked
-	Events         map[EventType]EventHandler // rules to define what events apply to this state and what transitions they trigger.  Any events not in this list are ignored while in this state.
-}
-
-var stateDefinitionsMap map[State]StateDefinition
+var stateDefinitionsMap StateDefinitions
 
 func init() {
 	// Initialize state definitions in init function to avoid circular dependencies
-	stateDefinitionsMap = map[State]StateDefinition{
+	stateDefinitionsMap = StateDefinitions{
 		State_Initial: {
 			Events: map[EventType]EventHandler{
 				Event_Created: {
@@ -126,6 +109,7 @@ func init() {
 		State_Pending: {
 			Events: map[EventType]EventHandler{
 				Event_Delegated: {
+					OnEvent: eventAction_Delegated,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
@@ -136,19 +120,26 @@ func init() {
 		},
 		State_Delegated: {
 			Events: map[EventType]EventHandler{
+				Event_Delegated: {
+					OnEvent: eventAction_Delegated,
+				},
 				Event_AssembleRequestReceived: {
 					Validator: validator_AssembleRequestMatches,
+					OnEvent:   eventAction_AssembleRequestReceived,
 					Transitions: []Transition{
 						{
 							To: State_Assembling,
 						},
 					},
 				},
-				Event_CoordinatorChanged: {},
+				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
+				},
 				// If we previously delegated i.e. before a node restart, and the result was a chained transaction, the coordinator doesn't need
 				// to go through re-assembly and endorsement if it knows the result is a chained TX. We jump straight back to where we would be
 				// if the chained TX had just been created and we had received an Event_Dispatched from the coordinator.
 				Event_Dispatched: {
+					OnEvent: eventAction_Dispatched,
 					Transitions: []Transition{
 						{
 							To: State_Dispatched,
@@ -161,6 +152,7 @@ func init() {
 			OnTransitionTo: action_AssembleAndSign,
 			Events: map[EventType]EventHandler{
 				Event_AssembleAndSignSuccess: {
+					OnEvent: eventAction_AssembleAndSignSuccess,
 					Transitions: []Transition{
 						{
 							To: State_Endorsement_Gathering,
@@ -169,6 +161,7 @@ func init() {
 					},
 				},
 				Event_AssembleRevert: {
+					OnEvent: eventAction_AssembleRevert,
 					Transitions: []Transition{
 						{
 							To: State_Reverted,
@@ -177,6 +170,7 @@ func init() {
 					},
 				},
 				Event_AssemblePark: {
+					OnEvent: eventAction_AssemblePark,
 					Transitions: []Transition{
 						{
 							To: State_Parked,
@@ -185,6 +179,7 @@ func init() {
 					},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					//would be very strange to have missed a bunch of heartbeats and switched coordinators if we recently received an assemble request but it is possible so we need to handle it
 					Transitions: []Transition{
 						{
@@ -197,9 +192,10 @@ func init() {
 					// reverted, or parked. This could be because of a temporary issue preventing assembly (e.g. we couldn't
 					// resolve a remote verifier while it was offline). Assuming this is a new request, action it.
 					Validator: validator_AssembleRequestMatches,
+					OnEvent:   eventAction_AssembleRequestReceived,
 					Actions: []ActionRule{
 						{
-							If:     guard_Not(guard_AssembleRequestMatchesPreviousResponse),
+							If:     statemachine.Not(guard_AssembleRequestMatchesPreviousResponse),
 							Action: action_AssembleAndSign,
 						},
 						{
@@ -215,6 +211,7 @@ func init() {
 			Events: map[EventType]EventHandler{
 				Event_AssembleRequestReceived: {
 					Validator: validator_AssembleRequestMatches,
+					OnEvent:   eventAction_AssembleRequestReceived,
 					Actions: []ActionRule{
 						{
 							//We thought we had got as far as endorsement but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -223,11 +220,12 @@ func init() {
 						}},
 					Transitions: []Transition{{
 						//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
-						If: guard_Not(guard_AssembleRequestMatchesPreviousResponse),
+						If: statemachine.Not(guard_AssembleRequestMatchesPreviousResponse),
 						To: State_Assembling,
 					}},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
@@ -236,6 +234,7 @@ func init() {
 				},
 				Event_PreDispatchRequestReceived: {
 					Validator: validator_PreDispatchRequestMatchesAssembledDelegation,
+					OnEvent:   eventAction_PreDispatchRequestReceived,
 					Transitions: []Transition{
 						{
 							To: State_Prepared,
@@ -248,6 +247,7 @@ func init() {
 		State_Prepared: {
 			Events: map[EventType]EventHandler{
 				Event_Dispatched: {
+					OnEvent: eventAction_Dispatched,
 					//Note: no validator here although this event may or may not match the most recent dispatch confirmation response.
 					// It is possible that we timed out  on Prepared state, delegated to another coordinator, got as far as prepared again and now just learning that
 					// the original coordinator has dispatched the transaction.
@@ -261,6 +261,7 @@ func init() {
 				},
 				Event_PreDispatchRequestReceived: {
 					Validator: validator_PreDispatchRequestMatchesAssembledDelegation,
+					OnEvent:   eventAction_PreDispatchRequestReceived,
 					// This means that we have already sent a dispatch confirmation response and we get another one.
 					// 3 possibilities, 1) the response got lost and the same coordinator is retrying -> compare the request idempotency key and or validator_PreDispatchRequestMatchesAssembledDelegation
 					//                  2) There is a coordinator that we previously delegated to, and assembled for, but since assumed had become unavailable and changed to another coordinator, but the first coordinator is somehow limping along and has got as far as endorsing that previously assembled transaction. But we have already chosen our new horse for this transaction so reject.
@@ -272,6 +273,7 @@ func init() {
 					},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
@@ -302,6 +304,7 @@ func init() {
 					}},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					// coordinator has changed after we have seen the transaction dispatched.
 					// we will either see the dispatched transaction confirmed or reverted by the blockchain but that might not be for a long long time
 					// the fact that the coordinator has been changed on us means that we have lost contact with the original coordinator.
@@ -322,6 +325,7 @@ func init() {
 					},
 				},
 				Event_NonceAssigned: {
+					OnEvent: eventAction_NonceAssigned,
 					Transitions: []Transition{
 						{
 							To: State_Sequenced,
@@ -329,6 +333,7 @@ func init() {
 					},
 				},
 				Event_Submitted: {
+					OnEvent: eventAction_Submitted,
 					//we can skip past sequenced and go straight to submitted.
 					Transitions: []Transition{
 						{
@@ -351,6 +356,7 @@ func init() {
 					}},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
@@ -358,6 +364,7 @@ func init() {
 					},
 				},
 				Event_Submitted: {
+					OnEvent: eventAction_Submitted,
 					Transitions: []Transition{
 						{
 							To: State_Submitted,
@@ -368,7 +375,9 @@ func init() {
 		},
 		State_Submitted: {
 			Events: map[EventType]EventHandler{
-				Event_Submitted: {}, // continue to handle submitted events in this state in case the submission hash changes
+				Event_Submitted: {
+					OnEvent: eventAction_Submitted,
+				}, // continue to handle submitted events in this state in case the submission hash changes
 				Event_ConfirmedSuccess: {
 					Transitions: []Transition{{
 						To: State_Confirmed,
@@ -380,6 +389,7 @@ func init() {
 					}},
 				},
 				Event_CoordinatorChanged: {
+					OnEvent: eventAction_CoordinatorChanged,
 					Transitions: []Transition{
 						{
 							To: State_Delegated,
@@ -391,6 +401,7 @@ func init() {
 				// before we receive the revert and moved back to delegated.
 				Event_AssembleRequestReceived: {
 					Validator: validator_AssembleRequestMatches,
+					OnEvent:   eventAction_AssembleRequestReceived,
 					Transitions: []Transition{
 						{
 							To: State_Assembling,
@@ -403,6 +414,7 @@ func init() {
 		State_Parked: {
 			Events: map[EventType]EventHandler{
 				Event_AssembleRequestReceived: {
+					OnEvent: eventAction_AssembleRequestReceived,
 					Actions: []ActionRule{
 						{
 							//it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -436,6 +448,7 @@ func init() {
 					}},
 				},
 				Event_AssembleRequestReceived: {
+					OnEvent: eventAction_AssembleRequestReceived,
 					Actions: []ActionRule{
 						{
 							// It seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
@@ -448,142 +461,115 @@ func init() {
 			},
 		},
 		State_Final: {
-			OnTransitionTo: action_Cleanup,
+			// Cleanup is driven by the originator when it receives common.TransactionStateTransitionEvent with To==State_Final
 		},
 	}
 }
 
-func (t *Transaction) InitializeStateMachine(initialState State) {
-	t.stateMachine = &StateMachine{
-		currentState: initialState,
-	}
+func (t *Transaction) initializeStateMachine(initialState State) {
+	t.stateMachine = &StateMachine{}
+	statemachine.Initialize(t.stateMachine, initialState)
+	t.processor = statemachine.NewProcessor(stateDefinitionsMap,
+		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
+			if t.queueEventForOriginator != nil {
+				t.queueEventForOriginator(ctx, &common.TransactionStateTransitionEvent[State]{
+					BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+					TransactionID: t.pt.ID,
+					From:          from,
+					To:            to,
+				})
+			}
+		}),
+	)
 }
 
 func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
-	//determine whether this event is valid for the current state
-	eventHandler, err := t.evaluateEvent(ctx, event)
-	if err != nil || eventHandler == nil {
-		return err
-	}
-
-	//If we get here, the state machine has defined a rule for handling this event
-	//Apply the event to the transaction to update the internal state
-	// so that the guards and actions defined in the state machine can reference the new internal state of the coordinator
-
-	err = t.applyEvent(ctx, event)
-	if err != nil {
-		return err
-	}
-
-	err = t.performActions(ctx, *eventHandler)
-	if err != nil {
-		return err
-	}
-
-	//Determine whether this event triggers a state transition
-	err = t.evaluateTransitions(ctx, event, *eventHandler)
-	return err
+	// TODO AM: this is the sort of logging that should become standard in the common layer
+	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX address %+v)", t.pt.ID.String(), t.pt.Address.HexString())
+	return t.processor.ProcessEvent(ctx, t, t.stateMachine, event)
 }
 
-// Function evaluateEvent evaluates whether the event is relevant given the current state of the transaction
-func (t *Transaction) evaluateEvent(ctx context.Context, event common.Event) (*EventHandler, error) {
-	sm := t.stateMachine
-
-	//Determine if and how this event applies in the current state and which, if any, transition it triggers
-	eventHandlers := stateDefinitionsMap[sm.currentState].Events
-	eventHandler, isHandlerDefined := eventHandlers[event.Type()]
-	if isHandlerDefined {
-		//By default all events in the list are applied unless there is a validator function and it returns false
-		if eventHandler.Validator != nil {
-			valid, err := eventHandler.Validator(ctx, t, event)
-			if err != nil {
-				//This is an unexpected error.  If the event is invalid, the validator should return false and not an error
-				log.L(ctx).Errorf("error validating event %s: %v", event.TypeString(), err)
-				return nil, err
-			}
-			if !valid {
-				// This is perfectly normal sometimes an event happens and is no longer relevant to the transaction so we just ignore it and move on.
-				// We log a warning in case it's not a late-delivered message but something that needs looking in to
-				log.L(ctx).Warnf("originator transaction event %s is not valid for current state %s", event.TypeString(), sm.currentState.String())
-				return nil, nil
-			}
-		}
-		return &eventHandler, nil
+// Event action functions - apply event-specific data to the transaction state before guards and transitions are evaluated
+func eventAction_Delegated(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*DelegatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
 	}
-	return nil, nil
+	t.currentDelegate = e.Coordinator
+	t.updateLastDelegatedTime()
+	return nil
 }
 
-// Function applyEvent updates the internal state of the Transaction with information from the event
-// this happens before the state machine is evaluated for transitions that may be triggered by the event
-// so that any guards on the transition rules can take into account the new internal state of the Transaction after this event has been applied
-func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error {
-	var err error
-	switch event := event.(type) {
-	case Event:
-		err = event.ApplyToTransaction(ctx, t)
-
-	default:
-		//other events may trigger actions and/or state transitions but not require any internal state to be updated
-		log.L(ctx).Debugf("no internal state to apply for event type %T", event)
-	}
-	return err
+func (t *Transaction) updateLastDelegatedTime() {
+	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
 }
 
-func (t *Transaction) performActions(ctx context.Context, eventHandler EventHandler) error {
-	for _, rule := range eventHandler.Actions {
-		if rule.If == nil || rule.If(ctx, t) {
-			err := rule.Action(ctx, t)
-			if err != nil {
-				//any recoverable errors should have been handled by the action function
-				log.L(ctx).Errorf("error applying action: %v", err)
-				return err
-			}
-		}
+func eventAction_AssembleRequestReceived(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleRequestReceivedEvent)
+	t.currentDelegate = e.Coordinator
+	t.latestAssembleRequest = &assembleRequestFromCoordinator{
+		coordinatorsBlockHeight: e.CoordinatorsBlockHeight,
+		stateLocksJSON:          e.StateLocksJSON,
+		requestID:               e.RequestID,
+		preAssembly:             e.PreAssembly,
 	}
 	return nil
 }
 
-func (t *Transaction) evaluateTransitions(ctx context.Context, event common.Event, eventHandler EventHandler) error {
-	sm := t.stateMachine
-	for _, rule := range eventHandler.Transitions {
-		if rule.If == nil || rule.If(ctx, t) { //if there is no guard defined, or the guard returns true
-			// (Odd spacing is intentional to align logs more clearly)
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("orig-tx  | %s   | %s | %T | %s -> %s", t.Address.String()[0:8], t.ID.String()[0:8], event, sm.currentState.String(), rule.To.String())
-			t.metrics.ObserveSequencerTXStateChange("Originator_"+rule.To.String(), time.Duration(event.GetEventTime().Sub(sm.lastStateChange).Milliseconds()))
-			sm.latestEvent = event.TypeString()
-			sm.lastStateChange = time.Now()
-			sm.currentState = rule.To
-			newStateDefinition := stateDefinitionsMap[sm.currentState]
-			//run any actions specific to the transition first
-			if rule.On != nil {
-				err := rule.On(ctx, t)
-				if err != nil {
-					//any recoverable errors should have been handled by the action function
-					log.L(ctx).Errorf("error transitioning originator transaction to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
-
-			// then run any actions for the state entry
-			if newStateDefinition.OnTransitionTo != nil {
-				err := newStateDefinition.OnTransitionTo(ctx, t)
-				if err != nil {
-					// any recoverable errors should have been handled by the OnTransitionTo function
-					log.L(ctx).Errorf("error transitioning originator transaction to state %v: %v", sm.currentState, err)
-					return err
-				}
-			}
-
-			break
-		}
-	}
+func eventAction_AssembleAndSignSuccess(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleAndSignSuccessEvent)
+	t.pt.PostAssembly = e.PostAssembly
+	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
 }
 
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, txn *Transaction) bool {
-		return !guard(ctx, txn)
-	}
+func eventAction_AssembleRevert(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleRevertEvent)
+	t.pt.PostAssembly = e.PostAssembly
+	t.latestFulfilledAssembleRequestID = e.RequestID
+	return nil
+}
+
+func eventAction_AssemblePark(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*AssembleParkEvent)
+	t.pt.PostAssembly = e.PostAssembly
+	t.latestFulfilledAssembleRequestID = e.RequestID
+	return nil
+}
+
+func eventAction_CoordinatorChanged(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*CoordinatorChangedEvent)
+	t.currentDelegate = e.Coordinator
+	return nil
+}
+
+func eventAction_Dispatched(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*DispatchedEvent)
+	t.signerAddress = &e.SignerAddress
+	return nil
+}
+
+func eventAction_PreDispatchRequestReceived(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*PreDispatchRequestReceivedEvent)
+	t.latestPreDispatchRequestID = e.RequestID
+	return nil
+}
+
+func eventAction_NonceAssigned(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*NonceAssignedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
+	return nil
+}
+
+func eventAction_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*SubmittedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address or nonce are already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
+	t.latestSubmissionHash = &e.LatestSubmissionHash
+	return nil
 }
 
 func (s State) String() string {

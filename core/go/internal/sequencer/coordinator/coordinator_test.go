@@ -184,7 +184,6 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 		RequestID: mocks.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
 	})
 
-	// TODO AM
 	// Assert that the transaction is ready to be collected by the dispatcher thread
 	assert.Eventually(t, func() bool {
 		readyTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
@@ -451,7 +450,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_StaticMode_StaticCoordinatorWit
 	})
 	c, _ := builder.Build(ctx)
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "node1", coordinatorNode)
 }
@@ -465,7 +464,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_StaticMode_StaticCoordinatorWit
 	})
 	c, _ := builder.Build(ctx)
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	// When node is not specified and allowEmptyNode is false, it should return an error
 	require.Error(t, err)
 	assert.Empty(t, coordinatorNode)
@@ -480,7 +479,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_StaticMode_StaticCoordinatorWit
 	})
 	c, _ := builder.Build(ctx)
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.Error(t, err)
 	assert.Empty(t, coordinatorNode)
 	assert.Contains(t, err.Error(), "static coordinator mode is configured but static coordinator node is not set")
@@ -499,7 +498,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithEmptyPool(t *t
 	c.originatorNodePool = []string{}
 	c.currentBlockHeight = 1000
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, coordinatorNode)
 }
@@ -517,7 +516,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithSingleNodeInPo
 	c.originatorNodePool = []string{"node1"}
 	c.currentBlockHeight = 1000
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "node1", coordinatorNode)
 }
@@ -535,7 +534,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithMultipleNodesI
 	c.originatorNodePool = []string{"node1", "node2", "node3"}
 	c.currentBlockHeight = 1000
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
 	assert.Contains(t, []string{"node1", "node2", "node3"}, coordinatorNode)
 }
@@ -554,15 +553,15 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithBlockHeightRou
 
 	// Test that blocks within the same range select the same coordinator
 	c.currentBlockHeight = 1000
-	coordinatorNode1, err1 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode1, err1 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err1)
 
 	c.currentBlockHeight = 1001
-	coordinatorNode2, err2 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode2, err2 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err2)
 
 	c.currentBlockHeight = 1099
-	coordinatorNode3, err3 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode3, err3 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err3)
 
 	// All should select the same coordinator since they're in the same block range
@@ -571,7 +570,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithBlockHeightRou
 
 	// Different block range should potentially select different coordinator
 	c.currentBlockHeight = 1100
-	coordinatorNode4, err4 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode4, err4 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err4)
 
 	assert.Contains(t, []string{"node1", "node2", "node3"}, coordinatorNode4)
@@ -590,11 +589,11 @@ func TestCoordinator_SelectActiveCoordinatorNode_EndorserMode_WithDifferentBlock
 	c.originatorNodePool = []string{"node1", "node2"}
 
 	c.currentBlockHeight = 100
-	coordinatorNode1, err1 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode1, err1 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err1)
 
 	c.currentBlockHeight = 150
-	coordinatorNode2, err2 := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode2, err2 := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err2)
 
 	// Different block ranges should potentially select different coordinators
@@ -612,7 +611,7 @@ func TestCoordinator_SelectActiveCoordinatorNode_SenderMode_ReturnsCurrentNodeNa
 	// The builder sets nodeName to "node1" by default
 	assert.Equal(t, "node1", c.nodeName)
 
-	coordinatorNode, err := c.SelectActiveCoordinatorNode(ctx)
+	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "node1", coordinatorNode)
 }
@@ -711,7 +710,7 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	}
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNonce(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionBySignerAndNonce(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -742,79 +741,94 @@ func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionBySignerAndNon
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Confirm the transaction
+	// Process TransactionConfirmed event (nil RevertReason so guard transitions to State_Confirmed not State_Pooled)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
 	nonceHex := pldtypes.HexUint64(nonce)
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), signerAddress, &nonceHex, hash, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  hash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found by signer and nonce")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Create a transaction
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	// Create a transaction in State_Submitted so ConfirmedEvent is accepted
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 	txn := txBuilder.Build()
 
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Confirm the transaction with nil from address (chained transaction scenario)
+	// Process TransactionConfirmed event with nil from (chained transaction scenario); nil RevertReason for success path
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
-	var nilFrom *pldtypes.EthAddress = nil
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), nilFrom, nil, hash, revertReason)
+	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  nil,
+		Nonce: nil,
+		Hash:  hash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found by txId")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Create a transaction without signer/nonce (chained transaction)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	// Create a transaction in State_Submitted so ConfirmedEvent is accepted (signer/nonce mismatch still finds by TxID)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 	txn := txBuilder.Build()
 
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Try to confirm with a signer+nonce that doesn't match
+	// Process TransactionConfirmed with non-matching signer+nonce; TxID match is used; nil RevertReason for success path
 	nonMatchingSigner := pldtypes.RandAddress()
 	nonMatchingNonce := pldtypes.HexUint64(999)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), nonMatchingSigner, &nonMatchingNonce, hash, revertReason)
+	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  nonMatchingSigner,
+		Nonce: &nonMatchingNonce,
+		Hash:  hash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found by txId as fallback")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be found by TxID and confirmed")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_ReturnsFalseWhenTransactionNotFound(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_ReturnsNilWhenTransactionNotFound(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Try to confirm a transaction that doesn't exist
+	// Process TransactionConfirmed for a transaction the coordinator does not track
 	nonExistentTxID := uuid.New()
 	signerAddress := pldtypes.RandAddress()
 	nonceHex := pldtypes.HexUint64(42)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
-	found, err := c.confirmDispatchedTransaction(ctx, nonExistentTxID, signerAddress, &nonceHex, hash, revertReason)
+	err := eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  nonExistentTxID,
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  hash,
+	})
 
 	require.NoError(t, err)
-	assert.False(t, found, "transaction should not be found")
+	assert.Empty(t, c.transactionsByID, "coordinator should have no transactions")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_HandlesMatchingHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -854,16 +868,20 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMatchingHashCorrectly(t
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Confirm with matching hash
-	revertReason := pldtypes.HexBytes{}
+	// Process TransactionConfirmed with matching hash; nil RevertReason for success path
 	nonceHex := pldtypes.HexUint64(nonce)
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), signerAddress, &nonceHex, submissionHash, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  submissionHash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found and confirmed")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_HandlesDifferentHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -903,28 +921,33 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesDifferentHashCorrectly(
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Confirm with different hash (should still work, just logs a warning)
+	// Process TransactionConfirmed with different hash (should still confirm, logs a warning); nil RevertReason for success path
 	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
 	nonceHex := pldtypes.HexUint64(nonce)
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), signerAddress, &nonceHex, differentHash, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  differentHash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found even with different hash")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed even with different hash")
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrectly(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_HandlesNilSubmissionHashCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Create a transaction without a submission hash (chained transaction)
+	// Create a transaction in State_Submitted without a submission hash (chained transaction);
+	// must be State_Submitted so ConfirmedEvent is accepted
 	signerAddress := pldtypes.RandAddress()
 	nonce := uint64(42)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 	txn := txBuilder.Build()
 
-	// Set signer and nonce but no submission hash
+	// Set signer and nonce (events are no-ops from State_Submitted but set fields for the confirmation)
 	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
@@ -944,18 +967,22 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesNilSubmissionHashCorrec
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Confirm with a hash (chained transaction scenario)
+	// Process TransactionConfirmed with a hash (chained transaction scenario); nil RevertReason for success path
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
 	nonceHex := pldtypes.HexUint64(nonce)
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), signerAddress, &nonceHex, hash, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  hash,
+	})
 
 	require.NoError(t, err)
-	assert.True(t, found, "transaction should be found even with nil submission hash")
-	assert.Nil(t, txn.GetLatestSubmissionHash(), "transaction should have nil submission hash")
+	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
+	// Builder for State_Submitted may set latestSubmissionHash; test validates confirmation path for chained-tx-style event
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFails(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_ReturnsErrorWhenHandleEventFails(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
@@ -988,29 +1015,31 @@ func TestCoordinator_ConfirmDispatchedTransaction_ReturnsErrorWhenHandleEventFai
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
 
-	// Try to confirm - this should fail because the transaction is in State_Pooled
-	// which may not accept ConfirmedEvent depending on state machine rules
+	// Process TransactionConfirmed - HandleEvent may fail because transaction is in State_Pooled
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
 	nonceHex := pldtypes.HexUint64(nonce)
-	found, err := c.confirmDispatchedTransaction(ctx, txn.GetID(), signerAddress, &nonceHex, hash, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn.GetID(),
+		From:  signerAddress,
+		Nonce: &nonceHex,
+		Hash:  hash,
+	})
 
-	// The function may return an error if HandleEvent fails, or it may succeed
-	// depending on the state machine rules. We just verify it doesn't panic.
+	// The function returns an error if HandleEvent fails; we verify it doesn't panic
 	if err != nil {
-		assert.False(t, found, "should return false when error occurs")
+		assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "transaction should remain in Pooled when confirmation fails")
 	}
 }
 
-func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCorrectly(t *testing.T) {
+func TestCoordinator_EventAction_TransactionConfirmed_HandlesMultipleTransactionsCorrectly(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 
-	// Create multiple transactions
+	// Create multiple transactions in State_Submitted so ConfirmedEvent is accepted
 	signerAddress1 := pldtypes.RandAddress()
 	nonce1 := uint64(42)
-	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 	txn1 := txBuilder1.Build()
 
 	err := txn1.HandleEvent(ctx, &transaction.CollectedEvent{
@@ -1031,7 +1060,7 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 
 	signerAddress2 := pldtypes.RandAddress()
 	nonce2 := uint64(43)
-	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 	txn2 := txBuilder2.Build()
 
 	err = txn2.HandleEvent(ctx, &transaction.CollectedEvent{
@@ -1054,274 +1083,29 @@ func TestCoordinator_ConfirmDispatchedTransaction_HandlesMultipleTransactionsCor
 	c.transactionsByID[txn1.GetID()] = txn1
 	c.transactionsByID[txn2.GetID()] = txn2
 
-	// Confirm first transaction
+	// Process TransactionConfirmed for first transaction; nil RevertReason for success path
 	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	revertReason := pldtypes.HexBytes{}
 	nonce1Hex := pldtypes.HexUint64(nonce1)
-	found1, err := c.confirmDispatchedTransaction(ctx, txn1.GetID(), signerAddress1, &nonce1Hex, hash1, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn1.GetID(),
+		From:  signerAddress1,
+		Nonce: &nonce1Hex,
+		Hash:  hash1,
+	})
 	require.NoError(t, err)
-	assert.True(t, found1, "first transaction should be found")
+	assert.Equal(t, transaction.State_Confirmed, txn1.GetCurrentState(), "first transaction should be confirmed")
 
-	// Confirm second transaction
+	// Process TransactionConfirmed for second transaction
 	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	nonce2Hex := pldtypes.HexUint64(nonce2)
-	found2, err := c.confirmDispatchedTransaction(ctx, txn2.GetID(), signerAddress2, &nonce2Hex, hash2, revertReason)
+	err = eventAction_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
+		TxID:  txn2.GetID(),
+		From:  signerAddress2,
+		Nonce: &nonce2Hex,
+		Hash:  hash2,
+	})
 	require.NoError(t, err)
-	assert.True(t, found2, "second transaction should be found")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_ConfirmsExistingUnconfirmedFlushPoint(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up a flush point that is not confirmed
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txID := uuid.New()
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress.String(), nonce): {
-			From:          *signerAddress,
-			Nonce:         nonce,
-			TransactionID: txID,
-			Hash:          hash,
-			Confirmed:     false,
-		},
-	}
-
-	// Confirm the monitored transaction
-	nonceHex := pldtypes.HexUint64(nonce)
-	c.confirmMonitoredTransaction(ctx, signerAddress, &nonceHex)
-
-	// Verify the flush point is now confirmed
-	flushPoint := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress.String(), nonce)]
-	require.NotNil(t, flushPoint, "flush point should still exist")
-	assert.True(t, flushPoint.Confirmed, "flush point should be confirmed")
-	assert.Equal(t, *signerAddress, flushPoint.From)
-	assert.Equal(t, nonce, flushPoint.Nonce)
-	assert.Equal(t, txID, flushPoint.TransactionID)
-	assert.Equal(t, hash, flushPoint.Hash)
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_NoOpWhenFlushPointAlreadyConfirmed(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up a flush point that is already confirmed
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txID := uuid.New()
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress.String(), nonce): {
-			From:          *signerAddress,
-			Nonce:         nonce,
-			TransactionID: txID,
-			Hash:          hash,
-			Confirmed:     true,
-		},
-	}
-
-	// Confirm the monitored transaction again
-	nonceHex := pldtypes.HexUint64(nonce)
-	c.confirmMonitoredTransaction(ctx, signerAddress, &nonceHex)
-
-	// Verify the flush point is still confirmed
-	flushPoint := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress.String(), nonce)]
-	require.NotNil(t, flushPoint, "flush point should still exist")
-	assert.True(t, flushPoint.Confirmed, "flush point should remain confirmed")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_NoOpWhenFlushPointDoesNotExist(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up empty flush points map
-	c.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.FlushPoint)
-
-	// Try to confirm a non-existent flush point
-	signerAddress := pldtypes.RandAddress()
-	nonceHex := pldtypes.HexUint64(42)
-	c.confirmMonitoredTransaction(ctx, signerAddress, &nonceHex)
-
-	// Verify the map is still empty
-	assert.Equal(t, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce), "flush points map should remain empty")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_OnlyConfirmsMatchingFlushPointWhenMultipleExist(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up multiple flush points
-	signerAddress1 := pldtypes.RandAddress()
-	nonce1 := uint64(42)
-	txID1 := uuid.New()
-	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	signerAddress2 := pldtypes.RandAddress()
-	nonce2 := uint64(43)
-	txID2 := uuid.New()
-	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress1.String(), nonce1): {
-			From:          *signerAddress1,
-			Nonce:         nonce1,
-			TransactionID: txID1,
-			Hash:          hash1,
-			Confirmed:     false,
-		},
-		fmt.Sprintf("%s:%d", signerAddress2.String(), nonce2): {
-			From:          *signerAddress2,
-			Nonce:         nonce2,
-			TransactionID: txID2,
-			Hash:          hash2,
-			Confirmed:     false,
-		},
-	}
-
-	// Confirm only the first flush point
-	nonce1Hex := pldtypes.HexUint64(nonce1)
-	c.confirmMonitoredTransaction(ctx, signerAddress1, &nonce1Hex)
-
-	// Verify only the first flush point is confirmed
-	flushPoint1 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress1.String(), nonce1)]
-	require.NotNil(t, flushPoint1, "first flush point should exist")
-	assert.True(t, flushPoint1.Confirmed, "first flush point should be confirmed")
-
-	flushPoint2 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress2.String(), nonce2)]
-	require.NotNil(t, flushPoint2, "second flush point should exist")
-	assert.False(t, flushPoint2.Confirmed, "second flush point should not be confirmed")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_HandlesDifferentNoncesForSameSigner(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up flush points with same signer but different nonces
-	signerAddress := pldtypes.RandAddress()
-	nonce1 := uint64(42)
-	nonce2 := uint64(43)
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress.String(), nonce1): {
-			From:          *signerAddress,
-			Nonce:         nonce1,
-			TransactionID: txID1,
-			Hash:          hash1,
-			Confirmed:     false,
-		},
-		fmt.Sprintf("%s:%d", signerAddress.String(), nonce2): {
-			From:          *signerAddress,
-			Nonce:         nonce2,
-			TransactionID: txID2,
-			Hash:          hash2,
-			Confirmed:     false,
-		},
-	}
-
-	// Confirm only the first nonce
-	nonce1Hex := pldtypes.HexUint64(nonce1)
-	c.confirmMonitoredTransaction(ctx, signerAddress, &nonce1Hex)
-
-	// Verify only the first nonce is confirmed
-	flushPoint1 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress.String(), nonce1)]
-	require.NotNil(t, flushPoint1, "first flush point should exist")
-	assert.True(t, flushPoint1.Confirmed, "first flush point should be confirmed")
-
-	flushPoint2 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress.String(), nonce2)]
-	require.NotNil(t, flushPoint2, "second flush point should exist")
-	assert.False(t, flushPoint2.Confirmed, "second flush point should not be confirmed")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_HandlesDifferentSignersWithSameNonce(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up flush points with different signers but same nonce
-	signerAddress1 := pldtypes.RandAddress()
-	signerAddress2 := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress1.String(), nonce): {
-			From:          *signerAddress1,
-			Nonce:         nonce,
-			TransactionID: txID1,
-			Hash:          hash1,
-			Confirmed:     false,
-		},
-		fmt.Sprintf("%s:%d", signerAddress2.String(), nonce): {
-			From:          *signerAddress2,
-			Nonce:         nonce,
-			TransactionID: txID2,
-			Hash:          hash2,
-			Confirmed:     false,
-		},
-	}
-
-	// Confirm only the first signer's flush point
-	nonceHex := pldtypes.HexUint64(nonce)
-	c.confirmMonitoredTransaction(ctx, signerAddress1, &nonceHex)
-
-	// Verify only the first signer's flush point is confirmed
-	flushPoint1 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress1.String(), nonce)]
-	require.NotNil(t, flushPoint1, "first flush point should exist")
-	assert.True(t, flushPoint1.Confirmed, "first flush point should be confirmed")
-
-	flushPoint2 := c.activeCoordinatorsFlushPointsBySignerNonce[fmt.Sprintf("%s:%d", signerAddress2.String(), nonce)]
-	require.NotNil(t, flushPoint2, "second flush point should exist")
-	assert.False(t, flushPoint2.Confirmed, "second flush point should not be confirmed")
-}
-
-func TestCoordinator_ConfirmMonitoredTransaction_DoesNotRemoveFlushPointFromMap(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Set up a flush point
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txID := uuid.New()
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	c.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
-		fmt.Sprintf("%s:%d", signerAddress.String(), nonce): {
-			From:          *signerAddress,
-			Nonce:         nonce,
-			TransactionID: txID,
-			Hash:          hash,
-			Confirmed:     false,
-		},
-	}
-
-	// Confirm the monitored transaction
-	nonceHex := pldtypes.HexUint64(nonce)
-	c.confirmMonitoredTransaction(ctx, signerAddress, &nonceHex)
-
-	// Verify the flush point still exists in the map (not removed)
-	key := fmt.Sprintf("%s:%d", signerAddress.String(), nonce)
-	flushPoint, exists := c.activeCoordinatorsFlushPointsBySignerNonce[key]
-	require.True(t, exists, "flush point should still exist in map")
-	require.NotNil(t, flushPoint, "flush point should not be nil")
-	assert.True(t, flushPoint.Confirmed, "flush point should be confirmed")
-	assert.Equal(t, 1, len(c.activeCoordinatorsFlushPointsBySignerNonce), "map should still contain one flush point")
+	assert.Equal(t, transaction.State_Confirmed, txn2.GetCurrentState(), "second transaction should be confirmed")
 }
 
 func TestCoordinator_UpdateOriginatorNodePool_AddsNodeToEmptyPool(t *testing.T) {

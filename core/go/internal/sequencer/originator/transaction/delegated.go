@@ -24,7 +24,7 @@ import (
 func action_SendPreDispatchResponse(ctx context.Context, txn *Transaction) error {
 	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
 	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
-	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.PreAssembly.TransactionSpecification)
+	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
 }
 
 // Validate that the assemble request matches the current delegate
@@ -46,21 +46,19 @@ func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context,
 		log.L(ctx).Errorf("expected event type *PreDispatchRequestReceivedEvent, got %T", event)
 		return false, nil
 	}
-	txnHash, err := txn.Hash(ctx)
+	txnHash, err := txn.hashInternal(ctx)
 	if err != nil {
 		log.L(ctx).Errorf("error hashing transaction: %s", err)
 		return false, err
 	}
 	if preDispatchRequestEvent.Coordinator != txn.currentDelegate {
-		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Expected coordinator %s, got %s", txn.ID.String(), txn.currentDelegate, preDispatchRequestEvent.Coordinator)
+		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Expected coordinator %s, got %s", txn.pt.ID.String(), txn.currentDelegate, preDispatchRequestEvent.Coordinator)
 		return false, nil
 	}
 	if !txnHash.Equals(preDispatchRequestEvent.PostAssemblyHash) {
-		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Transaction hash does not match.", txn.ID.String())
+		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Transaction hash does not match.", txn.pt.ID.String())
 		return false, nil
 	}
 
-	// If validation passed, store the request ID to use in the response
-	txn.latestPreDispatchRequestID = preDispatchRequestEvent.RequestID
 	return true, nil
 }

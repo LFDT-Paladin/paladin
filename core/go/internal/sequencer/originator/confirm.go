@@ -71,23 +71,23 @@ func (o *originator) confirmTransaction(
 	if revertReason.String() == "" {
 		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed success event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	} else {
 		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 			RevertReason: revertReason,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed revert event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling confirmed revert event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}

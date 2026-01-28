@@ -41,7 +41,7 @@ func TestAction_ResendAssembleSuccessResponse_Success(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with OK result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -51,9 +51,9 @@ func TestAction_ResendAssembleSuccessResponse_Success(t *testing.T) {
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
-			TransactionId: txn.ID.String(),
+			TransactionId: txn.GetID().String(),
 		},
 	}
 
@@ -85,22 +85,22 @@ func TestAction_ResendAssembleSuccessResponse_TransportError(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with OK result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a mock transport writer that returns an error
 	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
 	mockTransport.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.ID,
+		txn.GetID(),
 		requestID,
-		txn.PostAssembly,
-		txn.PreAssembly,
+		txn.pt.PostAssembly,
+		txn.pt.PreAssembly,
 		coordinator,
 	).Return(expectedError)
 
@@ -132,15 +132,15 @@ func TestAction_ResendAssembleRevertResponse_Success(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with REVERT result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   ptrTo("test revert reason"),
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
-			TransactionId: txn.ID.String(),
+			TransactionId: txn.GetID().String(),
 		},
 	}
 
@@ -172,23 +172,23 @@ func TestAction_ResendAssembleRevertResponse_TransportError(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with REVERT result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 		RevertReason:   ptrTo("test revert reason"),
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a mock transport writer that returns an error
 	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
 	mockTransport.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.ID,
+		txn.GetID(),
 		requestID,
-		txn.PostAssembly,
-		txn.PreAssembly,
+		txn.pt.PostAssembly,
+		txn.pt.PreAssembly,
 		coordinator,
 	).Return(expectedError)
 
@@ -220,14 +220,14 @@ func TestAction_ResendAssembleParkResponse_Success(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with PARK result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{
 		TransactionSpecification: &prototk.TransactionSpecification{
-			TransactionId: txn.ID.String(),
+			TransactionId: txn.GetID().String(),
 		},
 	}
 
@@ -259,22 +259,22 @@ func TestAction_ResendAssembleParkResponse_TransportError(t *testing.T) {
 	txn.latestFulfilledAssembleRequestID = requestID
 
 	// Set up PostAssembly with PARK result
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 	}
 
 	// Set up PreAssembly
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a mock transport writer that returns an error
 	mockTransport := transport.NewMockTransportWriter(t)
 	expectedError := errors.New("transport error")
 	mockTransport.EXPECT().SendAssembleResponse(
 		mock.Anything,
-		txn.ID,
+		txn.GetID(),
 		requestID,
-		txn.PostAssembly,
-		txn.PreAssembly,
+		txn.pt.PostAssembly,
+		txn.pt.PreAssembly,
 		coordinator,
 	).Return(expectedError)
 

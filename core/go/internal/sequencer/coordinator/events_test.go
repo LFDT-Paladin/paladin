@@ -327,12 +327,12 @@ func TestHandoverReceivedEvent_GetEventTime(t *testing.T) {
 }
 
 func TestTransactionStateTransitionEvent_Type(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
+	event := &common.TransactionStateTransitionEvent[transaction.State]{}
+	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 }
 
 func TestTransactionStateTransitionEvent_TypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
+	event := &common.TransactionStateTransitionEvent[transaction.State]{}
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
 }
 
@@ -341,7 +341,8 @@ func TestTransactionStateTransitionEvent_Fields(t *testing.T) {
 	fromState := transaction.State_Pooled
 	toState := transaction.State_Ready_For_Dispatch
 
-	event := &TransactionStateTransitionEvent{
+	event := &common.TransactionStateTransitionEvent[transaction.State]{
+		BaseEvent:     common.BaseEvent{EventTime: time.Now()},
 		TransactionID: txID,
 		From:          fromState,
 		To:            toState,
@@ -393,7 +394,7 @@ func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
 }
 
 func TestTransactionStateTransitionEvent_TypeAndTypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
+	event := &common.TransactionStateTransitionEvent[int]{}
+	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
 }

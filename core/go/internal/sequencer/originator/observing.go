@@ -27,7 +27,9 @@ import (
 
 func (o *originator) applyHeartbeatReceived(ctx context.Context, event *HeartbeatReceivedEvent) error {
 	o.timeOfMostRecentHeartbeat = o.clock.Now()
+	o.activeCoordinatorMutex.Lock()
 	o.activeCoordinatorNode = event.From
+	o.activeCoordinatorMutex.Unlock()
 	o.latestCoordinatorSnapshot = &event.CoordinatorSnapshot
 	for _, dispatchedTransaction := range event.DispatchedTransactions {
 		//if any of the dispatched transactions were sent by this originator, ensure that we have an up to date view of its state
@@ -50,7 +52,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 
 				err := txn.HandleEvent(ctx, txnSubmittedEvent)
 				if err != nil {
-					msg := fmt.Sprintf("error handling transaction submitted event for transaction %s: %v", txn.ID, err)
+					msg := fmt.Sprintf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
 					log.L(ctx).Error(msg)
 					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 				}
@@ -65,7 +67,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 				})
 
 				if err != nil {
-					msg := fmt.Sprintf("error handling nonce assigned event for transaction %s: %v", txn.ID, err)
+					msg := fmt.Sprintf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
 					log.L(ctx).Error(msg)
 					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 				}

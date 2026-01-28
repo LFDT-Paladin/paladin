@@ -310,63 +310,6 @@ func (_c *MockSeqOriginator_GetTxStatus_Call) RunAndReturn(run func(ctx context.
 	return _c
 }
 
-// ProcessEvent provides a mock function for the type MockSeqOriginator
-func (_mock *MockSeqOriginator) ProcessEvent(ctx context.Context, event common.Event) error {
-	ret := _mock.Called(ctx, event)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ProcessEvent")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, common.Event) error); ok {
-		r0 = returnFunc(ctx, event)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockSeqOriginator_ProcessEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ProcessEvent'
-type MockSeqOriginator_ProcessEvent_Call struct {
-	*mock.Call
-}
-
-// ProcessEvent is a helper method to define mock.On call
-//   - ctx context.Context
-//   - event common.Event
-func (_e *MockSeqOriginator_Expecter) ProcessEvent(ctx interface{}, event interface{}) *MockSeqOriginator_ProcessEvent_Call {
-	return &MockSeqOriginator_ProcessEvent_Call{Call: _e.mock.On("ProcessEvent", ctx, event)}
-}
-
-func (_c *MockSeqOriginator_ProcessEvent_Call) Run(run func(ctx context.Context, event common.Event)) *MockSeqOriginator_ProcessEvent_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 common.Event
-		if args[1] != nil {
-			arg1 = args[1].(common.Event)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSeqOriginator_ProcessEvent_Call) Return(err error) *MockSeqOriginator_ProcessEvent_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockSeqOriginator_ProcessEvent_Call) RunAndReturn(run func(ctx context.Context, event common.Event) error) *MockSeqOriginator_ProcessEvent_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // QueueEvent provides a mock function for the type MockSeqOriginator
 func (_mock *MockSeqOriginator) QueueEvent(ctx context.Context, event common.Event) {
 	_mock.Called(ctx, event)

@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/google/uuid"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -142,65 +140,6 @@ func (_c *MockCoordinator_GetCurrentState_Call) RunAndReturn(run func() State) *
 	return _c
 }
 
-// GetTransactionByID provides a mock function for the type MockCoordinator
-func (_mock *MockCoordinator) GetTransactionByID(ctx context.Context, txID uuid.UUID) *transaction.Transaction {
-	ret := _mock.Called(ctx, txID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetTransactionByID")
-	}
-
-	var r0 *transaction.Transaction
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) *transaction.Transaction); ok {
-		r0 = returnFunc(ctx, txID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*transaction.Transaction)
-		}
-	}
-	return r0
-}
-
-// MockCoordinator_GetTransactionByID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTransactionByID'
-type MockCoordinator_GetTransactionByID_Call struct {
-	*mock.Call
-}
-
-// GetTransactionByID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - txID uuid.UUID
-func (_e *MockCoordinator_Expecter) GetTransactionByID(ctx interface{}, txID interface{}) *MockCoordinator_GetTransactionByID_Call {
-	return &MockCoordinator_GetTransactionByID_Call{Call: _e.mock.On("GetTransactionByID", ctx, txID)}
-}
-
-func (_c *MockCoordinator_GetTransactionByID_Call) Run(run func(ctx context.Context, txID uuid.UUID)) *MockCoordinator_GetTransactionByID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCoordinator_GetTransactionByID_Call) Return(transaction1 *transaction.Transaction) *MockCoordinator_GetTransactionByID_Call {
-	_c.Call.Return(transaction1)
-	return _c
-}
-
-func (_c *MockCoordinator_GetTransactionByID_Call) RunAndReturn(run func(ctx context.Context, txID uuid.UUID) *transaction.Transaction) *MockCoordinator_GetTransactionByID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // QueueEvent provides a mock function for the type MockCoordinator
 func (_mock *MockCoordinator) QueueEvent(ctx context.Context, event common.Event) {
 	_mock.Called(ctx, event)
@@ -244,66 +183,6 @@ func (_c *MockCoordinator_QueueEvent_Call) Return() *MockCoordinator_QueueEvent_
 
 func (_c *MockCoordinator_QueueEvent_Call) RunAndReturn(run func(ctx context.Context, event common.Event)) *MockCoordinator_QueueEvent_Call {
 	_c.Run(run)
-	return _c
-}
-
-// SelectActiveCoordinatorNode provides a mock function for the type MockCoordinator
-func (_mock *MockCoordinator) SelectActiveCoordinatorNode(ctx context.Context) (string, error) {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SelectActiveCoordinatorNode")
-	}
-
-	var r0 string
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) (string, error)); ok {
-		return returnFunc(ctx)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) string); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = returnFunc(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockCoordinator_SelectActiveCoordinatorNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SelectActiveCoordinatorNode'
-type MockCoordinator_SelectActiveCoordinatorNode_Call struct {
-	*mock.Call
-}
-
-// SelectActiveCoordinatorNode is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockCoordinator_Expecter) SelectActiveCoordinatorNode(ctx interface{}) *MockCoordinator_SelectActiveCoordinatorNode_Call {
-	return &MockCoordinator_SelectActiveCoordinatorNode_Call{Call: _e.mock.On("SelectActiveCoordinatorNode", ctx)}
-}
-
-func (_c *MockCoordinator_SelectActiveCoordinatorNode_Call) Run(run func(ctx context.Context)) *MockCoordinator_SelectActiveCoordinatorNode_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCoordinator_SelectActiveCoordinatorNode_Call) Return(s string, err error) *MockCoordinator_SelectActiveCoordinatorNode_Call {
-	_c.Call.Return(s, err)
-	return _c
-}
-
-func (_c *MockCoordinator_SelectActiveCoordinatorNode_Call) RunAndReturn(run func(ctx context.Context) (string, error)) *MockCoordinator_SelectActiveCoordinatorNode_Call {
-	_c.Call.Return(run)
 	return _c
 }
 

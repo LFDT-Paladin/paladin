@@ -53,7 +53,6 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		5,
 		NewGrapher(ctx),
 		nil,
-		nil, // onStateTransition, not used in tests
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, txn)

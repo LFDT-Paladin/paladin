@@ -86,14 +86,10 @@ type Transaction struct {
 	transportWriter    transport.TransportWriter
 	grapher            Grapher
 	engineIntegration  common.EngineIntegration
-	syncPoints         syncpoints.SyncPoints
-	notifyOfTransition OnStateTransition
-	eventHandler       func(context.Context, common.Event)
-	metrics            metrics.DistributedSequencerMetrics
+	syncPoints              syncpoints.SyncPoints
+	queueEventForCoordinator func(context.Context, common.Event)
+	metrics                 metrics.DistributedSequencerMetrics
 }
-
-// TODO think about naming of this compared to the OnTransitionTo func in the state machine
-type OnStateTransition func(ctx context.Context, transactionID uuid.UUID, to, from State) // function to be invoked when transitioning into this state.  Called after transitioning event has been applied and any actions have fired
 
 func NewTransaction(
 	ctx context.Context,
@@ -102,7 +98,7 @@ func NewTransaction(
 	hasChainedTransaction bool,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
-	eventHandler func(context.Context, common.Event),
+	queueEventForCoordinator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	requestTimeout,
@@ -110,7 +106,6 @@ func NewTransaction(
 	finalizingGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-	onStateTransition OnStateTransition,
 ) (*Transaction, error) {
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
@@ -123,8 +118,8 @@ func NewTransaction(
 		pt:                         pt,
 		transportWriter:            transportWriter,
 		clock:                      clock,
-		eventHandler:               eventHandler,
-		engineIntegration:          engineIntegration,
+		queueEventForCoordinator:   queueEventForCoordinator,
+		engineIntegration:         engineIntegration,
 		syncPoints:                 syncPoints,
 		requestTimeout:             requestTimeout,
 		assembleTimeout:            assembleTimeout,
@@ -132,7 +127,6 @@ func NewTransaction(
 		dependencies:               &pldapi.TransactionDependencies{},
 		grapher:                    grapher,
 		metrics:                    metrics,
-		notifyOfTransition:         onStateTransition,
 		chainedTxAlreadyDispatched: hasChainedTransaction,
 	}
 	txn.initializeStateMachine(State_Initial)

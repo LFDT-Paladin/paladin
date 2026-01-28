@@ -42,27 +42,13 @@ func (e *FinalizeEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
-func (e *FinalizeEvent) ApplyToTransaction(ctx context.Context, t *Transaction) error {
-	// No internal state changes needed - this event just triggers the transition to State_Final
-	return nil
-}
-
-// action_QueueFinalizeEvent queues a FinalizeEvent to trigger cleanup.
+// action_QueueFinalizeEvent queues a FinalizeEvent to the originator; the originator routes it back to this transaction.
 // This is called when entering State_Confirmed or State_Reverted.
 func action_QueueFinalizeEvent(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.ID.String())
+	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.pt.ID.String())
 	event := &FinalizeEvent{
-		TransactionID: txn.ID,
+		TransactionID: txn.pt.ID,
 	}
-	return txn.eventHandler(ctx, event)
-}
-
-// action_Cleanup removes the transaction from memory.
-// This is called when entering State_Final.
-func action_Cleanup(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_Cleanup - cleaning up originator transaction %s", txn.ID.String())
-	if txn.onCleanup != nil {
-		txn.onCleanup(ctx)
-	}
+	txn.queueEventForOriginator(ctx, event)
 	return nil
 }

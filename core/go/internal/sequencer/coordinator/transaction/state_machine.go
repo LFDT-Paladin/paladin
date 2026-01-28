@@ -87,6 +87,8 @@ type (
 )
 
 var stateDefinitionsMap StateDefinitions
+
+// TODO AM: this is a problem- it's shared
 var processor *statemachine.Processor[State, *Transaction]
 
 func init() {
@@ -346,9 +348,14 @@ func init() {
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.LastStateChange).Milliseconds()))
 
-			// Notify the coordinator of the state transition
-			if t.notifyOfTransition != nil {
-				t.notifyOfTransition(ctx, t.pt.ID, to, from)
+			// Queue state transition event for the coordinator
+			if t.queueEventForCoordinator != nil {
+				t.queueEventForCoordinator(ctx, &common.TransactionStateTransitionEvent[State]{
+					BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+					TransactionID: t.pt.ID,
+					From:          from,
+					To:            to,
+				})
 			}
 		}),
 	)
@@ -378,7 +385,7 @@ func eventAction_AssembleSuccess(ctx context.Context, t *Transaction, event comm
 			seqRevertEvent := &AssembleRevertResponseEvent{}
 			seqRevertEvent.RequestID = e.RequestID // Must match what the state machine thinks the current assemble request ID is
 			seqRevertEvent.TransactionID = t.pt.ID
-			t.eventHandler(ctx, seqRevertEvent)
+			t.queueEventForCoordinator(ctx, seqRevertEvent)
 			t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
 			// Return the original error
 			return err

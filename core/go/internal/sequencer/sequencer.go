@@ -653,40 +653,24 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 		return err
 	}
 
-	if sequencer != nil {
-		if deploy {
-			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
-			// off by selecting the next coordinator for the contract
-			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
-			if err != nil {
-				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
-			}
-		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
-			if mtx == nil {
-				log.L(ctx).Warnf("Coordinator not tracking transaction ID %s", confirmedTxn.TransactionID)
-				// We have been told that a public TX has been confirmed on chain (either successful or failed)
-				// but we're not tracking it in the sequencer. Since we're only using this callback to
-				// update the sequencer's state we'll log a warning but ignore it
-				return nil
-			}
-
-			if from == nil {
-				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
-			}
-
-			confirmedEvent := &coordinator.TransactionConfirmedEvent{
-				TxID:         confirmedTxn.TransactionID,
-				From:         from, // The base ledger signing address
-				Hash:         confirmedTxn.OnChain.TransactionHash,
-				RevertReason: confirmedTxn.RevertData,
-				// TODO on the coordinator node we have the nonce, but public TX distribution to other nodes currently happens pre-nonce allocation
-				// Should we distribute public transactions post nonce allocation?
-				Nonce: nonce, // nil when nonce is not available
-			}
-
-			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
+	// For a deploy we won't have tracked the transaction through the state machine
+	if sequencer != nil && !deploy {
+		if from == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
 		}
+		// we leave it to the coordinator to decide whether it is in a state where it handles the event
+		// and check whether it's a transaction that it is tracking
+		confirmedEvent := &coordinator.TransactionConfirmedEvent{
+			TxID:         confirmedTxn.TransactionID,
+			From:         from, // The base ledger signing address
+			Hash:         confirmedTxn.OnChain.TransactionHash,
+			RevertReason: confirmedTxn.RevertData,
+			// TODO on the coordinator node we have the nonce, but public TX distribution to other nodes currently happens pre-nonce allocation
+			// Should we distribute public transactions post nonce allocation?
+			Nonce: nonce, // nil when nonce is not available
+		}
+
+		sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
 	}
 
 	return nil
@@ -715,32 +699,18 @@ func (sMgr *sequencerManager) HandleTransactionConfirmedByChainedTransaction(ctx
 		return err
 	}
 
-	if sequencer != nil {
-		if deploy {
-			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
-			// off by selecting the next coordinator for the contract
-			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
-			if err != nil {
-				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
-			}
-		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
-			if mtx == nil {
-				log.L(ctx).Warnf("Coordinator not tracking transaction ID %s", confirmedTxn.TransactionID)
-				// We have been told that a private TX has been confirmed through its chained transaction being confirmed, but we're not tracking
-				// the transaction in the sequencer. Since we're only using this callback to update the sequencer's state we'll log a warning but ignore it
-				return nil
-			}
-
-			confirmedEvent := &coordinator.TransactionConfirmedEvent{
-				TxID:         confirmedTxn.TransactionID,
-				Hash:         confirmedTxn.OnChain.TransactionHash,
-				RevertReason: confirmedTxn.RevertData,
-			}
-			confirmedEvent.EventTime = time.Now()
-
-			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
+	// For a deploy we won't have tracked the transaction through the state machine
+	if sequencer != nil && !deploy {
+		// we leave it to the coordinator to decide whether it is in a state where it handles the event
+		// and check whether it's a transaction that it is tracking
+		confirmedEvent := &coordinator.TransactionConfirmedEvent{
+			TxID:         confirmedTxn.TransactionID,
+			Hash:         confirmedTxn.OnChain.TransactionHash,
+			RevertReason: confirmedTxn.RevertData,
 		}
+		confirmedEvent.EventTime = time.Now()
+
+		sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
 	}
 
 	return nil
@@ -776,15 +746,10 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 			return err
 		}
 
+		// For a deploy we won't have tracked the transaction through the state machine
 		if sequencer != nil {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, tx.TransactionID)
-			if mtx == nil {
-				// Log that we're not currently tracking this transaction in the sequencer, but we can continue for the other receipts
-				// since the only purpose of this function is to update the sequencer's in memory state
-				log.L(sMgr.ctx).Warnf("coordinator not tracking transaction ID %s, no sequencer to pass failure to", tx.TransactionID)
-				return nil
-			}
-
+			// we leave it to the coordinator to decide whether it is in a state where it handles the event
+			// and check whether it's a transaction that it is tracking
 			if tx.From == nil {
 				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
 			}

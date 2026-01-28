@@ -43,13 +43,13 @@ func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 
 	// Ensure PreAssembly has TransactionSpecification
 	transactionSpec := &prototk.TransactionSpecification{
-		TransactionId: txn.ID.String(),
+		TransactionId: txn.GetID().String(),
 		From:          "originator@node1",
 	}
-	if txn.PreAssembly == nil {
-		txn.PreAssembly = &components.TransactionPreAssembly{}
+	if txn.pt.PreAssembly == nil {
+		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	txn.PreAssembly.TransactionSpecification = transactionSpec
+	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	// Execute the action
 	err := action_SendPreDispatchResponse(ctx, txn)
@@ -75,13 +75,13 @@ func TestAction_SendPreDispatchResponse_TransportError(t *testing.T) {
 
 	// Ensure PreAssembly has TransactionSpecification
 	transactionSpec := &prototk.TransactionSpecification{
-		TransactionId: txn.ID.String(),
+		TransactionId: txn.GetID().String(),
 		From:          "originator@node1",
 	}
-	if txn.PreAssembly == nil {
-		txn.PreAssembly = &components.TransactionPreAssembly{}
+	if txn.pt.PreAssembly == nil {
+		txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 	}
-	txn.PreAssembly.TransactionSpecification = transactionSpec
+	txn.pt.PreAssembly.TransactionSpecification = transactionSpec
 
 	// Create a mock transport writer that returns an error
 	mockTransport := transport.NewMockTransportWriter(t)
@@ -119,7 +119,7 @@ func TestValidator_AssembleRequestMatches_Matches(t *testing.T) {
 
 	event := &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: coordinator,
 		RequestID:   uuid.New(),
@@ -143,7 +143,7 @@ func TestValidator_AssembleRequestMatches_DoesNotMatch(t *testing.T) {
 
 	event := &AssembleRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: differentCoordinator,
 		RequestID:   uuid.New(),
@@ -167,7 +167,7 @@ func TestValidator_AssembleRequestMatches_WrongEventType(t *testing.T) {
 	// Use a different event type
 	event := &DelegatedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: coordinator,
 	}
@@ -187,7 +187,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testi
 	// Set up transaction with PostAssembly so Hash() works
 	coordinator := "coordinator@node1"
 	txn.currentDelegate = coordinator
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -197,28 +197,25 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_Success(t *testi
 	}
 
 	// Get the transaction hash
-	txnHash, err := txn.Hash(ctx)
+	txnHash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, txnHash)
 
 	requestID := uuid.New()
 	event := &PreDispatchRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      coordinator,
 		PostAssemblyHash: txnHash,
 		RequestID:        requestID,
 	}
 
-	// Verify initial state
-	assert.Equal(t, uuid.Nil, txn.latestPreDispatchRequestID, "latestPreDispatchRequestID should be nil initially")
-
 	matches, err := validator_PreDispatchRequestMatchesAssembledDelegation(ctx, txn, event)
 
 	assert.NoError(t, err)
 	assert.True(t, matches, "Should return true when coordinator and hash match")
-	assert.Equal(t, requestID, txn.latestPreDispatchRequestID, "Should store the request ID when validation passes")
+	// Note: request ID is stored by eventAction_PreDispatchRequestReceived (OnEvent) when the event is processed via HandleEvent
 }
 
 func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator(t *testing.T) {
@@ -230,7 +227,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator
 	coordinator := "coordinator@node1"
 	differentCoordinator := "coordinator@node2"
 	txn.currentDelegate = coordinator
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -240,13 +237,13 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongCoordinator
 	}
 
 	// Get the transaction hash
-	txnHash, err := txn.Hash(ctx)
+	txnHash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, txnHash)
 
 	event := &PreDispatchRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      differentCoordinator,
 		PostAssemblyHash: txnHash,
@@ -268,7 +265,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 
 	coordinator := "coordinator@node1"
 	txn.currentDelegate = coordinator
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -278,7 +275,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 	}
 
 	// Get the transaction hash
-	txnHash, err := txn.Hash(ctx)
+	txnHash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, txnHash)
 
@@ -291,7 +288,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongHash(t *tes
 
 	event := &PreDispatchRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      coordinator,
 		PostAssemblyHash: differentHash,
@@ -317,7 +314,7 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_WrongEventType(t
 	// Use a different event type
 	event := &DelegatedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: coordinator,
 	}
@@ -338,11 +335,11 @@ func TestValidator_PreDispatchRequestMatchesAssembledDelegation_HashError(t *tes
 	txn.currentDelegate = coordinator
 
 	// Set PostAssembly to nil to cause Hash() to fail
-	txn.PostAssembly = nil
+	txn.pt.PostAssembly = nil
 
 	event := &PreDispatchRequestReceivedEvent{
 		BaseEvent: BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      coordinator,
 		PostAssemblyHash: ptrTo(pldtypes.RandBytes32()),

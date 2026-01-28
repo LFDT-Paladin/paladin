@@ -173,6 +173,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 					// Update metrics and check if we need to stop one to stay within the configured max active coordinators
 					sMgr.updateActiveCoordinators(sMgr.ctx)
 
+					// TODO AM: this should be a queued event not a direct call
 					// The originator needs to know to delegate transactions to the active coordinator
 					err := originator.SetActiveCoordinator(sMgr.ctx, coordinatorNode)
 					if err != nil {
@@ -208,10 +209,12 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("sqncr      | %s | started", contractAddr.String()[0:8])
 		}
 	} else {
+		//TODO AM: is there anyway that we don't have an initial coordinator selected if we queue the event when it's first loaded
 		// We already have a sequencer initialized but we might not have an initial coordinator selected
 		// Start by populating the pool of originators with the endorsers of this transaction. At this point
 		// we don't have anything else to use to determine who our candidate coordinators are.
 		if sMgr.sequencers[contractAddr.String()].GetOriginator().GetCurrentCoordinator() == "" {
+			// TODO AM: if this can be idempotent then we don't need to make the call to GetCurrentCoordinator
 			err := sMgr.setInitialCoordinator(ctx, tx, sMgr.sequencers[contractAddr.String()])
 			if err != nil {
 				return nil, err
@@ -244,6 +247,11 @@ func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *com
 			if err != nil {
 				return err
 			}
+			// TODO AM: I think this update and then set active needs to be an event to the coordinator
+			// this causes the coordinator to call back into the sequencerManager- is this the point at which an event
+			// should be queued for the originator?
+			// I think it is- the next step is that the code today might assume the active coordinator is always set
+			// do we need an initial state/retries if we don't- as we know it will come fairly imminently, just asynchronously
 			sequencer.GetCoordinator().UpdateOriginatorNodePool(ctx, node)
 		}
 

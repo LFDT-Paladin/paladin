@@ -227,7 +227,6 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		5,
 		grapher,
 		nil,
-		func(ctx context.Context, _ uuid.UUID, to, from State) {}, // onStateTransition
 	)
 	require.NoError(t, err)
 

@@ -166,7 +166,7 @@ type TransactionBuilderForTesting struct {
 	sentMessageRecorder       *SentMessageRecorder
 	fakeClock                 *common.FakeClockForTesting
 	fakeEngineIntegration     *common.FakeEngineIntegrationForTesting
-	eventHandler              func(ctx context.Context, event common.Event) error
+	queueEventForOriginator   func(ctx context.Context, event common.Event)
 
 	/* Assembling State*/
 	assembleRequestID uuid.UUID
@@ -245,9 +245,8 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *Transact
 		EngineIntegration:   b.fakeEngineIntegration,
 		transactionBuilder:  b,
 	}
-	b.eventHandler = func(ctx context.Context, event common.Event) error {
+	b.queueEventForOriginator = func(ctx context.Context, event common.Event) {
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
-		return nil
 	}
 	return b.Build(), mocks
 }
@@ -256,14 +255,17 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	ctx := context.Background()
 
 	privateTransaction := b.privateTransactionBuilder.Build()
-	if b.eventHandler == nil {
-		b.eventHandler = func(ctx context.Context, event common.Event) error {
-			return nil
-		}
+	if b.queueEventForOriginator == nil {
+		b.queueEventForOriginator = func(ctx context.Context, event common.Event) {}
 	}
-	txn, err := NewTransaction(ctx, privateTransaction, b.sentMessageRecorder, b.eventHandler, b.fakeEngineIntegration, b.metrics, func(ctx context.Context) {})
+	txn, err := NewTransaction(ctx,
+		privateTransaction,
+		b.sentMessageRecorder,
+		b.queueEventForOriginator,
+		b.fakeEngineIntegration,
+		b.metrics)
 
-	txn.stateMachine.currentState = b.state
+	txn.stateMachine.CurrentState = b.state
 
 	// Update the private transaction struct to the accumulation that resulted from what ever events that we expect to have happened leading up to the current state
 	// We don't attempt to emulate any other history of those past events but rather assert that the state machine's behavior is determined purely by its current finite state
@@ -286,7 +288,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
-		txn.PostAssembly = &components.TransactionPostAssembly{
+		txn.pt.PostAssembly = &components.TransactionPostAssembly{
 			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 			RevertReason:   ptrTo("test revert reason"),
 		}
@@ -294,7 +296,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.latestFulfilledAssembleRequestID = uuid.New()
 		txn.latestFulfilledAssembleRequestID = b.latestFulfilledAssembleRequestID
 
-		txn.PostAssembly = &components.TransactionPostAssembly{
+		txn.pt.PostAssembly = &components.TransactionPostAssembly{
 			AssemblyResult: prototk.AssembleTransactionResponse_PARK,
 		}
 	case State_Prepared:
@@ -317,7 +319,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	}
 	b.txn = txn
 
-	b.txn.stateMachine.currentState = b.state
+	b.txn.stateMachine.CurrentState = b.state
 	return b.txn
 
 }
@@ -327,7 +329,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestOK() *mock.Cal
 	return m.EngineIntegration.On(
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
-		m.transactionBuilder.txn.ID,
+		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *components.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
@@ -341,7 +343,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestRevert() *mock
 	return m.EngineIntegration.On(
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
-		m.transactionBuilder.txn.ID,
+		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *components.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64
@@ -356,7 +358,7 @@ func (m *TransactionDependencyFakes) MockForAssembleAndSignRequestPark() *mock.C
 	return m.EngineIntegration.On(
 		"AssembleAndSign",
 		mock.Anything, //ctx context.Contex
-		m.transactionBuilder.txn.ID,
+		m.transactionBuilder.txn.pt.ID,
 		mock.Anything, //preAssembly *components.TransactionPreAssembly
 		mock.Anything, //stateLocksJSON []byte
 		mock.Anything, //blockHeight int64

@@ -56,7 +56,6 @@ const (
 	Event_NewBlock
 	Event_HandoverRequestReceived
 	Event_HandoverReceived
-	Event_TransactionStateTransition
 	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
 )
 
@@ -75,6 +74,7 @@ type (
 var stateDefinitionsMap StateDefinitions
 
 func init() {
+	// TODO AM: check this is actually necessary
 	// Initialize state definitions in init function to avoid circular dependencies
 	stateDefinitionsMap = StateDefinitions{
 		State_Idle: {
@@ -149,8 +149,8 @@ func init() {
 				Event_TransactionsDelegated: {
 					OnEvent: eventAction_TransactionsDelegated,
 				},
-				Event_TransactionConfirmed: {
-					OnEvent: eventAction_TransactionConfirmed,
+				Event_HeartbeatReceived: {
+					OnEvent: eventAction_HeartbeatReceived,
 					Transitions: []Transition{{
 						To: State_Active,
 						If: guard_ActiveCoordinatorFlushComplete,
@@ -184,7 +184,7 @@ func init() {
 						To: State_Flush,
 					}},
 				},
-				Event_TransactionStateTransition: {
+				common.Event_TransactionStateTransition: {
 					OnEvent: eventAction_TransactionStateTransition,
 					Actions: []ActionRule{{
 						Action: action_NudgeDispatchLoop,
@@ -212,7 +212,7 @@ func init() {
 						If: guard_FlushComplete,
 					}},
 				},
-				Event_TransactionStateTransition: {
+				common.Event_TransactionStateTransition: {
 					OnEvent: eventAction_TransactionStateTransition,
 				},
 			},
@@ -230,7 +230,7 @@ func init() {
 						If: guard_ClosingGracePeriodExpired,
 					}},
 				},
-				Event_TransactionStateTransition: {
+				common.Event_TransactionStateTransition: {
 					OnEvent: eventAction_TransactionStateTransition,
 				},
 			},
@@ -282,7 +282,7 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 
 // Event action functions - these apply event-specific data to the coordinator's internal state
 // They are defined in the state machine definitions via the OnEvent field
-
+// TODO AM: let's rehome all of these to the appropriate files
 func eventAction_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	// Update originator node pool (for heartbeat distribution)
@@ -293,21 +293,54 @@ func eventAction_TransactionsDelegated(ctx context.Context, c *coordinator, even
 }
 
 func eventAction_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
+	// An earlier version of this code had handling for receiving a confirmation event and using it to monitor
+	// transactions that another coordinator is coordinating, so that flush points could be updated and checked
+	// in the case of a handover, rather than relying solely on heartbeats. But that same code version only queued
+	// the event to a coordinator if it was the active coordinator and knew about the transaction, which meant the
+	// monitoring path was never taken.
+	//
+	// This version of the code brings all the logic about whether a trasaction confirmed event should be acted on
+	// into the coordinator state machine. The event is only handled in states where the coordinator is the active
+	// coordinator, and then only acted on if the transaction is known. It is functionally equivalent, but without
+	// the unused code, and decision making is contained within the state machine.
 	e := event.(*TransactionConfirmedEvent)
-	//This may be a confirmation of a transaction that we have have been coordinating or it may be one that another coordinator has been coordinating
-	//if the latter, then we may or may not know about it depending on whether we have seen a heartbeat from that coordinator since last time
-	// we were loaded into memory
-	//TODO - we can't actually guarantee that we have all transactions we dispatched in memory.
-	//Even assuming that the public txmgr is in the same process (may not be true forever)  and assuming that we haven't been swapped out ( likely not to be true very soon) there is still a chance that the transaction was submitted to the base ledger, then the process restarted then we get the confirmation.
-	// //When the process starts, we need to make sure that the coordinator is pre loaded with knowledge of all transactions that it has dispatched
-	// MRW TODO ^^
-	isDispatchedTransaction, err := c.confirmDispatchedTransaction(ctx, e.TxID, e.From, e.Nonce, e.Hash, e.RevertReason)
-	if err != nil {
-		log.L(ctx).Errorf("error confirming transaction From: %s , Nonce: %v, Hash: %v: %v", e.From, e.Nonce, e.Hash, err)
-		return err
+
+	if _, ok := c.transactionsByID[e.TxID]; !ok {
+		log.L(ctx).Warnf("eventAction_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
+		return nil
 	}
-	if !isDispatchedTransaction {
-		c.confirmMonitoredTransaction(ctx, e.From, e.Nonce)
+
+	log.L(ctx).Debugf("we currently have %d transactions to handle, confirming that dispatched TX %s is in our list", len(c.transactionsByID), e.TxID.String())
+
+	dispatchedTransaction, ok := c.transactionsByID[e.TxID]
+
+	if !ok {
+		log.L(ctx).Debugf("eventAction_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
+		return nil
+	}
+
+	if dispatchedTransaction.GetLatestSubmissionHash() == nil {
+		// The transaction created a chained private transaction so there is no hash to compare
+		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), e.Hash.String())
+	} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != e.Hash {
+		// Is this not the transaction that we are looking for?
+		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
+		// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
+		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), e.Hash.String())
+	}
+	txEvent := &transaction.ConfirmedEvent{
+		Hash:         e.Hash,
+		RevertReason: e.RevertReason,
+		Nonce:        e.Nonce,
+	}
+	txEvent.TransactionID = e.TxID
+	txEvent.EventTime = time.Now()
+
+	log.L(ctx).Debugf("Confirming dispatched TX %s", e.TxID.String())
+	err := dispatchedTransaction.HandleEvent(ctx, txEvent)
+	if err != nil {
+		log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
+		return err
 	}
 	return nil
 }
@@ -344,7 +377,7 @@ func eventAction_HeartbeatInterval(ctx context.Context, c *coordinator, event co
 }
 
 func eventAction_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*TransactionStateTransitionEvent)
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 
 	// If a transaction has transitioned to Pooled, add it to the pool queue
 	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction

@@ -36,7 +36,7 @@ func action_AssembleAndSign(ctx context.Context, txn *Transaction) error {
 	// However, we do pass the preAssembly by pointer so there may be a need to add locking or pass by value if we off load to a separate thread
 	// lets keep it synchronous for now given that the whole contract is single threaded on the assemble stage anyway, this is unlikely to have a huge negative impact
 	// but from a flow of data perspective and the state machine logic, it _could_ be converted to async
-	postAssembly, err := txn.engineIntegration.AssembleAndSign(ctx, txn.ID, txn.PreAssembly, txn.latestAssembleRequest.stateLocksJSON, txn.latestAssembleRequest.coordinatorsBlockHeight)
+	postAssembly, err := txn.engineIntegration.AssembleAndSign(ctx, txn.pt.ID, txn.pt.PreAssembly, txn.latestAssembleRequest.stateLocksJSON, txn.latestAssembleRequest.coordinatorsBlockHeight)
 	if err != nil {
 		log.L(ctx).Errorf("failed to assemble and sign transaction: %s", err)
 		//This should never happen but if it does, the most likely cause of failure is an error in the local domain code or state machine logic so best thing to abend the originator state machine
@@ -45,58 +45,46 @@ func action_AssembleAndSign(ctx context.Context, txn *Transaction) error {
 
 	switch postAssembly.AssemblyResult {
 	case prototk.AssembleTransactionResponse_OK:
-		log.L(ctx).Debugf("emitting AssembleAndSignSuccessEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleAndSignSuccessEvent{
+		log.L(ctx).Debugf("emitting AssembleAndSignSuccessEvent: %s", txn.pt.ID.String())
+		txn.queueEventForOriginator(ctx, &AssembleAndSignSuccessEvent{
 			BaseEvent: BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.pt.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleAndSignSuccessEvent: %s", err)
-			return err
-		}
 	case prototk.AssembleTransactionResponse_REVERT:
-		log.L(ctx).Debugf("emitting AssembleRevertEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleRevertEvent{
+		log.L(ctx).Debugf("emitting AssembleRevertEvent: %s", txn.pt.ID.String())
+		txn.queueEventForOriginator(ctx, &AssembleRevertEvent{
 			BaseEvent: BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.pt.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleRevertEvent: %s", err)
-			return err
-		}
 	case prototk.AssembleTransactionResponse_PARK:
-		log.L(ctx).Debugf("emitting AssembleParkEvent: %s", txn.ID.String())
-		err = txn.eventHandler(ctx, &AssembleParkEvent{
+		log.L(ctx).Debugf("emitting AssembleParkEvent: %s", txn.pt.ID.String())
+		txn.queueEventForOriginator(ctx, &AssembleParkEvent{
 			BaseEvent: BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.pt.ID,
 			},
 			RequestID:    requestID,
 			PostAssembly: postAssembly,
 		})
-		if err != nil {
-			log.L(ctx).Errorf("error handling AssembleParkEvent: %s", err)
-			return err
-		}
 	}
 	return nil
 }
 
 func action_SendAssembleRevertResponse(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("sending assemble revert response for transaction %s to %s", txn.ID.String(), txn.currentDelegate)
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.ID, txn.latestFulfilledAssembleRequestID, txn.PostAssembly, txn.PreAssembly, txn.currentDelegate)
+	log.L(ctx).Debugf("sending assemble revert response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
 }
 func action_SendAssembleParkResponse(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("sending assemble park response for transaction %s to %s", txn.ID.String(), txn.currentDelegate)
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.ID, txn.latestFulfilledAssembleRequestID, txn.PostAssembly, txn.PreAssembly, txn.currentDelegate)
+	log.L(ctx).Debugf("sending assemble park response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
 }
 
 func action_SendAssembleSuccessResponse(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("sending assemble success response for transaction %s to %s", txn.ID.String(), txn.currentDelegate)
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.ID, txn.latestFulfilledAssembleRequestID, txn.PostAssembly, txn.PreAssembly, txn.currentDelegate)
+	log.L(ctx).Debugf("sending assemble success response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
 }

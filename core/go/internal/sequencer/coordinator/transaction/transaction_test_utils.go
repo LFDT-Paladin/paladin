@@ -397,7 +397,6 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		5,
 		b.grapher,
 		metrics,
-		nil, // onStateTransition function, not used in tests
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))
