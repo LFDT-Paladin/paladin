@@ -546,7 +546,7 @@ func TestOriginator_CreateTransaction_ErrorFromHandleEvent(t *testing.T) {
 
 	// Create a real transaction using NewTransaction (this is what createTransaction does at line 174)
 	testMetrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, s.ProcessEvent, mocks.EngineIntegration, testMetrics)
+	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, s.ProcessEvent, mocks.EngineIntegration, testMetrics, func(context.Context) {})
 	require.NoError(t, err)
 
 	// Wrap it in a mock that will fail HandleEvent
@@ -653,7 +653,7 @@ func TestSendDelegationRequest_HandleEventError(t *testing.T) {
 
 	// Create a real transaction
 	testMetrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, o.ProcessEvent, mocks.EngineIntegration, testMetrics)
+	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, o.ProcessEvent, mocks.EngineIntegration, testMetrics, func(context.Context) {})
 	require.NoError(t, err)
 
 	// Add the transaction to the originator

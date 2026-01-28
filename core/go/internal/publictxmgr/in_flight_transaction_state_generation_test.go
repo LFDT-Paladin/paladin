@@ -553,7 +553,9 @@ func TestStateVersionPersistTxState_NewSubmissionWithBindingAlreadySet(t *testin
 			NewSubmission: &DBPubTxnSubmission{
 				from:            "0x12345",
 				TransactionHash: pldtypes.RandBytes32(),
-				Binding:         existingBinding,
+				SequencerTXReference: SequencerTXReference{
+					Binding: existingBinding,
+				},
 			},
 		},
 	}
@@ -610,7 +612,7 @@ func TestStateVersionPersistTxState_WithFixedGasPrice(t *testing.T) {
 		MaxFeePerGas:         fixedMaxFeePerGas,
 		MaxPriorityFeePerGas: fixedMaxPriorityFeePerGas,
 	}
-	
+
 	// Update the transaction with fixed gas pricing
 	imtxs := version.(InMemoryTxStateManager)
 	updatedTx := &DBPublicTxn{
@@ -632,8 +634,10 @@ func TestStateVersionPersistTxState_WithFixedGasPrice(t *testing.T) {
 			NewSubmission: &DBPubTxnSubmission{
 				from:            "0x12345",
 				TransactionHash: txHash,
-				PrivateTXID:     privateTXID,
-				Binding:         nil, // Will be built
+				SequencerTXReference: SequencerTXReference{
+					PrivateTXID: privateTXID,
+					Binding:     nil, // Will be built
+				},
 			},
 		},
 	}
@@ -646,11 +650,11 @@ func TestStateVersionPersistTxState_WithFixedGasPrice(t *testing.T) {
 
 	_, _, err := version.PersistTxState(ctx)
 	assert.Nil(t, err)
-	
+
 	// Verify that the binding was built and has the fixed gas pricing set
 	// The binding should have PublicTxGasPricing set from the fixed gas price
-	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding)
-	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing)
-	assert.Equal(t, fixedMaxFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing.MaxFeePerGas.Int())
-	assert.Equal(t, fixedMaxPriorityFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.Binding.PublicTxGasPricing.MaxPriorityFeePerGas.Int())
+	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.SequencerTXReference.Binding)
+	assert.NotNil(t, rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.SequencerTXReference.Binding.PublicTxGasPricing)
+	assert.Equal(t, fixedMaxFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.SequencerTXReference.Binding.PublicTxGasPricing.MaxFeePerGas.Int())
+	assert.Equal(t, fixedMaxPriorityFeePerGas.Int(), rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.SequencerTXReference.Binding.PublicTxGasPricing.MaxPriorityFeePerGas.Int())
 }

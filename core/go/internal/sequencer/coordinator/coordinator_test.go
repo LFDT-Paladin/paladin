@@ -438,6 +438,12 @@ func TestCoordinator_AddToDelegatedTransactions_DuplicateTransaction(t *testing.
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)
