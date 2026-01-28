@@ -1470,30 +1470,27 @@ func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.
 
 	// Submit a number of transactions that are likely to hit on-chain reverts but must all be eventually successful.
 	aliceTxns := make([]*uuid.UUID, numberOfIterations)
-	go func() {
-		for i := 0; i < numberOfIterations; i++ {
-			aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
-				Private().
-				Domain("domain1").
-				IdempotencyKey("tx1-alice-" + uuid.New().String()).
-				From(alice.GetIdentity()).
-				To(contractAddress).
-				Function("transfer").
-				Inputs(pldtypes.RawJSON(`{
+	for i := 0; i < numberOfIterations; i++ {
+		aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey("tx1-alice-" + uuid.New().String()).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
 			"from": "",
 			"to": "` + bob.GetIdentityLocator() + `",
 			"amount": "` + strconv.Itoa(i+1) + `"
 		}`)).
-				Send()
-			require.NoError(t, aliceTx.Error())
-			aliceTxns[i] = aliceTx.ID()
+			Send()
+		require.NoError(t, aliceTx.Error())
+		aliceTxns[i] = aliceTx.ID()
 
-		}
-	}()
+	}
 
 	// Check all transactions are eventually successful
 	for i := 0; i < numberOfIterations; i++ {
-		fmt.Printf("Time: %s - Alice TX ID: %s (%d)\n", time.Now().Format(time.RFC3339), aliceTxns[i], i)
 		assert.Eventually(t,
 			transactionReceiptCondition(t, ctx, *aliceTxns[i], alice.GetClient(), false),
 			transactionLatencyThreshold(t),
