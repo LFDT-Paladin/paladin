@@ -52,19 +52,3 @@ func Or[E any](guards ...Guard[E]) Guard[E] {
 		return false
 	}
 }
-
-// Always returns a guard that always returns true.
-// Useful for transitions that should always be taken when the event is received.
-func Always[E any]() Guard[E] {
-	return func(ctx context.Context, entity E) bool {
-		return true
-	}
-}
-
-// Never returns a guard that always returns false.
-// Useful for explicitly disabling transitions.
-func Never[E any]() Guard[E] {
-	return func(ctx context.Context, entity E) bool {
-		return false
-	}
-}

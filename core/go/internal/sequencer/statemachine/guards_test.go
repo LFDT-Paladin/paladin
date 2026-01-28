@@ -117,30 +117,6 @@ func TestOr(t *testing.T) {
 	assert.True(t, orSingleTrue(ctx, entity))
 }
 
-func TestAlways(t *testing.T) {
-	ctx := context.Background()
-	entity := &guardTestEntity{value: 0}
-
-	always := Always[*guardTestEntity]()
-	assert.True(t, always(ctx, entity))
-
-	// Even with different entity state
-	entity.value = 100
-	assert.True(t, always(ctx, entity))
-}
-
-func TestNever(t *testing.T) {
-	ctx := context.Background()
-	entity := &guardTestEntity{value: 0}
-
-	never := Never[*guardTestEntity]()
-	assert.False(t, never(ctx, entity))
-
-	// Even with different entity state
-	entity.value = 100
-	assert.False(t, never(ctx, entity))
-}
-
 func TestComplexGuardComposition(t *testing.T) {
 	ctx := context.Background()
 

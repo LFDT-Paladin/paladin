@@ -39,14 +39,14 @@ func TestNewSyncEvent(t *testing.T) {
 
 func TestIsSyncEvent_WithSyncEvent(t *testing.T) {
 	se := NewSyncEvent()
-	out, ok := IsSyncEvent(se)
+	out, ok := isSyncEvent(se)
 	assert.True(t, ok)
 	assert.Same(t, se, out)
 }
 
 func TestIsSyncEvent_WithNonSyncEvent(t *testing.T) {
 	ev := newTestEvent(Event_Start)
-	out, ok := IsSyncEvent(ev)
+	out, ok := isSyncEvent(ev)
 	assert.False(t, ok)
 	assert.Nil(t, out)
 }

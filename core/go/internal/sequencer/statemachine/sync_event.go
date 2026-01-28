@@ -46,8 +46,8 @@ func NewSyncEvent() *SyncEvent {
 	}
 }
 
-// IsSyncEvent returns true if the event is a SyncEvent.
-func IsSyncEvent(event common.Event) (*SyncEvent, bool) {
+// isSyncEvent returns true if the event is a SyncEvent.
+func isSyncEvent(event common.Event) (*SyncEvent, bool) {
 	sync, ok := event.(*SyncEvent)
 	return sync, ok
 }

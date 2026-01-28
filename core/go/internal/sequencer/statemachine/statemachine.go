@@ -34,7 +34,7 @@
 //
 //	type MyEntity struct {
 //	    sync.Mutex  // implements Lockable for thread-safe ProcessEvent
-//	    sm *statemachine.StateMachine[MyState]
+//	    sm *statemachine.StateMachine[MyState, *MyEntity]
 //	    counter int
 //	}
 //
@@ -56,11 +56,11 @@
 //	    },
 //	}
 //
-//	// Create a processor
-//	processor := statemachine.NewProcessor(definitions)
+//	// Create a state machine
+//	sm := statemachine.NewStateMachine(State_Idle, definitions)
 //
 //	// Process events
-//	processor.ProcessEvent(ctx, entity, entity.sm, event)
+//	sm.ProcessEvent(ctx, entity, event)
 package statemachine
 
 import (
@@ -82,14 +82,6 @@ type State interface {
 type Lockable interface {
 	Lock()
 	Unlock()
-}
-
-// StateMachine holds the current state and metadata for a state machine instance.
-// This struct should be embedded in or referenced by the entity being managed.
-type StateMachine[S State] struct {
-	CurrentState    S
-	LastStateChange time.Time
-	LatestEvent     string
 }
 
 // Action is a function that performs an action on an entity.
@@ -158,49 +150,50 @@ type StateDefinitions[S State, E any] map[S]StateDefinition[S, E]
 // It receives the entity, old state, new state, and the event that triggered the transition.
 type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from S, to S, event common.Event)
 
-// Processor handles event processing for a state machine.
-// It encapsulates the state definitions and processes events according to them.
-// The entity type E must implement Lockable; the processor holds the entity's lock
+// OnStopCallback is called when the event loop receives a stop signal.
+// It can optionally return a final event to process before stopping.
+type OnStopCallback func(ctx context.Context) common.Event
+
+// StateMachine holds the current state, metadata, and processing logic for a state machine instance.
+// The entity type E must implement Lockable; the state machine holds the entity's lock
 // for the duration of each ProcessEvent call.
-type Processor[S State, E Lockable] struct {
+type StateMachine[S State, E Lockable] struct {
+	CurrentState       S
+	LastStateChange    time.Time
+	LatestEvent        string
 	definitions        StateDefinitions[S, E]
 	transitionCallback TransitionCallback[S, E]
 }
 
-// TODO AM: is anything using these?
-// ProcessorOption is a functional option for configuring a Processor
-type ProcessorOption[S State, E Lockable] func(*Processor[S, E])
+// StateMachineOption is a functional option for configuring a StateMachine.
+type StateMachineOption[S State, E Lockable] func(*StateMachine[S, E])
 
-// WithTransitionCallback sets a callback that is invoked on state transitions
-// TODO AM: rename to OnTransition
-func WithTransitionCallback[S State, E Lockable](cb TransitionCallback[S, E]) ProcessorOption[S, E] {
-	return func(p *Processor[S, E]) {
-		p.transitionCallback = cb
+// WithTransitionCallback sets a callback that is invoked on state transitions.
+func WithTransitionCallback[S State, E Lockable](cb TransitionCallback[S, E]) StateMachineOption[S, E] {
+	return func(sm *StateMachine[S, E]) {
+		sm.transitionCallback = cb
 	}
 }
 
-// NewProcessor creates a new state machine processor.
-// definitions: The state definitions map. The entity type E must implement Lockable.
-func NewProcessor[S State, E Lockable](
+// NewStateMachine creates a new state machine with the given initial state and definitions.
+// The entity type E must implement Lockable.
+func NewStateMachine[S State, E Lockable](
+	initialState S,
 	definitions StateDefinitions[S, E],
-	opts ...ProcessorOption[S, E],
-) *Processor[S, E] {
-	p := &Processor[S, E]{
-		definitions: definitions,
+	opts ...StateMachineOption[S, E],
+) *StateMachine[S, E] {
+	sm := &StateMachine[S, E]{
+		CurrentState:    initialState,
+		LastStateChange: time.Now(),
+		definitions:     definitions,
 	}
 	for _, opt := range opts {
-		opt(p)
+		opt(sm)
 	}
-	return p
+	return sm
 }
 
-// Initialize sets up a state machine with an initial state.
-func Initialize[S State](sm *StateMachine[S], initialState S) {
-	sm.CurrentState = initialState
-	sm.LastStateChange = time.Now()
-}
-
-// ProcessEvent handles an event for the given entity and state machine.
+// ProcessEvent handles an event for the given entity.
 // Returns nil if the event was processed successfully or was not applicable.
 // Returns an error if validation, application, or actions fail.
 //
@@ -210,41 +203,39 @@ func Initialize[S State](sm *StateMachine[S], initialState S) {
 //  3. Run OnEvent action (if defined) to apply event data to entity state
 //  4. Run guarded Actions
 //  5. Evaluate and perform transitions
-func (p *Processor[S, E]) ProcessEvent(
+func (sm *StateMachine[S, E]) ProcessEvent(
 	ctx context.Context,
 	entity E,
-	sm *StateMachine[S],
 	event common.Event,
 ) error {
 	entity.Lock()
 	defer entity.Unlock()
 
 	// Evaluate whether this event is relevant for the current state
-	eventHandler, err := p.evaluateEvent(ctx, entity, sm, event)
+	eventHandler, err := sm.evaluateEvent(ctx, entity, event)
 	if err != nil || eventHandler == nil {
 		return err
 	}
 
 	// Execute OnEvent and Actions
-	err = p.performActions(ctx, entity, event, *eventHandler)
+	err = sm.performActions(ctx, entity, event, *eventHandler)
 	if err != nil {
 		return err
 	}
 
 	// Evaluate and perform any triggered transitions
-	err = p.evaluateTransitions(ctx, entity, sm, event, *eventHandler)
+	err = sm.evaluateTransitions(ctx, entity, event, *eventHandler)
 	return err
 }
 
 // evaluateEvent determines if the event is relevant for the current state
 // and returns the event handler if applicable.
-func (p *Processor[S, E]) evaluateEvent(
+func (sm *StateMachine[S, E]) evaluateEvent(
 	ctx context.Context,
 	entity E,
-	sm *StateMachine[S],
 	event common.Event,
 ) (*EventHandler[S, E], error) {
-	stateDefinition, exists := p.definitions[sm.CurrentState]
+	stateDefinition, exists := sm.definitions[sm.CurrentState]
 	if !exists {
 		return nil, nil
 	}
@@ -271,7 +262,7 @@ func (p *Processor[S, E]) evaluateEvent(
 }
 
 // performActions executes the OnEvent action and guarded actions defined in the event handler.
-func (p *Processor[S, E]) performActions(
+func (sm *StateMachine[S, E]) performActions(
 	ctx context.Context,
 	entity E,
 	event common.Event,
@@ -301,10 +292,9 @@ func (p *Processor[S, E]) performActions(
 }
 
 // evaluateTransitions evaluates the transition rules and performs the first matching transition.
-func (p *Processor[S, E]) evaluateTransitions(
+func (sm *StateMachine[S, E]) evaluateTransitions(
 	ctx context.Context,
 	entity E,
-	sm *StateMachine[S],
 	event common.Event,
 	eventHandler EventHandler[S, E],
 ) error {
@@ -326,7 +316,7 @@ func (p *Processor[S, E]) evaluateTransitions(
 			}
 
 			// Execute state entry action
-			newStateDefinition, exists := p.definitions[sm.CurrentState]
+			newStateDefinition, exists := sm.definitions[sm.CurrentState]
 			if exists && newStateDefinition.OnTransitionTo != nil {
 				err := newStateDefinition.OnTransitionTo(ctx, entity)
 				if err != nil {
@@ -336,8 +326,8 @@ func (p *Processor[S, E]) evaluateTransitions(
 			}
 
 			// Invoke transition callback if set
-			if p.transitionCallback != nil {
-				p.transitionCallback(ctx, entity, previousState, sm.CurrentState, event)
+			if sm.transitionCallback != nil {
+				sm.transitionCallback(ctx, entity, previousState, sm.CurrentState, event)
 			}
 
 			// Only take the first matching transition
@@ -348,34 +338,39 @@ func (p *Processor[S, E]) evaluateTransitions(
 }
 
 // GetCurrentState returns the current state of the state machine.
-func (sm *StateMachine[S]) GetCurrentState() S {
+func (sm *StateMachine[S, E]) GetCurrentState() S {
 	return sm.CurrentState
 }
 
 // GetLastStateChange returns the time of the last state change.
-func (sm *StateMachine[S]) GetLastStateChange() time.Time {
+func (sm *StateMachine[S, E]) GetLastStateChange() time.Time {
 	return sm.LastStateChange
 }
 
 // GetLatestEvent returns the type string of the last event that caused a transition.
-func (sm *StateMachine[S]) GetLatestEvent() string {
+func (sm *StateMachine[S, E]) GetLatestEvent() string {
 	return sm.LatestEvent
 }
 
-// ProcessorEventLoop combines a StateMachine, Processor, and EventLoop into a single
+// StateMachineEventLoop combines a StateMachine and an event loop into a single
 // coordinated unit. This is the recommended way to use the state machine package
 // as it handles all the wiring between components.
 // The entity type E must implement Lockable to ensure thread-safe event processing.
-type ProcessorEventLoop[S State, E Lockable] struct {
-	stateMachine *StateMachine[S]
-	processor    *Processor[S, E]
-	eventLoop    *EventLoop
+type StateMachineEventLoop[S State, E Lockable] struct {
+	stateMachine *StateMachine[S, E]
 	entity       E
+	events       chan common.Event
+	stopLoop     chan struct{}
+	loopStopped  chan struct{}
+	onStop       OnStopCallback
+	name         string
+	running      bool
+	processEvent func(ctx context.Context, event common.Event) error
 }
 
-// ProcessorEventLoopConfig holds configuration for creating a ProcessorEventLoop.
+// StateMachineEventLoopConfig holds configuration for creating a StateMachineEventLoop.
 // The entity type E must implement Lockable to ensure thread-safe event processing.
-type ProcessorEventLoopConfig[S State, E Lockable] struct {
+type StateMachineEventLoopConfig[S State, E Lockable] struct {
 	// InitialState is the starting state for the state machine
 	InitialState S
 
@@ -397,43 +392,36 @@ type ProcessorEventLoopConfig[S State, E Lockable] struct {
 	// TransitionCallback is invoked on state transitions (optional)
 	TransitionCallback TransitionCallback[S, E]
 
-	// PreProcess is an optional function called before the processor handles each event.
+	// PreProcess is an optional function called before the state machine handles each event.
 	// If it returns an error, the event is not processed by the state machine.
-	// If it returns true, the event was fully handled and should not be passed to the processor.
+	// If it returns true, the event was fully handled and should not be passed to the state machine.
 	PreProcess func(ctx context.Context, entity E, event common.Event) (handled bool, err error)
 }
 
-// NewProcessorEventLoop creates a new ProcessorEventLoop with all components wired together.
+// NewStateMachineEventLoop creates a new StateMachineEventLoop with all components wired together.
 // This is the recommended way to create a state machine with event loop support.
 // The entity type E must implement Lockable to ensure thread-safe event processing.
-func NewProcessorEventLoop[S State, E Lockable](config ProcessorEventLoopConfig[S, E]) *ProcessorEventLoop[S, E] {
-	// Create the state machine
-	sm := &StateMachine[S]{}
-	Initialize(sm, config.InitialState)
-
-	// Create the processor with optional transition callback.
-	// The processor holds the entity's lock for the duration of each ProcessEvent call.
-	var processorOpts []ProcessorOption[S, E]
+func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopConfig[S, E]) *StateMachineEventLoop[S, E] {
+	// Create the state machine with optional transition callback.
+	// The state machine holds the entity's lock for the duration of each ProcessEvent call.
+	var smOpts []StateMachineOption[S, E]
 	if config.TransitionCallback != nil {
-		processorOpts = append(processorOpts, WithTransitionCallback(config.TransitionCallback))
+		smOpts = append(smOpts, WithTransitionCallback(config.TransitionCallback))
 	}
-	processor := NewProcessor(config.Definitions, processorOpts...)
+	sm := NewStateMachine(config.InitialState, config.Definitions, smOpts...)
 
-	// Determine buffer size
 	bufferSize := config.EventLoopBufferSize
 	if bufferSize <= 0 {
 		bufferSize = 50
 	}
 
-	pel := &ProcessorEventLoop[S, E]{
-		stateMachine: sm,
-		processor:    processor,
-		entity:       config.Entity,
+	name := config.Name
+	if name == "" {
+		name = "statemachine-eventloop"
 	}
 
-	// Create the event processor function that delegates to the processor.
-	// PreProcess is called with its own lock scope; the processor holds the lock when it processes each event.
-	eventProcessor := func(ctx context.Context, event common.Event) error {
+	// Event processor: PreProcess (own lock scope) then state machine ProcessEvent.
+	processEvent := func(ctx context.Context, event common.Event) error {
 		if config.PreProcess != nil {
 			config.Entity.Lock()
 			handled, err := config.PreProcess(ctx, config.Entity, event)
@@ -445,91 +433,146 @@ func NewProcessorEventLoop[S State, E Lockable](config ProcessorEventLoopConfig[
 				return nil
 			}
 		}
-		return processor.ProcessEvent(ctx, config.Entity, sm, event)
+		return sm.ProcessEvent(ctx, config.Entity, event)
 	}
 
-	// Create event loop options
-	var eventLoopOpts []EventLoopOption
-	if config.Name != "" {
-		eventLoopOpts = append(eventLoopOpts, WithEventLoopName(config.Name))
-	}
-	if config.OnStop != nil {
-		eventLoopOpts = append(eventLoopOpts, WithOnStop(config.OnStop))
+	sel := &StateMachineEventLoop[S, E]{
+		stateMachine: sm,
+		entity:       config.Entity,
+		events:       make(chan common.Event, bufferSize),
+		stopLoop:     make(chan struct{}, 1),
+		loopStopped:  make(chan struct{}),
+		onStop:       config.OnStop,
+		name:         name,
+		processEvent: processEvent,
 	}
 
-	// Create the event loop
-	pel.eventLoop = NewEventLoop(
-		eventProcessor,
-		EventLoopConfig{BufferSize: bufferSize},
-		eventLoopOpts...,
-	)
-
-	return pel
+	return sel
 }
 
 // Start begins the event processing loop. This should be called as a goroutine.
-func (pel *ProcessorEventLoop[S, E]) Start(ctx context.Context) {
-	pel.eventLoop.Start(ctx)
+func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
+	defer close(sel.loopStopped)
+	sel.running = true
+
+	log.L(ctx).Debugf("%s: event loop started", sel.name)
+
+	for {
+		select {
+		case event := <-sel.events:
+			if syncEv, ok := isSyncEvent(event); ok {
+				log.L(ctx).Debugf("%s: sync event processed", sel.name)
+				close(syncEv.Done)
+				continue
+			}
+
+			log.L(ctx).Debugf("%s: processing event %s", sel.name, event.TypeString())
+			err := sel.processEvent(ctx, event)
+			if err != nil {
+				log.L(ctx).Errorf("%s: error processing event %s: %v", sel.name, event.TypeString(), err)
+			}
+		case <-sel.stopLoop:
+			if sel.onStop != nil {
+				if finalEvent := sel.onStop(ctx); finalEvent != nil {
+					log.L(ctx).Debugf("%s: processing final event %s", sel.name, finalEvent.TypeString())
+					err := sel.processEvent(ctx, finalEvent)
+					if err != nil {
+						log.L(ctx).Errorf("%s: error processing final event: %v", sel.name, err)
+					}
+				}
+			}
+			log.L(ctx).Debugf("%s: event loop stopped", sel.name)
+			sel.running = false
+			return
+		case <-ctx.Done():
+			log.L(ctx).Debugf("%s: context cancelled, stopping event loop", sel.name)
+			sel.running = false
+			return
+		}
+	}
 }
 
 // QueueEvent asynchronously queues an event for processing.
-func (pel *ProcessorEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
-	pel.eventLoop.QueueEvent(ctx, event)
+func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
+	log.L(ctx).Tracef("%s: queueing event %s", sel.name, event.TypeString())
+	sel.events <- event
 }
 
 // TryQueueEvent attempts to queue an event without blocking.
 // Returns true if the event was queued, false if the buffer is full.
-func (pel *ProcessorEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
-	return pel.eventLoop.TryQueueEvent(ctx, event)
+func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
+	select {
+	case sel.events <- event:
+		log.L(ctx).Tracef("%s: queued event %s", sel.name, event.TypeString())
+		return true
+	default:
+		log.L(ctx).Warnf("%s: event buffer full, dropping event %s", sel.name, event.TypeString())
+		return false
+	}
 }
 
 // ProcessEvent synchronously processes an event. This bypasses the event loop
 // and should only be used in tests or when you need synchronous processing.
-func (pel *ProcessorEventLoop[S, E]) ProcessEvent(ctx context.Context, event common.Event) error {
-	return pel.processor.ProcessEvent(ctx, pel.entity, pel.stateMachine, event)
+func (sel *StateMachineEventLoop[S, E]) ProcessEvent(ctx context.Context, event common.Event) error {
+	return sel.stateMachine.ProcessEvent(ctx, sel.entity, event)
 }
 
 // Stop signals the event loop to stop and waits for it to complete.
-func (pel *ProcessorEventLoop[S, E]) Stop() {
-	pel.eventLoop.Stop()
+func (sel *StateMachineEventLoop[S, E]) Stop() {
+	select {
+	case <-sel.loopStopped:
+		return
+	default:
+	}
+
+	select {
+	case sel.stopLoop <- struct{}{}:
+	default:
+	}
+
+	<-sel.loopStopped
 }
 
 // StopAsync signals the event loop to stop but does not wait for completion.
-func (pel *ProcessorEventLoop[S, E]) StopAsync() {
-	pel.eventLoop.StopAsync()
+func (sel *StateMachineEventLoop[S, E]) StopAsync() {
+	select {
+	case <-sel.loopStopped:
+		return
+	default:
+	}
+
+	select {
+	case sel.stopLoop <- struct{}{}:
+	default:
+	}
 }
 
 // WaitForStop waits for the event loop to complete after Stop or StopAsync was called.
-func (pel *ProcessorEventLoop[S, E]) WaitForStop() {
-	pel.eventLoop.WaitForStop()
+func (sel *StateMachineEventLoop[S, E]) WaitForStop() {
+	<-sel.loopStopped
 }
 
 // IsStopped returns true if the event loop has been stopped.
-func (pel *ProcessorEventLoop[S, E]) IsStopped() bool {
-	return pel.eventLoop.IsStopped()
+func (sel *StateMachineEventLoop[S, E]) IsStopped() bool {
+	select {
+	case <-sel.loopStopped:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsRunning returns true if the event loop is currently running.
-func (pel *ProcessorEventLoop[S, E]) IsRunning() bool {
-	return pel.eventLoop.IsRunning()
+func (sel *StateMachineEventLoop[S, E]) IsRunning() bool {
+	return sel.running && !sel.IsStopped()
 }
 
 // StateMachine returns the underlying state machine for direct access.
-func (pel *ProcessorEventLoop[S, E]) StateMachine() *StateMachine[S] {
-	return pel.stateMachine
-}
-
-// Processor returns the underlying processor for direct access.
-func (pel *ProcessorEventLoop[S, E]) Processor() *Processor[S, E] {
-	return pel.processor
-}
-
-// EventLoop returns the underlying event loop for direct access.
-func (pel *ProcessorEventLoop[S, E]) EventLoop() *EventLoop {
-	return pel.eventLoop
+func (sel *StateMachineEventLoop[S, E]) StateMachine() *StateMachine[S, E] {
+	return sel.stateMachine
 }
 
 // GetCurrentState returns the current state of the state machine.
-func (pel *ProcessorEventLoop[S, E]) GetCurrentState() S {
-	return pel.stateMachine.CurrentState
+func (sel *StateMachineEventLoop[S, E]) GetCurrentState() S {
+	return sel.stateMachine.GetCurrentState()
 }
