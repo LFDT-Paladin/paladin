@@ -111,7 +111,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.Build(ctx)
 
@@ -349,7 +349,7 @@ func TestCoordinator_AddToDelegatedTransactions_WithChainedTransaction(t *testin
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(true, nil)
 	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 
@@ -377,7 +377,7 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 

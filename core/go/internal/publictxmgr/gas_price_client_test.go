@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"text/template"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -1583,7 +1584,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 
 	_, hgc, _ := NewTestGasPriceClient(t, conf, false)
 
-	// Test case 1: No previously submitted GPO - should return retrieved GPO as-is
+	// No previously submitted GPO - should return retrieved GPO as-is
 	retrievedGPO := &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(10000000000), // 10 Gwei
 		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1000000000),  // 1 Gwei
@@ -1594,7 +1595,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, retrievedGPO.MaxFeePerGas.Int().Int64(), result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, retrievedGPO.MaxPriorityFeePerGas.Int().Int64(), result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 2: Previously submitted GPO with nil fields - should return retrieved GPO as-is
+	// Previously submitted GPO with nil fields - should return retrieved GPO as-is
 	previouslySubmittedGPO := &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         nil,
 		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1000000000), // 1 Gwei
@@ -1605,7 +1606,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, retrievedGPO.MaxFeePerGas.Int().Int64(), result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, retrievedGPO.MaxPriorityFeePerGas.Int().Int64(), result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 3: Previously submitted GPO with both fields nil - should return retrieved GPO as-is
+	// Previously submitted GPO with both fields nil - should return retrieved GPO as-is
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         nil,
 		MaxPriorityFeePerGas: nil,
@@ -1616,7 +1617,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, retrievedGPO.MaxFeePerGas.Int().Int64(), result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, retrievedGPO.MaxPriorityFeePerGas.Int().Int64(), result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 4: Retrieved GPO has higher values - should use retrieved values directly
+	// Retrieved GPO has higher values - should use retrieved values directly
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(8000000000), // 8 Gwei
 		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(800000000),  // 0.8 Gwei
@@ -1632,7 +1633,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, retrievedGPO.MaxFeePerGas.Int().Int64(), result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, retrievedGPO.MaxPriorityFeePerGas.Int().Int64(), result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 5: Retrieved GPO has lower values and underpriced flag is true - should increase retrieved GPO by 10%
+	// Retrieved GPO has lower values and underpriced flag is true - should increase retrieved GPO by 10%
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(12000000000), // 12 Gwei
 		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1200000000),  // 1.2 Gwei
@@ -1650,14 +1651,14 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, expectedMaxFee, result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, expectedMaxPriorityFee, result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 6: Retrieved GPO has lower values and underpriced flag is false - should return previously submitted GPO
+	// Retrieved GPO has lower values and underpriced flag is false - should return previously submitted GPO
 	result = hgc.calculateNewGasPrice(previouslySubmittedGPO, retrievedGPO, false)
 	require.NotNil(t, result)
 	// Should return previously submitted GPO unchanged
 	assert.Equal(t, previouslySubmittedGPO.MaxFeePerGas.Int().Int64(), result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, previouslySubmittedGPO.MaxPriorityFeePerGas.Int().Int64(), result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 7: Complex scenario - retrieved GPO has higher priority fee but lower total fee
+	// Complex scenario - retrieved GPO has higher priority fee but lower total fee
 	// Should use whichever is higher of the retrieved and increased previously submitted values
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(10000000000), // 10 Gwei
@@ -1678,8 +1679,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, expectedMaxFee, result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, expectedMaxPriorityFee, result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 8: Retrieved GPO has higher priority fee but lower total fee than previously submitted
-	// This tests the Sign() == -1 condition in lines 219 and 225
+	// Retrieved GPO has higher priority fee but lower total fee than previously submitted
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(10000000000), // 10 Gwei
 		MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1000000000),  // 1 Gwei
@@ -1698,7 +1698,7 @@ func TestCalculateNewGasPrice(t *testing.T) {
 	assert.Equal(t, expectedMaxFee, result.MaxFeePerGas.Int().Int64())
 	assert.Equal(t, expectedMaxPriorityFee, result.MaxPriorityFeePerGas.Int().Int64())
 
-	// Test case 9: Retrieved GPO has higher total fee but lower priority fee than minimum new values
+	// Retrieved GPO has higher total fee but lower priority fee than minimum new values
 	// This specifically tests the Sign() == -1 condition for priority fee in line 219
 	previouslySubmittedGPO = &pldapi.PublicTxGasPricing{
 		MaxFeePerGas:         pldtypes.Uint64ToUint256(10000000000), // 10 Gwei
@@ -2423,4 +2423,125 @@ func TestInitWithGasOracleInvalidMethod(t *testing.T) {
 	err := hgc.Init(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid HTTP method for gas oracle API: DELETE")
+}
+
+func TestGetGasPriceFromGasOracleTemplateExecuteFailure(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxFeePerGas": "{{.maxFeePerGas}}",
+				"maxPriorityFeePerGas": "{{.maxPriorityFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Manually replace the template with one that will fail at execution time
+	// Using a template function that panics, which causes Execute to return an error
+	badTemplate := template.Must(template.New("badTemplate").Funcs(template.FuncMap{
+		"panicFunc": func() string {
+			panic("template execution panic")
+		},
+	}).Parse(`{{panicFunc}}`))
+	hgc.gasOracleTemplate = badTemplate
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock successful HTTP response
+	mockResponse := `{
+		"maxFeePerGas": "0x2FAF080",
+		"maxPriorityFeePerGas": "0x3B9ACA0"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "Failed to execute gas oracle template")
+}
+
+func TestGetGasPriceFromGasOracleMissingMaxFeePerGasAfterParsing(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxPriorityFeePerGas": "{{.maxPriorityFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock response that has maxPriorityFeePerGas but not maxFeePerGas
+	// The template will produce valid JSON without maxFeePerGas field
+	mockResponse := `{
+		"maxPriorityFeePerGas": "0x3B9ACA0"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "maxFeePerGas not found in templated gas oracle response")
+}
+
+func TestGetGasPriceFromGasOracleMissingMaxPriorityFeePerGasAfterParsing(t *testing.T) {
+	conf := &pldconf.GasPriceConfig{
+		FixedGasPrice: nil,
+		GasOracleAPI: &pldconf.GasOracleAPIConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: "https://api.example.com/gas",
+			},
+			ResponseTemplate: `{
+				"maxFeePerGas": "{{.maxFeePerGas}}"
+			}`,
+		},
+	}
+
+	ctx, hgc, _ := NewTestGasPriceClient(t, conf, false)
+
+	err := hgc.Init(ctx)
+	require.NoError(t, err)
+
+	// Setup httpmock
+	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
+	defer httpmock.DeactivateAndReset()
+	httpmock.Reset()
+
+	// Mock response that has maxFeePerGas but not maxPriorityFeePerGas
+	// The template will produce valid JSON without maxPriorityFeePerGas field
+	mockResponse := `{
+		"maxFeePerGas": "0x2FAF080"
+	}`
+	httpmock.RegisterResponder("GET", "https://api.example.com/gas",
+		httpmock.NewStringResponder(200, mockResponse))
+
+	result, err := hgc.getGasPriceFromGasOracle(ctx)
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "maxPriorityFeePerGas not found in templated gas oracle response")
 }

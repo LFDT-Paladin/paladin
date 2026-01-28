@@ -378,7 +378,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		for i, pt := range publicTransactionsToSend {
 			log.L(ctx).Debugf("DispatchTransactions: creating PublicTxSubmission from %s", pt.Signer)
 			publicTXs[i] = &components.PublicTxSubmission{
-				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
+				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum(), TransactionSender: pt.PreAssembly.TransactionSpecification.From, TransactionContractAddress: t.Address.String()}},
 				PublicTxInput: pldapi.PublicTxInput{
 					From:            resolvedAddrs[i],
 					To:              &t.Address,
@@ -386,7 +386,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 				},
 			}
 
-			// MRW TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
+			// TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
 
 			data, err := pt.PreparedPublicTransaction.ABI[0].EncodeCallDataJSONCtx(ctx, pt.PreparedPublicTransaction.Data)
 			if err != nil {

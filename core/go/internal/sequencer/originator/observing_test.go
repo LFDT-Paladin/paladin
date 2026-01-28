@@ -1,5 +1,5 @@
 /*
- * Copyright © 2025 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -27,14 +27,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 func TestApplyHeartbeatReceived_BasicUpdate(t *testing.T) {
-	// Test that applyHeartbeatReceived updates time, coordinator, and snapshot
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -59,12 +58,12 @@ func TestApplyHeartbeatReceived_BasicUpdate(t *testing.T) {
 }
 
 func TestApplyHeartbeatReceived_DispatchedTransactionNotFound(t *testing.T) {
-	// Test that applyHeartbeatReceived handles dispatched transactions not found in memory
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -88,12 +87,12 @@ func TestApplyHeartbeatReceived_DispatchedTransactionNotFound(t *testing.T) {
 }
 
 func TestApplyHeartbeatReceived_DispatchedTransactionWithHash(t *testing.T) {
-	// Test that applyHeartbeatReceived processes dispatched transactions with hash
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -137,16 +136,15 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithHash(t *testing.T) {
 		assert.Equal(t, txn.ID, *txIDPtr)
 	}
 	// If it doesn't exist, it means HandleEvent didn't process the event (transaction might be in wrong state)
-	// This is acceptable for this test - we're testing that applyHeartbeatReceived handles the event correctly
 }
 
 func TestApplyHeartbeatReceived_DispatchedTransactionWithNonceOnly(t *testing.T) {
-	// Test that applyHeartbeatReceived processes dispatched transactions with nonce but no hash
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -182,13 +180,13 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithNonceOnly(t *testing.T)
 }
 
 func TestApplyHeartbeatReceived_DispatchedTransactionFromDifferentOriginator(t *testing.T) {
-	// Test that applyHeartbeatReceived ignores dispatched transactions from other originators
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	otherOriginatorLocator := "otherSender@otherNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	heartbeatEvent := &HeartbeatReceivedEvent{}
 	heartbeatEvent.From = coordinatorLocator
@@ -205,20 +203,15 @@ func TestApplyHeartbeatReceived_DispatchedTransactionFromDifferentOriginator(t *
 
 	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	assert.NoError(t, err)
-	// Transaction should be ignored, so no changes to transactionsByID
 }
 
 func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
-	// Test that applyHeartbeatReceived returns error when HandleEvent fails for SubmittedEvent
-	// Note: This test verifies the error handling path exists. To fully test it, we would need
-	// to mock HandleEvent, but transactionsByID expects *transaction.Transaction, making mocking difficult.
-	// The error path is: if txn.HandleEvent returns an error, applyHeartbeatReceived should
-	// return an error with the message "error handling transaction submitted event".
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -231,10 +224,6 @@ func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
 	err := o.createTransaction(ctx, txn)
 	require.NoError(t, err)
 
-	// Use unsafe to replace HandleEvent method - this is a workaround to test error paths
-	// We'll use reflection to call HandleEvent directly and verify error handling
-	// For now, we test that the code path exists by verifying the structure
-	// The actual error would come from HandleEvent, which is tested in transaction tests
 	submissionHash := pldtypes.RandBytes32()
 	nonce := uint64(42)
 
@@ -255,21 +244,16 @@ func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
 
 	// This should succeed with a real transaction
 	err = o.applyHeartbeatReceived(ctx, heartbeatEvent)
-	// In a real error scenario, HandleEvent would return an error and we'd get:
-	// "error handling transaction submitted event for transaction %s: %v"
-	// Since we can't easily mock HandleEvent, we verify the happy path works
 	assert.NoError(t, err)
 }
 
 func TestApplyHeartbeatReceived_HandleEventError_NonceAssignedEvent(t *testing.T) {
-	// Test that applyHeartbeatReceived returns error when HandleEvent fails for NonceAssignedEvent
-	// Note: Similar to TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent, this test
-	// verifies the error handling path exists. The actual error would come from HandleEvent.
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Create a real transaction
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().
@@ -302,19 +286,16 @@ func TestApplyHeartbeatReceived_HandleEventError_NonceAssignedEvent(t *testing.T
 
 	// This should succeed with a real transaction
 	err = o.applyHeartbeatReceived(ctx, heartbeatEvent)
-	// In a real error scenario, HandleEvent would return an error and we'd get:
-	// "error handling nonce assigned event for transaction %s: %v"
-	// Since we can't easily mock HandleEvent, we verify the happy path works
 	assert.NoError(t, err)
 }
 
 func TestGuard_HeartbeatThresholdExceeded_NilTime(t *testing.T) {
-	// Test that guard_HeartbeatThresholdExceeded returns true when timeOfMostRecentHeartbeat is nil
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, _ := builder.Build(ctx)
+	defer o.Stop()
 
 	// Ensure timeOfMostRecentHeartbeat is nil
 	o.timeOfMostRecentHeartbeat = nil
@@ -330,6 +311,7 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdExpired(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, mocks := builder.Build(ctx)
+	defer o.Stop()
 
 	// Set timeOfMostRecentHeartbeat to a time in the past (beyond threshold)
 	// For FakeClockForTesting, we need to advance the clock and then set an old time
@@ -345,12 +327,12 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdExpired(t *testing.T) {
 }
 
 func TestGuard_HeartbeatThresholdExceeded_ThresholdNotExpired(t *testing.T) {
-	// Test that guard_HeartbeatThresholdExceeded returns false when threshold has not expired
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
 	o, mocks := builder.Build(ctx)
+	defer o.Stop()
 
 	// Set timeOfMostRecentHeartbeat to a recent time (within threshold)
 	recentTime := mocks.Clock.Now()
@@ -359,4 +341,3 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdNotExpired(t *testing.T) {
 	result := guard_HeartbeatThresholdExceeded(ctx, o)
 	assert.False(t, result, "Should return false when threshold has not expired")
 }
-

@@ -32,6 +32,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/stretchr/testify/assert"
@@ -84,7 +85,7 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 		Name:            "FakeToken1",
 		Symbol:          "FT1",
 		EndorsementMode: domains.PrivacyGroupEndorsement,
-		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+		EndorsementSet:  []string{alice.GetIdentityLocator()},
 	}
 
 	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
@@ -106,6 +107,7 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, aliceTx.Error())
 
+	// Check alice has the TX including the public TX information
 	assert.Eventually(t,
 		transactionReceiptConditionExpectedPublicTXCount(t, ctx, aliceTx.ID(), alice.GetClient(), 1),
 		transactionLatencyThreshold(t),
@@ -114,7 +116,7 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	)
 	// Check bob has the public TX info as well
 	assert.Eventually(t,
-		transactionReceiptConditionExpectedPublicTXCount(t, ctx, aliceTx.ID(), bob.GetClient(), 1),
+		transactionReceiptFullConditionExpectedPublicTXCount(t, ctx, aliceTx.ID(), bob.GetClient(), 1),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt with 1 public TX",
@@ -125,22 +127,40 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, aliceTxFull)
 
-	bobTxFull, err := bob.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
+	bobTxFull, err := bob.GetClient().PTX().GetTransactionReceiptFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
 	require.NotNil(t, bobTxFull)
 
-	assert.Equal(t, aliceTxFull.ABIReference, bobTxFull.ABIReference)
+	// Check the data both nodes have is consistent. We're comparing a transaction with a transaction receipt so domain is the only comparable field
 	assert.Equal(t, aliceTxFull.Domain, bobTxFull.Domain)
-	assert.Equal(t, aliceTxFull.Function, bobTxFull.Function)
-	assert.Equal(t, aliceTxFull.From, bobTxFull.From)
-	assert.Equal(t, aliceTxFull.To, bobTxFull.To)
-	assert.Equal(t, aliceTxFull.Gas, bobTxFull.Gas)
-	assert.Equal(t, aliceTxFull.Data, bobTxFull.Data)
+
+	// Check the public transaction records are consistent
+	assert.Equal(t, aliceTxFull.Public[0].Dispatcher, bobTxFull.Public[0].Dispatcher)
 	assert.Equal(t, aliceTxFull.Public[0].TransactionHash, bobTxFull.Public[0].TransactionHash)
 	assert.Equal(t, aliceTxFull.Public[0].From, bobTxFull.Public[0].From)
 	assert.Equal(t, aliceTxFull.Public[0].To, bobTxFull.Public[0].To)
 	assert.Equal(t, aliceTxFull.Public[0].Value, bobTxFull.Public[0].Value)
 	assert.Equal(t, aliceTxFull.Public[0].Gas, bobTxFull.Public[0].Gas)
+	assert.Equal(t, aliceTxFull.Public[0].Nonce, bobTxFull.Public[0].Nonce)
+	assert.Equal(t, aliceTxFull.Public[0].Data, bobTxFull.Public[0].Data)
+	assert.Equal(t, aliceTxFull.Public[0].Created, bobTxFull.Public[0].Created)
+	assert.Equal(t, aliceTxFull.Public[0].PublicTxOptions, bobTxFull.Public[0].PublicTxOptions)
+
+	// Check the public transaction submissions are consistent
+	assert.True(t, len(aliceTxFull.Public[0].Submissions) == 1)
+	assert.Equal(t, aliceTxFull.Public[0].Submissions[0].TransactionHash, bobTxFull.Public[0].Submissions[0].TransactionHash)
+	assert.Equal(t, aliceTxFull.Public[0].Submissions[0].Time, bobTxFull.Public[0].Submissions[0].Time)
+	assert.Equal(t, aliceTxFull.Public[0].Submissions[0].PublicTxGasPricing.MaxPriorityFeePerGas, bobTxFull.Public[0].Submissions[0].PublicTxGasPricing.MaxPriorityFeePerGas)
+	assert.Equal(t, aliceTxFull.Public[0].Submissions[0].PublicTxGasPricing.MaxFeePerGas, bobTxFull.Public[0].Submissions[0].PublicTxGasPricing.MaxFeePerGas)
+
+	// Check Alice has the sequencing activity Bob has distributed to her
+	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch)) // Only 1 activity type supported currently
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID, aliceTx.ID())
+
+	// Check Bob has the dispatch
+	assert.True(t, len(bobTxFull.Dispatches) == 1)
 }
 
 func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
@@ -736,6 +756,33 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
 	)
+
+	// Get the full transaction from Alice and check there is a chained transaction created on Alice's node
+	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, aliceTxFull)
+
+	assert.True(t, len(aliceTxFull.ChainedPrivateTransactions) == 1)
+	assert.Equal(t, aliceTxFull.ChainedPrivateTransactions[0].TransactionID, aliceTx.ID().String())
+
+	// Now query the chained transaction on Alice's node, which should have sequencing activity sent from Bob, the coordinator
+	aliceChainedTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	require.NoError(t, err)
+	require.NotNil(t, aliceChainedTxFull)
+
+	assert.True(t, len(aliceChainedTxFull.SequencerActivity) == 1)
+	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
+	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].TransactionID.String(), aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch))
+
+	// Finally check that Bob who coordinated the chained transaction has a receipt with dispatch information that correlates with Alice's sequencing activity
+	bobChainedTxReceiptFull, err := bob.GetClient().PTX().GetTransactionReceiptFull(ctx, uuid.MustParse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	require.NoError(t, err)
+	require.NotNil(t, bobChainedTxReceiptFull)
+
+	assert.True(t, len(bobChainedTxReceiptFull.Dispatches) == 1)
+	assert.Equal(t, bobChainedTxReceiptFull.Dispatches[0].ID, aliceChainedTxFull.SequencerActivity[0].SubjectID)
+	assert.Equal(t, bobChainedTxReceiptFull.Dispatches[0].PrivateTransactionID, aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
 }
 
 func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndorsement(t *testing.T) {
@@ -805,13 +852,40 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 	_, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
 
-	// Bob's node has the receipt and full transaction
+	// Bob's node has the receipt only
 	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTx.ID(), bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
 	)
+
+	// Now query the transaction in full and check that there is a sequencing activity record from bob who coordinated the original tranasction
+	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, aliceTxFull)
+
+	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID.String(), aliceTx.ID().String())
+	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_ChainedDispatch)) // The coordination resulted in a chained transaction, not a public dispatch
+
+	// Query the transaction receipt on bob's node, to get the chained transaction and check it correlates with Alice's sequencing activity
+	bobTxReceiptFull, err := bob.GetClient().PTX().GetTransactionReceiptFull(ctx, aliceTx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, bobTxReceiptFull)
+
+	assert.True(t, len(bobTxReceiptFull.ChainedPrivateTransactions) == 1)
+	assert.Equal(t, bobTxReceiptFull.ChainedPrivateTransactions[0].TransactionID, aliceTx.ID().String())
+	assert.Equal(t, bobTxReceiptFull.ChainedPrivateTransactions[0].LocalID, aliceTxFull.SequencerActivity[0].SubjectID)
+
+	// Finally query Bob for the full chained transaction. It is coordinated by Bob so should have public dispatch, but not sequencing activity
+	bobChainedTxFull, err := bob.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(bobTxReceiptFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	require.NoError(t, err)
+	require.NotNil(t, bobChainedTxFull)
+
+	assert.True(t, len(bobChainedTxFull.Dispatches) == 1)
+	assert.Equal(t, bobChainedTxFull.Dispatches[0].PrivateTransactionID, bobTxReceiptFull.ChainedPrivateTransactions[0].ChainedTransactionID)
 }
 
 func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyGroupEndorsement(t *testing.T) {
@@ -884,7 +958,7 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyG
 
 	// Bob's node has the full transaction and receipt
 	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
+		transactionReceiptConditionReceiptOnly(t, ctx, aliceTx.ID(), bob.GetClient()),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",
@@ -1156,13 +1230,6 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 	customDuration := 10 * time.Second
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
-		transactionLatencyThresholdCustom(t, &customDuration),
-		100*time.Millisecond,
-		"Transaction did not receive a receipt",
-	)
-
-	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, aliceTx.ID(), bob.GetClient(), false),
 		transactionLatencyThresholdCustom(t, &customDuration),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt",

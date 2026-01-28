@@ -820,6 +820,8 @@ func TestClosedRetryingBatchDeliver(t *testing.T) {
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
 			mc.db.ExpectQuery("SELECT.*receipt_listener_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 		},
 	)
 	defer done()
@@ -852,6 +854,8 @@ func TestClosedRetryingWritingCheckpoint(t *testing.T) {
 			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
 			mc.db.ExpectQuery("SELECT.*receipt_listener_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectExec("INSERT.*receipt_listener_checkpoints").WillReturnError(fmt.Errorf("pop"))
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 		},
 	)
 	defer done()
@@ -1117,6 +1121,8 @@ func TestProcessStaleGapFailRetryingUpdateGapForPage(t *testing.T) {
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectExec("INSERT.*receipt_listeners").WillReturnResult(driver.ResultNoRows)
 			mc.db.ExpectExec("UPDATE.*receipt_listener_gap").WillReturnError(fmt.Errorf("pop"))
+			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 		},
 	)
 	defer done()
