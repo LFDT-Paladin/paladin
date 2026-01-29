@@ -27,14 +27,16 @@ type Event interface {
 	common.Event
 }
 
-type CoordinatorStateEventActivated struct{}
-
-func (*CoordinatorStateEventActivated) Type() EventType {
-	return Event_Activated
+type CoordinatorCreatedEvent struct {
+	common.BaseEvent
 }
 
-func (*CoordinatorStateEventActivated) TypeString() string {
-	return "Event_Activated"
+func (*CoordinatorCreatedEvent) Type() EventType {
+	return Event_CoordinatorCreated
+}
+
+func (*CoordinatorCreatedEvent) TypeString() string {
+	return "Event_CoordinatorCreated"
 }
 
 type TransactionsDelegatedEvent struct {
@@ -170,4 +172,20 @@ func (*HandoverReceivedEvent) Type() EventType {
 
 func (*HandoverReceivedEvent) TypeString() string {
 	return "Event_HandoverReceived"
+}
+
+// OriginatorNodePoolUpdateRequestedEvent is queued when a sequencer is loaded and already exists,
+// so the coordinator can add the transaction's endorsers to its originator node pool (e.g. when
+// the sequencer was first created with tx=nil and had an empty pool).
+type OriginatorNodePoolUpdateRequestedEvent struct {
+	common.BaseEvent
+	Nodes []string // Node names (e.g. from tx.PreAssembly.RequiredVerifiers)
+}
+
+func (*OriginatorNodePoolUpdateRequestedEvent) Type() EventType {
+	return Event_OriginatorNodePoolUpdateRequested
+}
+
+func (*OriginatorNodePoolUpdateRequestedEvent) TypeString() string {
+	return "Event_OriginatorNodePoolUpdateRequested"
 }

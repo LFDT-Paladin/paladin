@@ -200,50 +200,6 @@ func (_m *MockSeqOriginator) EXPECT() *MockSeqOriginator_Expecter {
 	return &MockSeqOriginator_Expecter{mock: &_m.Mock}
 }
 
-// GetCurrentCoordinator provides a mock function for the type MockSeqOriginator
-func (_mock *MockSeqOriginator) GetCurrentCoordinator() string {
-	ret := _mock.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetCurrentCoordinator")
-	}
-
-	var r0 string
-	if returnFunc, ok := ret.Get(0).(func() string); ok {
-		r0 = returnFunc()
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	return r0
-}
-
-// MockSeqOriginator_GetCurrentCoordinator_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCurrentCoordinator'
-type MockSeqOriginator_GetCurrentCoordinator_Call struct {
-	*mock.Call
-}
-
-// GetCurrentCoordinator is a helper method to define mock.On call
-func (_e *MockSeqOriginator_Expecter) GetCurrentCoordinator() *MockSeqOriginator_GetCurrentCoordinator_Call {
-	return &MockSeqOriginator_GetCurrentCoordinator_Call{Call: _e.mock.On("GetCurrentCoordinator")}
-}
-
-func (_c *MockSeqOriginator_GetCurrentCoordinator_Call) Run(run func()) *MockSeqOriginator_GetCurrentCoordinator_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSeqOriginator_GetCurrentCoordinator_Call) Return(s string) *MockSeqOriginator_GetCurrentCoordinator_Call {
-	_c.Call.Return(s)
-	return _c
-}
-
-func (_c *MockSeqOriginator_GetCurrentCoordinator_Call) RunAndReturn(run func() string) *MockSeqOriginator_GetCurrentCoordinator_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetTxStatus provides a mock function for the type MockSeqOriginator
 func (_mock *MockSeqOriginator) GetTxStatus(ctx context.Context, txID uuid.UUID) (components.PrivateTxStatus, error) {
 	ret := _mock.Called(ctx, txID)
@@ -353,63 +309,6 @@ func (_c *MockSeqOriginator_QueueEvent_Call) Return() *MockSeqOriginator_QueueEv
 
 func (_c *MockSeqOriginator_QueueEvent_Call) RunAndReturn(run func(ctx context.Context, event common.Event)) *MockSeqOriginator_QueueEvent_Call {
 	_c.Run(run)
-	return _c
-}
-
-// SetActiveCoordinator provides a mock function for the type MockSeqOriginator
-func (_mock *MockSeqOriginator) SetActiveCoordinator(ctx context.Context, coordinator string) error {
-	ret := _mock.Called(ctx, coordinator)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetActiveCoordinator")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, coordinator)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockSeqOriginator_SetActiveCoordinator_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetActiveCoordinator'
-type MockSeqOriginator_SetActiveCoordinator_Call struct {
-	*mock.Call
-}
-
-// SetActiveCoordinator is a helper method to define mock.On call
-//   - ctx context.Context
-//   - coordinator string
-func (_e *MockSeqOriginator_Expecter) SetActiveCoordinator(ctx interface{}, coordinator interface{}) *MockSeqOriginator_SetActiveCoordinator_Call {
-	return &MockSeqOriginator_SetActiveCoordinator_Call{Call: _e.mock.On("SetActiveCoordinator", ctx, coordinator)}
-}
-
-func (_c *MockSeqOriginator_SetActiveCoordinator_Call) Run(run func(ctx context.Context, coordinator string)) *MockSeqOriginator_SetActiveCoordinator_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockSeqOriginator_SetActiveCoordinator_Call) Return(err error) *MockSeqOriginator_SetActiveCoordinator_Call {
-	_c.Call.Return(err)
-	return _c
-}
-
-func (_c *MockSeqOriginator_SetActiveCoordinator_Call) RunAndReturn(run func(ctx context.Context, coordinator string) error) *MockSeqOriginator_SetActiveCoordinator_Call {
-	_c.Call.Return(run)
 	return _c
 }
 

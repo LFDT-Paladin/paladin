@@ -76,6 +76,19 @@ func (*TransactionCreatedEvent) TypeString() string {
 	return "Event_TransactionCreated"
 }
 
+type ActiveCoordinatorUpdatedEvent struct {
+	common.BaseEvent
+	Coordinator string
+}
+
+func (*ActiveCoordinatorUpdatedEvent) Type() EventType {
+	return Event_ActiveCoordinatorUpdated
+}
+
+func (*ActiveCoordinatorUpdatedEvent) TypeString() string {
+	return "Event_ActiveCoordinatorUpdated"
+}
+
 type TransactionConfirmedEvent struct {
 	common.BaseEvent
 	From         *pldtypes.EthAddress

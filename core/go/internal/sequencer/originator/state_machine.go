@@ -46,6 +46,7 @@ const (
 	Event_NewBlock                                                // a new block has been mined on the base ledger
 	Event_Base_Ledger_Transaction_Reverted                        // A transaction has moved from the dispatched to pending state because it was reverted on the base ledger
 	Event_Delegate_Timeout                                        // a regular interval to re-delegate transactions that have been delegated but not yet confirmed
+	Event_ActiveCoordinatorUpdated                                // a new active coordinator is available
 )
 
 // Type aliases for the generic statemachine types, specialized for originator
@@ -62,6 +63,9 @@ type (
 var stateDefinitionsMap = StateDefinitions{
 	State_Idle: {
 		Events: map[EventType]EventHandler{
+			Event_ActiveCoordinatorUpdated: {
+				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
+			},
 			Event_HeartbeatReceived: {
 				Actions:     []ActionRule{{Action: action_HeartbeatReceived}},
 				Transitions: []Transition{{To: State_Observing}},
@@ -75,6 +79,9 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Observing: {
 		Events: map[EventType]EventHandler{
+			Event_ActiveCoordinatorUpdated: {
+				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
+			},
 			Event_HeartbeatInterval: {
 				Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
 			},
@@ -92,9 +99,15 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Sending: {
 		Events: map[EventType]EventHandler{
+			Event_ActiveCoordinatorUpdated: {
+				Actions: []ActionRule{
+					{Action: action_ActiveCoordinatorUpdated},
+					{Action: action_SendDelegationRequest},
+				},
+			},
 			Event_TransactionConfirmed: {
 				Actions:     []ActionRule{{Action: action_TransactionConfirmed}},
-				Transitions: []Transition{{To: State_Observing, If: guard_Not(guard_HasUnconfirmedTransactions)}},
+				Transitions: []Transition{{To: State_Observing, If: statemachine.Not(guard_HasUnconfirmedTransactions)}},
 			},
 			Event_TransactionCreated: {
 				Validator: validator_TransactionDoesNotExist,
@@ -153,6 +166,16 @@ func action_HeartbeatReceived(ctx context.Context, o *originator, event common.E
 	return o.applyHeartbeatReceived(ctx, e)
 }
 
+func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*ActiveCoordinatorUpdatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
+	}
+	o.activeCoordinatorNode = e.Coordinator
+	log.L(ctx).Debugf("active coordinator updated to %s", e.Coordinator)
+	return nil
+}
+
 func action_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	switch e.To {
@@ -167,22 +190,10 @@ func action_OriginatorTransactionStateTransition(ctx context.Context, o *origina
 	return nil
 }
 
-func (o *originator) SetActiveCoordinator(ctx context.Context, coordinator string) error {
-	if coordinator == "" {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
-	}
-	o.activeCoordinatorMutex.Lock()
-	o.activeCoordinatorNode = coordinator
-	o.activeCoordinatorMutex.Unlock()
-	log.L(ctx).Debugf("initial active coordinator set to %s", coordinator)
-	return nil
-}
-
-// GetCurrentCoordinator returns the current coordinator using only activeCoordinatorMu (not the main originator lock),
-// so it can be called from LoadSequencer while the event loop holds the lock (avoids deadlock).
+// GetCurrentCoordinator returns the current coordinator.
 func (o *originator) GetCurrentCoordinator() string {
-	o.activeCoordinatorMutex.RLock()
-	defer o.activeCoordinatorMutex.RUnlock()
+	o.RLock()
+	defer o.RUnlock()
 	return o.activeCoordinatorNode
 }
 
@@ -196,13 +207,6 @@ func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status co
 		TxID:   txID.String(),
 		Status: "unknown",
 	}, nil
-}
-
-// TODO AM: replace with the common one- also review the functions in this file and the ordering
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, o *originator) bool {
-		return !guard(ctx, o)
-	}
 }
 
 func (s State) String() string {

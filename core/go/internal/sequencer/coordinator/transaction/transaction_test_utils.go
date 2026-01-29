@@ -334,6 +334,12 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
+// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Submitted/State_Dispatched). Overrides any default.
+func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
+	b.latestSubmissionHash = &hash
+	return b
+}
+
 func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -41,10 +42,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestTransactionStateTransition(t *testing.T) {
-
-}
-
 func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIdentityPool []string) (*coordinator, *coordinatorDependencyMocks) {
 
 	metrics := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
@@ -57,6 +54,9 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 	}
 	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
 	mockTXManager := componentsmocks.NewTXManager(t)
+	mockDomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	}).Maybe()
 	mocks.transportWriter.On("StartLoopbackWriter", mock.Anything).Return(nil)
 	ctx, cancelCtx := context.WithCancel(ctx)
 
@@ -73,7 +73,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		TargetActiveSequencers:   confutil.P(50),
 	}
 
-	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mockTXManager, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, config, "node1",
+	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mockTXManager, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, originatorIdentityPool, config, "node1",
 		metrics,
 		func(context.Context, *transaction.Transaction) {
 			// Not used
@@ -710,412 +710,13 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	}
 }
 
-// TODO AM: is this valid test now? - no there's a bunch that need review
-func TestCoordinator_Action_TransactionConfirmed_FindsTransactionBySignerAndNonce(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction with signer address and nonce
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txBuilder.Build()
-
-	// Set signer address and nonce on the transaction
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed event (nil RevertReason so guard transitions to State_Confirmed not State_Pooled)
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonceHex := pldtypes.HexUint64(nonce)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_FindsTransactionByTxIdWhenFromIsNil(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction in State_Submitted so ConfirmedEvent is accepted
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txBuilder.Build()
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed event with nil from (chained transaction scenario); nil RevertReason for success path
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  nil,
-		Nonce: nil,
-		Hash:  hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_FindsTransactionByTxIdWhenSignerNonceLookupFails(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction in State_Submitted so ConfirmedEvent is accepted (signer/nonce mismatch still finds by TxID)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txBuilder.Build()
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed with non-matching signer+nonce; TxID match is used; nil RevertReason for success path
-	nonMatchingSigner := pldtypes.RandAddress()
-	nonMatchingNonce := pldtypes.HexUint64(999)
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  nonMatchingSigner,
-		Nonce: &nonMatchingNonce,
-		Hash:  hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be found by TxID and confirmed")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_ReturnsNilWhenTransactionNotFound(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Process TransactionConfirmed for a transaction the coordinator does not track
-	nonExistentTxID := uuid.New()
-	signerAddress := pldtypes.RandAddress()
-	nonceHex := pldtypes.HexUint64(42)
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  nonExistentTxID,
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  hash,
-	})
-
-	require.NoError(t, err)
-	assert.Empty(t, c.transactionsByID, "coordinator should have no transactions")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_HandlesMatchingHashCorrectly(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction with a submission hash
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
-
-	// Set signer, nonce, and submission hash
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.SubmittedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SubmissionHash: submissionHash,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed with matching hash; nil RevertReason for success path
-	nonceHex := pldtypes.HexUint64(nonce)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  submissionHash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_HandlesDifferentHashCorrectly(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction with a submission hash
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
-
-	// Set signer, nonce, and submission hash
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.SubmittedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SubmissionHash: submissionHash,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed with different hash (should still confirm, logs a warning); nil RevertReason for success path
-	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonceHex := pldtypes.HexUint64(nonce)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  differentHash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed even with different hash")
-}
-
-func TestCoordinator_Action_TransactionConfirmed_HandlesNilSubmissionHashCorrectly(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction in State_Submitted without a submission hash (chained transaction);
-	// must be State_Submitted so ConfirmedEvent is accepted
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txBuilder.Build()
-
-	// Set signer and nonce (events are no-ops from State_Submitted but set fields for the confirmation)
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed with a hash (chained transaction scenario); nil RevertReason for success path
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonceHex := pldtypes.HexUint64(nonce)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "transaction should be confirmed")
-	// Builder for State_Submitted may set latestSubmissionHash; test validates confirmation path for chained-tx-style event
-}
-
-func TestCoordinator_Action_TransactionConfirmed_ReturnsErrorWhenHandleEventFails(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create a transaction in a state that cannot handle ConfirmedEvent
-	// We'll use State_Pooled which should not accept ConfirmedEvent
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
-	txn := txBuilder.Build()
-
-	signerAddress := pldtypes.RandAddress()
-	nonce := uint64(42)
-
-	// Set signer and nonce
-	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		SignerAddress: *signerAddress,
-	})
-	require.NoError(t, err)
-
-	err = txn.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-		Nonce: nonce,
-	})
-	require.NoError(t, err)
-
-	// Add transaction to coordinator
-	c.transactionsByID[txn.GetID()] = txn
-
-	// Process TransactionConfirmed - HandleEvent may fail because transaction is in State_Pooled
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonceHex := pldtypes.HexUint64(nonce)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn.GetID(),
-		From:  signerAddress,
-		Nonce: &nonceHex,
-		Hash:  hash,
-	})
-
-	// The function returns an error if HandleEvent fails; we verify it doesn't panic
-	if err != nil {
-		assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "transaction should remain in Pooled when confirmation fails")
-	}
-}
-
-func TestCoordinator_Action_TransactionConfirmed_HandlesMultipleTransactionsCorrectly(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-
-	// Create multiple transactions in State_Submitted so ConfirmedEvent is accepted
-	signerAddress1 := pldtypes.RandAddress()
-	nonce1 := uint64(42)
-	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn1 := txBuilder1.Build()
-
-	err := txn1.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.GetID(),
-		},
-		SignerAddress: *signerAddress1,
-	})
-	require.NoError(t, err)
-
-	err = txn1.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.GetID(),
-		},
-		Nonce: nonce1,
-	})
-	require.NoError(t, err)
-
-	signerAddress2 := pldtypes.RandAddress()
-	nonce2 := uint64(43)
-	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn2 := txBuilder2.Build()
-
-	err = txn2.HandleEvent(ctx, &transaction.CollectedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn2.GetID(),
-		},
-		SignerAddress: *signerAddress2,
-	})
-	require.NoError(t, err)
-
-	err = txn2.HandleEvent(ctx, &transaction.NonceAllocatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn2.GetID(),
-		},
-		Nonce: nonce2,
-	})
-	require.NoError(t, err)
-
-	// Add both transactions to coordinator
-	c.transactionsByID[txn1.GetID()] = txn1
-	c.transactionsByID[txn2.GetID()] = txn2
-
-	// Process TransactionConfirmed for first transaction; nil RevertReason for success path
-	hash1 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonce1Hex := pldtypes.HexUint64(nonce1)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn1.GetID(),
-		From:  signerAddress1,
-		Nonce: &nonce1Hex,
-		Hash:  hash1,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn1.GetCurrentState(), "first transaction should be confirmed")
-
-	// Process TransactionConfirmed for second transaction
-	hash2 := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	nonce2Hex := pldtypes.HexUint64(nonce2)
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn2.GetID(),
-		From:  signerAddress2,
-		Nonce: &nonce2Hex,
-		Hash:  hash2,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn2.GetCurrentState(), "second transaction should be confirmed")
-}
-
 func TestCoordinator_UpdateOriginatorNodePool_AddsNodeToEmptyPool(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 	c.originatorNodePool = []string{}
 
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Should contain both the added node and the coordinator's own node
 	assert.Equal(t, 2, len(c.originatorNodePool), "pool should contain 2 nodes")
@@ -1129,7 +730,7 @@ func TestCoordinator_UpdateOriginatorNodePool_AddsNodeToNonEmptyPool(t *testing.
 	c, _ := builder.Build(ctx)
 	c.originatorNodePool = []string{"node1", "node3"}
 
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Should contain all nodes including the new one
 	assert.Equal(t, 3, len(c.originatorNodePool), "pool should contain 3 nodes")
@@ -1144,7 +745,7 @@ func TestCoordinator_UpdateOriginatorNodePool_DoesNotAddDuplicateNode(t *testing
 	c, _ := builder.Build(ctx)
 	c.originatorNodePool = []string{"node1", "node2"}
 
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Should not have duplicates
 	assert.Equal(t, 2, len(c.originatorNodePool), "pool should still contain 2 nodes")
@@ -1159,7 +760,7 @@ func TestCoordinator_UpdateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAlways
 	c.originatorNodePool = []string{}
 
 	// Add a different node
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Coordinator's own node (node1) should be automatically added
 	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
@@ -1173,7 +774,7 @@ func TestCoordinator_UpdateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAddedE
 	// Manually set pool without coordinator's own node
 	c.originatorNodePool = []string{"node2", "node3"}
 
-	c.UpdateOriginatorNodePool(ctx, "node4")
+	c.updateOriginatorNodePool("node4")
 
 	// Coordinator's own node (node1) should be automatically added
 	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
@@ -1187,7 +788,7 @@ func TestCoordinator_UpdateOriginatorNodePool_DoesNotDuplicateCoordinatorsOwnNod
 	c.originatorNodePool = []string{"node1", "node2"}
 
 	// Try to add coordinator's own node
-	c.UpdateOriginatorNodePool(ctx, "node1")
+	c.updateOriginatorNodePool("node1")
 
 	// Should not have duplicates
 	assert.Equal(t, 2, len(c.originatorNodePool), "pool should still contain 2 nodes")
@@ -1202,9 +803,9 @@ func TestCoordinator_UpdateOriginatorNodePool_HandlesMultipleSequentialUpdates(t
 	c.originatorNodePool = []string{}
 
 	// Add multiple nodes sequentially
-	c.UpdateOriginatorNodePool(ctx, "node2")
-	c.UpdateOriginatorNodePool(ctx, "node3")
-	c.UpdateOriginatorNodePool(ctx, "node4")
+	c.updateOriginatorNodePool("node2")
+	c.updateOriginatorNodePool("node3")
+	c.updateOriginatorNodePool("node4")
 
 	// Should contain all nodes including coordinator's own node
 	assert.Equal(t, 4, len(c.originatorNodePool), "pool should contain 4 nodes")
@@ -1220,53 +821,12 @@ func TestCoordinator_UpdateOriginatorNodePool_HandlesEmptyStringNode(t *testing.
 	c, _ := builder.Build(ctx)
 	c.originatorNodePool = []string{}
 
-	c.UpdateOriginatorNodePool(ctx, "")
+	c.updateOriginatorNodePool("")
 
 	// Empty string should be added, and coordinator's own node should be added
 	assert.Equal(t, 2, len(c.originatorNodePool), "pool should contain 2 nodes")
 	assert.Contains(t, c.originatorNodePool, "", "pool should contain empty string")
 	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-}
-
-func TestCoordinator_UpdateOriginatorNodePool_IsThreadSafe(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-	c.originatorNodePool = []string{}
-
-	// Concurrent updates - use node names that don't conflict with coordinator's own node
-	done := make(chan struct{})
-	numGoroutines := 10
-	nodesPerGoroutine := 5
-
-	for i := 0; i < numGoroutines; i++ {
-		go func(startNode int) {
-			defer func() { done <- struct{}{} }()
-			for j := 0; j < nodesPerGoroutine; j++ {
-				// Use node names starting from 100 to avoid conflict with coordinator's "node1"
-				nodeName := fmt.Sprintf("node%d", 100+startNode*100+j)
-				c.UpdateOriginatorNodePool(ctx, nodeName)
-			}
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < numGoroutines; i++ {
-		<-done
-	}
-
-	// Pool should contain all unique nodes plus coordinator's own node
-	// Total should be: numGoroutines * nodesPerGoroutine + 1 (coordinator's own node)
-	expectedCount := numGoroutines*nodesPerGoroutine + 1
-	assert.Equal(t, expectedCount, len(c.originatorNodePool), "pool should contain all unique nodes plus coordinator's own node")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-
-	// Verify no duplicates
-	nodeSet := make(map[string]bool)
-	for _, node := range c.originatorNodePool {
-		assert.False(t, nodeSet[node], "pool should not contain duplicate node: %s", node)
-		nodeSet[node] = true
-	}
 }
 
 func TestCoordinator_SendHandoverRequest_SuccessfullySendsHandoverRequest(t *testing.T) {
@@ -1486,41 +1046,9 @@ func TestCoordinator_SendHandoverRequest_HandlesContextCancellation(t *testing.T
 	mockTransport.AssertExpectations(t)
 }
 
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsEmptyStringWhenInitIfNoActiveCoordinatorIsFalseAndActiveCoordinatorNodeIsEmpty(t *testing.T) {
+func TestCoordinator_SelectActiveCoordinator_StaticModeSelectsCoordinator(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
-
-	result := c.GetActiveCoordinatorNode(ctx, false)
-	assert.Empty(t, result, "should return empty string when initIfNoActiveCoordinator is false")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsExistingActiveCoordinatorNodeWhenInitIfNoActiveCoordinatorIsFalse(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-	expectedNode := "existingNode"
-	c.activeCoordinatorNode = expectedNode
-
-	result := c.GetActiveCoordinatorNode(ctx, false)
-	assert.Equal(t, expectedNode, result, "should return existing active coordinator node")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsExistingActiveCoordinatorNodeWhenInitIfNoActiveCoordinatorIsTrueButNodeIsAlreadySet(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-	expectedNode := "existingNode"
-	c.activeCoordinatorNode = expectedNode
-
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, expectedNode, result, "should return existing active coordinator node without re-initializing")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_InitializesAndReturnsCoordinatorNodeInStaticModeWhenInitIfNoActiveCoordinatorIsTrue(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
 		StaticCoordinator:    proto.String("identity@node1"),
@@ -1528,28 +1056,32 @@ func TestCoordinator_GetActiveCoordinatorNode_InitializesAndReturnsCoordinatorNo
 	c, _ := builder.Build(ctx)
 	c.activeCoordinatorNode = ""
 
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, "node1", result, "should initialize and return coordinator node in static mode")
-	assert.Equal(t, "node1", c.activeCoordinatorNode, "should set activeCoordinatorNode field")
+	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
+
+	require.Eventually(t, func() bool {
+		return c.GetCurrentState() == State_Idle && c.activeCoordinatorNode == "node1"
+	}, time.Second, 10*time.Millisecond)
 }
 
-func TestCoordinator_GetActiveCoordinatorNode_InitializesAndReturnsCoordinatorNodeInSenderModeWhenInitIfNoActiveCoordinatorIsTrue(t *testing.T) {
+func TestCoordinator_SelectActiveCoordinator_SenderModeSelectsSelf(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 	c, _ := builder.Build(ctx)
 	c.activeCoordinatorNode = ""
 
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, "node1", result, "should initialize and return coordinator node in sender mode")
-	assert.Equal(t, "node1", c.activeCoordinatorNode, "should set activeCoordinatorNode field")
+	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
+
+	require.Eventually(t, func() bool {
+		return c.activeCoordinatorNode == "node1" && c.GetCurrentState() == State_Idle
+	}, time.Second, 10*time.Millisecond)
 }
 
-func TestCoordinator_GetActiveCoordinatorNode_InitializesAndReturnsCoordinatorNodeInEndorserModeWhenInitIfNoActiveCoordinatorIsTrue(t *testing.T) {
+func TestCoordinator_SelectActiveCoordinator_EndorserModeSelectsFromPool(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
 	})
@@ -1561,44 +1093,17 @@ func TestCoordinator_GetActiveCoordinatorNode_InitializesAndReturnsCoordinatorNo
 	c.originatorNodePool = []string{"node1", "node2", "node3"}
 	c.currentBlockHeight = 1000
 
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Contains(t, []string{"node1", "node2", "node3"}, result, "should initialize and return coordinator node from pool in endorser mode")
-	assert.NotEmpty(t, c.activeCoordinatorNode, "should set activeCoordinatorNode field")
+	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
+
+	require.Eventually(t, func() bool {
+		return c.GetCurrentState() == State_Idle
+	}, time.Second*1000000000, 10*time.Millisecond)
+	assert.Contains(t, []string{"node1", "node2", "node3"}, c.activeCoordinatorNode)
 }
 
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsEmptyStringWhenSelectActiveCoordinatorNodeFailsInStaticMode(t *testing.T) {
+func TestCoordinator_SelectActiveCoordinator_EmptyPoolLeavesSelectingState(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String(""), // Empty static coordinator should cause error
-	})
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
-
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Empty(t, result, "should return empty string when SelectActiveCoordinatorNode fails")
-	assert.Empty(t, c.activeCoordinatorNode, "should not set activeCoordinatorNode field on error")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsEmptyStringWhenSelectActiveCoordinatorNodeFailsDueToInvalidIdentity(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("invalid"), // Invalid identity format
-	})
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
-
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	// When node extraction fails, it should return empty string
-	assert.Empty(t, result, "should return empty string when identity extraction fails")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_ReturnsEmptyStringWhenSelectActiveCoordinatorNodeFailsInEndorserModeWithEmptyPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
 	})
@@ -1607,73 +1112,17 @@ func TestCoordinator_GetActiveCoordinatorNode_ReturnsEmptyStringWhenSelectActive
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 	c.activeCoordinatorNode = ""
-	c.originatorNodePool = []string{} // Empty pool
+	c.originatorNodePool = []string{}
 	c.currentBlockHeight = 1000
 
-	result := c.GetActiveCoordinatorNode(ctx, true)
-	// SelectActiveCoordinatorNode returns empty string (not error) for empty pool
-	assert.Empty(t, result, "should return empty string when pool is empty")
-	assert.Empty(t, c.activeCoordinatorNode, "should not set activeCoordinatorNode field when pool is empty")
-}
+	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
 
-func TestCoordinator_GetActiveCoordinatorNode_DoesNotReInitializeWhenCalledMultipleTimesWithInitIfNoActiveCoordinatorTrue(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
+	syncEvent := statemachine.NewSyncEvent()
+	c.QueueEvent(ctx, syncEvent)
+	<-syncEvent.Done
 
-	// First call should initialize
-	result1 := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, "node1", result1, "first call should initialize and return node1")
-
-	// Second call should return the same value without re-initializing
-	result2 := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, "node1", result2, "second call should return same value")
-	assert.Equal(t, "node1", c.activeCoordinatorNode, "activeCoordinatorNode should remain set")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_HandlesSwitchingBetweenInitAndNonInitModes(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
-
-	// Call with initIfNoActiveCoordinator = false should return empty
-	result1 := c.GetActiveCoordinatorNode(ctx, false)
-	assert.Empty(t, result1, "should return empty when initIfNoActiveCoordinator is false")
-
-	// Call with initIfNoActiveCoordinator = true should initialize
-	result2 := c.GetActiveCoordinatorNode(ctx, true)
-	assert.Equal(t, "node1", result2, "should initialize when initIfNoActiveCoordinator is true")
-
-	// Call with initIfNoActiveCoordinator = false should still return the initialized value
-	result3 := c.GetActiveCoordinatorNode(ctx, false)
-	assert.Equal(t, "node1", result3, "should return initialized value even when initIfNoActiveCoordinator is false")
-}
-
-func TestCoordinator_GetActiveCoordinatorNode_HandlesContextCancellationGracefully(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_STATIC,
-		StaticCoordinator:    proto.String("identity@node1"),
-	})
-	c, _ := builder.Build(ctx)
-	c.activeCoordinatorNode = ""
-
-	// Create a cancelled context
-	cancelledCtx, cancel := context.WithCancel(ctx)
-	cancel()
-
-	result := c.GetActiveCoordinatorNode(cancelledCtx, true)
-	// The function should still work even with cancelled context
-	assert.NotNil(t, result, "should handle cancelled context without panicking")
+	assert.Equal(t, State_Initial, c.GetCurrentState())
+	assert.Empty(t, c.activeCoordinatorNode)
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransactionsExist(t *testing.T) {
@@ -1944,7 +1393,7 @@ func TestCoordinator_HeartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) 
 	c, mocks := builder.Build(ctx)
 
 	// Set up originator pool with another node so heartbeats can be sent
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
@@ -1980,7 +1429,7 @@ func TestCoordinator_HeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 	c.heartbeatInterval = 10 * time.Millisecond // can't use builder.OverrideSequencerConfig() because NewCoordinator enforces a minimum of 1 second
 
 	// Set up originator pool with another node so heartbeats can be sent
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Create a transaction and add it to the coordinator so the coordinator stays active and doesn't stop the heartbeat loop
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
@@ -2166,7 +1615,7 @@ func TestCoordinator_HeartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T)
 	c, mocks := builder.Build(ctx)
 
 	// Set up originator pool with another node so heartbeats can be sent
-	c.UpdateOriginatorNodePool(ctx, "node2")
+	c.updateOriginatorNodePool("node2")
 
 	// Create a transaction and add it to the coordinator so the coordinator stays active
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()

@@ -29,14 +29,11 @@ import (
 
 func action_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionConfirmedEvent)
-	return o.confirmTransaction(ctx, e.From, e.Nonce, e.Hash, e.RevertReason)
+	return o.confirmTransaction(ctx, e.Hash, e.RevertReason)
 }
 
-// TODO AM: remove the unused paramters
 func (o *originator) confirmTransaction(
 	ctx context.Context,
-	From *pldtypes.EthAddress,
-	nonce uint64,
 	hash pldtypes.Bytes32,
 	revertReason pldtypes.HexBytes,
 ) error {

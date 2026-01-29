@@ -31,3 +31,13 @@ func TestHeartbeatIntervalEvent_TypeString(t *testing.T) {
 	assert.Equal(t, "Event_HeartbeatInterval", event.TypeString())
 }
 
+func TestActiveCoordinatorUpdatedEvent_Type(t *testing.T) {
+	event := &ActiveCoordinatorUpdatedEvent{}
+	assert.Equal(t, Event_ActiveCoordinatorUpdated, event.Type())
+}
+
+func TestActiveCoordinatorUpdatedEvent_TypeString(t *testing.T) {
+	event := &ActiveCoordinatorUpdatedEvent{}
+	assert.Equal(t, "Event_ActiveCoordinatorUpdated", event.TypeString())
+}
+

@@ -33,6 +33,11 @@ func action_TransactionCreated(ctx context.Context, o *originator, event common.
 }
 
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
+	if o.activeCoordinatorNode == "" {
+		// the delegation timeout loop ensures that this request will be retried when we have an active coordinator
+		log.L(ctx).Debugf("no active coordinator set yet; deferring delegation for contract %s", o.contractAddress.String())
+		return nil
+	}
 	// Find pending transactions only and (optionally) already delegated transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	transactionsToDelegate := make([]*transaction.Transaction, 0)

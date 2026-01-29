@@ -35,34 +35,24 @@ import (
 )
 
 // SeqOriginator is the interface that consumers use to interact with the originator.
-// GetCurrentCoordinator uses its own mutex (not the event-loop lock) so it can be called without deadlocking with the event loop.
-// GetTxStatus is thread-safe via RLock.
-// TODO: SetActiveCoordinator modifies state outside the state machine and is an exception to the pattern
-// which needs to be resolved
 type SeqOriginator interface {
-	// Asynchronously update the state machine by queueing an event to be processed. Most
-	// callers should use this interface.
 	QueueEvent(ctx context.Context, event common.Event)
-	Stop()
 
-	GetCurrentCoordinator() string
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
 
-	// DANGEROUS- THIS FUNCTION MODIFIES STATE OUTSIDE OF THE STATE MACHINE
-	SetActiveCoordinator(ctx context.Context, coordinator string) error
+	Stop()
 }
 
 type originator struct {
-	sync.RWMutex // Implements statemachine.Lockable for thread-safe event processing
+	// Mutex for thread-safe event processing (implements statemachine.Lockable)
+	// Any functions passed to the state machine do not need to take the lock themselves
+	// since the state machine takes the lock for the duration of the event processing.
+	// Any functions that expose non atomic state outside of the originator must
+	// take the read lock when called.
+	sync.RWMutex
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop *statemachine.StateMachineEventLoop[State, *originator]
-	// activeCoordinatorNode is protected independently of the statemachine loop since there
-	// is a possible deadlock when a node is both originator and coordinator where processing a message
-	// from the loopback writer queue needs to call GetCurrentCoordinator, but the event loop is holding the
-	// main mutex while waiting to put a new message onto the loopback writer queue.
-	// TODO: can refactoring how coordinators/sequencers are loaded resolve this deadlock?
-	activeCoordinatorMutex      sync.RWMutex
+	stateMachineEventLoop       *statemachine.StateMachineEventLoop[State, *originator]
 	activeCoordinatorNode       string
 	timeOfMostRecentHeartbeat   common.Time
 	transactionsByID            map[uuid.UUID]*transaction.Transaction

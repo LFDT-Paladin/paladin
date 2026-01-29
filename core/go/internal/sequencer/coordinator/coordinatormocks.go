@@ -39,63 +39,6 @@ func (_m *MockCoordinator) EXPECT() *MockCoordinator_Expecter {
 	return &MockCoordinator_Expecter{mock: &_m.Mock}
 }
 
-// GetActiveCoordinatorNode provides a mock function for the type MockCoordinator
-func (_mock *MockCoordinator) GetActiveCoordinatorNode(ctx context.Context, initIfNoActiveCoordinator bool) string {
-	ret := _mock.Called(ctx, initIfNoActiveCoordinator)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetActiveCoordinatorNode")
-	}
-
-	var r0 string
-	if returnFunc, ok := ret.Get(0).(func(context.Context, bool) string); ok {
-		r0 = returnFunc(ctx, initIfNoActiveCoordinator)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	return r0
-}
-
-// MockCoordinator_GetActiveCoordinatorNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetActiveCoordinatorNode'
-type MockCoordinator_GetActiveCoordinatorNode_Call struct {
-	*mock.Call
-}
-
-// GetActiveCoordinatorNode is a helper method to define mock.On call
-//   - ctx context.Context
-//   - initIfNoActiveCoordinator bool
-func (_e *MockCoordinator_Expecter) GetActiveCoordinatorNode(ctx interface{}, initIfNoActiveCoordinator interface{}) *MockCoordinator_GetActiveCoordinatorNode_Call {
-	return &MockCoordinator_GetActiveCoordinatorNode_Call{Call: _e.mock.On("GetActiveCoordinatorNode", ctx, initIfNoActiveCoordinator)}
-}
-
-func (_c *MockCoordinator_GetActiveCoordinatorNode_Call) Run(run func(ctx context.Context, initIfNoActiveCoordinator bool)) *MockCoordinator_GetActiveCoordinatorNode_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 bool
-		if args[1] != nil {
-			arg1 = args[1].(bool)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCoordinator_GetActiveCoordinatorNode_Call) Return(s string) *MockCoordinator_GetActiveCoordinatorNode_Call {
-	_c.Call.Return(s)
-	return _c
-}
-
-func (_c *MockCoordinator_GetActiveCoordinatorNode_Call) RunAndReturn(run func(ctx context.Context, initIfNoActiveCoordinator bool) string) *MockCoordinator_GetActiveCoordinatorNode_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetCurrentState provides a mock function for the type MockCoordinator
 func (_mock *MockCoordinator) GetCurrentState() State {
 	ret := _mock.Called()
@@ -215,52 +158,6 @@ func (_c *MockCoordinator_Stop_Call) Return() *MockCoordinator_Stop_Call {
 }
 
 func (_c *MockCoordinator_Stop_Call) RunAndReturn(run func()) *MockCoordinator_Stop_Call {
-	_c.Run(run)
-	return _c
-}
-
-// UpdateOriginatorNodePool provides a mock function for the type MockCoordinator
-func (_mock *MockCoordinator) UpdateOriginatorNodePool(ctx context.Context, originatorNode string) {
-	_mock.Called(ctx, originatorNode)
-	return
-}
-
-// MockCoordinator_UpdateOriginatorNodePool_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateOriginatorNodePool'
-type MockCoordinator_UpdateOriginatorNodePool_Call struct {
-	*mock.Call
-}
-
-// UpdateOriginatorNodePool is a helper method to define mock.On call
-//   - ctx context.Context
-//   - originatorNode string
-func (_e *MockCoordinator_Expecter) UpdateOriginatorNodePool(ctx interface{}, originatorNode interface{}) *MockCoordinator_UpdateOriginatorNodePool_Call {
-	return &MockCoordinator_UpdateOriginatorNodePool_Call{Call: _e.mock.On("UpdateOriginatorNodePool", ctx, originatorNode)}
-}
-
-func (_c *MockCoordinator_UpdateOriginatorNodePool_Call) Run(run func(ctx context.Context, originatorNode string)) *MockCoordinator_UpdateOriginatorNodePool_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockCoordinator_UpdateOriginatorNodePool_Call) Return() *MockCoordinator_UpdateOriginatorNodePool_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockCoordinator_UpdateOriginatorNodePool_Call) RunAndReturn(run func(ctx context.Context, originatorNode string)) *MockCoordinator_UpdateOriginatorNodePool_Call {
 	_c.Run(run)
 	return _c
 }

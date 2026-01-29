@@ -182,10 +182,7 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 	// Any state specific setup can be done here
 	}
 
-	err = originator.SetActiveCoordinator(ctx, "coordinator")
-	if err != nil {
-		return nil, nil
-	}
+	originator.activeCoordinatorNode = "coordinator"
 
 	return originator, mocks
 }

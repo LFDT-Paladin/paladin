@@ -76,3 +76,7 @@ func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
 		}),
 	) > 0
 }
+
+func guard_HasActiveCoordinator(ctx context.Context, c *coordinator) bool {
+	return c.activeCoordinatorNode != ""
+}

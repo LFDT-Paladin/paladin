@@ -34,7 +34,8 @@ type State int
 type EventType = common.EventType
 
 const (
-	State_Idle      State = iota // Not acting as a coordinator and not aware of any other active coordinators
+	State_Initial   State = iota // Coordinator created but not yet selected an active coordinator
+	State_Idle                   // Not acting as a coordinator and not aware of any other active coordinators
 	State_Observing              // Not acting as a coordinator but aware of another node acting as a coordinator
 	State_Elect                  // Elected to take over from another coordinator and waiting for handover information
 	State_Standby                // Going to be coordinator on the next block range but local indexer is not at that block yet.
@@ -45,10 +46,10 @@ const (
 )
 
 const (
-	Event_Activated EventType = iota + common.Event_TransactionStateTransition + 1
-	Event_Nominated
+	Event_Nominated EventType = iota + common.Event_TransactionStateTransition + 1
 	Event_Flushed
 	Event_Closed
+	Event_CoordinatorCreated
 	Event_TransactionsDelegated
 	Event_TransactionConfirmed
 	Event_TransactionDispatchConfirmed
@@ -57,6 +58,7 @@ const (
 	Event_HandoverRequestReceived
 	Event_HandoverReceived
 	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
+	Event_OriginatorNodePoolUpdateRequested
 )
 
 // Type aliases for the generic statemachine types, specialized for coordinator
@@ -71,6 +73,50 @@ type (
 )
 
 var stateDefinitionsMap = StateDefinitions{
+	State_Initial: {
+		Events: map[EventType]EventHandler{
+			Event_CoordinatorCreated: {
+				Actions: []ActionRule{{Action: action_SelectActiveCoordinator}},
+				Transitions: []Transition{
+					{To: State_Idle, If: guard_HasActiveCoordinator},
+				},
+			},
+			Event_TransactionsDelegated: {
+				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
+				Transitions: []Transition{{
+					To: State_Active,
+				}},
+			},
+			Event_HeartbeatReceived: {
+				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
+				Transitions: []Transition{{
+					To: State_Observing,
+				}},
+			},
+			Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
+				Actions: []ActionRule{{Action: action_EndorsementRequested}},
+				Transitions: []Transition{{
+					To: State_Observing,
+				}},
+			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateOriginatorNodePoolFromEvent,
+					},
+					{
+						Action: action_SelectActiveCoordinator,
+					},
+				},
+				Transitions: []Transition{
+					{
+						To: State_Idle,
+						If: guard_HasActiveCoordinator,
+					},
+				},
+			},
+		},
+	},
 	State_Idle: {
 		OnTransitionTo: action_Idle,
 		Events: map[EventType]EventHandler{
@@ -92,6 +138,9 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Observing,
 				}},
 			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
 		},
 	},
 	State_Observing: {
@@ -109,6 +158,9 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
 		},
 	},
 	State_Standby: {
@@ -123,6 +175,9 @@ var stateDefinitionsMap = StateDefinitions{
 					If: guard_Not(guard_Behind),
 				}},
 			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
 		},
 	},
 	State_Elect: {
@@ -135,6 +190,9 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Prepared,
 				}},
+			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},
@@ -149,6 +207,9 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Active,
 					If: guard_ActiveCoordinatorFlushComplete,
 				}},
+			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},
@@ -185,6 +246,9 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_SelectTransaction, If: guard_Not(guard_HasTransactionAssembling)},
 				},
 			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
 		},
 	},
 	State_Flush: {
@@ -207,6 +271,9 @@ var stateDefinitionsMap = StateDefinitions{
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
 			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
 		},
 	},
 	State_Closing: {
@@ -224,6 +291,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
+			},
+			Event_OriginatorNodePoolUpdateRequested: {
+				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},
@@ -271,60 +341,6 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	c.stateMachineEventLoop.QueueEvent(ctx, event)
 }
 
-// Action functions - first actions often apply event-specific data to the coordinator's internal state
-func action_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
-	// An earlier version of this code had handling for receiving a confirmation event and using it to monitor
-	// transactions that another coordinator is coordinating, so that flush points could be updated and checked
-	// in the case of a handover, rather than relying solely on heartbeats. But that same code version only queued
-	// the event to a coordinator if it was the active coordinator and knew about the transaction, which meant the
-	// monitoring path was never taken.
-	//
-	// This version of the code brings all the logic about whether a trasaction confirmed event should be acted on
-	// into the coordinator state machine. The event is only handled in states where the coordinator is the active
-	// coordinator, and then only acted on if the transaction is known. It is functionally equivalent, but without
-	// the unused code, and decision making is contained within the state machine.
-	e := event.(*TransactionConfirmedEvent)
-
-	if _, ok := c.transactionsByID[e.TxID]; !ok {
-		log.L(ctx).Warnf("action_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
-		return nil
-	}
-
-	log.L(ctx).Debugf("we currently have %d transactions to handle, confirming that dispatched TX %s is in our list", len(c.transactionsByID), e.TxID.String())
-
-	dispatchedTransaction, ok := c.transactionsByID[e.TxID]
-
-	if !ok {
-		log.L(ctx).Debugf("action_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
-		return nil
-	}
-
-	if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-		// The transaction created a chained private transaction so there is no hash to compare
-		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), e.Hash.String())
-	} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != e.Hash {
-		// Is this not the transaction that we are looking for?
-		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-		// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), e.Hash.String())
-	}
-	txEvent := &transaction.ConfirmedEvent{
-		Hash:         e.Hash,
-		RevertReason: e.RevertReason,
-		Nonce:        e.Nonce,
-	}
-	txEvent.TransactionID = e.TxID
-	txEvent.EventTime = time.Now()
-
-	log.L(ctx).Debugf("Confirming dispatched TX %s", e.TxID.String())
-	err := dispatchedTransaction.HandleEvent(ctx, txEvent)
-	if err != nil {
-		log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
-		return err
-	}
-	return nil
-}
-
 func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*NewBlockEvent)
 	c.currentBlockHeight = e.BlockHeight
@@ -335,7 +351,7 @@ func action_EndorsementRequested(_ context.Context, c *coordinator, event common
 	e := event.(*EndorsementRequestedEvent)
 	c.activeCoordinatorNode = e.From
 	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePoolInternal(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	return nil
 }
 
@@ -344,7 +360,7 @@ func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Ev
 	c.activeCoordinatorNode = e.From
 	c.activeCoordinatorBlockHeight = e.BlockHeight
 	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePoolInternal(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	for _, flushPoint := range e.FlushPoints {
 		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
@@ -401,6 +417,7 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Ev
 func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
+	c.activeCoordinatorNode = c.nodeName
 	c.coordinatorActive(c.contractAddress, c.nodeName)
 
 	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
@@ -478,6 +495,8 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 
 func (s State) String() string {
 	switch s {
+	case State_Initial:
+		return "Initial"
 	case State_Idle:
 		return "Idle"
 	case State_Observing:

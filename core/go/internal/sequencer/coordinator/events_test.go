@@ -29,9 +29,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCoordinatorStateEventActivated_Type(t *testing.T) {
-	event := &CoordinatorStateEventActivated{}
-	assert.Equal(t, Event_Activated, event.Type())
+func TestCoordinatorCreatedEvent_Type(t *testing.T) {
+	event := &CoordinatorCreatedEvent{}
+	assert.Equal(t, Event_CoordinatorCreated, event.Type())
 }
 
 func TestTransactionsDelegatedEvent_Type(t *testing.T) {
@@ -381,10 +381,10 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	}
 }
 
-func TestCoordinatorStateEventActivated_TypeAndTypeString(t *testing.T) {
-	event := &CoordinatorStateEventActivated{}
-	assert.Equal(t, Event_Activated, event.Type())
-	assert.Equal(t, "Event_Activated", event.TypeString())
+func TestCoordinatorCreatedEvent_TypeAndTypeString(t *testing.T) {
+	event := &CoordinatorCreatedEvent{}
+	assert.Equal(t, Event_CoordinatorCreated, event.Type())
+	assert.Equal(t, "Event_CoordinatorCreated", event.TypeString())
 }
 
 func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
@@ -397,4 +397,11 @@ func TestTransactionStateTransitionEvent_TypeAndTypeString(t *testing.T) {
 	event := &common.TransactionStateTransitionEvent[int]{}
 	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
+}
+
+func TestOriginatorNodePoolUpdateRequestedEvent_TypeAndTypeString(t *testing.T) {
+	event := &OriginatorNodePoolUpdateRequestedEvent{Nodes: []string{"node1", "node2"}}
+	assert.Equal(t, Event_OriginatorNodePoolUpdateRequested, event.Type())
+	assert.Equal(t, "Event_OriginatorNodePoolUpdateRequested", event.TypeString())
+	assert.Len(t, event.Nodes, 2)
 }
