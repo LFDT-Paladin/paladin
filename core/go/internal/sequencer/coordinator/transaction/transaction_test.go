@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,6 +103,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
 	transaction1 := transaction1Builder.Build()
+	transaction1.dynamicSigningIdentity = false
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -109,6 +111,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
 	transaction2 := transaction2Builder.Build()
+	transaction2.dynamicSigningIdentity = false
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
@@ -225,6 +228,8 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 		mocks.clock.Duration(1000),
 		mocks.clock.Duration(5000),
 		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
 		nil,
 	)

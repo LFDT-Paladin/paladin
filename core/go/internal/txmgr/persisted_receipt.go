@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -396,23 +397,98 @@ func (tm *txManager) GetTransactionReceiptByID(ctx context.Context, id uuid.UUID
 
 func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.TransactionReceipt, domainReceipt bool) (fullReceipt *pldapi.TransactionReceiptFull, err error) {
 	log.L(ctx).Debugf("Building full transaction receipt by ID: %s", receipt.ID)
+	dbtx := tm.p.NOTX() // For now we don't use a TX for queries but we'll define and re-use this so in the future we can swap out for a DBTX
 	fullReceipt = &pldapi.TransactionReceiptFull{TransactionReceipt: receipt}
 	if receipt.Domain != "" {
-		fullReceipt.States, err = tm.stateMgr.GetTransactionStates(ctx, tm.p.NOTX(), fullReceipt.ID)
+		fullReceipt.States, err = tm.stateMgr.GetTransactionStates(ctx, dbtx, fullReceipt.ID)
 		if err != nil {
 			return nil, err
 		}
 		if domainReceipt {
 			d, domainErr := tm.domainMgr.GetDomainByName(ctx, receipt.Domain)
 			if domainErr == nil {
-				fullReceipt.DomainReceipt, domainErr = d.BuildDomainReceipt(ctx, tm.p.NOTX(), fullReceipt.ID, fullReceipt.States)
+				fullReceipt.DomainReceipt, domainErr = d.BuildDomainReceipt(ctx, dbtx, fullReceipt.ID, fullReceipt.States)
 			}
 			if domainErr != nil {
 				fullReceipt.DomainReceiptError = domainErr.Error()
 			}
 		}
 	}
-	return fullReceipt, nil
+
+	fullReceipt, err = tm.mergeDispatches(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	if err != nil {
+		return nil, err
+	}
+
+	fullReceipt, err = tm.mergeChainedTranasctions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+	if err != nil {
+		return nil, err
+	}
+
+	return tm.mergeReceiptPublicTransactions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
+}
+
+func (tm *txManager) mergeReceiptPublicTransactions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	pubTxByTX, err := tm.publicTxMgr.QueryPublicTxForTransactions(ctx, dbTX, txIDs, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
+		tx.Public = pubTxByTX[tx.ID]
+	}
+	return txs[0], nil
+}
+
+func (tm *txManager) mergeDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	txdps := []*syncpoints.DispatchPersisted{}
+	err := dbTX.DB().Table("dispatches").
+		WithContext(ctx).
+		Where(`"private_transaction_id" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
+	}
+	for _, tx := range txs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
+			for i, txdp := range txdps {
+				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
+			}
+		}
+	}
+	return txs[0], nil
+}
+
+func (tm *txManager) mergeChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
+	txdps := []*persistedChainedPrivateTxn{}
+	err := dbTX.DB().Table("chained_private_txns").
+		WithContext(ctx).
+		Where(`"transaction" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[string(txdp.Transaction.String())] = append(txdpMap[string(txdp.Transaction.String())], txdp)
+	}
+	for _, tx := range txs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
+			for i, txdp := range txdps {
+				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
+			}
+		}
+	}
+	return txs[0], nil
 }
 
 func (tm *txManager) GetTransactionReceiptByIDFull(ctx context.Context, id uuid.UUID) (*pldapi.TransactionReceiptFull, error) {

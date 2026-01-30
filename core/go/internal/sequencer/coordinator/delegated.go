@@ -74,6 +74,8 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.requestTimeout,
 			c.assembleTimeout,
 			c.closingGracePeriod,
+			c.domainAPI.Domain().FixedSigningIdentity(),
+			c.domainAPI.ContractConfig().GetSubmitterSelection(),
 			c.grapher,
 			c.metrics,
 		)

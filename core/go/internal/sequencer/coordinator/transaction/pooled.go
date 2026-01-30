@@ -28,7 +28,7 @@ import (
 
 // Function hasDependenciesNotAssembled checks if the transaction has any dependencies that have not been assembled yet
 func (t *Transaction) hasDependenciesNotAssembled(ctx context.Context) bool {
-	if t.pt.PreAssembly.Dependencies != nil {
+	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
 		for _, dependencyID := range t.pt.PreAssembly.Dependencies.DependsOn {
 			dependency := t.grapher.TransactionByID(ctx, dependencyID)
 			if dependency == nil {
@@ -66,7 +66,7 @@ func (t *Transaction) hasUnknownDependencies(ctx context.Context) bool {
 	return false
 }
 
-// TODO rename this function because it is not clear that its main purpose is to attach this transaction to the dependency as a dependent
+// Initializes (or re-initializes) the transaction as it arrives in the pool
 func (t *Transaction) initializeDependencies(ctx context.Context) error {
 	if t.pt.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.pt.ID)
@@ -95,11 +95,50 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	// Reset anything that might have been updated during an initial attempt to assembly, endorse and dispatch this TX. This is a no-op if this is the first
+	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
+	// dependencies from a previous version of the grapher.
+	t.pt.PostAssembly = nil
+	t.dependencies = &pldapi.TransactionDependencies{}
+	t.grapher.ForgetMints(t.pt.ID)
+	t.cancelAssembleTimeoutSchedules()
+	t.resetEndorsementRequests(ctx)
 
+	return nil
 }
 
-func action_recordRevert(_ context.Context, txn *Transaction, _ common.Event) error {
+func (t *Transaction) rePoolDependents(ctx context.Context) error {
+	var rePoolError error
+	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
+	for _, dependencyID := range t.dependencies.PrereqOf {
+		dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
+		if dependencyTxn != nil {
+			err := dependencyTxn.HandleEvent(ctx, &DependencyRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependencyID,
+				},
+			})
+			if err != nil {
+				errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error notifying dependent transaction of revert", err)
+				log.L(ctx).Error(errMsg)
+				// Return the first error
+				if rePoolError == nil {
+					rePoolError = err
+				}
+			}
+		}
+	}
+
+	return rePoolError
+}
+
+func action_recordRevert(ctx context.Context, txn *Transaction, _ common.Event) error {
+	err := txn.rePoolDependents(ctx)
+	if err != nil {
+		// log error but continue
+		errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error re-pooling dependents of transaction")
+		log.L(ctx).Error(errMsg)
+	}
 	now := pldtypes.TimestampNow()
 	txn.revertTime = &now
 	return nil
@@ -115,10 +154,6 @@ func guard_HasUnassembledDependencies(ctx context.Context, txn *Transaction) boo
 
 func guard_HasUnknownDependencies(ctx context.Context, txn *Transaction) bool {
 	return txn.hasUnknownDependencies(ctx)
-}
-
-func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
-	return txn.hasDependenciesNotReady(ctx)
 }
 
 func guard_HasChainedTxInProgress(ctx context.Context, txn *Transaction) bool {

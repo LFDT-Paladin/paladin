@@ -71,6 +71,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
+// TODO AM: consistent trace and debug logging as we move through event processing
+
 // State is a constraint for state types - must be comparable (typically int-based enums)
 type State interface {
 	comparable
@@ -338,16 +340,18 @@ func (sm *StateMachine[S, E]) GetLatestEvent() string {
 // coordinated unit. This is the recommended way to use the state machine package
 // as it handles all the wiring between components.
 // The entity type E must implement Lockable to ensure thread-safe event processing.
+// The priority queue is always fully drained before taking work from the main queue.
 type StateMachineEventLoop[S State, E Lockable] struct {
-	stateMachine *StateMachine[S, E]
-	entity       E
-	events       chan common.Event
-	stopLoop     chan struct{}
-	loopStopped  chan struct{}
-	onStop       OnStopCallback
-	name         string
-	running      bool
-	processEvent func(ctx context.Context, event common.Event) error
+	stateMachine   *StateMachine[S, E]
+	entity         E
+	events         chan common.Event
+	eventsPriority chan common.Event
+	stopLoop       chan struct{}
+	loopStopped    chan struct{}
+	onStop         OnStopCallback
+	name           string
+	running        bool
+	processEvent   func(ctx context.Context, event common.Event) error
 }
 
 // StateMachineEventLoopConfig holds configuration for creating a StateMachineEventLoop.
@@ -364,6 +368,9 @@ type StateMachineEventLoopConfig[S State, E Lockable] struct {
 
 	// EventLoopBufferSize is the size of the event channel buffer (default: 50)
 	EventLoopBufferSize int
+
+	// PriorityEventLoopBufferSize is the size of the priority event channel buffer (default: same as EventLoopBufferSize)
+	PriorityEventLoopBufferSize int
 
 	// Name for the event loop (used in logging)
 	Name string
@@ -396,6 +403,10 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 	if bufferSize <= 0 {
 		bufferSize = 50
 	}
+	priorityBufferSize := config.PriorityEventLoopBufferSize
+	if priorityBufferSize <= 0 {
+		priorityBufferSize = 10
+	}
 
 	name := config.Name
 	if name == "" {
@@ -419,20 +430,22 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 	}
 
 	sel := &StateMachineEventLoop[S, E]{
-		stateMachine: sm,
-		entity:       config.Entity,
-		events:       make(chan common.Event, bufferSize),
-		stopLoop:     make(chan struct{}, 1),
-		loopStopped:  make(chan struct{}),
-		onStop:       config.OnStop,
-		name:         name,
-		processEvent: processEvent,
+		stateMachine:   sm,
+		entity:         config.Entity,
+		events:         make(chan common.Event, bufferSize),
+		eventsPriority: make(chan common.Event, priorityBufferSize),
+		stopLoop:       make(chan struct{}, 1),
+		loopStopped:    make(chan struct{}),
+		onStop:         config.OnStop,
+		name:           name,
+		processEvent:   processEvent,
 	}
 
 	return sel
 }
 
 // Start begins the event processing loop. This should be called as a goroutine.
+// The priority queue is fully drained on each iteration before taking work from the main queue.
 func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	defer close(sel.loopStopped)
 	sel.running = true
@@ -440,6 +453,26 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 	log.L(ctx).Debugf("%s: event loop started", sel.name)
 
 	for {
+		// Drain the priority queue fully before taking work from the main queue
+	drainPriority:
+		for {
+			select {
+			case event := <-sel.eventsPriority:
+				if syncEv, ok := isSyncEvent(event); ok {
+					log.L(ctx).Debugf("%s: sync event processed (priority)", sel.name)
+					close(syncEv.Done)
+					continue
+				}
+				log.L(ctx).Debugf("%s: processing priority event %s", sel.name, event.TypeString())
+				err := sel.processEvent(ctx, event)
+				if err != nil {
+					log.L(ctx).Errorf("%s: error processing priority event %s: %v", sel.name, event.TypeString(), err)
+				}
+			default:
+				break drainPriority
+			}
+		}
+
 		select {
 		case event := <-sel.events:
 			if syncEv, ok := isSyncEvent(event); ok {
@@ -452,6 +485,17 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			err := sel.processEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("%s: error processing event %s: %v", sel.name, event.TypeString(), err)
+			}
+		case event := <-sel.eventsPriority:
+			if syncEv, ok := isSyncEvent(event); ok {
+				log.L(ctx).Debugf("%s: sync event processed (priority)", sel.name)
+				close(syncEv.Done)
+				continue
+			}
+			log.L(ctx).Debugf("%s: processing priority event %s", sel.name, event.TypeString())
+			err := sel.processEvent(ctx, event)
+			if err != nil {
+				log.L(ctx).Errorf("%s: error processing priority event %s: %v", sel.name, event.TypeString(), err)
 			}
 		case <-sel.stopLoop:
 			if sel.onStop != nil {
@@ -489,6 +533,26 @@ func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event
 		return true
 	default:
 		log.L(ctx).Warnf("%s: event buffer full, dropping event %s", sel.name, event.TypeString())
+		return false
+	}
+}
+
+// QueuePriorityEvent asynchronously queues an event on the priority queue.
+// Priority events are always fully drained before the main queue is read.
+func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, event common.Event) {
+	log.L(ctx).Tracef("%s: queueing priority event %s", sel.name, event.TypeString())
+	sel.eventsPriority <- event
+}
+
+// TryQueuePriorityEvent attempts to queue an event on the priority queue without blocking.
+// Returns true if the event was queued, false if the priority buffer is full.
+func (sel *StateMachineEventLoop[S, E]) TryQueuePriorityEvent(ctx context.Context, event common.Event) bool {
+	select {
+	case sel.eventsPriority <- event:
+		log.L(ctx).Tracef("%s: queued priority event %s", sel.name, event.TypeString())
+		return true
+	default:
+		log.L(ctx).Warnf("%s: priority event buffer full, dropping event %s", sel.name, event.TypeString())
 		return false
 	}
 }

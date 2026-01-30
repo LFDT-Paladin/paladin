@@ -401,6 +401,8 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.fakeClock.Duration(b.requestTimeout),
 		b.fakeClock.Duration(b.assembleTimeout),
 		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
 	)
@@ -418,7 +420,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.state == State_Confirming_Dispatchable ||
 		b.state == State_Ready_For_Dispatch {
 
-		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly())
+		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly(), uuid.New())
 		if err != nil {
 			panic("error from applyPostAssembly")
 		}
@@ -442,6 +444,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.CurrentState = b.state
+	b.txn.dynamicSigningIdentity = false
 	return b.txn
 
 }

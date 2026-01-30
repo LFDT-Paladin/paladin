@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -49,6 +50,9 @@ func TestCoordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 
 	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Idle)
 	builder.OriginatorIdentityPool(originator)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
@@ -94,6 +98,12 @@ func TestCoordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(194) // default tolerance is 5 so this is behind
 	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
@@ -117,6 +127,13 @@ func TestCoordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(195) // default tolerance is 5 so this is not behind
 	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	c, mocks := builder.Build(ctx)
 	defer c.Stop()
 

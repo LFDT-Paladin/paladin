@@ -261,16 +261,6 @@ func (v *inFlightTransactionStateGeneration) AddGasPriceOutput(ctx context.Conte
 	log.L(ctx).Debugf("%s AddGasPriceOutput took %s to write the result", v.GetSignerNonce(), time.Since(start))
 }
 
-func (v *inFlightTransactionStateGeneration) AddConfirmationsOutput(ctx context.Context, confirmedTx *pldapi.IndexedTransaction) {
-	panic("unused")
-	// start := time.Now()
-	// v.AddStageOutputs(ctx, &StageOutput{
-	// 	Stage:              InFlightTxStageConfirming,
-	// 	ConfirmationOutput: &ConfirmationOutputs{},
-	// })
-	// log.L(ctx).Debugf("%s AddConfirmationsOutput took %s to write the result", v.InMemoryTxStateManager.GetSignerNonce(), time.Since(start))
-}
-
 func (v *inFlightTransactionStateGeneration) AddPanicOutput(ctx context.Context, stage InFlightTxStage) {
 	start := time.Now()
 	// unexpected error, set an empty input for the stage
@@ -296,9 +286,47 @@ func (v *inFlightTransactionStateGeneration) PersistTxState(ctx context.Context)
 	}
 
 	if rsc.StageOutputsToBePersisted.TxUpdates != nil {
-
 		newSubmission := rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission
 		if newSubmission != nil {
+			log.L(ctx).Debugf("PersistTxState TXID %s: Queueing new submission", newSubmission.SequencerTXReference.PrivateTXID)
+
+			// The public TX manager and sequencer primarily deal with public transactions and private transactions respectively. However, the sequencer
+			// also needs to update its state machine(s) when public TX activity takes place, and acts to inform other sequencers about progress with a
+			// Paladin transaction. The SequencerContext here is used to pass non-persisted context about the Paladin transaction (pulled from TX manager's
+			// rsc.InMemoryTx) and its associated public transaction (passed in the SequencerContext.Binding).
+			if newSubmission.SequencerTXReference.Binding == nil && rsc.InMemoryTx != nil {
+				log.L(ctx).Debugf("PersistTxState TXID %s: Building binding", newSubmission.SequencerTXReference.PrivateTXID)
+				nonce := pldtypes.HexUint64(rsc.InMemoryTx.GetNonce())
+				gasLimit := pldtypes.HexUint64(rsc.InMemoryTx.GetGasLimit())
+				newSubmission.SequencerTXReference.Binding = &pldapi.PublicTx{
+					TransactionHash: rsc.InMemoryTx.GetTransactionHash(),
+					From:            rsc.InMemoryTx.GetFrom(),
+					To:              rsc.InMemoryTx.GetTo(),
+					Data:            rsc.InMemoryTx.GetData(),
+					Nonce:           &nonce,
+					Created:         *rsc.InMemoryTx.GetCreatedTime(),
+					PublicTxOptions: pldapi.PublicTxOptions{
+						Gas:   &gasLimit,
+						Value: rsc.InMemoryTx.GetValue(),
+					},
+					Submissions: []*pldapi.PublicTxSubmissionData{
+						{
+							PublicTxGasPricing: pldapi.PublicTxGasPricing{
+								MaxPriorityFeePerGas: rsc.InMemoryTx.GetGasPriceObject().MaxPriorityFeePerGas,
+								MaxFeePerGas:         rsc.InMemoryTx.GetGasPriceObject().MaxFeePerGas,
+							},
+						},
+					},
+				}
+				if rsc.InMemoryTx.GetTransactionFixedGasPrice() != nil {
+					log.L(ctx).Debugf("PersistTxState TXID %s: Setting gas pricing to %+v", newSubmission.SequencerTXReference.PrivateTXID, rsc.InMemoryTx.GetGasPriceObject())
+					newSubmission.SequencerTXReference.Binding.PublicTxGasPricing = pldapi.PublicTxGasPricing{
+						MaxPriorityFeePerGas: rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxPriorityFeePerGas,
+						MaxFeePerGas:         rsc.InMemoryTx.GetTransactionFixedGasPrice().MaxFeePerGas,
+					}
+				}
+			}
+
 			// This is the critical point where we must flush to persistence before we go any further - we have a new
 			// transaction record we've signed, and we want to move on to submit it to the blockchain.
 			// But if we do that without first recording the transaction hash, we cannot be sure we will be able

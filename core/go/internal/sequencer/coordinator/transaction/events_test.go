@@ -561,24 +561,6 @@ func TestDependencyAssembledEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
-func TestDependencyAssembledEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-	dependencyID := uuid.New()
-
-	event := &DependencyAssembledEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			BaseEvent: common.BaseEvent{
-				EventTime: time.Now(),
-			},
-			TransactionID: txID,
-		},
-		DependencyID: dependencyID,
-	}
-
-	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, dependencyID, event.DependencyID)
-}
-
 func TestDependencyRevertedEvent_Type(t *testing.T) {
 	event := &DependencyRevertedEvent{}
 	assert.Equal(t, Event_DependencyReverted, event.Type())
@@ -601,7 +583,6 @@ func TestDependencyRevertedEvent_GetTransactionID(t *testing.T) {
 
 func TestDependencyRevertedEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	dependencyID := uuid.New()
 
 	event := &DependencyRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -610,11 +591,9 @@ func TestDependencyRevertedEvent_Fields(t *testing.T) {
 			},
 			TransactionID: txID,
 		},
-		DependencyID: dependencyID,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, dependencyID, event.DependencyID)
 }
 
 func TestDependencyReadyEvent_Type(t *testing.T) {
@@ -639,7 +618,6 @@ func TestDependencyReadyEvent_GetTransactionID(t *testing.T) {
 
 func TestDependencyReadyEvent_Fields(t *testing.T) {
 	txID := uuid.New()
-	dependencyID := uuid.New()
 
 	event := &DependencyReadyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -648,11 +626,9 @@ func TestDependencyReadyEvent_Fields(t *testing.T) {
 			},
 			TransactionID: txID,
 		},
-		DependencyID: dependencyID,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, dependencyID, event.DependencyID)
 }
 
 func TestRequestTimeoutIntervalEvent_Type(t *testing.T) {

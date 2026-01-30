@@ -154,7 +154,7 @@ func NewCoordinator(
 	// Initialize the state machine event loop (state machine + event loop combined)
 	c.initializeStateMachineEventLoop(State_Initial)
 
-	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
 	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
@@ -244,7 +244,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			}
 
 			// Update the TX state machine
-			c.QueueEvent(ctx, &transaction.DispatchedEvent{
+			c.queueEventInternal(ctx, &transaction.DispatchedEvent{
 				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 					TransactionID: tx.GetID(),
 				},

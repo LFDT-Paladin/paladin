@@ -94,7 +94,12 @@ func (f *FakeEngineIntegrationForTesting) ResetTransactions(ctx context.Context,
 }
 
 func (f *FakeEngineIntegrationForTesting) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
-	return f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight).Get(0).(*components.TransactionPostAssembly), nil
+	ret := f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight)
+	var r0 *components.TransactionPostAssembly
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*components.TransactionPostAssembly)
+	}
+	return r0, ret.Error(1)
 }
 
 type engineIntegration struct {

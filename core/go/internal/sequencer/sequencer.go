@@ -544,12 +544,12 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 }
 
 // Handle public TX submission, both for our own coordination state machine(s), and by distributing this public TX submission to other parties who need to have it
-func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txID uuid.UUID) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXSubmission %s %s %s %s", txHash.String(), contractAddress, gasPricing, txID.String())
+func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, tx *pldapi.PublicTxWithBinding) error {
+	log.L(sMgr.ctx).Debugf("HandlePublicTXSubmission TXID %s", txID.String())
 
-	deploy := contractAddress == ""
+	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(contractAddress), nil, nil)
+		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(tx.TransactionContractAddress), nil, nil)
 		if err != nil {
 			return err
 		}
@@ -561,32 +561,25 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
 					TransactionID: txID,
 				},
-				SubmissionHash: *txHash,
+				SubmissionHash: *tx.TransactionHash,
 			}
 			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
+			// The coordinator transaction state machine sends TransactionSubmitted to the originator
+			// when it processes this event (see action_Submitted in coordinator/transaction/state_machine.go).
 		}
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
 		// related to their coordinated private transaction submissions
-		publicTXSubmission := &pldapi.PublicTxToDistribute{
-			TransactionHash: txHash,
-			GasPricing:      []byte(gasPricing),
-			Bindings: []*pldapi.PublicTxBinding{
-				{
-					Transaction: txID,
-				},
-			},
-		}
-
-		senderNode, err := pldtypes.PrivateIdentityLocator(sender).Node(ctx, false)
+		senderNode, err := pldtypes.PrivateIdentityLocator(tx.TransactionSender).Node(ctx, false)
 		if err != nil {
 			return err
 		}
 		if senderNode != sMgr.nodeName {
+			log.L(ctx).Debugf("Distributing public transaction submission to node %s", senderNode)
 			// Send reliable message to the node under the current DBTX
 			err = sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
 				MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
-				Metadata:    pldtypes.JSONString(publicTXSubmission),
+				Metadata:    pldtypes.JSONString(tx),
 				Node:        senderNode,
 			})
 			if err != nil {
@@ -594,39 +587,6 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 			}
 		}
 	}
-	return nil
-}
-
-// Distribute locally written public transactions to the originator who also needs to have the public TX
-func (sMgr *sequencerManager) HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, persistedTxns []*pldapi.PublicTxToDistribute) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXsWritten %d", len(persistedTxns))
-
-	for _, persistedTxn := range persistedTxns {
-		for _, binding := range persistedTxn.Bindings {
-			if persistedTxn.To == nil {
-				// Deploy not handled by sequencer
-				continue
-			}
-
-			senderNode, err := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(ctx, false)
-			if err != nil {
-				return err
-			}
-			if senderNode != sMgr.nodeName {
-				log.L(sMgr.ctx).Debugf("Send public TX to %s", binding.TransactionSender)
-				// Send reliable message to the node under the current DBTX
-				err := sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
-					MessageType: pldapi.RMTPublicTransaction.Enum(),
-					Metadata:    pldtypes.JSONString(persistedTxn),
-					Node:        senderNode,
-				})
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-
 	return nil
 }
 

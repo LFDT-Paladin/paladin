@@ -38,6 +38,20 @@ func Int(iVal *int, def int) int {
 	return *iVal
 }
 
+// Behaves identically to IntMin, but min is only applied to positive durations. If a negative value is supplied the
+// min value is not returned but the supplied value is returned instead. Provides a convenient utility to support -1 for
+// disabling a function, while still supporting a minumum value when the option is enabled.
+func IntMinIfPositive(iVal *int, min int, def int) int {
+	if iVal == nil {
+		return def
+	} else if *iVal < 0 || *iVal >= min {
+		return *iVal
+	}
+
+	// *iVal < min - return min
+	return min
+}
+
 func IntMin(iVal *int, min int, def int) int {
 	if iVal == nil {
 		return def

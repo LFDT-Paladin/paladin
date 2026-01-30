@@ -301,11 +301,12 @@ var stateDefinitionsMap = StateDefinitions{
 
 func (c *coordinator) initializeStateMachineEventLoop(initialState State) {
 	c.stateMachineEventLoop = statemachine.NewStateMachineEventLoop(statemachine.StateMachineEventLoopConfig[State, *coordinator]{
-		InitialState:        initialState,
-		Definitions:         stateDefinitionsMap,
-		Entity:              c,
-		EventLoopBufferSize: 50, // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		Name:                fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
+		InitialState:                initialState,
+		Definitions:                 stateDefinitionsMap,
+		Entity:                      c,
+		EventLoopBufferSize:         100,
+		PriorityEventLoopBufferSize: 10,
+		Name:                        fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
 		OnStop: func(ctx context.Context) common.Event {
 			// Return the final event to process when stopping
 			return &CoordinatorClosedEvent{}
@@ -339,6 +340,12 @@ func (c *coordinator) onStateTransition(ctx context.Context, entity *coordinator
 // sequencer state machine and transactions.
 func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	c.stateMachineEventLoop.QueueEvent(ctx, event)
+}
+
+// Queue a state machine event generated internally for the sequencer loop to process. Is prioritized above
+// external event sources
+func (c *coordinator) queueEventInternal(ctx context.Context, event common.Event) {
+	c.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
 }
 
 func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {

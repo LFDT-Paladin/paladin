@@ -72,6 +72,8 @@ type TestEntity struct {
 	shouldFail   bool
 	canProcess   bool
 	applyCounter int
+	// ProcessOrder records event type strings in processing order (used by priority queue tests)
+	ProcessOrder []string
 }
 
 func newTestEntity(definitions StateDefinitions[TestState, *TestEntity], opts ...StateMachineOption[TestState, *TestEntity]) *TestEntity {
@@ -1025,4 +1027,842 @@ func TestStateMachineEventLoop_ZeroBufferSizeUsesDefault(t *testing.T) {
 	sel.Stop()
 
 	assert.Equal(t, State_Active, sel.GetCurrentState())
+}
+
+// TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain verifies that the priority queue
+// is fully drained before any event from the main queue is processed.
+func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.ProcessOrder = append(e.ProcessOrder, event.TypeString())
+							return nil
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Process: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.ProcessOrder = append(e.ProcessOrder, event.TypeString())
+							return nil
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+		State_Complete: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Reset: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.ProcessOrder = append(e.ProcessOrder, event.TypeString())
+							return nil
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Idle,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	entity.ProcessOrder = make([]string, 0, 4)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:        State_Idle,
+		Definitions:         definitions,
+		Entity:              entity,
+		EventLoopBufferSize: 10,
+		Name:                "priority-drain-test",
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// Queue: two priority events (Start, Process) then one main event (Reset).
+	// Priority queue must be drained first, so order must be Start, Process, Reset.
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Process))
+	sel.QueueEvent(ctx, newTestEvent(Event_Reset))
+
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	sel.Stop()
+
+	assert.Equal(t, []string{"Event_Start", "Event_Process", "Event_Reset"}, entity.ProcessOrder)
+	assert.Equal(t, State_Idle, sel.GetCurrentState())
+}
+
+// TestStateMachineEventLoop_QueuePriorityEvent verifies that QueuePriorityEvent delivers
+// events and they are processed by the state machine.
+func TestStateMachineEventLoop_QueuePriorityEvent(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Process: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		Name:         "priority-queue-test",
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	sel.QueuePriorityEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Active, sel.GetCurrentState())
+
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Process))
+	syncEv3 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv3)
+	<-syncEv3.Done
+
+	assert.Equal(t, State_Complete, sel.GetCurrentState())
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_TryQueuePriorityEvent verifies TryQueuePriorityEvent returns
+// true when the priority buffer has space and false when full.
+func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	blockUntilRelease := make(chan struct{})
+	blockStarted := make(chan struct{})
+	blockCount := 0
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:               State_Idle,
+		Definitions:                 definitions,
+		Entity:                      entity,
+		EventLoopBufferSize:         10,
+		PriorityEventLoopBufferSize: 2,
+		Name:                        "try-priority-test",
+		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+			blockCount++
+			if blockCount == 1 {
+				blockStarted <- struct{}{}
+				<-blockUntilRelease
+			}
+			return false, nil
+		},
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// One priority event will be processed and block in PreProcess, leaving priority buffer empty.
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	<-blockStarted // wait for loop to be blocking in PreProcess
+
+	ok1 := sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	ok2 := sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	require.True(t, ok1)
+	require.True(t, ok2)
+
+	// Third should fail (buffer full)
+	ok3 := sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	assert.False(t, ok3)
+
+	close(blockUntilRelease)
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_PrioritySyncEvent verifies that a sync event sent on the
+// priority queue is processed and signals Done.
+func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		Name:         "priority-sync-test",
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueuePriorityEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	sel.QueuePriorityEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Active, sel.GetCurrentState())
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_PriorityEventLoopBufferSize verifies that PriorityEventLoopBufferSize
+// is used when set (buffer size 3 allows 3 queued, 4th TryQueuePriorityEvent fails).
+func TestStateMachineEventLoop_PriorityEventLoopBufferSize(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	blockUntilRelease := make(chan struct{})
+	blockStarted := make(chan struct{})
+	blockCount := 0
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:                State_Idle,
+		Definitions:                 definitions,
+		Entity:                      entity,
+		EventLoopBufferSize:         50,
+		PriorityEventLoopBufferSize: 3,
+		Name:                        "priority-buffer-size-test",
+		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+			blockCount++
+			if blockCount == 1 {
+				blockStarted <- struct{}{}
+				<-blockUntilRelease
+			}
+			return false, nil
+		},
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// Block the loop on the first priority event so the buffer can fill
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	<-blockStarted
+
+	// Should be able to queue 3 more priority events (buffer size 3)
+	require.True(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+	require.True(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+	require.True(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+	// Fourth should fail
+	assert.False(t, sel.TryQueuePriorityEvent(ctx, newTestEvent(Event_Start)))
+
+	close(blockUntilRelease)
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_TryQueueEvent_BufferFull verifies TryQueueEvent returns false when main buffer is full.
+func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	blockUntilRelease := make(chan struct{})
+	blockStarted := make(chan struct{})
+	blockCount := 0
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:               State_Idle,
+		Definitions:                definitions,
+		Entity:                     entity,
+		EventLoopBufferSize:        2,
+		PriorityEventLoopBufferSize: 10,
+		Name:                       "try-queue-test",
+		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+			blockCount++
+			if blockCount == 1 {
+				blockStarted <- struct{}{}
+				<-blockUntilRelease
+			}
+			return false, nil
+		},
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+	<-blockStarted
+
+	ok1 := sel.TryQueueEvent(ctx, newTestEvent(Event_Start))
+	ok2 := sel.TryQueueEvent(ctx, newTestEvent(Event_Start))
+	require.True(t, ok1)
+	require.True(t, ok2)
+	ok3 := sel.TryQueueEvent(ctx, newTestEvent(Event_Start))
+	assert.False(t, ok3)
+
+	close(blockUntilRelease)
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_Stop_WhenAlreadyStopped verifies Stop returns immediately when loop is already stopped.
+func TestStateMachineEventLoop_Stop_WhenAlreadyStopped(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.Stop()
+	assert.True(t, sel.IsStopped())
+
+	// Second Stop() should return immediately (already stopped)
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_Stop_ConcurrentCalls verifies concurrent Stop() calls; one hits default when stopLoop is full.
+func TestStateMachineEventLoop_Stop_ConcurrentCalls(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// Use a barrier so two goroutines reach Stop()'s second select at the same time;
+	// one send to stopLoop succeeds, the other hits default (buffer full).
+	barrier := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-barrier
+		sel.Stop()
+	}()
+	go func() {
+		defer wg.Done()
+		<-barrier
+		sel.Stop()
+	}()
+	close(barrier)
+	wg.Wait()
+
+	assert.True(t, sel.IsStopped())
+}
+
+// TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped verifies StopAsync returns immediately when loop is already stopped.
+func TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.Stop()
+	assert.True(t, sel.IsStopped())
+
+	// StopAsync when already stopped should return immediately
+	sel.StopAsync()
+}
+
+// TestStateMachineEventLoop_StopAsync_ConcurrentCalls verifies concurrent StopAsync() calls; one hits default.
+func TestStateMachineEventLoop_StopAsync_ConcurrentCalls(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// Use a barrier so two goroutines reach StopAsync()'s second select at the same time;
+	// one send succeeds, the other hits default (stopLoop buffer full).
+	barrier := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-barrier
+		sel.StopAsync()
+	}()
+	go func() {
+		defer wg.Done()
+		<-barrier
+		sel.StopAsync()
+	}()
+	close(barrier)
+	wg.Wait()
+
+	sel.WaitForStop()
+	assert.True(t, sel.IsStopped())
+}
+
+// TestStateMachineEventLoop_ContextCancelled verifies the loop exits when context is cancelled.
+func TestStateMachineEventLoop_ContextCancelled(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		sel.Start(ctx)
+		close(done)
+	}()
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	cancel()
+	<-done
+
+	assert.True(t, sel.IsStopped())
+}
+
+// TestStateMachineEventLoop_OnStopFinalEventError verifies that when OnStop returns an event and processEvent
+// returns an error, the error is logged and the loop still stops.
+func TestStateMachineEventLoop_OnStopFinalEventError(t *testing.T) {
+	processErr := errors.New("final event failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+				Event_Reset: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return processErr
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		OnStop: func(ctx context.Context) common.Event {
+			return newTestEvent(Event_Reset)
+		},
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.Stop()
+	assert.True(t, sel.IsStopped())
+}
+
+// TestStateMachineEventLoop_ProcessEventError_Priority verifies that when a priority event causes
+// processEvent to return an error, the error is logged and the loop continues.
+func TestStateMachineEventLoop_ProcessEventError_Priority(t *testing.T) {
+	processErr := errors.New("priority event failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return processErr
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	// State should still be Idle because the action returned error (transition not applied)
+	assert.Equal(t, State_Idle, sel.GetCurrentState())
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_ProcessEventError_Main verifies that when a main-queue event causes
+// processEvent to return an error, the error is logged and the loop continues.
+func TestStateMachineEventLoop_ProcessEventError_Main(t *testing.T) {
+	processErr := errors.New("main event failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return processErr
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Idle, sel.GetCurrentState())
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_ProcessEventError_PriorityDrain verifies that when a priority event
+// processed in the drain loop causes processEvent to return an error, the error is logged.
+func TestStateMachineEventLoop_ProcessEventError_PriorityDrain(t *testing.T) {
+	processErr := errors.New("priority drain failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Process: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return processErr
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	// Two priority events: first (Start) transitions Idle->Active; second (Process) runs action that errors in drain.
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Process))
+
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Active, sel.GetCurrentState())
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_SyncEventFromPrioritySelect verifies a sync event sent on the priority queue
+// is processed when received from the blocking select (not the drain).
+func TestStateMachineEventLoop_SyncEventFromPrioritySelect(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+	// Loop is blocking on select with empty priority queue. Send only a sync on priority so that case is taken.
+	syncEv2 := NewSyncEvent()
+	sel.QueuePriorityEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	sel.Stop()
+}
+
+// TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect verifies that when a priority event
+// is received from the blocking select (not the drain) and processEvent returns an error, the error is logged.
+func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T) {
+	processErr := errors.New("priority from select failed")
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							return processErr
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions)
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+	})
+
+	ctx := context.Background()
+	go sel.Start(ctx)
+
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+	// Loop is now blocking on select with empty priority queue. Send one priority event that errors.
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+
+	syncEv2 := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv2)
+	<-syncEv2.Done
+
+	assert.Equal(t, State_Idle, sel.GetCurrentState())
+	sel.Stop()
 }

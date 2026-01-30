@@ -243,7 +243,6 @@ func (*ConfirmedEvent) TypeString() string {
 
 type DependencyAssembledEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyAssembledEvent) Type() EventType {
@@ -256,7 +255,6 @@ func (*DependencyAssembledEvent) TypeString() string {
 
 type DependencyRevertedEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyRevertedEvent) Type() EventType {
@@ -269,7 +267,6 @@ func (*DependencyRevertedEvent) TypeString() string {
 
 type DependencyReadyEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyReadyEvent) Type() EventType {

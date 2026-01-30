@@ -207,6 +207,11 @@ var stateDefinitionsMap = StateDefinitions{
 					Action: action_NudgeEndorsementRequests,
 				}},
 			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Blocked: {
@@ -215,6 +220,11 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Confirming_Dispatchable,
 					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
+				}},
+			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
 				}},
 			},
 		},
@@ -235,16 +245,26 @@ var stateDefinitionsMap = StateDefinitions{
 					Action: action_NudgePreDispatchRequest,
 				}},
 			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Ready_For_Dispatch: {
-		OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+		OnTransitionTo: action_NotifyDependentsOfReadiness,
 		Events: map[EventType]EventHandler{
 			Event_Dispatched: {
 				Transitions: []Transition{
 					{
 						To: State_Dispatched,
 					}},
+			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
 			},
 		},
 	},
@@ -256,6 +276,11 @@ var stateDefinitionsMap = StateDefinitions{
 					{
 						To: State_SubmissionPrepared,
 					}},
+			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
 			},
 		},
 	},
@@ -271,6 +296,11 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_NonceAllocated: {
 				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Submitted: {
@@ -283,13 +313,16 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Confirmed,
 					},
 					{
-						// MRW TODO - we're re-pooling this transaction. Should we discard other
-						// assembled transactions i.e. re-pool everything this coordinator is tracking?
 						Action: action_recordRevert,
 						If:     guard_HasRevertReason,
 						To:     State_Pooled,
 					},
 				},
+			},
+			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
 			},
 		},
 	},
@@ -356,7 +389,6 @@ func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error
 	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
-// Action functions - first actions often apply event-specific data to the transaction state
 func action_Collected(_ context.Context, t *Transaction, event common.Event) error {
 	e := event.(*CollectedEvent)
 	t.signerAddress = &e.SignerAddress

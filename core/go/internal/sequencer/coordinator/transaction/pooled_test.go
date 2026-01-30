@@ -101,6 +101,44 @@ func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the dependency transaction first and add it to grapher
+	// Make sure it has PreAssembly but PreAssembly.Dependencies is nil
+	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher)
+	dependencyTxn := dependencyBuilder.Build()
+	dependencyID := dependencyTxn.pt.ID
+
+	// Explicitly set PreAssembly.Dependencies to nil to test the nil check path
+	dependencyTxn.pt.PreAssembly.Dependencies = nil
+
+	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(dependencyID)
+	txn := txnBuilder.Build()
+
+	// Verify PreAssembly exists
+	require.NotNil(t, txn.pt.PreAssembly)
+	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
+	require.Len(t, txn.pt.PreAssembly.Dependencies.DependsOn, 1)
+	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
+
+	// Verify dependency has nil Dependencies
+	require.Nil(t, dependencyTxn.pt.PreAssembly.Dependencies)
+
+	// Call action_initializeDependencies
+	err := action_initializeDependencies(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Verify that the dependency transaction now has Dependencies initialized
+	require.NotNil(t, dependencyTxn.pt.PreAssembly.Dependencies)
+	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
+}
+
 func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
@@ -266,6 +304,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(3)
 	dep3 := dep3Builder.Build()
+	dep3.dynamicSigningIdentity = false
 
 	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
@@ -296,4 +335,168 @@ func TestGuard_HasChainedTxInProgress(t *testing.T) {
 	// Test 2: When chainedTxAlreadyDispatched is true
 	txn.chainedTxAlreadyDispatched = true
 	assert.True(t, guard_HasChainedTxInProgress(ctx, txn))
+}
+
+func TestRePoolDependents_EmptyPrereqOf(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+	txn, _ := newTransactionForUnitTesting(t, grapher)
+
+	// Ensure dependencies is initialized and PrereqOf is empty
+	require.NotNil(t, txn.dependencies)
+	require.Empty(t, txn.dependencies.PrereqOf)
+
+	// Should return nil without error when there are no dependents
+	err := txn.rePoolDependents(ctx)
+	require.NoError(t, err)
+}
+
+func TestRePoolDependents_WithDependents_Success(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the main transaction that will have dependents
+	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
+	mainTxn.initializeStateMachine(State_Initial)
+
+	// Create a dependent transaction that can handle DependencyRevertedEvent
+	// It needs to be in State_Submitted to handle DependencyRevertedEvent
+	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
+		Grapher(grapher)
+	dependentTxn := dependentTxnBuilder.Build()
+	dependentID := dependentTxn.pt.ID
+
+	// Set up the main transaction to have the dependent as a PrereqOf
+	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
+
+	// Call rePoolDependents - should successfully notify the dependent
+	err := mainTxn.rePoolDependents(ctx)
+	require.NoError(t, err)
+
+	// Verify the dependent transaction received the event by checking it transitioned to State_Pooled
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
+}
+
+func TestRePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the main transaction
+	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
+
+	// Set up PrereqOf with an ID that doesn't exist in grapher
+	missingDependentID := uuid.New()
+	mainTxn.dependencies.PrereqOf = []uuid.UUID{missingDependentID}
+
+	// Should return nil without error even when dependent is not found
+	err := mainTxn.rePoolDependents(ctx)
+	require.NoError(t, err)
+}
+
+func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the main transaction
+	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
+	mainTxn.initializeStateMachine(State_Initial)
+
+	// Create multiple dependent transactions
+	dependent1Builder := NewTransactionBuilderForTesting(t, State_Submitted).
+		Grapher(grapher)
+	dependent1 := dependent1Builder.Build()
+
+	dependent2Builder := NewTransactionBuilderForTesting(t, State_Submitted).
+		Grapher(grapher)
+	dependent2 := dependent2Builder.Build()
+
+	// Create one that doesn't exist in grapher
+	missingDependentID := uuid.New()
+
+	// Set up the main transaction to have multiple dependents
+	mainTxn.dependencies.PrereqOf = []uuid.UUID{
+		dependent1.pt.ID,
+		dependent2.pt.ID,
+		missingDependentID,
+	}
+
+	// Call rePoolDependents - should handle all dependents
+	err := mainTxn.rePoolDependents(ctx)
+	require.NoError(t, err)
+
+	// Verify both existing dependents received the event
+	assert.Equal(t, State_Pooled, dependent1.stateMachine.CurrentState)
+	assert.Equal(t, State_Pooled, dependent2.stateMachine.CurrentState)
+}
+
+func TestAction_RecordRevert_WithDependents(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the main transaction
+	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
+	mainTxn.initializeStateMachine(State_Initial)
+
+	// Create a dependent transaction
+	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
+		Grapher(grapher)
+	dependentTxn := dependentTxnBuilder.Build()
+	dependentID := dependentTxn.pt.ID
+
+	// Set up the main transaction to have the dependent as a PrereqOf
+	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
+
+	// Initially revertTime should be nil
+	assert.Nil(t, mainTxn.revertTime)
+
+	// Call action_recordRevert - should re-pool dependents and set revertTime
+	err := action_recordRevert(ctx, mainTxn, nil)
+	require.NoError(t, err)
+
+	// Verify revertTime is set
+	assert.NotNil(t, mainTxn.revertTime)
+	assert.WithinDuration(t, time.Now(), mainTxn.revertTime.Time(), 1*time.Second)
+
+	// Verify the dependent transaction received the event
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
+}
+
+func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the main transaction
+	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
+	mainTxn.initializeStateMachine(State_Initial)
+
+	// Create a dependent transaction that will fail when handling DependencyRevertedEvent
+	// This happens when transitioning to State_Pooled triggers action_initializeDependencies
+	// which fails if PreAssembly is nil
+	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
+		Grapher(grapher)
+	dependentTxn := dependentTxnBuilder.Build()
+	dependentID := dependentTxn.pt.ID
+
+	// Remove PreAssembly to cause action_initializeDependencies to fail
+	// when the transaction transitions to State_Pooled
+	dependentTxn.pt.PreAssembly = nil
+
+	// Set up the main transaction to have the dependent as a PrereqOf
+	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
+
+	// Initially revertTime should be nil
+	assert.Nil(t, mainTxn.revertTime)
+
+	// Call action_recordRevert - should log error but continue and set revertTime
+	err := action_recordRevert(ctx, mainTxn, nil)
+	require.NoError(t, err) // action_recordRevert always returns nil, even if rePoolDependents fails
+
+	// Verify revertTime is set despite the error
+	assert.NotNil(t, mainTxn.revertTime)
+	assert.WithinDuration(t, time.Now(), mainTxn.revertTime.Time(), 1*time.Second)
+
+	// Verify the dependent transaction transitioned to State_Pooled before the error occurred
+	// The state is changed before OnTransitionTo is called, so even though action_initializeDependencies
+	// failed, the state was already changed to State_Pooled
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }

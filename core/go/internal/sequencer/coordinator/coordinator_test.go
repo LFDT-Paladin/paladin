@@ -106,12 +106,17 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	config := builder.GetSequencerConfig()
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
+	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.Build(ctx)
-	c.maxDispatchAhead = 0 // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
@@ -292,6 +297,12 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	config := builder.GetSequencerConfig()
 	config.MaxInflightTransactions = confutil.P(5)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
 
@@ -314,6 +325,12 @@ func TestCoordinator_AddToDelegatedTransactions_NewTransactionError(t *testing.T
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	c, _ := builder.Build(ctx)
 
 	// Use a valid originator for the transaction builder (it validates immediately)
@@ -353,9 +370,15 @@ func TestCoordinator_AddToDelegatedTransactions_WithChainedTransaction(t *testin
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(true, nil)
 	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 
@@ -381,9 +404,15 @@ func TestCoordinator_AddToDelegatedTransactions_WithoutChainedTransaction(t *tes
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(0) // Stop the dispatcher loop from progressing states
+	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
 
@@ -411,6 +440,12 @@ func TestCoordinator_AddToDelegatedTransactions_DuplicateTransaction(t *testing.
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states
 	builder.OverrideSequencerConfig(config)

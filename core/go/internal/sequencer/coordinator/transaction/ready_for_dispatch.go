@@ -18,26 +18,76 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 )
 
+// The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
+// may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
+// the signing identity nonce will provide ordering guarantees.
+func (t *Transaction) updateSigningIdentity() {
+	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
+		for _, endorsement := range t.pt.PostAssembly.Endorsements {
+			for _, constraint := range endorsement.Constraints {
+				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
+					t.pt.Signer = endorsement.Verifier.Lookup
+					t.dynamicSigningIdentity = false
+					log.L(context.Background()).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.pt.ID.String(), t.pt.Signer)
+					return
+				}
+			}
+		}
+	}
+}
+
 func (t *Transaction) isNotReady() bool {
-	//test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
+	// test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
-	return t.stateMachine.GetCurrentState() != State_Confirmed &&
-		t.stateMachine.GetCurrentState() != State_Submitted &&
-		t.stateMachine.GetCurrentState() != State_Dispatched &&
-		t.stateMachine.GetCurrentState() != State_Ready_For_Dispatch
+
+	// "ready" is based on the transaction's dependencies and the signing identity. If the signer is fixed (i.e. the signer of this TX is
+	// the same as the signer of the dependency) we can rely on the base ledger nonce ensuring ordering of the on-chain transactions. However,
+	// if the signer is dynamic the base ledger TX for this Paladin transaction could be mined ahead of the dependency transaction, resulting
+	// in public TX revert & reassembly (with no guarantee of every getting them on to the base ledger in the correct order). In such cases
+	// we are forced to wait for the dependency to be confirmed, not just dispatched.
+
+	if !t.dynamicSigningIdentity {
+		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
+		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
+		notReady := t.stateMachine.CurrentState != State_Confirmed &&
+			t.stateMachine.CurrentState != State_Submitted &&
+			t.stateMachine.CurrentState != State_Dispatched &&
+			t.stateMachine.CurrentState != State_Ready_For_Dispatch
+		if notReady {
+			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
+		}
+		return notReady
+	}
+
+	log.L(context.Background()).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.pt.ID.String())
+	// Dynamic signing address - we must want for the dependency to be confirmed before we can dispatch
+	notReady := t.stateMachine.CurrentState != State_Confirmed
+	if notReady {
+		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.pt.ID.String())
+	}
+	return notReady
+}
+
+func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
+	return txn.hasDependenciesNotReady(ctx)
 }
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
 func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 
-	//We already calculated the dependencies when we got assembled and there is no way we could have picked up new
-	// dependencies without a re-assemble
+	// TODO AM: this is a guard- it shouldn't be having side effects beyond returning true/false
+	if t.dynamicSigningIdentity {
+		// Update the signing identity based on the latest endorsement. As soon as we know we have a fixed signing identity we can stop checking
+		t.updateSigningIdentity()
+	}
+
+	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
 
@@ -49,8 +99,9 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	for _, dependencyID := range dependencies {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
-			//assume the dependency has been confirmed and no longer in memory
-			//hasUnknownDependencies guard will be used to explicitly ensure the correct thing happens
+			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependencyID.String())
+			// assume the dependency has been confirmed and is no longer in memory since we can't wait for a non-existent transaction
+			// to be in the right state. Rely on TX re-assembly if the base ledger TX fails
 			continue
 		}
 
@@ -75,7 +126,6 @@ func (t *Transaction) traceDispatch(ctx context.Context) {
 }
 
 func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
-
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}
@@ -85,25 +135,43 @@ func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			msg := fmt.Sprintf("notifyDependentsOfReadiness: Dependent transaction %s not found in memory", dependentId)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-		err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependent.pt.ID,
-			},
-			DependencyID: t.pt.ID,
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
-			return err
+			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependentId.String())
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.pt.ID,
+				},
+			})
+
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
+				return err
+			}
 		}
 	}
 	return nil
 }
 
+func (t *Transaction) allocateSigningIdentity(ctx context.Context) {
+
+	// Generate a dynamic signing identity unless Paladin config asserts something specific to use
+	if t.domainSigningIdentity != "" {
+		log.L(ctx).Debugf("Domain has a fixed signing identity for TX %s - using that", t.pt.ID.String())
+		t.pt.Signer = t.domainSigningIdentity
+		t.dynamicSigningIdentity = false
+		return
+	}
+
+	log.L(ctx).Debugf("No fixed or endorsement-specific signing identity for TX %s - allocating a dynamic signing identity", t.pt.ID.String())
+	t.pt.Signer = fmt.Sprintf("domains.%s.submit.%s", t.pt.Address.String(), uuid.New())
+}
+
 func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction, _ common.Event) error {
+	// Make sure we have a signer identity allocated if no endorsement constraint has defined one
+	if txn.pt.Signer == "" {
+		txn.allocateSigningIdentity(ctx)
+	}
+
 	return txn.notifyDependentsOfReadiness(ctx)
 }
 

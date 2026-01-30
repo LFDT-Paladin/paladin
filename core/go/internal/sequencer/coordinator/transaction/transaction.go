@@ -53,13 +53,16 @@ type Transaction struct {
 
 	stateMachine *StateMachine
 
-	originator           string // The fully qualified identity of the originator e.g. "member1@node1"
-	originatorNode       string // The node the originator is running on e.g. "node1"
-	signerAddress        *pldtypes.EthAddress
-	latestSubmissionHash *pldtypes.Bytes32
-	nonce                *uint64
-	revertReason         pldtypes.HexBytes
-	revertTime           *pldtypes.Timestamp
+	originator             string // The fully qualified identity of the originator e.g. "member1@node1"
+	originatorNode         string // The node the originator is running on e.g. "node1"
+	signerAddress          *pldtypes.EthAddress
+	domainSigningIdentity  string                                    // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
+	submitterSelection     prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
+	dynamicSigningIdentity bool                                      // True if the signing identity isn't fixed by domain config or endorser constraints
+	latestSubmissionHash   *pldtypes.Bytes32
+	nonce                  *uint64
+	revertReason           pldtypes.HexBytes
+	revertTime             *pldtypes.Timestamp
 
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange               int
@@ -82,13 +85,13 @@ type Transaction struct {
 	finalizingGracePeriod int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 
 	// Dependencies
-	clock              common.Clock
-	transportWriter    transport.TransportWriter
-	grapher            Grapher
-	engineIntegration  common.EngineIntegration
-	syncPoints              syncpoints.SyncPoints
+	clock                    common.Clock
+	transportWriter          transport.TransportWriter
+	grapher                  Grapher
+	engineIntegration        common.EngineIntegration
+	syncPoints               syncpoints.SyncPoints
 	queueEventForCoordinator func(context.Context, common.Event)
-	metrics                 metrics.DistributedSequencerMetrics
+	metrics                  metrics.DistributedSequencerMetrics
 }
 
 func NewTransaction(
@@ -104,6 +107,8 @@ func NewTransaction(
 	requestTimeout,
 	assembleTimeout common.Duration,
 	finalizingGracePeriod int,
+	domainSigningIdentity string,
+	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*Transaction, error) {
@@ -119,8 +124,10 @@ func NewTransaction(
 		transportWriter:            transportWriter,
 		clock:                      clock,
 		queueEventForCoordinator:   queueEventForCoordinator,
-		engineIntegration:         engineIntegration,
+		engineIntegration:          engineIntegration,
 		syncPoints:                 syncPoints,
+		domainSigningIdentity:      domainSigningIdentity,
+		dynamicSigningIdentity:     true, // Assume no nonce protection for dispatch ordering until we determine otherwise
 		requestTimeout:             requestTimeout,
 		assembleTimeout:            assembleTimeout,
 		finalizingGracePeriod:      finalizingGracePeriod,
@@ -223,7 +230,7 @@ func (t *Transaction) GetOriginalSender() string {
 func (t *Transaction) GetOutputStateIDs() []pldtypes.HexBytes {
 	t.RLock()
 	defer t.RUnlock()
-	//We use the output states here not the OutputStatesPotential because it is not possible for another transaction
+	// We use the output states here not the OutputStatesPotential because it is not possible for another transaction
 	// to spend a state unless it has been written to the state store and at that point we have the state ID
 	outputStateIDs := make([]pldtypes.HexBytes, len(t.pt.PostAssembly.OutputStates))
 	for i, outputState := range t.pt.PostAssembly.OutputStates {
@@ -248,19 +255,4 @@ func (t *Transaction) GetSigner() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.Signer
-}
-
-// SetSigner sets the private transaction's Signer. Used by the sequencer when preparing dispatch.
-// TODO: THIS SHOULD NOT MODIFY OUTSIDE OF THE STATE MACHINE
-func (t *Transaction) SetSigner(s string) {
-	t.Lock()
-	defer t.Unlock()
-	t.pt.Signer = s
-}
-
-// TODO AM: I think this goes when the signer setting moves into the state machine
-func (t *Transaction) GetPostAssembly() *components.TransactionPostAssembly {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PostAssembly
 }

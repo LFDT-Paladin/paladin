@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -268,27 +267,6 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		return
 	}
 
-	submitterSelection := domainAPI.ContractConfig().GetSubmitterSelection()
-
-	if submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.GetPostAssembly().Endorsements {
-			for _, constraint := range endorsement.Constraints {
-				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
-					t.SetSigner(endorsement.Verifier.Lookup)
-					break
-				}
-			}
-		}
-	}
-	if t.GetSigner() == "" {
-		if domainAPI.Domain().FixedSigningIdentity() != "" {
-			t.SetSigner(domainAPI.Domain().FixedSigningIdentity())
-		} else {
-			t.SetSigner(fmt.Sprintf("domains.%s.submit.%s", t.GetContractAddress().String(), uuid.New()))
-		}
-	}
-	log.L(ctx).Debugf("Transaction %s signer %s", t.GetID().String(), t.GetSigner())
-
 	// Prepare the public or private transaction
 	readTX := sMgr.components.Persistence().NOTX() // no DB transaction required here
 	err = domainAPI.PrepareTransaction(dCtx, readTX, t.GetPrivateTransaction())
@@ -382,7 +360,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		for i, pt := range publicTransactionsToSend {
 			log.L(ctx).Debugf("DispatchTransactions: creating PublicTxSubmission from %s", pt.Signer)
 			publicTXs[i] = &components.PublicTxSubmission{
-				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
+				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum(), TransactionSender: pt.PreAssembly.TransactionSpecification.From, TransactionContractAddress: t.GetContractAddress().String()}},
 				PublicTxInput: pldapi.PublicTxInput{
 					From:            resolvedAddrs[i],
 					To:              &contractAddr,
@@ -390,7 +368,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 				},
 			}
 
-			// MRW TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
+			// TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
 
 			data, err := pt.PreparedPublicTransaction.ABI[0].EncodeCallDataJSONCtx(ctx, pt.PreparedPublicTransaction.Data)
 			if err != nil {

@@ -42,10 +42,6 @@ func action_SelectActiveCoordinator(ctx context.Context, c *coordinator, _ commo
 	return nil
 }
 
-// The name of this function gives the impression that it is modifying state but it is actually
-// using the existing state as the input to the algorithm that chooses the current active coordinator.
-// It returns the name of this node, but doesn't make it the active coordinator
-// TODO AM: maybe it could select
 func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, error) {
 	coordinatorNode := ""
 	if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_STATIC {

@@ -14,8 +14,45 @@
  */
 package transaction
 
-import "context"
+import (
+	"context"
+
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+)
 
 func guard_HasRevertReason(ctx context.Context, txn *Transaction) bool {
 	return txn.revertReason.String() != ""
+}
+
+func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction, _ common.Event) error {
+	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	return txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+}
+
+func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx context.Context) error {
+	if log.IsTraceEnabled() {
+		t.traceDispatch(ctx)
+	}
+
+	// this function is called when the transaction enters the confirmed state
+	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
+	for _, dependentId := range t.dependencies.PrereqOf {
+		dependent := t.grapher.TransactionByID(ctx, dependentId)
+		if dependent == nil {
+			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependentId.String())
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.pt.ID,
+				},
+			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
+				return err
+			}
+		}
+	}
+	return nil
 }
