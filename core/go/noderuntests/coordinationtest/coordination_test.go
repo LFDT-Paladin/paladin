@@ -1498,3 +1498,66 @@ func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.
 			"Transaction did not receive a receipt for Alice TX %s", aliceTxns[i])
 	}
 }
+
+func Test500Transactions(t *testing.T) {
+	// Dump 500 transactions into the node and check the node gets them all through OK
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+	numberOfIterations := 500
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+		AmountVisible:   false,
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	aliceTxns := make([]*uuid.UUID, numberOfIterations)
+	for i := 0; i < numberOfIterations; i++ {
+		aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey("tx1-alice-" + uuid.New().String()).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "` + strconv.Itoa(i+1) + `"
+		}`)).
+			Send()
+		require.NoError(t, aliceTx.Error())
+		aliceTxns[i] = aliceTx.ID()
+	}
+
+	// Check all transactions are successful
+	for i := 0; i < numberOfIterations; i++ {
+		assert.Eventually(t,
+			transactionReceiptCondition(t, ctx, *aliceTxns[i], alice.GetClient(), false),
+			transactionLatencyThreshold(t),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt for Alice TX %s", aliceTxns[i])
+	}
+}

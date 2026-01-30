@@ -355,7 +355,7 @@ abstract class CoordinationTest extends Exec {
         args '-cover'
         args "-coverpkg=github.com/LFDT-Paladin/paladin/core/..." // toolkit handled seperately
         args '-covermode=atomic'
-        args '-timeout=300s'
+        args '-timeout=360s'
         if (project.findProperty('verboseTests') == 'true') {
             args '-v'
         }
