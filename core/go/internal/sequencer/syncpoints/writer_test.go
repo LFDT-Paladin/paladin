@@ -20,15 +20,19 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gormPostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestSyncPointOperation_WriteKey(t *testing.T) {
@@ -464,4 +468,265 @@ func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {
 	// FinalizeTransactions should not be called when there are no failure messages
 	mockTXMgr.AssertNotCalled(t, "FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything)
 	mockTransportMgr.AssertNotCalled(t, "SendReliable", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRunBatch_DispatchOperation_ChainPrivateTransactionsError(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	chainErr := errors.New("chain error")
+	mockTXMgr.On("ChainPrivateTransactions", ctx, dbTX, mock.MatchedBy(func(txns []*components.ChainedPrivateTransaction) bool {
+		return len(txns) == 1
+	})).Return(chainErr)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{PublicTxs: []*components.PublicTxSubmission{}, PrivateTransactionDispatches: []*DispatchPersisted{}},
+				},
+				privateDispatches: []*components.ChainedPrivateTransaction{
+					{OriginalSenderLocator: "id@node1", OriginalTransaction: uuid.New()},
+				},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	assert.Error(t, err)
+	assert.Equal(t, chainErr, err)
+	assert.Nil(t, results)
+	mockTXMgr.AssertExpectations(t)
+}
+
+func TestRunBatch_DispatchOperation_WritePreparedTransactionsError(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	writeErr := errors.New("write prepared error")
+	mockTXMgr.On("WritePreparedTransactions", ctx, dbTX, mock.MatchedBy(func(txns []*components.PreparedTransactionWithRefs) bool {
+		return len(txns) == 1
+	})).Return(writeErr)
+
+	contractAddr := pldtypes.RandAddress()
+	preparedTxn := &components.PreparedTransactionWithRefs{}
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{PublicTxs: []*components.PublicTxSubmission{}, PrivateTransactionDispatches: []*DispatchPersisted{}},
+				},
+				localPreparedTxns: []*components.PreparedTransactionWithRefs{preparedTxn},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	assert.Error(t, err)
+	assert.Equal(t, writeErr, err)
+	assert.Nil(t, results)
+	mockTXMgr.AssertExpectations(t)
+}
+
+func TestRunBatch_DispatchOperation_NoPreparedReliableMsgs(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTXMgr.On("WritePreparedTransactions", ctx, mock.Anything, mock.MatchedBy(func(txns []*components.PreparedTransactionWithRefs) bool {
+		return len(txns) == 1
+	})).Return(nil)
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	contractAddr := pldtypes.RandAddress()
+	preparedTxn := &components.PreparedTransactionWithRefs{}
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{PublicTxs: []*components.PublicTxSubmission{}, PrivateTransactionDispatches: []*DispatchPersisted{}},
+				},
+				localPreparedTxns:    []*components.PreparedTransactionWithRefs{preparedTxn},
+				preparedReliableMsgs: []*pldapi.ReliableMessage{}, // empty - hits "No prepared reliable messages" branch
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	mockTXMgr.AssertExpectations(t)
+	mockTransportMgr.AssertNotCalled(t, "SendReliable", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRunBatch_DispatchOperation_SendReliableError(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	mockTransportMgr.On("SendReliable", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("send error"))
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{PublicTxs: []*components.PublicTxSubmission{}, PrivateTransactionDispatches: []*DispatchPersisted{}},
+				},
+				preparedReliableMsgs: []*pldapi.ReliableMessage{{Node: "node2", MessageType: pldapi.RMTState.Enum()}},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	mockTransportMgr.AssertExpectations(t)
+}
+
+func TestRunBatch_DispatchOperation_CreateDispatchesError(t *testing.T) {
+	ctx := context.Background()
+	sqlDB, sqlMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer sqlDB.Close()
+	dialector := gormPostgres.New(gormPostgres.Config{Conn: sqlDB})
+	gormDB, err := gorm.Open(dialector, &gorm.Config{})
+	require.NoError(t, err)
+
+	dbTX := persistencemocks.NewDBTX(t)
+	dbTX.On("DB").Return(gormDB)
+
+	createErr := errors.New("create error")
+	sqlMock.ExpectBegin()
+	sqlMock.ExpectExec("INSERT INTO .*dispatches.*").WillReturnError(createErr)
+	sqlMock.ExpectRollback()
+
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	fromAddr := pldtypes.RandAddress()
+	localID := uint64(1)
+	mockPubTxMgr.On("WriteNewTransactions", ctx, dbTX, mock.Anything).Return([]*pldapi.PublicTx{
+		{From: *fromAddr, LocalID: &localID},
+	}, nil)
+
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{
+						PublicTxs: []*components.PublicTxSubmission{{}},
+						PrivateTransactionDispatches: []*DispatchPersisted{
+							{PrivateTransactionID: uuid.New().String()},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "create error")
+	assert.Nil(t, results)
+	require.NoError(t, sqlMock.ExpectationsWereMet())
+	mockPubTxMgr.AssertExpectations(t)
+}
+
+func TestRunBatch_DispatchOperation_DispatchWithEmptyID(t *testing.T) {
+	ctx := context.Background()
+	sqlDB, sqlMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer sqlDB.Close()
+	dialector := gormPostgres.New(gormPostgres.Config{Conn: sqlDB})
+	gormDB, err := gorm.Open(dialector, &gorm.Config{})
+	require.NoError(t, err)
+
+	dbTX := persistencemocks.NewDBTX(t)
+	dbTX.On("DB").Return(gormDB)
+
+	sqlMock.ExpectBegin()
+	sqlMock.ExpectExec("INSERT INTO .*dispatches.*").WillReturnResult(sqlmock.NewResult(1, 1))
+	sqlMock.ExpectCommit()
+
+	mockPubTxMgr := componentsmocks.NewPublicTxManager(t)
+	fromAddr := pldtypes.RandAddress()
+	localID := uint64(1)
+	mockPubTxMgr.On("WriteNewTransactions", ctx, dbTX, mock.Anything).Return([]*pldapi.PublicTx{
+		{From: *fromAddr, LocalID: &localID},
+	}, nil)
+
+	s := &syncPoints{
+		txMgr:        componentsmocks.NewTXManager(t),
+		pubTxMgr:     mockPubTxMgr,
+		transportMgr: componentsmocks.NewTransportManager(t),
+	}
+
+	contractAddr := pldtypes.RandAddress()
+	privateTxID := uuid.New().String()
+	dispatchWithEmptyID := &DispatchPersisted{PrivateTransactionID: privateTxID, ID: ""}
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			dispatchOperation: &dispatchOperation{
+				publicDispatches: []*PublicDispatch{
+					{
+						PublicTxs:                    []*components.PublicTxSubmission{{}},
+						PrivateTransactionDispatches: []*DispatchPersisted{dispatchWithEmptyID},
+					},
+				},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.NotEmpty(t, dispatchWithEmptyID.ID, "dispatch ID should be populated when empty")
+	require.NoError(t, sqlMock.ExpectationsWereMet())
+	mockPubTxMgr.AssertExpectations(t)
 }

@@ -228,13 +228,13 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
 }
 
-func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {
+func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) []*transaction.Transaction {
 	//TODO are we actually saving anything by transactionsOrdered being an array of IDs rather than an array of *transaction.Transaction
 	ordered := make([]*transaction.Transaction, len(o.transactionsOrdered))
 	for i, id := range o.transactionsOrdered {
 		ordered[i] = o.transactionsByID[*id]
 	}
-	return ordered, nil
+	return ordered
 }
 
 func (o *originator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {

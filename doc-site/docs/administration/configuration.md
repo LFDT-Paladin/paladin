@@ -789,7 +789,7 @@
 | delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | heartbeatThreshold | Heartbeat threshold | `int` | - |
-| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `1` |
+| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |

@@ -48,15 +48,18 @@ const (
 // Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 type Transaction struct {
 	*components.PrivateTransaction
-	originator           string // The fully qualified identity of the originator e.g. "member1@node1"
-	originatorNode       string // The node the originator is running on e.g. "node1"
-	originatorIdentity   string // The member ID e.g. "member1"
-	signerAddress        *pldtypes.EthAddress
-	latestSubmissionHash *pldtypes.Bytes32
-	nonce                *uint64
-	stateMachine         *StateMachine
-	revertReason         pldtypes.HexBytes
-	revertTime           *pldtypes.Timestamp
+	originator             string // The fully qualified identity of the originator e.g. "member1@node1"
+	originatorNode         string // The node the originator is running on e.g. "node1"
+	originatorIdentity     string // The member ID e.g. "member1"
+	signerAddress          *pldtypes.EthAddress
+	domainSigningIdentity  string                                    // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
+	submitterSelection     prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
+	dynamicSigningIdentity bool                                      // True if the signing identity isn't fixed by domain config or endorser constraints
+	latestSubmissionHash   *pldtypes.Bytes32
+	nonce                  *uint64
+	stateMachine           *StateMachine
+	revertReason           pldtypes.HexBytes
+	revertTime             *pldtypes.Timestamp
 
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange               int
@@ -109,6 +112,8 @@ func NewTransaction(
 	requestTimeout,
 	assembleTimeout common.Duration,
 	finalizingGracePeriod int,
+	domainSigningIdentity string,
+	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 	addToPool func(context.Context, *Transaction),
@@ -122,25 +127,28 @@ func NewTransaction(
 		return nil, err
 	}
 	txn := &Transaction{
-		originator:            originator,
-		originatorIdentity:    originatorIdentity,
-		originatorNode:        originatorNode,
-		PrivateTransaction:    pt,
-		transportWriter:       transportWriter,
-		clock:                 clock,
-		eventHandler:          eventHandler,
-		engineIntegration:     engineIntegration,
-		syncPoints:            syncPoints,
-		requestTimeout:        requestTimeout,
-		assembleTimeout:       assembleTimeout,
-		finalizingGracePeriod: finalizingGracePeriod,
-		dependencies:          &pldapi.TransactionDependencies{},
-		grapher:               grapher,
-		metrics:               metrics,
-		addToPool:             addToPool,
-		notifyOfTransition:    onStateTransition,
-		onReadyForDispatch:    onReadyForDispatch,
-		onCleanup:             onCleanup,
+		originator:             originator,
+		originatorIdentity:     originatorIdentity,
+		originatorNode:         originatorNode,
+		PrivateTransaction:     pt,
+		transportWriter:        transportWriter,
+		clock:                  clock,
+		eventHandler:           eventHandler,
+		engineIntegration:      engineIntegration,
+		syncPoints:             syncPoints,
+		domainSigningIdentity:  domainSigningIdentity,
+		dynamicSigningIdentity: true, // Assume no nonce protection for dispatch ordering until we determine otherwise
+		submitterSelection:     submitterSelection,
+		requestTimeout:         requestTimeout,
+		assembleTimeout:        assembleTimeout,
+		finalizingGracePeriod:  finalizingGracePeriod,
+		dependencies:           &pldapi.TransactionDependencies{},
+		grapher:                grapher,
+		metrics:                metrics,
+		addToPool:              addToPool,
+		notifyOfTransition:     onStateTransition,
+		onReadyForDispatch:     onReadyForDispatch,
+		onCleanup:              onCleanup,
 	}
 	txn.InitializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)

@@ -40,6 +40,7 @@ type Grapher interface {
 	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error)
 	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error
 	Forget(transactionID uuid.UUID) error
+	ForgetMints(transactionID uuid.UUID)
 }
 
 type grapher struct {
@@ -76,14 +77,18 @@ func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, tran
 }
 
 func (s *grapher) Forget(transactionID uuid.UUID) error {
+	s.ForgetMints(transactionID)
+	delete(s.transactionByID, transactionID)
+	return nil
+}
+
+func (s *grapher) ForgetMints(transactionID uuid.UUID) {
 	if outputStates, ok := s.outputStatesByMinter[transactionID]; ok {
 		for _, stateID := range outputStates {
 			delete(s.transactionByOutputState, stateID)
 		}
 		delete(s.outputStatesByMinter, transactionID)
 	}
-	delete(s.transactionByID, transactionID)
-	return nil
 }
 
 func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction {

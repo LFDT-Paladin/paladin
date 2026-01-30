@@ -215,7 +215,7 @@ func (o *originator) GetCurrentCoordinator() string {
 
 func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error) {
 	// MRW TODO - this needs to use a thread safe mechanism similar to coordinator query queue
-	if txn, ok := o.transactionsByID[txID]; !ok {
+	if txn, ok := o.transactionsByID[txID]; ok {
 		endorsements := txn.GetEndorsementStatus(ctx)
 		return components.PrivateTxStatus{
 			TxID:         txID.String(),
