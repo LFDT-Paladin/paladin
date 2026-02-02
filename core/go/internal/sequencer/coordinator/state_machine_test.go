@@ -78,6 +78,7 @@ func Test_queueEventInternal_QueuesPriorityEvent(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	syncEvent := statemachine.NewSyncEvent()
 	c.queueEventInternal(ctx, syncEvent)

@@ -32,6 +32,7 @@ func Test_action_UpdateOriginatorNodePoolFromEvent_AddsNodesToPool(t *testing.T)
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 
 	err := action_UpdateOriginatorNodePoolFromEvent(ctx, c, &OriginatorNodePoolUpdateRequestedEvent{
@@ -52,6 +53,7 @@ func Test_selectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithFullyQuali
 		StaticCoordinator:    proto.String("identity@node1"),
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.NoError(t, err)
@@ -66,6 +68,7 @@ func Test_selectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithIdentityOn
 		StaticCoordinator:    proto.String("identity"),
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.Error(t, err)
@@ -80,6 +83,7 @@ func Test_selectActiveCoordinatorNode_StaticMode_EmptyStaticCoordinator_ReturnsE
 		StaticCoordinator:    proto.String(""),
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
 	require.Error(t, err)
@@ -97,6 +101,7 @@ func Test_selectActiveCoordinatorNode_EndorserMode_EmptyPool_ReturnsEmpty(t *tes
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 	c.currentBlockHeight = 1000
 
@@ -115,6 +120,7 @@ func Test_selectActiveCoordinatorNode_EndorserMode_SingleNodeInPool_ReturnsNode(
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1"}
 	c.currentBlockHeight = 1000
 
@@ -133,6 +139,7 @@ func Test_selectActiveCoordinatorNode_EndorserMode_MultipleNodesInPool_ReturnsOn
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node2", "node3"}
 	c.currentBlockHeight = 1000
 
@@ -151,6 +158,7 @@ func Test_selectActiveCoordinatorNode_EndorserMode_BlockHeightRounding_SameRange
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node2", "node3"}
 
 	c.currentBlockHeight = 1000
@@ -181,6 +189,7 @@ func Test_selectActiveCoordinatorNode_EndorserMode_DifferentBlockRanges_CanSelec
 	config.BlockRange = confutil.P(uint64(50))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node2"}
 
 	c.currentBlockHeight = 100
@@ -200,6 +209,7 @@ func Test_selectActiveCoordinatorNode_SenderMode_ReturnsCurrentNodeName(t *testi
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	assert.Equal(t, "node1", c.nodeName)
 
 	coordinatorNode, err := c.selectActiveCoordinatorNode(ctx)
@@ -211,6 +221,7 @@ func Test_updateOriginatorNodePool_AddsNodeToEmptyPool(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 
 	c.updateOriginatorNodePool("node2")
@@ -224,6 +235,7 @@ func Test_updateOriginatorNodePool_AddsNodeToNonEmptyPool(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node3"}
 
 	c.updateOriginatorNodePool("node2")
@@ -238,6 +250,7 @@ func Test_updateOriginatorNodePool_DoesNotAddDuplicateNode(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node2"}
 
 	c.updateOriginatorNodePool("node2")
@@ -251,6 +264,7 @@ func Test_updateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAlwaysInPool(t *t
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 
 	c.updateOriginatorNodePool("node2")
@@ -263,6 +277,7 @@ func Test_updateOriginatorNodePool_EnsuresCoordinatorsOwnNodeIsAddedEvenWhenPool
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node2", "node3"}
 
 	c.updateOriginatorNodePool("node4")
@@ -275,6 +290,7 @@ func Test_updateOriginatorNodePool_DoesNotDuplicateCoordinatorsOwnNode(t *testin
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{"node1", "node2"}
 
 	c.updateOriginatorNodePool("node1")
@@ -288,6 +304,7 @@ func Test_updateOriginatorNodePool_HandlesMultipleSequentialUpdates(t *testing.T
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 
 	c.updateOriginatorNodePool("node2")
@@ -305,6 +322,7 @@ func Test_updateOriginatorNodePool_HandlesEmptyStringNode(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.originatorNodePool = []string{}
 
 	c.updateOriginatorNodePool("")
@@ -322,6 +340,7 @@ func Test_action_SelectActiveCoordinator_StaticModeSelectsCoordinator(t *testing
 		StaticCoordinator:    proto.String("identity@node1"),
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.activeCoordinatorNode = ""
 
 	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
@@ -338,6 +357,7 @@ func Test_action_SelectActiveCoordinator_SenderModeSelectsSelf(t *testing.T) {
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.activeCoordinatorNode = ""
 
 	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
@@ -357,6 +377,7 @@ func Test_action_SelectActiveCoordinator_EndorserModeSelectsFromPool(t *testing.
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.activeCoordinatorNode = ""
 	c.originatorNodePool = []string{"node1", "node2", "node3"}
 	c.currentBlockHeight = 1000
@@ -379,6 +400,7 @@ func Test_action_SelectActiveCoordinator_EmptyPoolLeavesSelectingState(t *testin
 	config.BlockRange = confutil.P(uint64(100))
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.activeCoordinatorNode = ""
 	c.originatorNodePool = []string{}
 	c.currentBlockHeight = 1000
@@ -401,6 +423,7 @@ func Test_action_SelectActiveCoordinator_WhenSelectReturnsError_ReturnsNil(t *te
 		StaticCoordinator:    proto.String("identity"),
 	})
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	c.activeCoordinatorNode = ""
 
 	err := action_SelectActiveCoordinator(ctx, c, nil)

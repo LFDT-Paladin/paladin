@@ -35,9 +35,16 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 
 			c.inFlightMutex.L.Lock()
 
-			// Too many in flight - wait for some to be confirmed
+			// Too many in flight - wait for some to be confirmed (check stopDispatchLoop after each Wait so Stop() can exit us)
 			for len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
 				c.inFlightMutex.Wait()
+				select {
+				case <-c.stopDispatchLoop:
+					c.inFlightMutex.L.Unlock()
+					log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
+					return
+				default:
+				}
 			}
 
 			// Dispatch and then asynchronously update the state machine to State_Dispatched
@@ -62,6 +69,13 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			if len(c.inFlightTxns)+dispatchedAhead >= c.maxDispatchAhead {
 				for c.inFlightTxns[tx.GetID()] == nil {
 					c.inFlightMutex.Wait()
+					select {
+					case <-c.stopDispatchLoop:
+						c.inFlightMutex.L.Unlock()
+						log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
+						return
+					default:
+					}
 				}
 				dispatchedAhead = 0
 			}

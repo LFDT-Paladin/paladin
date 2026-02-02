@@ -56,6 +56,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	}).Maybe()
 	mocks.transportWriter.On("StartLoopbackWriter", mock.Anything).Return(nil)
+	mocks.transportWriter.On("StopLoopbackWriter").Return().Maybe()
 	ctx, cancelCtx := context.WithCancel(ctx)
 
 	config := &pldconf.SequencerConfig{
@@ -115,6 +116,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	config.MaxDispatchAhead = confutil.P(-1) // Stop the dispatcher loop from progressing states - we're manually updating state throughout the test
 	builder.OverrideSequencerConfig(config)
 	c, mocks := builder.Build(ctx)
+	defer c.Stop()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
@@ -303,6 +305,7 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Start by simulating the originator and delegate a transaction to the coordinator
 	for i := range 100 {
@@ -323,6 +326,7 @@ func TestCoordinator_Stop_StopsEventLoopAndDispatchLoop(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Verify event loop is running
 	require.False(t, c.stateMachineEventLoop.IsStopped(), "event loop should not be stopped initially")
@@ -359,6 +363,7 @@ func TestCoordinator_Stop_CallsStopLoopbackWriterOnTransport(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	mockTransport := transport.NewMockTransportWriter(t)
 	// StartLoopbackWriter was already called during NewCoordinator, so we don't expect it again
 	mockTransport.On("StopLoopbackWriter").Return()
@@ -376,6 +381,7 @@ func TestCoordinator_Stop_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	c.Stop()
 
@@ -394,6 +400,7 @@ func TestCoordinator_Stop_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Queue some events to ensure loops are busy
 	for i := 0; i < 10; i++ {
@@ -417,6 +424,7 @@ func TestCoordinator_Stop_WhenAlreadyStopped_ReturnsImmediately(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	c.Stop()
 	require.True(t, c.stateMachineEventLoop.IsStopped(), "event loop should be stopped")
@@ -430,6 +438,7 @@ func Test_propagateEventToTransaction_UnknownTransaction_ReturnsNil(t *testing.T
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	event := &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{TransactionID: uuid.New()},
@@ -445,6 +454,7 @@ func TestCoordinator_SendHandoverRequest_SuccessfullySendsHandoverRequest(t *tes
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build(ctx)
+	defer c.Stop()
 	activeCoordinatorNode := "activeCoordinatorNode"
 
 	// Set the active coordinator node
@@ -460,6 +470,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectActiveCo
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "testCoordinatorNode"
 
@@ -468,6 +479,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectActiveCo
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -482,6 +494,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectContract
 	contractAddress := pldtypes.RandAddress()
 	builder.ContractAddress(contractAddress)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	activeCoordinatorNode := "activeCoordinatorNode"
 
 	// Set the active coordinator node
@@ -489,6 +502,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectContract
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -501,6 +515,7 @@ func TestCoordinator_SendHandoverRequest_HandlesErrorFromSendHandoverRequestGrac
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "activeCoordinatorNode"
 	expectedError := fmt.Errorf("transport error")
@@ -509,6 +524,7 @@ func TestCoordinator_SendHandoverRequest_HandlesErrorFromSendHandoverRequestGrac
 	c.activeCoordinatorNode = activeCoordinatorNode
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(expectedError)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest - should not panic even when error occurs
@@ -521,6 +537,7 @@ func TestCoordinator_SendHandoverRequest_HandlesEmptyActiveCoordinatorNode(t *te
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := ""
 
@@ -529,6 +546,7 @@ func TestCoordinator_SendHandoverRequest_HandlesEmptyActiveCoordinatorNode(t *te
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -541,6 +559,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node1(t *testing.T)
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "node1"
 
@@ -549,6 +568,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node1(t *testing.T)
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -561,6 +581,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node2ExampleCom(t *
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "node2@example.com"
 
@@ -569,6 +590,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node2ExampleCom(t *
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -581,6 +603,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_coordinatorNode123(
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "coordinator-node-123"
 
@@ -589,6 +612,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_coordinatorNode123(
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -601,6 +625,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_VeryLongCoordinator
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "very-long-coordinator-node-name-with-special-chars-123"
 
@@ -609,6 +634,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_VeryLongCoordinator
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", ctx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest
@@ -621,6 +647,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestMultipleTimes(t *te
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks := builder.Build(ctx)
+	defer c.Stop()
 	activeCoordinatorNode := "activeCoordinatorNode"
 
 	// Set the active coordinator node
@@ -638,6 +665,7 @@ func TestCoordinator_SendHandoverRequest_HandlesContextCancellation(t *testing.T
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 	contractAddress := builder.GetContractAddress()
 	activeCoordinatorNode := "activeCoordinatorNode"
 
@@ -650,6 +678,7 @@ func TestCoordinator_SendHandoverRequest_HandlesContextCancellation(t *testing.T
 
 	mockTransport := transport.NewMockTransportWriter(t)
 	mockTransport.On("SendHandoverRequest", cancelledCtx, activeCoordinatorNode, &contractAddress).Return(nil)
+	mockTransport.On("StopLoopbackWriter").Return().Maybe()
 	c.transportWriter = mockTransport
 
 	// Call sendHandoverRequest with cancelled context
@@ -662,6 +691,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransaction
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Ensure transactionsByID is empty
 	c.transactionsByID = make(map[uuid.UUID]*transaction.CoordinatorTransaction)
@@ -676,6 +706,7 @@ func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEvent
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -695,6 +726,7 @@ func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEvent
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create multiple transactions
 	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -722,6 +754,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorWhenSingleTrans
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction in a state that might not handle certain events
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -743,6 +776,7 @@ func TestCoordinator_PropagateEventToAllTransactions_StopsAtFirstErrorWhenMultip
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create multiple transactions
 	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -770,6 +804,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesEventPropagationWith
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create many transactions
 	numTransactions := 10
@@ -793,6 +828,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesDifferentEventTypes(
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -810,6 +846,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesContextCancellationG
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -833,6 +870,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ProcessesTransactionsInMapI
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create multiple transactions
 	txns := make([]*transaction.CoordinatorTransaction, 5)
@@ -854,6 +892,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create multiple transactions
 	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
@@ -877,6 +916,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction in State_Confirmed with 4 heartbeat intervals
 	// (grace period is 5, so after one more heartbeat it should transition to State_Final)
@@ -901,6 +941,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
+	defer c.Stop()
 
 	// Create a transaction in State_Reverted with 4 heartbeat intervals
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).

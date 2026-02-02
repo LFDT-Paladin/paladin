@@ -308,8 +308,8 @@ func Test_action_AssembleAndSignSuccess_SetsPostAssemblyAndRequestID(t *testing.
 	requestID := uuid.New()
 	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}
 	event := &AssembleAndSignSuccessEvent{
-		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
-		RequestID:   requestID,
+		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:    requestID,
 		PostAssembly: postAssembly,
 	}
 	err := action_AssembleAndSignSuccess(ctx, txn, event)

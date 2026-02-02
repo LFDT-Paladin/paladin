@@ -226,8 +226,8 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-				// if this is the first transaction we have received, it needs to move into pooled state before
-				// it can be selected and there is a separate event for that
+				// don't select a transaction here since events must to move into pooled state before
+				// they can be selected and there is a separate event for that
 			},
 			Event_TransactionConfirmed: {
 				Actions: []ActionRule{{Action: action_TransactionConfirmed}},

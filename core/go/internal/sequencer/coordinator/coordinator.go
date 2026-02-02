@@ -143,7 +143,7 @@ func NewCoordinator(
 		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
-		stopDispatchLoop:                   make(chan struct{}),
+		stopDispatchLoop:                   make(chan struct{}, 1),
 		dispatchLoopStopped:                make(chan struct{}),
 	}
 	c.originatorNodePool = make([]string, 0, len(initialOriginatorNodePool))
@@ -203,12 +203,16 @@ func (c *coordinator) Stop() {
 		return
 	}
 
+	// Stop the dispatch loop first so it is not blocked sending to the state machine's queue
+	// (dispatch loop uses non-blocking queueing and checks stopDispatchLoop).
+	c.stopDispatchLoop <- struct{}{}
+	c.inFlightMutex.L.Lock()
+	c.inFlightMutex.Signal()
+	c.inFlightMutex.L.Unlock()
+	<-c.dispatchLoopStopped
+
 	// Stop the state machine event loop (will process final CoordinatorClosedEvent)
 	c.stateMachineEventLoop.Stop()
-
-	// Stop the dispatch loop
-	c.stopDispatchLoop <- struct{}{}
-	<-c.dispatchLoopStopped
 
 	// Stop the loopback goroutine
 	c.transportWriter.StopLoopbackWriter()

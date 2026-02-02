@@ -65,10 +65,10 @@ func Test_action_Submitted_SetsSignerNonceAndHash(t *testing.T) {
 	nonce := uint64(42)
 	hash := pldtypes.RandBytes32()
 	event := &SubmittedEvent{
-		BaseEvent:             BaseEvent{TransactionID: txn.pt.ID},
-		SignerAddress:         addr,
-		Nonce:                 nonce,
-		LatestSubmissionHash:  hash,
+		BaseEvent:            BaseEvent{TransactionID: txn.pt.ID},
+		SignerAddress:        addr,
+		Nonce:                nonce,
+		LatestSubmissionHash: hash,
 	}
 	err := action_Submitted(ctx, txn, event)
 	require.NoError(t, err)

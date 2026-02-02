@@ -564,8 +564,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				SubmissionHash: *tx.TransactionHash,
 			}
 			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
-			// The coordinator transaction state machine sends TransactionSubmitted to the originator
-			// when it processes this event (see action_Submitted in coordinator/transaction/state_machine.go).
+			// The coordinator transaction state machine sends TransactionSubmitted to the originator when it processes this event
 		}
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions

@@ -327,6 +327,7 @@ func TestOriginator_Stop_AfterEventsProcessed(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	contractAddress := builder.GetContractAddress()
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -363,6 +364,7 @@ func TestOriginator_CreateTransaction_ErrorFromHandleEvent(t *testing.T) {
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode
 	heartbeatEvent := &HeartbeatReceivedEvent{}
