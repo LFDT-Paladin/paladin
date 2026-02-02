@@ -140,9 +140,8 @@ func (o *originator) initializeStateMachineEventLoop(initialState State) {
 		Definitions:         stateDefinitionsMap,
 		Entity:              o,
 		EventLoopBufferSize: 50,
-		Name:                fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
-		TransitionCallback:  o.onStateTransition,
-		PreProcess:          o.preProcessEvent,
+		Name:       fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
+		PreProcess: o.preProcessEvent,
 	})
 }
 
@@ -152,11 +151,6 @@ func (o *originator) preProcessEvent(ctx context.Context, entity *originator, ev
 		return true, o.propagateEventToTransaction(ctx, transactionEvent)
 	}
 	return false, nil
-}
-
-func (o *originator) onStateTransition(ctx context.Context, entity *originator, from State, to State, event common.Event) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf(
-		"orig     | %s   | %T | %s -> %s", o.contractAddress.String()[0:8], event, from.String(), to.String())
 }
 
 // GetCurrentCoordinator returns the current coordinator.

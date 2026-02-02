@@ -17,9 +17,9 @@ package transaction
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
@@ -458,6 +458,7 @@ var stateDefinitionsMap = StateDefinitions{
 
 func (t *Transaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
+		fmt.Sprintf("orig-tx-%s", t.pt.Address.String()[0:8]),
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
 			if t.queueEventForOriginator != nil {
 				t.queueEventForOriginator(ctx, &common.TransactionStateTransitionEvent[State]{
@@ -472,8 +473,6 @@ func (t *Transaction) initializeStateMachine(initialState State) {
 }
 
 func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
-	// TODO AM: this is the sort of logging that should become standard in the common layer
-	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX address %+v)", t.pt.ID.String(), t.pt.Address.HexString())
 	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 

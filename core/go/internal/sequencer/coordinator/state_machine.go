@@ -327,9 +327,6 @@ func (c *coordinator) preProcessEvent(ctx context.Context, entity *coordinator, 
 
 // onStateTransition is called when the state machine transitions to a new state
 func (c *coordinator) onStateTransition(ctx context.Context, entity *coordinator, from State, to State, event common.Event) {
-	// TODO AM: this is a strong candidate for common logging/metrics
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf(
-		"coord    | %s   | %T | %s -> %s", c.contractAddress.String()[0:8], event, from.String(), to.String())
 	c.heartbeatIntervalsSinceStateChange = 0
 }
 

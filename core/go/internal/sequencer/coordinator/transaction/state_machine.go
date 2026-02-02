@@ -379,14 +379,10 @@ var stateDefinitionsMap = StateDefinitions{
 
 func (t *Transaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
+		fmt.Sprintf("coord-tx-%s", t.pt.Address.String()[0:8]),
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
-
-			// Log the state transition
-			log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf(
-				"coord-tx | %s   | %s | %T | %s -> %s",
-				t.pt.Address.String()[0:8], t.pt.ID.String()[0:8], event, from.String(), to.String())
 
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))

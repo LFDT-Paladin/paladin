@@ -76,11 +76,11 @@ type TestEntity struct {
 	ProcessOrder []string
 }
 
-func newTestEntity(definitions StateDefinitions[TestState, *TestEntity], opts ...StateMachineOption[TestState, *TestEntity]) *TestEntity {
+func newTestEntity(definitions StateDefinitions[TestState, *TestEntity], name string, opts ...StateMachineOption[TestState, *TestEntity]) *TestEntity {
 	e := &TestEntity{
 		canProcess: true,
 	}
-	e.sm = NewStateMachine(State_Idle, definitions, opts...)
+	e.sm = NewStateMachine(State_Idle, definitions, name, opts...)
 	return e
 }
 
@@ -149,7 +149,7 @@ func TestBasicStateMachine(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	// Initial state
@@ -198,14 +198,14 @@ func TestGuardedTransitions(t *testing.T) {
 	ctx := context.Background()
 
 	// Test guard allowing transition to Active
-	entity1 := newTestEntity(definitions)
+	entity1 := newTestEntity(definitions, "test-entity")
 	entity1.shouldFail = false
 	err := entity1.sm.ProcessEvent(ctx, entity1, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, entity1.sm.GetCurrentState())
 
 	// Test guard allowing transition to Error
-	entity2 := newTestEntity(definitions)
+	entity2 := newTestEntity(definitions, "test-entity")
 	entity2.shouldFail = true
 	err = entity2.sm.ProcessEvent(ctx, entity2, newTestEvent(Event_Start))
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestActionsOnTransition(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -285,14 +285,14 @@ func TestEventHandlerActions(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with canProcess = true
-	entity1 := newTestEntity(definitions)
+	entity1 := newTestEntity(definitions, "test-entity")
 	entity1.canProcess = true
 	err := entity1.sm.ProcessEvent(ctx, entity1, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, 11, entity1.counter) // 1 + 10
 
 	// Test with canProcess = false
-	entity2 := newTestEntity(definitions)
+	entity2 := newTestEntity(definitions, "test-entity")
 	entity2.canProcess = false
 	err = entity2.sm.ProcessEvent(ctx, entity2, newTestEvent(Event_Start))
 	require.NoError(t, err)
@@ -318,14 +318,14 @@ func TestEventValidator(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with valid event
-	entity1 := newTestEntity(definitions)
+	entity1 := newTestEntity(definitions, "test-entity")
 	entity1.canProcess = true
 	err := entity1.sm.ProcessEvent(ctx, entity1, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, State_Active, entity1.sm.GetCurrentState())
 
 	// Test with invalid event
-	entity2 := newTestEntity(definitions)
+	entity2 := newTestEntity(definitions, "test-entity")
 	entity2.canProcess = false
 	err = entity2.sm.ProcessEvent(ctx, entity2, newTestEvent(Event_Start))
 	require.NoError(t, err)
@@ -351,7 +351,7 @@ func TestFirstActionAppliesEventData(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -381,7 +381,7 @@ func TestTransitionCallback(t *testing.T) {
 		callbackTo = to
 	}
 
-	entity := newTestEntity(definitions, WithTransitionCallback(callback))
+	entity := newTestEntity(definitions, "test-entity", WithTransitionCallback(callback))
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -390,6 +390,50 @@ func TestTransitionCallback(t *testing.T) {
 	assert.True(t, callbackCalled)
 	assert.Equal(t, State_Idle, callbackFrom)
 	assert.Equal(t, State_Active, callbackTo)
+}
+
+func TestWithName(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-sm")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	// Name is used in transition logging at debug (name | event | from -> to)
+}
+
+func TestProcessEvent_LogsEventAtDebug(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	// ProcessEvent logs "processing event %s" at debug using event.TypeString() for every event
 }
 
 func TestUnhandledEvent(t *testing.T) {
@@ -405,7 +449,7 @@ func TestUnhandledEvent(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	// Event_Process is not handled in State_Idle
@@ -436,7 +480,7 @@ func TestActionError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -458,7 +502,7 @@ func TestStateMachineMetadata(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	beforeTransition := time.Now()
@@ -492,7 +536,7 @@ func TestEventHandlerFirstAction(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	event := &testEvent{
@@ -543,7 +587,7 @@ func TestFirstActionBeforeGuardedActions(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -572,7 +616,7 @@ func TestFirstActionError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -599,7 +643,7 @@ func TestEventValidatorReturnsError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -625,7 +669,7 @@ func TestTransitionOnActionError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -653,7 +697,7 @@ func TestStateEntryActionError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -675,7 +719,7 @@ func TestTransitionToStateWithNoEntryAction(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	ctx := context.Background()
 
 	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
@@ -698,11 +742,12 @@ func TestNewStateMachineEventLoop_Basic(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "basic-test",
 	})
 
 	require.NotNil(t, sel)
@@ -732,7 +777,7 @@ func TestStateMachineEventLoop_StartStopAndMethods(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState:        State_Idle,
 		Definitions:         definitions,
@@ -786,11 +831,12 @@ func TestStateMachineEventLoop_ProcessEventSync(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "process-event-sync-test",
 	})
 
 	ctx := context.Background()
@@ -813,11 +859,12 @@ func TestStateMachineEventLoop_StopAsyncWaitForStop(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "stop-async-wait-test",
 	})
 
 	ctx := context.Background()
@@ -846,11 +893,12 @@ func TestStateMachineEventLoop_WithOnStop(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "onstop-test",
 		OnStop: func(ctx context.Context) common.Event {
 			return newTestEvent(Event_Reset)
 		},
@@ -882,11 +930,12 @@ func TestStateMachineEventLoop_WithTransitionCallback(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "transition-callback-test",
 		TransitionCallback: func(ctx context.Context, e *TestEntity, from, to TestState, event common.Event) {
 			fromState = from
 			toState = to
@@ -899,6 +948,33 @@ func TestStateMachineEventLoop_WithTransitionCallback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, State_Idle, fromState)
 	assert.Equal(t, State_Active, toState)
+}
+
+func TestStateMachineEventLoop_WithName(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState: State_Idle,
+		Definitions:  definitions,
+		Entity:       entity,
+		Name:         "eventloop-test",
+	})
+
+	ctx := context.Background()
+	err := sel.ProcessEvent(ctx, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sel.GetCurrentState())
 }
 
 func TestStateMachineEventLoop_WithPreProcessHandled(t *testing.T) {
@@ -914,12 +990,13 @@ func TestStateMachineEventLoop_WithPreProcessHandled(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	var preHandled bool
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "preprocess-handled-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			if event.Type() == Event_Start {
 				preHandled = true
@@ -963,11 +1040,12 @@ func TestStateMachineEventLoop_WithPreProcessError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "preprocess-error-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			return false, preErr
 		},
@@ -1006,12 +1084,13 @@ func TestStateMachineEventLoop_ZeroBufferSizeUsesDefault(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState:        State_Idle,
 		Definitions:         definitions,
 		Entity:              entity,
 		EventLoopBufferSize: 0,
+		Name:                "zero-buffer-test",
 	})
 
 	ctx := context.Background()
@@ -1080,7 +1159,7 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	entity.ProcessOrder = make([]string, 0, 4)
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState:        State_Idle,
@@ -1137,7 +1216,7 @@ func TestStateMachineEventLoop_QueuePriorityEvent(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
@@ -1183,7 +1262,7 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	blockUntilRelease := make(chan struct{})
 	blockStarted := make(chan struct{})
 	blockCount := 0
@@ -1246,7 +1325,7 @@ func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
@@ -1285,7 +1364,7 @@ func TestStateMachineEventLoop_PriorityEventLoopBufferSize(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	blockUntilRelease := make(chan struct{})
 	blockStarted := make(chan struct{})
 	blockCount := 0
@@ -1345,7 +1424,7 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	blockUntilRelease := make(chan struct{})
 	blockStarted := make(chan struct{})
 	blockCount := 0
@@ -1404,11 +1483,12 @@ func TestStateMachineEventLoop_Stop_WhenAlreadyStopped(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "stop-when-stopped-test",
 	})
 
 	ctx := context.Background()
@@ -1439,11 +1519,12 @@ func TestStateMachineEventLoop_Stop_ConcurrentCalls(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "stop-concurrent-test",
 	})
 
 	ctx := context.Background()
@@ -1488,11 +1569,12 @@ func TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "stop-async-when-stopped-test",
 	})
 
 	ctx := context.Background()
@@ -1523,11 +1605,12 @@ func TestStateMachineEventLoop_StopAsync_ConcurrentCalls(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "stop-async-concurrent-test",
 	})
 
 	ctx := context.Background()
@@ -1573,11 +1656,12 @@ func TestStateMachineEventLoop_ContextCancelled(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "context-cancelled-test",
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1620,11 +1704,12 @@ func TestStateMachineEventLoop_OnStopFinalEventError(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "onstop-final-event-error-test",
 		OnStop: func(ctx context.Context) common.Event {
 			return newTestEvent(Event_Reset)
 		},
@@ -1662,11 +1747,12 @@ func TestStateMachineEventLoop_ProcessEventError_Priority(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "process-error-priority-test",
 	})
 
 	ctx := context.Background()
@@ -1707,11 +1793,12 @@ func TestStateMachineEventLoop_ProcessEventError_Main(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "process-error-main-test",
 	})
 
 	ctx := context.Background()
@@ -1760,11 +1847,12 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityDrain(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "process-error-priority-drain-test",
 	})
 
 	ctx := context.Background()
@@ -1801,11 +1889,12 @@ func TestStateMachineEventLoop_SyncEventFromPrioritySelect(t *testing.T) {
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "sync-from-priority-select-test",
 	})
 
 	ctx := context.Background()
@@ -1843,11 +1932,12 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T
 		},
 	}
 
-	entity := newTestEntity(definitions)
+	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
+		Name:         "process-error-priority-select-test",
 	})
 
 	ctx := context.Background()
