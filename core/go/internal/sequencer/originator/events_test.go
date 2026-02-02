@@ -21,23 +21,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHeartbeatIntervalEvent_Type(t *testing.T) {
+func Test_HeartbeatIntervalEvent_Type(t *testing.T) {
 	event := &HeartbeatIntervalEvent{}
 	assert.Equal(t, Event_HeartbeatInterval, event.Type())
 }
 
-func TestHeartbeatIntervalEvent_TypeString(t *testing.T) {
+func Test_HeartbeatIntervalEvent_TypeString(t *testing.T) {
 	event := &HeartbeatIntervalEvent{}
 	assert.Equal(t, "Event_HeartbeatInterval", event.TypeString())
 }
 
-func TestActiveCoordinatorUpdatedEvent_Type(t *testing.T) {
+func Test_ActiveCoordinatorUpdatedEvent_Type(t *testing.T) {
 	event := &ActiveCoordinatorUpdatedEvent{}
 	assert.Equal(t, Event_ActiveCoordinatorUpdated, event.Type())
 }
 
-func TestActiveCoordinatorUpdatedEvent_TypeString(t *testing.T) {
+func Test_ActiveCoordinatorUpdatedEvent_TypeString(t *testing.T) {
 	event := &ActiveCoordinatorUpdatedEvent{}
 	assert.Equal(t, "Event_ActiveCoordinatorUpdated", event.TypeString())
 }
-

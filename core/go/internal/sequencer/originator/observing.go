@@ -22,8 +22,14 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
+
+func action_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*HeartbeatReceivedEvent)
+	return o.applyHeartbeatReceived(ctx, e)
+}
 
 func (o *originator) applyHeartbeatReceived(ctx context.Context, event *HeartbeatReceivedEvent) error {
 	o.timeOfMostRecentHeartbeat = o.clock.Now()

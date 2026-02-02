@@ -29,6 +29,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		Endorsements: []*prototk.AttestationResult{
+			{
+				Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
+				Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
+			},
+		},
+	}
+	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+	txn.pt.Signer = ""
+	txn.dynamicSigningIdentity = true
+
+	err := action_UpdateSigningIdentity(ctx, txn, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "signer1", txn.pt.Signer)
+	assert.False(t, txn.dynamicSigningIdentity)
+}
+
 func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.pt.PostAssembly = nil
@@ -195,35 +217,6 @@ func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 	assert.False(t, txn.hasDependenciesNotReady(ctx))
 }
 
-func Test_hasDependenciesNotReady_DynamicSigningIdentity_UpdatesSigner(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-	txn.dynamicSigningIdentity = true
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
-				},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{
-					prototk.AttestationResult_ENDORSER_MUST_SUBMIT,
-				},
-			},
-		},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.dependencies = &pldapi.TransactionDependencies{}
-	txn.pt.PreAssembly = nil
-
-	txn.hasDependenciesNotReady(ctx)
-
-	require.NotEmpty(t, txn.pt.Signer)
-	assert.Equal(t, "verifier1", txn.pt.Signer)
-	assert.False(t, txn.dynamicSigningIdentity)
-}
-
 func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	ctx := context.Background()
 
@@ -341,8 +334,6 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 	txn.traceDispatch(ctx)
 }
 
-// TODO AM: these tests are only asserting there is no error- they should assert on a change in the dependent transaction
-
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 	ctx := context.Background()
 
@@ -373,14 +364,24 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	// txn1 is the notifier: it enters Ready_For_Dispatch and notifies its dependents (txn2)
+	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
+	// txn2 is the dependent: it must be in State_Blocked so that Event_DependencyReady causes a transition to State_Confirming_Dispatchable
+	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		PredefinedDependencies(txn1.pt.ID).
+		Build()
+	txn2.dependencies = &pldapi.TransactionDependencies{
+		DependsOn: []uuid.UUID{txn1.pt.ID},
+	}
 	txn1.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{txn2.pt.ID},
 	}
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	assert.NoError(t, err)
+	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.CurrentState,
+		"DependencyReadyEvent should transition txn2 from State_Blocked to State_Confirming_Dispatchable")
 }
 
 func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
@@ -419,21 +420,6 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-
-	// The function should complete without error in normal cases
-	// If we need to test error handling, we'd need to mock HandleEvent to return an error
-	err := txn1.notifyDependentsOfReadiness(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfReadiness_DependentHandleEventError_ErrorPath(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)

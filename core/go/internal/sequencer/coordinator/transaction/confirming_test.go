@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGuard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
+func Test_guard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -39,7 +39,7 @@ func TestGuard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 	// which is not empty, so the guard would return true. Only nil returns false.
 }
 
-func TestGuard_HasRevertReason_TrueWhenSet(t *testing.T) {
+func Test_guard_HasRevertReason_TrueWhenSet(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -52,7 +52,7 @@ func TestGuard_HasRevertReason_TrueWhenSet(t *testing.T) {
 	assert.True(t, guard_HasRevertReason(ctx, txn))
 }
 
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_NoDependents(t *testing.T) {
+func Test_notifyDependentsOfConfirmation_NoDependents(t *testing.T) {
 	ctx := context.Background()
 
 	txn, _ := newTransactionForUnitTesting(t, nil)
@@ -60,11 +60,11 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_NoDependents(t *test
 		PrereqOf: []uuid.UUID{},
 	}
 
-	err := txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+	err := txn.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
 }
 
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentNotInMemory(t *testing.T) {
+func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
@@ -74,25 +74,36 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentNotInMemory
 		PrereqOf: []uuid.UUID{missingID},
 	}
 
-	err := txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+	err := txn.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
 }
 
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentInMemory(t *testing.T) {
+func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	// txn1 is the one that confirmed: it notifies its dependents (txn2). It must be in a "ready" state
+	// so that when txn2 receives DependencyReadyEvent, guard_HasDependenciesNotReady is false.
+	txn1 := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(grapher).Build()
+	// txn2 is the dependent: in State_Blocked so that DependencyReadyEvent triggers transition to State_Confirming_Dispatchable
+	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		PredefinedDependencies(txn1.pt.ID).
+		Build()
+	txn2.dependencies = &pldapi.TransactionDependencies{
+		DependsOn: []uuid.UUID{txn1.pt.ID},
+	}
 	txn1.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{txn2.pt.ID},
 	}
 
-	err := txn1.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+	err := txn1.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
+	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.CurrentState,
+		"DependencyReadyEvent should transition txn2 from State_Blocked to State_Confirming_Dispatchable")
 }
 
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_WithTraceEnabled(t *testing.T) {
+func Test_notifyDependentsOfConfirmation_WithTraceEnabled(t *testing.T) {
 	ctx := context.Background()
 
 	// Enable trace logging to cover the traceDispatch path
@@ -123,26 +134,11 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_WithTraceEnabled(t *
 		PrereqOf: []uuid.UUID{},
 	}
 
-	err := txn1.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+	err := txn1.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
 }
 
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
-
-	// The function should complete without error in normal cases
-	err := txn1.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentHandleEventError_ErrorPath(t *testing.T) {
+func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
@@ -174,7 +170,33 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentHandleEvent
 		PrereqOf: []uuid.UUID{dependentID},
 	}
 
-	// Call notifyDependentsOfConfirmationAndQueueForDispatch - should return error
-	err := txn1.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+	// Call notifyDependentsOfConfirmation - should return error
+	err := txn1.notifyDependentsOfConfirmation(ctx)
 	assert.Error(t, err)
+}
+
+func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	nonce := pldtypes.HexUint64(42)
+	revertReason := pldtypes.MustParseHexBytes("0x1234")
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		Nonce:        &nonce,
+		RevertReason: revertReason,
+	}
+
+	mocks.transportWriter.EXPECT().
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, revertReason).
+		Return(nil)
+
+	err := action_Confirmed(ctx, txn, event)
+	assert.NoError(t, err)
+
+	// Assert state: revertReason was set
+	assert.Equal(t, revertReason, txn.revertReason)
+	mocks.transportWriter.AssertExpectations(t)
 }

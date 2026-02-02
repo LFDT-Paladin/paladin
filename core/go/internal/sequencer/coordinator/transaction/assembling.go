@@ -76,10 +76,6 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 		seqRevertEvent.RequestID = requestID // Must match what the state machine thinks the current assemble request ID is
 		seqRevertEvent.TransactionID = t.pt.ID
 		t.queueEventForCoordinator(ctx, seqRevertEvent)
-		if err != nil {
-			handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
-			log.L(ctx).Error(handlerErr)
-		}
 		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
 		// Return the original error
 		return err

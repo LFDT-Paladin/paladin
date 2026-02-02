@@ -22,10 +22,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAction_ResendPreDispatchResponse_Success(t *testing.T) {
@@ -108,5 +110,35 @@ func TestAction_ResendPreDispatchResponse_TransportError(t *testing.T) {
 
 	// Restore original transport
 	txn.transportWriter = originalTransport
+}
+
+func Test_action_Dispatched_SetsSignerAddress(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared)
+	txn, _ := builder.BuildWithMocks()
+	addr := *pldtypes.RandAddress()
+	event := &DispatchedEvent{
+		BaseEvent:     BaseEvent{TransactionID: txn.pt.ID},
+		SignerAddress: addr,
+	}
+	err := action_Dispatched(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, &addr, txn.signerAddress)
+}
+
+func Test_action_PreDispatchRequestReceived_SetsRequestID(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	event := &PreDispatchRequestReceivedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:   requestID,
+		Coordinator: "coord@node1",
+		PostAssemblyHash: nil,
+	}
+	err := action_PreDispatchRequestReceived(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, requestID, txn.latestPreDispatchRequestID)
 }
 

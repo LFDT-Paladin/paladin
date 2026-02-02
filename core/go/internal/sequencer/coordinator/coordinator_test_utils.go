@@ -277,5 +277,10 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 
 	}
 
+	// Actions like action_HeartbeatReceived write to this map; ensure it is never nil
+	if coordinator.activeCoordinatorsFlushPointsBySignerNonce == nil {
+		coordinator.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.FlushPoint)
+	}
+
 	return coordinator, mocks
 }

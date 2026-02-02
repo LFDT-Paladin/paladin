@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAction_RecordRevert(t *testing.T) {
+func Test_action_recordRevert_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -42,7 +42,7 @@ func TestAction_RecordRevert(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), txn.revertTime.Time(), 1*time.Second)
 }
 
-func TestAction_InitializeDependencies(t *testing.T) {
+func Test_action_initializeDependencies_Success(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -73,7 +73,7 @@ func TestAction_InitializeDependencies(t *testing.T) {
 	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
 }
 
-func TestAction_InitializeDependencies_NoPreAssembly(t *testing.T) {
+func Test_action_initializeDependencies_NoPreAssembly(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -85,7 +85,7 @@ func TestAction_InitializeDependencies_NoPreAssembly(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
+func Test_action_initializeDependencies_MissingDependency(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -101,7 +101,7 @@ func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.T) {
+func Test_action_initializeDependencies_DependencyWithNilDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -139,7 +139,7 @@ func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.
 	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
 }
 
-func TestGuard_HasUnassembledDependencies(t *testing.T) {
+func Test_guard_HasUnassembledDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -204,7 +204,7 @@ func TestGuard_HasUnassembledDependencies(t *testing.T) {
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn5))
 }
 
-func TestGuard_HasUnknownDependencies(t *testing.T) {
+func Test_guard_HasUnknownDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -264,7 +264,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 	assert.True(t, guard_HasUnknownDependencies(ctx, txn5))
 }
 
-func TestGuard_HasDependenciesNotReady(t *testing.T) {
+func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -324,7 +324,7 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
-func TestGuard_HasChainedTxInProgress(t *testing.T) {
+func Test_guard_HasChainedTxInProgress(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -337,7 +337,7 @@ func TestGuard_HasChainedTxInProgress(t *testing.T) {
 	assert.True(t, guard_HasChainedTxInProgress(ctx, txn))
 }
 
-func TestRePoolDependents_EmptyPrereqOf(t *testing.T) {
+func Test_rePoolDependents_EmptyPrereqOf(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 	txn, _ := newTransactionForUnitTesting(t, grapher)
@@ -351,7 +351,7 @@ func TestRePoolDependents_EmptyPrereqOf(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRePoolDependents_WithDependents_Success(t *testing.T) {
+func Test_rePoolDependents_WithDependents_Success(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -377,7 +377,7 @@ func TestRePoolDependents_WithDependents_Success(t *testing.T) {
 	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
 
-func TestRePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
+func Test_rePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -393,7 +393,7 @@ func TestRePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
+func Test_rePoolDependents_WithMultipleDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -429,7 +429,7 @@ func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
 	assert.Equal(t, State_Pooled, dependent2.stateMachine.CurrentState)
 }
 
-func TestAction_RecordRevert_WithDependents(t *testing.T) {
+func Test_action_recordRevert_WithDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -461,7 +461,7 @@ func TestAction_RecordRevert_WithDependents(t *testing.T) {
 	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
 
-func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
+func Test_action_recordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 

@@ -135,7 +135,15 @@ var stateDefinitionsMap = StateDefinitions{
 		Events: map[EventType]EventHandler{
 			Event_Assemble_Success: {
 				Validator: validator_MatchesPendingAssembleRequest,
-				Actions:   []ActionRule{{Action: action_AssembleSuccess}},
+				Actions: []ActionRule{
+					{
+						Action: action_AssembleSuccess,
+					},
+					{
+						Action: action_UpdateSigningIdentity,
+						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+					},
+				},
 				Transitions: []Transition{
 					{
 						To:     State_Endorsement_Gathering,
@@ -181,7 +189,14 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_SendEndorsementRequests,
 		Events: map[EventType]EventHandler{
 			Event_Endorsed: {
-				Actions: []ActionRule{{Action: action_Endorsed}},
+				Actions: []ActionRule{
+					{
+						Action: action_Endorsed,
+					},
+					{
+						Action: action_UpdateSigningIdentity,
+						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+					}},
 				Transitions: []Transition{
 					{
 						To: State_Confirming_Dispatchable,
@@ -217,6 +232,11 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Blocked: {
 		Events: map[EventType]EventHandler{
 			Event_DependencyReady: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateSigningIdentity,
+						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+					}},
 				Transitions: []Transition{{
 					To: State_Confirming_Dispatchable,
 					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
@@ -340,7 +360,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirmed: {
-		OnTransitionTo: action_NotifyOfConfirmation,
+		OnTransitionTo: action_NotifyDependantsOfConfirmation,
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
@@ -387,31 +407,6 @@ func (t *Transaction) initializeStateMachine(initialState State) {
 func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX originator %s, TX address %+v)", t.pt.ID.String(), t.originator, t.pt.Address.HexString())
 	return t.stateMachine.ProcessEvent(ctx, t, event)
-}
-
-func action_Collected(_ context.Context, t *Transaction, event common.Event) error {
-	e := event.(*CollectedEvent)
-	t.signerAddress = &e.SignerAddress
-	return nil
-}
-
-func action_NonceAllocated(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*NonceAllocatedEvent)
-	t.nonce = &e.Nonce
-	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
-}
-
-func action_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*SubmittedEvent)
-	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
-	t.latestSubmissionHash = &e.SubmissionHash
-	return t.transportWriter.SendTransactionSubmitted(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, &e.SubmissionHash)
-}
-
-func action_Confirmed(ctx context.Context, t *Transaction, event common.Event) error {
-	e := event.(*ConfirmedEvent)
-	t.revertReason = e.RevertReason
-	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason)
 }
 
 func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *Transaction, _ common.Event) error {

@@ -25,8 +25,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConfirmTransaction_NilTransactionID(t *testing.T) {
-	// Test that confirmTransaction returns an error when transactionID is nil
+func Test_confirmTransaction_HashNotFoundReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	hash := pldtypes.RandBytes32()
+	revertReason := pldtypes.HexBytes("")
+
+	err := o.confirmTransaction(ctx, hash, revertReason)
+	require.NoError(t, err)
+}
+
+func Test_confirmTransaction_NilTransactionIDReturnsError(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -45,8 +59,7 @@ func TestConfirmTransaction_NilTransactionID(t *testing.T) {
 	assert.Contains(t, err.Error(), "found in submitted transactions but nil transaction ID")
 }
 
-func TestConfirmTransaction_NilTransaction(t *testing.T) {
-	// Test that confirmTransaction returns an error when transaction is nil
+func Test_confirmTransaction_NilTransactionReturnsError(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -67,8 +80,7 @@ func TestConfirmTransaction_NilTransaction(t *testing.T) {
 	assert.Contains(t, err.Error(), "found in submitted transactions but nil transaction")
 }
 
-func TestConfirmTransaction_TransactionNotFound(t *testing.T) {
-	// Test that confirmTransaction returns an error when transaction is not found in transactionsByID
+func Test_confirmTransaction_TransactionNotFoundReturnsError(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -88,8 +100,7 @@ func TestConfirmTransaction_TransactionNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "found in submitted transactions but nil transaction")
 }
 
-func TestConfirmTransaction_Success_EmptyRevertReason(t *testing.T) {
-	// Test that confirmTransaction successfully handles a confirmed success event with empty revertReason
+func Test_confirmTransaction_Success_EmptyRevertReasonRemovesHash(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -122,8 +133,7 @@ func TestConfirmTransaction_Success_EmptyRevertReason(t *testing.T) {
 	assert.False(t, exists, "Hash should be deleted from submittedTransactionsByHash after confirmation")
 }
 
-func TestConfirmTransaction_Success_WithRevertReason(t *testing.T) {
-	// Test that confirmTransaction successfully handles a confirmed revert event with non-empty revertReason
+func Test_confirmTransaction_Success_WithRevertReasonRemovesHash(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -154,87 +164,4 @@ func TestConfirmTransaction_Success_WithRevertReason(t *testing.T) {
 	// Verify the hash was deleted after confirmation
 	_, exists = o.submittedTransactionsByHash[*submissionHash]
 	assert.False(t, exists, "Hash should be deleted from submittedTransactionsByHash after confirmation")
-}
-
-func TestConfirmTransaction_HandleEventError_ConfirmedSuccess(t *testing.T) {
-	// Test that confirmTransaction returns an error when HandleEvent fails for ConfirmedSuccessEvent
-	// Note: This is difficult to test directly without mocking HandleEvent, but we can verify
-	// the error path exists by checking the error message format. In practice, HandleEvent
-	// would need to return an error, which is tested in transaction tests.
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
-
-	// Create a transaction in Submitted state using the transaction builder
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txnBuilder.Build()
-
-	// Add the transaction to the originator using the builder
-	builder.Transactions(txn)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
-
-	// Get the submission hash from the transaction
-	submissionHash := txn.GetLatestSubmissionHash()
-	require.NotNil(t, submissionHash, "Transaction in Submitted state should have a submission hash")
-
-	// Verify the transaction hash was added to submittedTransactionsByHash (done by builder)
-	_, exists := o.submittedTransactionsByHash[*submissionHash]
-	require.True(t, exists, "Hash should exist in submittedTransactionsByHash after setup")
-
-	revertReason := pldtypes.HexBytes("")
-
-	// To test the error path, we would need to mock HandleEvent to return an error.
-	// Since HandleEvent is a method on the transaction object and we can't easily mock it,
-	// we verify the happy path works. The error handling code path is verified to exist
-	// by code inspection. In a real error scenario, we would get:
-	// "error handling confirmed success event for transaction %s: %v"
-	err := o.confirmTransaction(ctx, *submissionHash, revertReason)
-	// This will succeed in normal cases, but if HandleEvent returned an error, we'd get the error message
-	// The actual error handling is tested in transaction tests
-	if err != nil {
-		assert.Contains(t, err.Error(), "error handling confirmed success event")
-	}
-}
-
-func TestConfirmTransaction_HandleEventError_ConfirmedReverted(t *testing.T) {
-	// Test that confirmTransaction returns an error when HandleEvent fails for ConfirmedRevertedEvent
-	// Note: Similar to TestConfirmTransaction_HandleEventError_ConfirmedSuccess, this verifies
-	// the error path exists. The actual error would come from HandleEvent.
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
-
-	// Create a transaction in Submitted state using the transaction builder
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-	txn := txnBuilder.Build()
-
-	// Add the transaction to the originator using the builder
-	builder.Transactions(txn)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
-
-	// Get the submission hash from the transaction
-	submissionHash := txn.GetLatestSubmissionHash()
-	require.NotNil(t, submissionHash, "Transaction in Submitted state should have a submission hash")
-
-	// Verify the transaction hash was added to submittedTransactionsByHash (done by builder)
-	_, exists := o.submittedTransactionsByHash[*submissionHash]
-	require.True(t, exists, "Hash should exist in submittedTransactionsByHash after setup")
-
-	revertReason := pldtypes.HexBytes("0x123456")
-
-	// To test the error path, we would need to mock HandleEvent to return an error.
-	// Since HandleEvent is a method on the transaction object and we can't easily mock it,
-	// we verify the happy path works. The error handling code path is verified to exist
-	// by code inspection. In a real error scenario, we would get:
-	// "error handling confirmed revert event for transaction %s: %v"
-	err := o.confirmTransaction(ctx, *submissionHash, revertReason)
-	// This will succeed in normal cases, but if HandleEvent returned an error, we'd get the error message
-	// The actual error handling is tested in transaction tests
-	if err != nil {
-		assert.Contains(t, err.Error(), "error handling confirmed revert event")
-	}
 }

@@ -19,10 +19,73 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
+}
+
+func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	pt := txn.pt
+	assert.Same(t, pt, txn.GetPrivateTransaction())
+}
+
+func TestTransaction_GetStatus_NilPt_ReturnsUnknown(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt = nil
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, "", status.TxID)
+	assert.Equal(t, "unknown", status.Status)
+}
+
+func TestTransaction_GetStatus_NilPostAssembly_ReturnsStatusWithNilEndorsements(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt.PostAssembly = nil
+	txn.stateMachine.CurrentState = State_Assembling
+	txn.stateMachine.LatestEvent = "evt"
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, txn.pt.ID.String(), status.TxID)
+	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Nil(t, status.Endorsements)
+}
+
+func TestTransaction_GetStatus_ReturnsStatusWithEndorsements(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AttestationPlan: []*prototk.AttestationRequest{
+			{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}, VerifierType: "v1"},
+		},
+		Endorsements: []*prototk.AttestationResult{
+			{Name: "att1", Verifier: &prototk.ResolvedVerifier{Lookup: "party1", VerifierType: "v1"}},
+		},
+	}
+	txn.stateMachine.CurrentState = State_Assembling
+	txn.stateMachine.LatestEvent = "evt"
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, txn.pt.ID.String(), status.TxID)
+	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Equal(t, "evt", status.LatestEvent)
+	require.Len(t, status.Endorsements, 1)
+	assert.Equal(t, "party1", status.Endorsements[0].Party)
+	assert.True(t, status.Endorsements[0].EndorsementReceived)
+	assert.Same(t, txn.pt, status.Transaction)
+}
 
 func TestTransaction_GetLastDelegatedTime_InitiallyNil(t *testing.T) {
 	// Test that GetLastDelegatedTime returns nil for a newly created transaction

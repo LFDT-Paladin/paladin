@@ -123,6 +123,36 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
 }
 
+func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	revertReason := "assembler reverted"
+	postAssembly := &components.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+		RevertReason:   &revertReason,
+	}
+	requestID := uuid.New()
+
+	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return()
+	txn.syncPoints = mockSyncPoints
+	txn.pt.Domain = "test-domain"
+
+	event := &AssembleRevertResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		PostAssembly:         postAssembly,
+		RequestID:            requestID,
+	}
+
+	err := action_AssembleRevertResponse(ctx, txn, event)
+	require.NoError(t, err)
+
+	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	mockSyncPoints.AssertExpectations(t)
+}
+
 func Test_applyPostAssembly_ParkResult(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
@@ -137,7 +167,6 @@ func Test_applyPostAssembly_ParkResult(t *testing.T) {
 }
 
 func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
-	t.Skip("Skipping - mock expectation issue needs investigation")
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	postAssembly := &components.TransactionPostAssembly{
@@ -154,21 +183,25 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 	txn.pt.Domain = "test-domain"
 
 	// Mock event handler to track revert event
-	revertEventReceived := false
+	var capturedEvent common.Event
 	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
-		if _, ok := event.(*AssembleRevertResponseEvent); ok {
-			revertEventReceived = true
-		}
+		capturedEvent = event
 	}
 
-	// Mock engine integration to return error using EXPECT for exact matching
-	// The error should be returned by applyPostAssembly
+	// Mock engine integration to return error so we hit the writeLockStates error path
 	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(errors.New("write lock error"))
 
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
-	// The function should return the error even though it also calls revertTransactionFailedAssembly
-	assert.Error(t, err, "applyPostAssembly should return error when WriteLockStatesForTransaction fails")
-	assert.True(t, revertEventReceived, "revert event should have been sent to handler")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "write lock error")
+	// Assert state: revert event was queued so state machine can transition
+	require.NotNil(t, capturedEvent)
+	revertEv, ok := capturedEvent.(*AssembleRevertResponseEvent)
+	require.True(t, ok)
+	assert.Equal(t, requestID, revertEv.RequestID)
+	assert.Equal(t, txn.pt.ID, revertEv.TransactionID)
+	mockSyncPoints.AssertExpectations(t)
 }
 
 func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
@@ -868,6 +901,11 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 
 	err := action_SendAssembleRequest(ctx, txn, nil)
 	assert.NoError(t, err)
+	// Assert state: pending request and timer schedules were set
+	assert.NotNil(t, txn.pendingAssembleRequest)
+	assert.NotNil(t, txn.cancelAssembleTimeoutSchedule)
+	assert.NotNil(t, txn.cancelAssembleRequestTimeoutSchedule)
+	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
@@ -906,6 +944,8 @@ func Test_action_NotifyDependentsOfAssembled_Success(t *testing.T) {
 
 	err := action_NotifyDependentsOfAssembled(ctx, txn, nil)
 	assert.NoError(t, err)
+	// State: no dependents, so no HandleEvent calls; dependencies unchanged
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
@@ -918,6 +958,8 @@ func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
 
 	err := action_NotifyDependentsOfRevert(ctx, txn, nil)
 	assert.NoError(t, err)
+	// State: no dependents, so no HandleEvent calls; dependencies unchanged
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_NotifyOfConfirmation_Success(t *testing.T) {
@@ -929,8 +971,10 @@ func Test_action_NotifyOfConfirmation_Success(t *testing.T) {
 
 	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 
-	err := action_NotifyOfConfirmation(ctx, txn, nil)
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
 	assert.NoError(t, err)
+	mocks.engineIntegration.AssertExpectations(t)
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_IncrementAssembleErrors_Success(t *testing.T) {

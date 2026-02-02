@@ -25,13 +25,19 @@ func guard_HasRevertReason(ctx context.Context, txn *Transaction) bool {
 	return txn.revertReason.String() != ""
 }
 
-func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction, _ common.Event) error {
-	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
-	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
-	return txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
+func action_Confirmed(ctx context.Context, t *Transaction, event common.Event) error {
+	e := event.(*ConfirmedEvent)
+	t.revertReason = e.RevertReason
+	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason)
 }
 
-func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx context.Context) error {
+func action_NotifyDependantsOfConfirmation(ctx context.Context, txn *Transaction, _ common.Event) error {
+	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	return txn.notifyDependentsOfConfirmation(ctx)
+}
+
+func (t *Transaction) notifyDependentsOfConfirmation(ctx context.Context) error {
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}

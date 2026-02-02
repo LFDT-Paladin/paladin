@@ -204,7 +204,60 @@ func Test_SortTransactions_CircularDependency(t *testing.T) {
 
 }
 
-func TestGrapher_AddMinter_DuplicateMinter(t *testing.T) {
+func Test_grapher_Add_TransactionByID(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).NumberOfOutputStates(1)
+	txn := txnBuilder.Build()
+
+	grapher.Add(ctx, txn)
+
+	lookup := grapher.TransactionByID(ctx, txn.pt.ID)
+	require.NotNil(t, lookup)
+	assert.Equal(t, txn.pt.ID, lookup.pt.ID)
+}
+
+func Test_grapher_Forget_RemovesTransaction(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).NumberOfOutputStates(1)
+	txn := txnBuilder.Build()
+	grapher.Add(ctx, txn)
+
+	err := grapher.Forget(txn.pt.ID)
+	require.NoError(t, err)
+
+	lookup := grapher.TransactionByID(ctx, txn.pt.ID)
+	assert.Nil(t, lookup)
+}
+
+func Test_grapher_ForgetMints_RemovesMinterLookup(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Build txn with nil grapher so Build() does not register output state; we add it ourselves
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).NumberOfOutputStates(1)
+	txn := txnBuilder.Build()
+	stateID := txn.pt.PostAssembly.OutputStates[0].ID
+
+	grapher.Add(ctx, txn)
+	err := grapher.AddMinter(ctx, stateID, txn)
+	require.NoError(t, err)
+
+	minter, err := grapher.LookupMinter(ctx, stateID)
+	require.NoError(t, err)
+	assert.Equal(t, txn.pt.ID, minter.pt.ID)
+
+	grapher.ForgetMints(txn.pt.ID)
+
+	minter, err = grapher.LookupMinter(ctx, stateID)
+	require.NoError(t, err)
+	assert.Nil(t, minter)
+}
+
+func Test_grapher_AddMinter_DuplicateMinter(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 

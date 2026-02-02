@@ -24,6 +24,15 @@ import (
 	"github.com/google/uuid"
 )
 
+func action_UpdateSigningIdentity(_ context.Context, txn *Transaction, _ common.Event) error {
+	txn.updateSigningIdentity()
+	return nil
+}
+
+func guard_HasDynamicSigningIdentity(_ context.Context, txn *Transaction) bool {
+	return txn.dynamicSigningIdentity
+}
+
 // The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
@@ -80,13 +89,6 @@ func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
 func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
-
-	// TODO AM: this is a guard- it shouldn't be having side effects beyond returning true/false
-	if t.dynamicSigningIdentity {
-		// Update the signing identity based on the latest endorsement. As soon as we know we have a fixed signing identity we can stop checking
-		t.updateSigningIdentity()
-	}
-
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch

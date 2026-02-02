@@ -193,46 +193,6 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
-func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
-	newTxn, err := transaction.NewTransaction(ctx,
-		txn,
-		o.transportWriter,
-		o.QueueEvent,
-		o.engineIntegration,
-		o.metrics)
-	if err != nil {
-		log.L(ctx).Errorf("error creating transaction: %v", err)
-		return err
-	}
-	o.transactionsByID[txn.ID] = newTxn
-	o.transactionsOrdered = append(o.transactionsOrdered, newTxn)
-	createdEvent := &transaction.CreatedEvent{}
-	createdEvent.TransactionID = txn.ID
-	err = newTxn.HandleEvent(ctx, createdEvent)
-	if err != nil {
-		log.L(ctx).Errorf("error handling CreatedEvent for transaction %s: %v", txn.ID.String(), err)
-		return err
-	}
-	return nil
-}
-
-func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
-	log.L(ctx).Debugf("removing transaction %s from originator", txnID.String())
-
-	// Remove from transactionsByID
-	delete(o.transactionsByID, txnID)
-
-	// Remove from transactionsOrdered
-	for i, txn := range o.transactionsOrdered {
-		if txn.GetID() == txnID {
-			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
-			break
-		}
-	}
-
-	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
-}
-
 func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.Transaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors

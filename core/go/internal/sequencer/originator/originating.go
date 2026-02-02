@@ -25,11 +25,35 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	"github.com/google/uuid"
 )
 
 func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionCreatedEvent)
 	return o.createTransaction(ctx, e.Transaction)
+}
+
+func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+	newTxn, err := transaction.NewTransaction(ctx,
+		txn,
+		o.transportWriter,
+		o.QueueEvent,
+		o.engineIntegration,
+		o.metrics)
+	if err != nil {
+		log.L(ctx).Errorf("error creating transaction: %v", err)
+		return err
+	}
+	o.transactionsByID[txn.ID] = newTxn
+	o.transactionsOrdered = append(o.transactionsOrdered, newTxn)
+	createdEvent := &transaction.CreatedEvent{}
+	createdEvent.TransactionID = txn.ID
+	err = newTxn.HandleEvent(ctx, createdEvent)
+	if err != nil {
+		log.L(ctx).Errorf("error handling CreatedEvent for transaction %s: %v", txn.ID.String(), err)
+		return err
+	}
+	return nil
 }
 
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
@@ -124,4 +148,44 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 	}
 
 	return true, nil
+}
+
+func action_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	switch e.To {
+	case transaction.State_Final:
+		o.removeTransaction(ctx, e.TransactionID)
+	case transaction.State_Confirmed, transaction.State_Reverted:
+		o.QueueEvent(ctx, &transaction.FinalizeEvent{
+			BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
+			TransactionID: e.TransactionID,
+		})
+	}
+	return nil
+}
+
+func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
+	log.L(ctx).Debugf("removing transaction %s from originator", txnID.String())
+
+	// Remove from transactionsByID
+	delete(o.transactionsByID, txnID)
+
+	// Remove from transactionsOrdered
+	for i, txn := range o.transactionsOrdered {
+		if txn.GetID() == txnID {
+			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
+			break
+		}
+	}
+	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
+}
+
+func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*ActiveCoordinatorUpdatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
+	}
+	o.activeCoordinatorNode = e.Coordinator
+	log.L(ctx).Debugf("active coordinator updated to %s", e.Coordinator)
+	return nil
 }

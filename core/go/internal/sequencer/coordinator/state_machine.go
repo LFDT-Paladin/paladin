@@ -18,13 +18,11 @@ package coordinator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 // State represents the coordinator's state
@@ -346,158 +344,6 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 // external event sources
 func (c *coordinator) queueEventInternal(ctx context.Context, event common.Event) {
 	c.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
-}
-
-func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*NewBlockEvent)
-	c.currentBlockHeight = e.BlockHeight
-	return nil
-}
-
-func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*EndorsementRequestedEvent)
-	c.activeCoordinatorNode = e.From
-	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	return nil
-}
-
-func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	c.activeCoordinatorNode = e.From
-	c.activeCoordinatorBlockHeight = e.BlockHeight
-	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	for _, flushPoint := range e.FlushPoints {
-		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-	}
-	return nil
-}
-
-func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *coordinator, event common.Event) error {
-	c.heartbeatIntervalsSinceStateChange++
-	return nil
-}
-
-func action_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-
-	// If a transaction has transitioned to Pooled, add it to the pool queue
-	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction
-	// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
-	// node. If a transaction needs re-assembly after a revert, it will be processed after
-	// a new transaction that hasn't ever been assembled.
-	if e.To == transaction.State_Pooled {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			c.AddTransactionToBackOfPool(ctx, txn)
-		}
-	}
-
-	// If a transaction has transitioned to Ready_For_Dispatch, queue it for dispatch
-	if e.To == transaction.State_Ready_For_Dispatch {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			c.dispatchQueue <- txn
-		}
-	}
-
-	// If a transaction has reached its final state, clean it up from the coordinator
-	if e.To == transaction.State_Final {
-		delete(c.transactionsByID, e.TransactionID)
-		c.metrics.DecCoordinatingTransactions()
-		err := c.grapher.Forget(e.TransactionID)
-		if err != nil {
-			log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
-		}
-		log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
-	}
-
-	return nil
-}
-
-func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.sendHandoverRequest(ctx)
-	return nil
-}
-
-func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
-	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
-	// casued us to reach the node's limit on active coordinators.
-	c.activeCoordinatorNode = c.nodeName
-	c.coordinatorActive(c.contractAddress, c.nodeName)
-
-	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
-	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required
-	// because other nodes cannot take over coordination.
-	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_SENDER {
-		go c.heartbeatLoop(ctx)
-	}
-
-	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
-	return c.selectNextTransactionToAssemble(ctx)
-}
-
-func action_Idle(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.coordinatorIdle(c.contractAddress)
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
-	}
-	return nil
-}
-
-func action_NudgeDispatchLoop(ctx context.Context, c *coordinator, _ common.Event) error {
-	// Prod the dispatch loop with an updated in-flight count. This may release new transactions for dispatch
-	c.inFlightMutex.L.Lock()
-	defer c.inFlightMutex.L.Unlock()
-	clear(c.inFlightTxns)
-	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
-	for _, txn := range dispatchingTransactions {
-		if !txn.HasPreparedPrivateTransaction() {
-			// We don't count transactions that result in new private transactions
-			c.inFlightTxns[txn.GetID()] = txn
-		}
-	}
-	log.L(ctx).Debugf("coordinator has %d dispatching transactions", len(c.inFlightTxns))
-	c.inFlightMutex.Signal()
-	return nil
-}
-
-func (c *coordinator) heartbeatLoop(ctx context.Context) {
-	if c.heartbeatCtx == nil {
-		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
-		defer c.heartbeatCancel()
-
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
-
-		// Send an initial heartbeat interval event to be handled immediately
-		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-		if err != nil {
-			// This is currently unreachable because the heartbeat interval event only causes a transaction
-			// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
-			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
-		}
-
-		// Then every N seconds
-		ticker := time.NewTicker(c.heartbeatInterval.(time.Duration))
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-				if err != nil {
-					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
-				}
-			case <-c.heartbeatCtx.Done():
-				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
-				c.heartbeatCtx = nil
-				c.heartbeatCancel = nil
-				return
-			}
-		}
-	}
 }
 
 func (s State) String() string {

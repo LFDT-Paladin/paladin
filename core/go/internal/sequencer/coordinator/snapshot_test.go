@@ -19,7 +19,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/stretchr/testify/assert"
@@ -296,4 +298,196 @@ func TestAction_SendHeartbeat(t *testing.T) {
 	err := action_SendHeartbeat(ctx, c, nil)
 	assert.NoError(t, err)
 	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func Test_heartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, mocks := builder.Build(ctx)
+	c.updateOriginatorNodePool("node2")
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentHeartbeat()
+	}, 100*time.Millisecond, 5*time.Millisecond)
+	c.heartbeatCancel()
+	<-done
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func Test_heartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, mocks := builder.Build(ctx)
+	c.heartbeatInterval = 10 * time.Millisecond
+	c.updateOriginatorNodePool("node2")
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.SentHeartbeatCount() >= 2
+	}, 500*time.Millisecond, 10*time.Millisecond)
+	c.heartbeatCancel()
+	<-done
+}
+
+func Test_heartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, _ := builder.Build(ctx)
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCancel should be set")
+	c.heartbeatCancel()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("heartbeat loop should exit when heartbeatCtx is cancelled")
+	}
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func Test_heartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, _ := builder.Build(ctx)
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	assert.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCtx should be set")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("heartbeat loop should exit when parent ctx is cancelled")
+	}
+	assert.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil after loop ends")
+	assert.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil after loop ends")
+}
+
+func Test_heartbeatLoop_DoesNotStartIfHeartbeatCtxAlreadySet(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, mocks := builder.Build(ctx)
+	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
+	c.heartbeatCtx = heartbeatCtx
+	c.heartbeatCancel = heartbeatCancel
+	mocks.SentMessageRecorder.Reset(ctx)
+
+	c.heartbeatLoop(ctx)
+
+	assert.False(t, mocks.SentMessageRecorder.HasSentHeartbeat(), "heartbeat should not be sent if loop already running")
+	heartbeatCancel()
+}
+
+func Test_heartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	c, _ := builder.Build(ctx)
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
+	require.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil initially")
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	assert.Eventually(t, func() bool {
+		return c.heartbeatCtx != nil
+	}, 50*time.Millisecond, 1*time.Millisecond, "heartbeatCtx should be created when loop starts")
+	assert.NotNil(t, c.heartbeatCancel, "heartbeatCancel should be created when loop starts")
+	c.heartbeatCancel()
+	<-done
+}
+
+func Test_heartbeatLoop_StopsTickerOnExit(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("50ms")
+	builder.OverrideSequencerConfig(config)
+	c, _ := builder.Build(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done)
+	}()
+
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+	c.heartbeatCancel()
+	<-done
+}
+
+func Test_heartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Active)
+	config := builder.GetSequencerConfig()
+	config.HeartbeatInterval = confutil.P("100ms")
+	builder.OverrideSequencerConfig(config)
+	c, mocks := builder.Build(ctx)
+	c.updateOriginatorNodePool("node2")
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	c.transactionsByID[txn.GetID()] = txn
+
+	done1 := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done1)
+	}()
+	for c.heartbeatCtx == nil {
+		time.Sleep(1 * time.Millisecond)
+	}
+	c.heartbeatCancel()
+	<-done1
+
+	mocks.SentMessageRecorder.Reset(ctx)
+	done2 := make(chan struct{})
+	go func() {
+		c.heartbeatLoop(ctx)
+		close(done2)
+	}()
+	assert.Eventually(t, func() bool {
+		return mocks.SentMessageRecorder.HasSentHeartbeat()
+	}, 200*time.Millisecond, 10*time.Millisecond, "second heartbeat loop should send heartbeats")
+	c.heartbeatCancel()
+	<-done2
 }

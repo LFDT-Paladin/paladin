@@ -1188,7 +1188,7 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 	blockStarted := make(chan struct{})
 	blockCount := 0
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:               State_Idle,
+		InitialState:                State_Idle,
 		Definitions:                 definitions,
 		Entity:                      entity,
 		EventLoopBufferSize:         10,
@@ -1350,12 +1350,12 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 	blockStarted := make(chan struct{})
 	blockCount := 0
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:               State_Idle,
-		Definitions:                definitions,
-		Entity:                     entity,
-		EventLoopBufferSize:        2,
+		InitialState:                State_Idle,
+		Definitions:                 definitions,
+		Entity:                      entity,
+		EventLoopBufferSize:         2,
 		PriorityEventLoopBufferSize: 10,
-		Name:                       "try-queue-test",
+		Name:                        "try-queue-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {

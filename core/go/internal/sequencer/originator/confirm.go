@@ -101,6 +101,7 @@ func (o *originator) confirmTransaction(
 	return nil
 
 }
+
 func guard_HasUnconfirmedTransactions(ctx context.Context, o *originator) bool {
 	return len(
 		o.getTransactionsNotInStates([]transaction.State{transaction.State_Confirmed}),

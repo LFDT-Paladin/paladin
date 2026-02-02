@@ -22,6 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -274,4 +275,79 @@ func TestAction_AssembleAndSign_AssembleAndSignCalledWithCorrectParameters(t *te
 	successEvent, ok := events[0].(*AssembleAndSignSuccessEvent)
 	require.True(t, ok, "Event should be AssembleAndSignSuccessEvent")
 	assert.Equal(t, requestID, successEvent.RequestID)
+}
+
+func Test_action_AssembleRequestReceived_SetsDelegateAndLatestRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	coordinator := "coord@node1"
+	preAssembly := []byte("pre")
+	event := &AssembleRequestReceivedEvent{
+		BaseEvent:               BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:               requestID,
+		Coordinator:             coordinator,
+		CoordinatorsBlockHeight: 100,
+		StateLocksJSON:          []byte("{}"),
+		PreAssembly:             preAssembly,
+	}
+	err := action_AssembleRequestReceived(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, coordinator, txn.currentDelegate)
+	require.NotNil(t, txn.latestAssembleRequest)
+	assert.Equal(t, requestID, txn.latestAssembleRequest.requestID)
+	assert.Equal(t, int64(100), txn.latestAssembleRequest.coordinatorsBlockHeight)
+	assert.Equal(t, preAssembly, txn.latestAssembleRequest.preAssembly)
+}
+
+func Test_action_AssembleAndSignSuccess_SetsPostAssemblyAndRequestID(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_OK}
+	event := &AssembleAndSignSuccessEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:   requestID,
+		PostAssembly: postAssembly,
+	}
+	err := action_AssembleAndSignSuccess(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Same(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
+}
+
+func Test_action_AssembleRevert_SetsPostAssemblyAndRequestID(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_REVERT}
+	event := &AssembleRevertEvent{
+		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:    requestID,
+		PostAssembly: postAssembly,
+	}
+	err := action_AssembleRevert(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Same(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
+}
+
+func Test_action_AssemblePark_SetsPostAssemblyAndRequestID(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	postAssembly := &components.TransactionPostAssembly{AssemblyResult: prototk.AssembleTransactionResponse_PARK}
+	event := &AssembleParkEvent{
+		BaseEvent:    BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:    requestID,
+		PostAssembly: postAssembly,
+	}
+	err := action_AssemblePark(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Same(t, postAssembly, txn.pt.PostAssembly)
+	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
 }

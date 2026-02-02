@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -37,7 +37,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing
 	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -49,7 +49,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) 
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -61,7 +61,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testi
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -73,7 +73,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -85,7 +85,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *te
 	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
@@ -110,7 +110,7 @@ func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *t
 	mockSyncPoints.AssertExpectations(t)
 }
 
-func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
@@ -132,4 +132,60 @@ func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t 
 
 	// Verify the cancel function was called
 	assert.True(t, cancelCalled, "cancelAssembleTimeoutSchedule should have been called")
+}
+
+func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	var onSuccessCalled bool
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		txn.pt.Domain,
+		pldtypes.EthAddress{},
+		txn.originator,
+		txn.pt.ID,
+		"originator reported transaction as unknown",
+		mock.Anything,
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		onSuccess := args.Get(6).(func(context.Context))
+		onSuccess(ctx)
+		onSuccessCalled = true
+	}).Return(nil)
+
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, onSuccessCalled)
+	mockSyncPoints.AssertExpectations(t)
+}
+
+func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	callCount := 0
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		txn.pt.Domain,
+		pldtypes.EthAddress{},
+		txn.originator,
+		txn.pt.ID,
+		"originator reported transaction as unknown",
+		mock.Anything,
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		callCount++
+		if callCount == 1 {
+			onError := args.Get(7).(func(context.Context, error))
+			onError(ctx, assert.AnError)
+		}
+	}).Return(nil)
+
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, callCount, 1)
+	mockSyncPoints.AssertExpectations(t)
 }

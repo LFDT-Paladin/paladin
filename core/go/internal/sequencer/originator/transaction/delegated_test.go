@@ -29,6 +29,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Test_action_Delegated_EmptyCoordinator_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn, _ := builder.BuildWithMocks()
+	event := &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: "",
+	}
+	err := action_Delegated(ctx, txn, event)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transaction delegate cannot be set to an empty node identity")
+}
+
+func Test_action_Delegated_SetsDelegateAndUpdatesTime(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Pending)
+	txn, _ := builder.BuildWithMocks()
+	coordinator := "coord@node1"
+	event := &DelegatedEvent{
+		BaseEvent:   BaseEvent{TransactionID: txn.pt.ID},
+		Coordinator: coordinator,
+	}
+	err := action_Delegated(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, coordinator, txn.currentDelegate)
+	assert.NotNil(t, txn.lastDelegatedTime)
+}
+
 func TestAction_SendPreDispatchResponse_Success(t *testing.T) {
 	// Test that action_SendPreDispatchResponse calls SendPreDispatchResponse with correct parameters
 	ctx := context.Background()

@@ -19,10 +19,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
@@ -159,35 +157,6 @@ func (o *originator) preProcessEvent(ctx context.Context, entity *originator, ev
 func (o *originator) onStateTransition(ctx context.Context, entity *originator, from State, to State, event common.Event) {
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf(
 		"orig     | %s   | %T | %s -> %s", o.contractAddress.String()[0:8], event, from.String(), to.String())
-}
-
-func action_HeartbeatReceived(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	return o.applyHeartbeatReceived(ctx, e)
-}
-
-func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*ActiveCoordinatorUpdatedEvent)
-	if e.Coordinator == "" {
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
-	}
-	o.activeCoordinatorNode = e.Coordinator
-	log.L(ctx).Debugf("active coordinator updated to %s", e.Coordinator)
-	return nil
-}
-
-func action_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	switch e.To {
-	case transaction.State_Final:
-		o.removeTransaction(ctx, e.TransactionID)
-	case transaction.State_Confirmed, transaction.State_Reverted:
-		o.QueueEvent(ctx, &transaction.FinalizeEvent{
-			BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
-			TransactionID: e.TransactionID,
-		})
-	}
-	return nil
 }
 
 // GetCurrentCoordinator returns the current coordinator.

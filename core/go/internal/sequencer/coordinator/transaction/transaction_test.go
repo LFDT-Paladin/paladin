@@ -23,6 +23,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -237,6 +239,184 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, 
 
 	return txn, mocks
 
+}
+
+func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	transportWriter := transport.NewMockTransportWriter(t)
+	clock := &common.FakeClockForTesting{}
+	engineIntegration := common.NewMockEngineIntegration(t)
+	syncPoints := &syncpoints.MockSyncPoints{}
+
+	_, err := NewTransaction(
+		ctx,
+		"", // invalid: empty originator
+		&components.PrivateTransaction{ID: uuid.New()},
+		false,
+		transportWriter,
+		clock,
+		func(ctx context.Context, event common.Event) {},
+		engineIntegration,
+		syncPoints,
+		clock.Duration(1000),
+		clock.Duration(5000),
+		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
+		NewGrapher(ctx),
+		nil,
+	)
+	require.Error(t, err)
+}
+
+func TestTransaction_GetSignerAddress_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	addr := pldtypes.RandAddress()
+	txn.signerAddress = addr
+
+	assert.Equal(t, addr, txn.GetSignerAddress())
+}
+
+func TestTransaction_GetNonce_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	nonce := uint64(42)
+	txn.nonce = &nonce
+
+	assert.Equal(t, &nonce, txn.GetNonce())
+}
+
+func TestTransaction_GetLatestSubmissionHash_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	txn.latestSubmissionHash = &hash
+
+	assert.Equal(t, &hash, txn.GetLatestSubmissionHash())
+}
+
+func TestTransaction_GetRevertReason_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	reason := pldtypes.MustParseHexBytes("0x1234")
+	txn.revertReason = reason
+
+	assert.Equal(t, reason, txn.GetRevertReason())
+}
+
+func TestTransaction_Originator_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.originator = "sender@node1"
+
+	assert.Equal(t, "sender@node1", txn.Originator())
+}
+
+func TestTransaction_GetErrorCount_ReturnsSetValue(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.errorCount = 3
+
+	assert.Equal(t, 3, txn.GetErrorCount())
+}
+
+func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	id := txn.pt.ID
+
+	assert.Equal(t, id, txn.GetID())
+}
+
+func TestTransaction_GetDomain_ReturnsPrivateTransactionDomain(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.Domain = "test-domain"
+
+	assert.Equal(t, "test-domain", txn.GetDomain())
+}
+
+func TestTransaction_GetCurrentState_ReturnsState(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
+func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	pt := txn.pt
+
+	assert.Same(t, pt, txn.GetPrivateTransaction())
+}
+
+func TestTransaction_GetContractAddress_ReturnsAddress(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	addr := *pldtypes.RandAddress()
+	txn.pt.Address = addr
+
+	assert.Equal(t, addr, txn.GetContractAddress())
+}
+
+func TestTransaction_GetTransactionSpecification_ReturnsPreAssemblySpec(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	spec := &prototk.TransactionSpecification{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{TransactionSpecification: spec}
+
+	assert.Same(t, spec, txn.GetTransactionSpecification())
+}
+
+func TestTransaction_GetOriginalSender_ReturnsFrom(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{
+		TransactionSpecification: &prototk.TransactionSpecification{From: "0xSender"},
+	}
+
+	assert.Equal(t, "0xSender", txn.GetOriginalSender())
+}
+
+func TestTransaction_GetOutputStateIDs_ReturnsOutputStateIDs(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	id1 := pldtypes.HexBytes("0x01")
+	id2 := pldtypes.HexBytes("0x02")
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		OutputStates: []*components.FullState{
+			{ID: id1},
+			{ID: id2},
+		},
+	}
+
+	ids := txn.GetOutputStateIDs()
+	require.Len(t, ids, 2)
+	assert.Equal(t, id1, ids[0])
+	assert.Equal(t, id2, ids[1])
+}
+
+func TestTransaction_HasPreparedPrivateTransaction_TrueWhenSet(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PreparedPrivateTransaction = &pldapi.TransactionInput{}
+
+	assert.True(t, txn.HasPreparedPrivateTransaction())
+}
+
+func TestTransaction_HasPreparedPrivateTransaction_FalseWhenNil(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PreparedPrivateTransaction = nil
+
+	assert.False(t, txn.HasPreparedPrivateTransaction())
+}
+
+func TestTransaction_HasPreparedPublicTransaction_TrueWhenSet(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PreparedPublicTransaction = &pldapi.TransactionInput{}
+
+	assert.True(t, txn.HasPreparedPublicTransaction())
+}
+
+func TestTransaction_HasPreparedPublicTransaction_FalseWhenNil(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.PreparedPublicTransaction = nil
+
+	assert.False(t, txn.HasPreparedPublicTransaction())
+}
+
+func TestTransaction_GetSigner_ReturnsSigner(t *testing.T) {
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pt.Signer = "signer-identity"
+
+	assert.Equal(t, "signer-identity", txn.GetSigner())
 }
 
 //TODO add unit test for the guards and various different combinations of dependency not ready scenarios ( e.g. pre-assemble dependencies vs post-assemble dependencies) and for those dependencies being in various different states ( the state machine test only test for "not assembled" or "not ready" but each of these "not" states actually correspond to several possible finite states.)

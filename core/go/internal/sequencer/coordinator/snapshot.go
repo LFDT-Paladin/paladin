@@ -17,12 +17,50 @@ package coordinator
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
+
+func (c *coordinator) heartbeatLoop(ctx context.Context) {
+	if c.heartbeatCtx == nil {
+		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+		defer c.heartbeatCancel()
+
+		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
+
+		// Send an initial heartbeat interval event to be handled immediately
+		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+		if err != nil {
+			// This is currently unreachable because the heartbeat interval event only causes a transaction
+			// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
+			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+		}
+
+		// Then every N seconds
+		ticker := time.NewTicker(c.heartbeatInterval.(time.Duration))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+				if err != nil {
+					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+				}
+			case <-c.heartbeatCtx.Done():
+				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
+				c.heartbeatCtx = nil
+				c.heartbeatCancel = nil
+				return
+			}
+		}
+	}
+}
 
 func action_SendHeartbeat(ctx context.Context, c *coordinator, _ common.Event) error {
 	return c.sendHeartbeat(ctx, c.contractAddress)
@@ -129,4 +167,9 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		CoordinatorState:       c.stateMachineEventLoop.GetCurrentState().String(),
 		BlockHeight:            c.currentBlockHeight,
 	}
+}
+
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *coordinator, event common.Event) error {
+	c.heartbeatIntervalsSinceStateChange++
+	return nil
 }
