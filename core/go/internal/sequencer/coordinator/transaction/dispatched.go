@@ -21,19 +21,19 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_Collected(_ context.Context, t *Transaction, event common.Event) error {
+func action_Collected(_ context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*CollectedEvent)
 	t.signerAddress = &e.SignerAddress
 	return nil
 }
 
-func action_NonceAllocated(ctx context.Context, t *Transaction, event common.Event) error {
+func action_NonceAllocated(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
 	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
 }
 
-func action_Submitted(ctx context.Context, t *Transaction, event common.Event) error {
+func action_Submitted(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash

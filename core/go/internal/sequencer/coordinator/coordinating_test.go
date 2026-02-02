@@ -425,7 +425,7 @@ func Test_action_SelectTransaction_WhenNotSender_StartsHeartbeatLoop(t *testing.
 	c, _ := builder.Build(ctx)
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID[txn.GetID()] = txn
-	c.pooledTransactions = []*transaction.Transaction{txn}
+	c.pooledTransactions = []*transaction.CoordinatorTransaction{txn}
 
 	err := action_SelectTransaction(ctx, c, nil)
 	require.NoError(t, err)

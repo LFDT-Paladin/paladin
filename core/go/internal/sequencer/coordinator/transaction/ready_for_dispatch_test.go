@@ -525,7 +525,7 @@ func Test_hasDependenciesNotIn_NoDependencies(t *testing.T) {
 	txn.dependencies = &pldapi.TransactionDependencies{}
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.False(t, txn.hasDependenciesNotIn(ctx, []*Transaction{}))
+	assert.False(t, txn.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
 }
 
 func Test_hasDependenciesNotIn_DependencyNotInMemory(t *testing.T) {
@@ -539,7 +539,7 @@ func Test_hasDependenciesNotIn_DependencyNotInMemory(t *testing.T) {
 	}
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.False(t, txn.hasDependenciesNotIn(ctx, []*Transaction{}))
+	assert.False(t, txn.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
 }
 
 func Test_hasDependenciesNotIn_DependencyNotInIgnoreList(t *testing.T) {
@@ -553,7 +553,7 @@ func Test_hasDependenciesNotIn_DependencyNotInIgnoreList(t *testing.T) {
 	}
 	txn2.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*Transaction{}))
+	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
 }
 
 func Test_hasDependenciesNotIn_DependencyInIgnoreList(t *testing.T) {
@@ -567,7 +567,7 @@ func Test_hasDependenciesNotIn_DependencyInIgnoreList(t *testing.T) {
 	}
 	txn2.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*Transaction{txn1}))
+	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
 }
 
 func Test_hasDependenciesNotIn_PreAssemblyDependencyNotInIgnoreList(t *testing.T) {
@@ -583,7 +583,7 @@ func Test_hasDependenciesNotIn_PreAssemblyDependencyNotInIgnoreList(t *testing.T
 		},
 	}
 
-	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*Transaction{}))
+	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
 }
 
 func Test_hasDependenciesNotIn_PreAssemblyDependencyInIgnoreList(t *testing.T) {
@@ -599,7 +599,7 @@ func Test_hasDependenciesNotIn_PreAssemblyDependencyInIgnoreList(t *testing.T) {
 		},
 	}
 
-	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*Transaction{txn1}))
+	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
 }
 
 func Test_hasDependenciesNotIn_MultipleDependencies_OneInIgnoreList(t *testing.T) {
@@ -614,7 +614,7 @@ func Test_hasDependenciesNotIn_MultipleDependencies_OneInIgnoreList(t *testing.T
 	}
 	txn3.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.True(t, txn3.hasDependenciesNotIn(ctx, []*Transaction{txn1}))
+	assert.True(t, txn3.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
 }
 
 func Test_hasDependenciesNotIn_MultipleDependencies_AllInIgnoreList(t *testing.T) {
@@ -629,5 +629,5 @@ func Test_hasDependenciesNotIn_MultipleDependencies_AllInIgnoreList(t *testing.T
 	}
 	txn3.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	assert.False(t, txn3.hasDependenciesNotIn(ctx, []*Transaction{txn1, txn2}))
+	assert.False(t, txn3.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1, txn2}))
 }

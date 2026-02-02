@@ -73,7 +73,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 
 	coordinator, err := NewCoordinator(ctx, cancelCtx, pldtypes.RandAddress(), mockDomainAPI, mockTXManager, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, originatorIdentityPool, config, "node1",
 		metrics,
-		func(context.Context, *transaction.Transaction) {
+		func(context.Context, *transaction.CoordinatorTransaction) {
 			// Not used
 		},
 		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
@@ -664,7 +664,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransaction
 	c, _ := builder.Build(ctx)
 
 	// Ensure transactionsByID is empty
-	c.transactionsByID = make(map[uuid.UUID]*transaction.Transaction)
+	c.transactionsByID = make(map[uuid.UUID]*transaction.CoordinatorTransaction)
 
 	event := &common.HeartbeatIntervalEvent{}
 	err := c.propagateEventToAllTransactions(ctx, event)
@@ -835,7 +835,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ProcessesTransactionsInMapI
 	c, _ := builder.Build(ctx)
 
 	// Create multiple transactions
-	txns := make([]*transaction.Transaction, 5)
+	txns := make([]*transaction.CoordinatorTransaction, 5)
 	for i := 0; i < 5; i++ {
 		txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
 		txns[i] = txBuilder.Build()
@@ -919,4 +919,3 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	// Transaction should have transitioned to State_Final
 	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "transaction should have transitioned to State_Final after heartbeat")
 }
-

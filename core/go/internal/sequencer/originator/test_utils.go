@@ -73,7 +73,7 @@ type OriginatorBuilderForTesting struct {
 	nodeName         *string
 	committeeMembers []string
 	contractAddress  *pldtypes.EthAddress
-	transactions     []*transaction.Transaction
+	transactions     []*transaction.OriginatorTransaction
 	metrics          metrics.DistributedSequencerMetrics
 	sequencerConfig  *pldconf.SequencerConfig
 }
@@ -107,7 +107,7 @@ func (b *OriginatorBuilderForTesting) CommitteeMembers(committeeMembers ...strin
 	return b
 }
 
-func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.Transaction) *OriginatorBuilderForTesting {
+func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.OriginatorTransaction) *OriginatorBuilderForTesting {
 	b.transactions = transactions
 	return b
 }

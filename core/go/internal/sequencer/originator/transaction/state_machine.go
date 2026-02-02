@@ -76,15 +76,15 @@ const (
 
 // Type aliases for the generic statemachine types, specialized for Transaction
 type (
-	Action           = statemachine.Action[*Transaction]
-	Guard            = statemachine.Guard[*Transaction]
-	ActionRule       = statemachine.ActionRule[*Transaction]
-	Transition       = statemachine.Transition[State, *Transaction]
-	Validator        = statemachine.Validator[*Transaction]
-	EventHandler     = statemachine.EventHandler[State, *Transaction]
-	StateDefinition  = statemachine.StateDefinition[State, *Transaction]
-	StateDefinitions = statemachine.StateDefinitions[State, *Transaction]
-	StateMachine     = statemachine.StateMachine[State, *Transaction]
+	Action           = statemachine.Action[*OriginatorTransaction]
+	Guard            = statemachine.Guard[*OriginatorTransaction]
+	ActionRule       = statemachine.ActionRule[*OriginatorTransaction]
+	Transition       = statemachine.Transition[State, *OriginatorTransaction]
+	Validator        = statemachine.Validator[*OriginatorTransaction]
+	EventHandler     = statemachine.EventHandler[State, *OriginatorTransaction]
+	StateDefinition  = statemachine.StateDefinition[State, *OriginatorTransaction]
+	StateDefinitions = statemachine.StateDefinitions[State, *OriginatorTransaction]
+	StateMachine     = statemachine.StateMachine[State, *OriginatorTransaction]
 )
 
 var stateDefinitionsMap = StateDefinitions{
@@ -456,10 +456,10 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 }
 
-func (t *Transaction) initializeStateMachine(initialState State) {
+func (t *OriginatorTransaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
 		fmt.Sprintf("orig-tx-%s", t.pt.Address.String()[0:8]),
-		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
+		statemachine.WithTransitionCallback(func(ctx context.Context, t *OriginatorTransaction, from, to State, event common.Event) {
 			if t.queueEventForOriginator != nil {
 				t.queueEventForOriginator(ctx, &common.TransactionStateTransitionEvent[State]{
 					BaseEvent:     common.BaseEvent{EventTime: time.Now()},
@@ -472,11 +472,11 @@ func (t *Transaction) initializeStateMachine(initialState State) {
 	)
 }
 
-func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
+func (t *OriginatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
 	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
-func action_CoordinatorChanged(ctx context.Context, t *Transaction, event common.Event) error {
+func action_CoordinatorChanged(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
 	e := event.(*CoordinatorChangedEvent)
 	t.currentDelegate = e.Coordinator
 	return nil

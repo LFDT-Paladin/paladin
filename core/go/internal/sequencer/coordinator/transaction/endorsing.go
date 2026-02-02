@@ -31,7 +31,7 @@ type endorsementRequirement struct {
 	party      string
 }
 
-func (t *Transaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult, requestID uuid.UUID) error {
+func (t *CoordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult, requestID uuid.UUID) error {
 	t.pendingEndorsementsMutex.Lock()
 	defer t.pendingEndorsementsMutex.Unlock()
 	log.L(ctx).Debugf("apply endorsement - received endorsement name '%s'", endorsement.Name)
@@ -63,17 +63,17 @@ func (t *Transaction) applyEndorsement(ctx context.Context, endorsement *prototk
 	return nil
 }
 
-func (t *Transaction) applyEndorsementRejection(ctx context.Context, revertReason string, party string, attestationRequestName string) error {
+func (t *CoordinatorTransaction) applyEndorsementRejection(ctx context.Context, revertReason string, party string, attestationRequestName string) error {
 	//The endorsement rejection is not currently stored in the PrivateTransaction struct.
 	//  Only thing that the state machine currently cares about is the error count (which may be used as part of the logic to select transactions from the pool for assembly) and that is incremented in the transition functions
 	return nil
 }
 
-func (t *Transaction) hasUnfulfilledEndorsementRequirements(ctx context.Context) bool {
+func (t *CoordinatorTransaction) hasUnfulfilledEndorsementRequirements(ctx context.Context) bool {
 	return len(t.unfulfilledEndorsementRequirements(ctx)) > 0
 }
 
-func (t *Transaction) unfulfilledEndorsementRequirements(ctx context.Context) []*endorsementRequirement {
+func (t *CoordinatorTransaction) unfulfilledEndorsementRequirements(ctx context.Context) []*endorsementRequirement {
 	unfulfilledEndorsementRequirements := make([]*endorsementRequirement, 0)
 	if t.pt.PostAssembly == nil {
 		log.L(ctx).Debug("PostAssembly is nil so there are no outstanding endorsement requirements")
@@ -116,7 +116,7 @@ func (t *Transaction) unfulfilledEndorsementRequirements(ctx context.Context) []
 // Function sendEndorsementRequests iterates through the attestation plan and for each endorsement request that has not been fulfilled
 // sends an endorsement request to the appropriate party unless there was a recent request (i.e. within the retry threshold)
 // it is safe to call this function multiple times and on a frequent basis (e.g. every heartbeat interval while in the endorsement gathering state) as it will not send duplicate requests unless they have timedout
-func (t *Transaction) sendEndorsementRequests(ctx context.Context) error {
+func (t *CoordinatorTransaction) sendEndorsementRequests(ctx context.Context) error {
 
 	log.L(ctx).Debugf("sendEndorsementRequests: number of verifiers %d", len(t.pt.PreAssembly.Verifiers))
 
@@ -159,7 +159,7 @@ func (t *Transaction) sendEndorsementRequests(ctx context.Context) error {
 	return nil
 }
 
-func (t *Transaction) resetEndorsementRequests(ctx context.Context) {
+func (t *CoordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 	if t.pendingEndorsementRequests == nil {
 		return
 	}
@@ -169,7 +169,7 @@ func (t *Transaction) resetEndorsementRequests(ctx context.Context) {
 	t.pendingEndorsementRequests = make(map[string]map[string]*common.IdempotentRequest)
 }
 
-func (t *Transaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
+func (t *CoordinatorTransaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
 	err := t.transportWriter.SendEndorsementRequest(
 		ctx,
 		t.pt.ID,
@@ -203,25 +203,25 @@ func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState
 	return endorsableList
 }
 
-func action_Endorsed(ctx context.Context, t *Transaction, event common.Event) error {
+func action_Endorsed(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*EndorsedEvent)
 	return t.applyEndorsement(ctx, e.Endorsement, e.RequestID)
 }
 
-func action_EndorsedRejected(ctx context.Context, t *Transaction, event common.Event) error {
+func action_EndorsedRejected(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*EndorsedRejectedEvent)
 	return t.applyEndorsementRejection(ctx, e.RevertReason, e.Party, e.AttestationRequestName)
 }
 
-func action_SendEndorsementRequests(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_SendEndorsementRequests(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }
 
-func action_NudgeEndorsementRequests(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NudgeEndorsementRequests(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }
 
 // endorsed by all required endorsers
-func guard_AttestationPlanFulfilled(ctx context.Context, txn *Transaction) bool {
+func guard_AttestationPlanFulfilled(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return !txn.hasUnfulfilledEndorsementRequirements(ctx)
 }

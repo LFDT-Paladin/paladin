@@ -41,7 +41,7 @@ import (
 // the coordinator, the originator, or the transport writer
 type Sequencer interface {
 	GetCoordinator() coordinator.Coordinator
-	GetOriginator() originator.SeqOriginator
+	GetOriginator() originator.Originator
 	GetTransportWriter() transport.TransportWriter
 }
 
@@ -49,7 +49,7 @@ func (seq *sequencer) GetCoordinator() coordinator.Coordinator {
 	return seq.coordinator
 }
 
-func (seq *sequencer) GetOriginator() originator.SeqOriginator {
+func (seq *sequencer) GetOriginator() originator.Originator {
 	return seq.originator
 }
 
@@ -60,7 +60,7 @@ func (seq *sequencer) GetTransportWriter() transport.TransportWriter {
 // An instance of a sequencer (one instance per domain contract)
 type sequencer struct {
 	// The 3 main components of the sequencer
-	originator      originator.SeqOriginator
+	originator      originator.Originator
 	transportWriter transport.TransportWriter
 	coordinator     coordinator.Coordinator
 
@@ -172,7 +172,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 				sMgr.config,
 				sMgr.nodeName,
 				sMgr.metrics,
-				func(ctx context.Context, t *coordTransaction.Transaction) {
+				func(ctx context.Context, t *coordTransaction.CoordinatorTransaction) {
 					// A transaction is ready to dispatch. Prepare & dispatch it.
 					sMgr.dispatch(ctx, t, dCtx, transportWriter)
 				},
@@ -260,7 +260,7 @@ func (sMgr *sequencerManager) getOriginatorNodesFromTx(ctx context.Context, tx *
 // Once we get here the sequencer has decided we have not gone too far ahead of the currently confirmed transactions, and are OK to
 // dispatch a new transaction. There might be several transactions still in flight to the base ledger and maxDispatchAhead can be used
 // to control how "optimistic" we are about submitting newly assembled and endorsed transactions.
-func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.Transaction, dCtx components.DomainContext, transportWriter transport.TransportWriter) {
+func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.CoordinatorTransaction, dCtx components.DomainContext, transportWriter transport.TransportWriter) {
 	domainAPI, err := sMgr.components.DomainManager().GetSmartContractByAddress(ctx, sMgr.components.Persistence().NOTX(), t.GetContractAddress())
 	if err != nil {
 		log.L(ctx).Errorf("error getting domain API for contract %s: %s", t.GetContractAddress().String(), err)

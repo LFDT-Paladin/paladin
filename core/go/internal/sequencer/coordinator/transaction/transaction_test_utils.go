@@ -225,7 +225,7 @@ type TransactionBuilderForTesting struct {
 	fakeEngineIntegration              *common.FakeEngineIntegrationForTesting
 	syncPoints                         syncpoints.SyncPoints
 	grapher                            Grapher
-	txn                                *Transaction
+	txn                                *CoordinatorTransaction
 	requestTimeout                     int
 	assembleTimeout                    int
 	heartbeatIntervalsSinceStateChange int
@@ -367,7 +367,7 @@ type transactionDependencyFakes struct {
 	SyncPoints          syncpoints.SyncPoints
 }
 
-func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *transactionDependencyFakes) {
+func (b *TransactionBuilderForTesting) BuildWithMocks() (*CoordinatorTransaction, *transactionDependencyFakes) {
 	mocks := &transactionDependencyFakes{
 		SentMessageRecorder: b.sentMessageRecorder,
 		Clock:               b.fakeClock,
@@ -377,7 +377,7 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *transact
 	return b.Build(), mocks
 }
 
-func (b *TransactionBuilderForTesting) Build() *Transaction {
+func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 	ctx := context.Background()
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)

@@ -30,23 +30,10 @@ import (
 	"github.com/google/uuid"
 )
 
-type TransactionState string
-
-const (
-	TransactionState_Pooled                TransactionState = "TransactionState_Pooled"
-	TransactionState_Assembled             TransactionState = "TransactionState_Assembled"
-	TransactionState_ConfirmingForDispatch TransactionState = "TransactionState_ConfirmingForDispatch"
-	TransactionState_Dispatched            TransactionState = "TransactionState_Dispatched"
-	TransactionState_Submitted             TransactionState = "TransactionState_Submitted"
-	TransactionState_Rejected              TransactionState = "TransactionState_Rejected"
-	TransactionState_ConfirmedSuccess      TransactionState = "TransactionState_ConfirmedSuccess"
-	TransactionState_ConfirmedReverted     TransactionState = "TransactionState_ConfirmedReverted"
-)
-
-// Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
+// CoordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 // It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications go through this package.
-type Transaction struct {
+type CoordinatorTransaction struct {
 	sync.RWMutex
 
 	pt *components.PrivateTransaction
@@ -111,13 +98,13 @@ func NewTransaction(
 	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) (*Transaction, error) {
+) (*CoordinatorTransaction, error) {
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
 		return nil, err
 	}
-	txn := &Transaction{
+	txn := &CoordinatorTransaction{
 		originator:                 originator,
 		originatorNode:             originatorNode,
 		pt:                         pt,
@@ -142,7 +129,7 @@ func NewTransaction(
 }
 
 // This function is external but doesn't not need a lock as ints are atomic
-func (t *Transaction) GetCurrentState() State {
+func (t *CoordinatorTransaction) GetCurrentState() State {
 	return t.stateMachine.GetCurrentState()
 }
 
@@ -150,37 +137,37 @@ func (t *Transaction) GetCurrentState() State {
 // a read lock. A consumer could also take a read lock if they wanted to be certain that a group of
 // read functions are atomic
 
-func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {
+func (t *CoordinatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
 	t.RLock()
 	defer t.RUnlock()
 	return t.signerAddress
 }
 
-func (t *Transaction) GetNonce() *uint64 {
+func (t *CoordinatorTransaction) GetNonce() *uint64 {
 	t.RLock()
 	defer t.RUnlock()
 	return t.nonce
 }
 
-func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+func (t *CoordinatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
 	t.RLock()
 	defer t.RUnlock()
 	return t.latestSubmissionHash
 }
 
-func (t *Transaction) GetRevertReason() pldtypes.HexBytes {
+func (t *CoordinatorTransaction) GetRevertReason() pldtypes.HexBytes {
 	t.RLock()
 	defer t.RUnlock()
 	return t.revertReason
 }
 
-func (t *Transaction) Originator() string {
+func (t *CoordinatorTransaction) Originator() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.originator
 }
 
-func (t *Transaction) GetErrorCount() int {
+func (t *CoordinatorTransaction) GetErrorCount() int {
 	t.RLock()
 	defer t.RUnlock()
 	return t.errorCount
@@ -191,43 +178,43 @@ func (t *Transaction) GetErrorCount() int {
 // returning the pointer to the whole struct opens to the door to the possibility of modifications outside of the state machine.
 // TODO: Ideally there would be an interface around *components.PrivateTransaction to allow consumers more complete read only
 // access.
-func (t *Transaction) GetPrivateTransaction() *components.PrivateTransaction {
+func (t *CoordinatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt
 }
 
-func (t *Transaction) GetID() uuid.UUID {
+func (t *CoordinatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
 }
 
-func (t *Transaction) GetDomain() string {
+func (t *CoordinatorTransaction) GetDomain() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.Domain
 }
 
-func (t *Transaction) GetContractAddress() pldtypes.EthAddress {
+func (t *CoordinatorTransaction) GetContractAddress() pldtypes.EthAddress {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.Address
 }
 
-func (t *Transaction) GetTransactionSpecification() *prototk.TransactionSpecification {
+func (t *CoordinatorTransaction) GetTransactionSpecification() *prototk.TransactionSpecification {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreAssembly.TransactionSpecification
 }
 
-func (t *Transaction) GetOriginalSender() string {
+func (t *CoordinatorTransaction) GetOriginalSender() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreAssembly.TransactionSpecification.From
 }
 
-func (t *Transaction) GetOutputStateIDs() []pldtypes.HexBytes {
+func (t *CoordinatorTransaction) GetOutputStateIDs() []pldtypes.HexBytes {
 	t.RLock()
 	defer t.RUnlock()
 	// We use the output states here not the OutputStatesPotential because it is not possible for another transaction
@@ -239,19 +226,19 @@ func (t *Transaction) GetOutputStateIDs() []pldtypes.HexBytes {
 	return outputStateIDs
 }
 
-func (t *Transaction) HasPreparedPrivateTransaction() bool {
+func (t *CoordinatorTransaction) HasPreparedPrivateTransaction() bool {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreparedPrivateTransaction != nil
 }
 
-func (t *Transaction) HasPreparedPublicTransaction() bool {
+func (t *CoordinatorTransaction) HasPreparedPublicTransaction() bool {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreparedPublicTransaction != nil
 }
 
-func (t *Transaction) GetSigner() string {
+func (t *CoordinatorTransaction) GetSigner() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.Signer

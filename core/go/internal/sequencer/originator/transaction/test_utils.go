@@ -162,7 +162,7 @@ type TransactionBuilderForTesting struct {
 	privateTransactionBuilder *testutil.PrivateTransactionBuilderForTesting
 	state                     State
 	currentDelegate           string
-	txn                       *Transaction
+	txn                       *OriginatorTransaction
 	sentMessageRecorder       *SentMessageRecorder
 	fakeClock                 *common.FakeClockForTesting
 	fakeEngineIntegration     *common.FakeEngineIntegrationForTesting
@@ -238,7 +238,7 @@ type TransactionDependencyFakes struct {
 	emittedEvents       []common.Event
 }
 
-func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *TransactionDependencyFakes) {
+func (b *TransactionBuilderForTesting) BuildWithMocks() (*OriginatorTransaction, *TransactionDependencyFakes) {
 	mocks := &TransactionDependencyFakes{
 		SentMessageRecorder: b.sentMessageRecorder,
 		Clock:               b.fakeClock,
@@ -251,7 +251,7 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *Transact
 	return b.Build(), mocks
 }
 
-func (b *TransactionBuilderForTesting) Build() *Transaction {
+func (b *TransactionBuilderForTesting) Build() *OriginatorTransaction {
 	ctx := context.Background()
 
 	privateTransaction := b.privateTransactionBuilder.Build()

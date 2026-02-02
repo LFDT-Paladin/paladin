@@ -203,7 +203,7 @@ type transactionDependencyMocks struct {
 	syncPoints        syncpoints.SyncPoints
 }
 
-func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*Transaction, *transactionDependencyMocks) {
+func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*CoordinatorTransaction, *transactionDependencyMocks) {
 	if grapher == nil {
 		grapher = NewGrapher(context.Background())
 	}

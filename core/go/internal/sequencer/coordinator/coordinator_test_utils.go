@@ -91,7 +91,7 @@ type CoordinatorBuilderForTesting struct {
 	flushPointNonce                          *uint64
 	flushPointSignerAddress                  *pldtypes.EthAddress
 	emitFunction                             func(event common.Event)
-	transactions                             []*transaction.Transaction
+	transactions                             []*transaction.CoordinatorTransaction
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
 	sequencerConfig                          *pldconf.SequencerConfig
@@ -142,7 +142,7 @@ func (b *CoordinatorBuilderForTesting) ActiveCoordinatorBlockHeight(activeCoordi
 	return b
 }
 
-func (b *CoordinatorBuilderForTesting) Transactions(transactions ...*transaction.Transaction) *CoordinatorBuilderForTesting {
+func (b *CoordinatorBuilderForTesting) Transactions(transactions ...*transaction.CoordinatorTransaction) *CoordinatorBuilderForTesting {
 	b.transactions = transactions
 	return b
 }
@@ -214,7 +214,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		b.sequencerConfig,
 		"node1",
 		b.metrics,
-		func(context.Context, *transaction.Transaction) {},                    // onReadyForDispatch function, not used in tests
+		func(context.Context, *transaction.CoordinatorTransaction) {},         // onReadyForDispatch function, not used in tests
 		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {}, // coordinatorStarted function, not used in tests
 		func(contractAddress *pldtypes.EthAddress) {},                         // coordinatorIdle function, not used in tests
 	)

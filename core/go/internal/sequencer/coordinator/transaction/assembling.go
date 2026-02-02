@@ -29,7 +29,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (t *Transaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
+func (t *CoordinatorTransaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
 	var tryFinalize func()
 	tryFinalize = func() {
 		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID, revertReason,
@@ -44,7 +44,7 @@ func (t *Transaction) revertTransactionFailedAssembly(ctx context.Context, rever
 	tryFinalize()
 }
 
-func (t *Transaction) cancelAssembleTimeoutSchedules() {
+func (t *CoordinatorTransaction) cancelAssembleTimeoutSchedules() {
 	if t.cancelAssembleTimeoutSchedule != nil {
 		t.cancelAssembleTimeoutSchedule()
 		t.cancelAssembleTimeoutSchedule = nil
@@ -55,7 +55,7 @@ func (t *Transaction) cancelAssembleTimeoutSchedules() {
 	}
 }
 
-func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
+func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
 	t.pt.PostAssembly = postAssembly
 
 	t.cancelAssembleTimeoutSchedules()
@@ -94,7 +94,7 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 	return t.calculatePostAssembleDependencies(ctx)
 }
 
-func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
+func (t *CoordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
 	//assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
@@ -138,14 +138,14 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *Transaction) nudgeAssembleRequest(ctx context.Context) error {
+func (t *CoordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error {
 	if t.pendingAssembleRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgeAssembleRequest called with no pending request")
 	}
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
+func (t *CoordinatorTransaction) assembleTimeoutExceeded(ctx context.Context) bool {
 	if t.pendingAssembleRequest == nil {
 		//strange situation to be in if we get to the point of this being nil, should immediately leave the state where we ever ask this question
 		// however we go here, the answer to the question is "false" because there is no pending request to timeout but log this as it is a strange situation
@@ -166,7 +166,7 @@ func (t *Transaction) assembleTimeoutExceeded(ctx context.Context) bool {
 
 }
 
-func (t *Transaction) isNotAssembled() bool {
+func (t *CoordinatorTransaction) isNotAssembled() bool {
 	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
 
@@ -178,7 +178,7 @@ func (t *Transaction) isNotAssembled() bool {
 		t.stateMachine.GetCurrentState() != State_Confirmed
 }
 
-func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
+func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	//this function is called when the transaction is successfully assembled
 	// and we have a duty to inform all the transactions that depend on us
 	for _, dependentId := range t.dependencies.PrereqOf {
@@ -201,7 +201,7 @@ func (t *Transaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	return nil
 }
 
-func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
+func (t *CoordinatorTransaction) notifyDependentsOfRevert(ctx context.Context) error {
 	//this function is called when the transaction enters the reverted state on a revert response from assemble
 	// NOTE: at this point, we have not been assembled and therefore are not the minter of any state the only transactions that could possibly be dependent on us are those in the pool from the same originator
 
@@ -234,7 +234,7 @@ func (t *Transaction) notifyDependentsOfRevert(ctx context.Context) error {
 	return nil
 }
 
-func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) error {
+func (t *CoordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
 	// Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
 	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
 	// this function calculates the dependencies relating to states and sets up the reverse association
@@ -275,16 +275,16 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 	return nil
 }
 
-func (t *Transaction) writeLockStates(ctx context.Context) error {
+func (t *CoordinatorTransaction) writeLockStates(ctx context.Context) error {
 	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.pt)
 }
 
-func (t *Transaction) incrementAssembleErrors() error {
+func (t *CoordinatorTransaction) incrementAssembleErrors() error {
 	t.errorCount++
 	return nil
 }
 
-func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
@@ -294,7 +294,7 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Transacti
 	return false, nil
 }
 
-func action_AssembleSuccess(ctx context.Context, t *Transaction, event common.Event) error {
+func action_AssembleSuccess(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleSuccessEvent)
 	err := t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 	if err == nil {
@@ -304,33 +304,33 @@ func action_AssembleSuccess(ctx context.Context, t *Transaction, event common.Ev
 	return err
 }
 
-func action_AssembleRevertResponse(ctx context.Context, t *Transaction, event common.Event) error {
+func action_AssembleRevertResponse(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleRevertResponseEvent)
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 }
 
-func action_SendAssembleRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_SendAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
 }
 
-func action_NudgeAssembleRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NudgeAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
 }
 
-func action_NotifyDependentsOfAssembled(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NotifyDependentsOfAssembled(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.notifyDependentsOfAssembled(ctx)
 }
 
-func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NotifyDependentsOfRevert(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.notifyDependentsOfRevert(ctx)
 }
 
-func action_IncrementAssembleErrors(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_IncrementAssembleErrors(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	txn.resetEndorsementRequests(ctx)
 	return txn.incrementAssembleErrors()
 }
 
-func guard_AssembleTimeoutExceeded(ctx context.Context, txn *Transaction) bool {
+func guard_AssembleTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.assembleTimeoutExceeded(ctx)
 }

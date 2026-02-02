@@ -348,7 +348,7 @@ func TestOriginator_Stop_AfterEventsProcessed(t *testing.T) {
 }
 
 type mockFailingTransaction struct {
-	*transaction.Transaction
+	*transaction.OriginatorTransaction
 	handleEventError error
 }
 
@@ -386,8 +386,8 @@ func TestOriginator_CreateTransaction_ErrorFromHandleEvent(t *testing.T) {
 	// Wrap it in a mock that will fail HandleEvent
 	expectedError := errors.New("mock HandleEvent error")
 	mockTxn := &mockFailingTransaction{
-		Transaction:      realTxn,
-		handleEventError: expectedError,
+		OriginatorTransaction: realTxn,
+		handleEventError:      expectedError,
 	}
 
 	createdEvent := &transaction.CreatedEvent{}

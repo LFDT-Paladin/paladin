@@ -85,19 +85,19 @@ func (_c *MockSequencer_GetCoordinator_Call) RunAndReturn(run func() coordinator
 }
 
 // GetOriginator provides a mock function for the type MockSequencer
-func (_mock *MockSequencer) GetOriginator() originator.SeqOriginator {
+func (_mock *MockSequencer) GetOriginator() originator.Originator {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOriginator")
 	}
 
-	var r0 originator.SeqOriginator
-	if returnFunc, ok := ret.Get(0).(func() originator.SeqOriginator); ok {
+	var r0 originator.Originator
+	if returnFunc, ok := ret.Get(0).(func() originator.Originator); ok {
 		r0 = returnFunc()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(originator.SeqOriginator)
+			r0 = ret.Get(0).(originator.Originator)
 		}
 	}
 	return r0
@@ -120,12 +120,12 @@ func (_c *MockSequencer_GetOriginator_Call) Run(run func()) *MockSequencer_GetOr
 	return _c
 }
 
-func (_c *MockSequencer_GetOriginator_Call) Return(seqOriginator originator.SeqOriginator) *MockSequencer_GetOriginator_Call {
-	_c.Call.Return(seqOriginator)
+func (_c *MockSequencer_GetOriginator_Call) Return(originator1 originator.Originator) *MockSequencer_GetOriginator_Call {
+	_c.Call.Return(originator1)
 	return _c
 }
 
-func (_c *MockSequencer_GetOriginator_Call) RunAndReturn(run func() originator.SeqOriginator) *MockSequencer_GetOriginator_Call {
+func (_c *MockSequencer_GetOriginator_Call) RunAndReturn(run func() originator.Originator) *MockSequencer_GetOriginator_Call {
 	_c.Call.Return(run)
 	return _c
 }

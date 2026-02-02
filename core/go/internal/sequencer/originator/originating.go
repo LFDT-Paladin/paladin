@@ -64,7 +64,7 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	}
 	// Find pending transactions only and (optionally) already delegated transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
-	transactionsToDelegate := make([]*transaction.Transaction, 0)
+	transactionsToDelegate := make([]*transaction.OriginatorTransaction, 0)
 	for _, txn := range o.transactionsOrdered {
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout

@@ -72,15 +72,15 @@ const (
 
 // Type aliases for the generic statemachine types, specialized for Transaction
 type (
-	Action           = statemachine.Action[*Transaction]
-	Guard            = statemachine.Guard[*Transaction]
-	ActionRule       = statemachine.ActionRule[*Transaction]
-	Transition       = statemachine.Transition[State, *Transaction]
-	Validator        = statemachine.Validator[*Transaction]
-	EventHandler     = statemachine.EventHandler[State, *Transaction]
-	StateDefinition  = statemachine.StateDefinition[State, *Transaction]
-	StateDefinitions = statemachine.StateDefinitions[State, *Transaction]
-	StateMachine     = statemachine.StateMachine[State, *Transaction]
+	Action           = statemachine.Action[*CoordinatorTransaction]
+	Guard            = statemachine.Guard[*CoordinatorTransaction]
+	ActionRule       = statemachine.ActionRule[*CoordinatorTransaction]
+	Transition       = statemachine.Transition[State, *CoordinatorTransaction]
+	Validator        = statemachine.Validator[*CoordinatorTransaction]
+	EventHandler     = statemachine.EventHandler[State, *CoordinatorTransaction]
+	StateDefinition  = statemachine.StateDefinition[State, *CoordinatorTransaction]
+	StateDefinitions = statemachine.StateDefinitions[State, *CoordinatorTransaction]
+	StateMachine     = statemachine.StateMachine[State, *CoordinatorTransaction]
 )
 
 var stateDefinitionsMap = StateDefinitions{
@@ -377,10 +377,10 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 }
 
-func (t *Transaction) initializeStateMachine(initialState State) {
+func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
 		fmt.Sprintf("coord-tx-%s", t.pt.Address.String()[0:8]),
-		statemachine.WithTransitionCallback(func(ctx context.Context, t *Transaction, from, to State, event common.Event) {
+		statemachine.WithTransitionCallback(func(ctx context.Context, t *CoordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
 
@@ -400,12 +400,12 @@ func (t *Transaction) initializeStateMachine(initialState State) {
 	)
 }
 
-func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error {
+func (t *CoordinatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
 	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX originator %s, TX address %+v)", t.pt.ID.String(), t.originator, t.pt.Address.HexString())
 	return t.stateMachine.ProcessEvent(ctx, t, event)
 }
 
-func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *Transaction, _ common.Event) error {
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.pt.ID.String(), t.stateMachine.CurrentState.String(), t.heartbeatIntervalsSinceStateChange+1)
 	t.heartbeatIntervalsSinceStateChange++
 	return nil

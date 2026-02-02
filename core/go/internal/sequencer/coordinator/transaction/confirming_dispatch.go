@@ -26,12 +26,12 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-func (t *Transaction) applyDispatchConfirmation(_ context.Context, requestID uuid.UUID) error {
+func (t *CoordinatorTransaction) applyDispatchConfirmation(_ context.Context, requestID uuid.UUID) error {
 	t.pendingPreDispatchRequest = nil
 	return nil
 }
 
-func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
+func (t *CoordinatorTransaction) sendPreDispatchRequest(ctx context.Context) error {
 
 	if t.pendingPreDispatchRequest == nil {
 		hash, err := t.hash(ctx)
@@ -64,7 +64,7 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 }
 
 // Hash method of Transaction
-func (t *Transaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
+func (t *CoordinatorTransaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
 	if t.pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
 	}
@@ -91,7 +91,7 @@ func (t *Transaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
 
 }
 
-func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
+func (t *CoordinatorTransaction) nudgePreDispatchRequest(ctx context.Context) error {
 	if t.pendingPreDispatchRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgePreDispatchRequest called with no pending request")
 	}
@@ -99,7 +99,7 @@ func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
 	return t.pendingPreDispatchRequest.Nudge(ctx)
 }
 
-func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *DispatchRequestApprovedEvent:
 		return txn.pendingPreDispatchRequest != nil && txn.pendingPreDispatchRequest.IdempotencyKey() == event.RequestID, nil
@@ -107,15 +107,15 @@ func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transa
 	return false, nil
 }
 
-func action_DispatchRequestApproved(ctx context.Context, t *Transaction, event common.Event) error {
+func action_DispatchRequestApproved(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
 	e := event.(*DispatchRequestApprovedEvent)
 	return t.applyDispatchConfirmation(ctx, e.RequestID)
 }
 
-func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendPreDispatchRequest(ctx)
 }
 
-func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NudgePreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
 }

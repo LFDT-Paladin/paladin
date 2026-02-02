@@ -29,7 +29,7 @@ import (
 func Test_SortTransactions_EmptyInput(t *testing.T) {
 	ctx := context.Background()
 
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{})
 	assert.NoError(t, err)
 	assert.Len(t, sortedTransactions, 0)
 
@@ -43,7 +43,7 @@ func Test_SortTransactions_SingleTransaction(t *testing.T) {
 		Grapher(grapher).
 		NumberOfOutputStates(1)
 	txn1 := txnBuilder1.Build()
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn1})
 	assert.NoError(t, err)
 	require.Len(t, sortedTransactions, 1)
 	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
@@ -65,7 +65,7 @@ func Test_SortTransactions_SameOrder(t *testing.T) {
 		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txnBuilder2.Build()
 
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1, txn2})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn1, txn2})
 	require.NoError(t, err)
 	require.Len(t, sortedTransactions, 2)
 	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
@@ -89,7 +89,7 @@ func Test_SortTransactions_ReverseOrder(t *testing.T) {
 	txn2 := txnBuilder2.Build()
 
 	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn1})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn1})
 	require.NoError(t, err)
 	require.Len(t, sortedTransactions, 2)
 	assert.Equal(t, txn1.pt.ID, sortedTransactions[0].pt.ID)
@@ -121,7 +121,7 @@ func Test_SortTransactions_EndlessLoopPrevention(t *testing.T) {
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
 	assert.Error(t, err)
 	assert.Len(t, sortedTransactions, 0)
 
@@ -154,7 +154,7 @@ func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
 	require.NoError(t, err)
 	require.Len(t, sortedTransactions, 2)
 	//Check both transactions are in the sorted transactions but we cannot guarantee the order since neither is dependent on the other
@@ -198,7 +198,7 @@ func Test_SortTransactions_CircularDependency(t *testing.T) {
 	txn3 := txnBuilder3.Build()
 
 	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
+	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
 	assert.Error(t, err)
 	assert.Len(t, sortedTransactions, 0)
 

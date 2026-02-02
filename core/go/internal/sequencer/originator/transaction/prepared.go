@@ -20,18 +20,18 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_Dispatched(ctx context.Context, t *Transaction, event common.Event) error {
+func action_Dispatched(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
 	e := event.(*DispatchedEvent)
 	t.signerAddress = &e.SignerAddress
 	return nil
 }
 
-func action_PreDispatchRequestReceived(ctx context.Context, t *Transaction, event common.Event) error {
+func action_PreDispatchRequestReceived(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
 	e := event.(*PreDispatchRequestReceivedEvent)
 	t.latestPreDispatchRequestID = e.RequestID
 	return nil
 }
 
-func action_ResendPreDispatchResponse(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_ResendPreDispatchResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
 	return action_SendPreDispatchResponse(ctx, txn, nil)
 }

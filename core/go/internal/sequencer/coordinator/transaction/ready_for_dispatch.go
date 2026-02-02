@@ -24,19 +24,19 @@ import (
 	"github.com/google/uuid"
 )
 
-func action_UpdateSigningIdentity(_ context.Context, txn *Transaction, _ common.Event) error {
+func action_UpdateSigningIdentity(_ context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	txn.updateSigningIdentity()
 	return nil
 }
 
-func guard_HasDynamicSigningIdentity(_ context.Context, txn *Transaction) bool {
+func guard_HasDynamicSigningIdentity(_ context.Context, txn *CoordinatorTransaction) bool {
 	return txn.dynamicSigningIdentity
 }
 
 // The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
-func (t *Transaction) updateSigningIdentity() {
+func (t *CoordinatorTransaction) updateSigningIdentity() {
 	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
 		for _, endorsement := range t.pt.PostAssembly.Endorsements {
 			for _, constraint := range endorsement.Constraints {
@@ -51,7 +51,7 @@ func (t *Transaction) updateSigningIdentity() {
 	}
 }
 
-func (t *Transaction) isNotReady() bool {
+func (t *CoordinatorTransaction) isNotReady() bool {
 	// test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
 
@@ -83,12 +83,12 @@ func (t *Transaction) isNotReady() bool {
 	return notReady
 }
 
-func guard_HasDependenciesNotReady(ctx context.Context, txn *Transaction) bool {
+func guard_HasDependenciesNotReady(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.hasDependenciesNotReady(ctx)
 }
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
-func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
+func (t *CoordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bool {
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
@@ -115,7 +115,7 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	return false
 }
 
-func (t *Transaction) traceDispatch(ctx context.Context) {
+func (t *CoordinatorTransaction) traceDispatch(ctx context.Context) {
 	// Log transaction signatures
 	for _, signature := range t.pt.PostAssembly.Signatures {
 		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
@@ -127,7 +127,7 @@ func (t *Transaction) traceDispatch(ctx context.Context) {
 	}
 }
 
-func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
+func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context) error {
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}
@@ -154,7 +154,7 @@ func (t *Transaction) notifyDependentsOfReadiness(ctx context.Context) error {
 	return nil
 }
 
-func (t *Transaction) allocateSigningIdentity(ctx context.Context) {
+func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
 
 	// Generate a dynamic signing identity unless Paladin config asserts something specific to use
 	if t.domainSigningIdentity != "" {
@@ -168,7 +168,7 @@ func (t *Transaction) allocateSigningIdentity(ctx context.Context) {
 	t.pt.Signer = fmt.Sprintf("domains.%s.submit.%s", t.pt.Address.String(), uuid.New())
 }
 
-func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_NotifyDependentsOfReadiness(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	// Make sure we have a signer identity allocated if no endorsement constraint has defined one
 	if txn.pt.Signer == "" {
 		txn.allocateSigningIdentity(ctx)
@@ -178,9 +178,9 @@ func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction, _
 }
 
 // Function HasDependenciesNotIn checks if the transaction has any that are not in the provided ignoreList array.
-func (t *Transaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*Transaction) bool {
+func (t *CoordinatorTransaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*CoordinatorTransaction) bool {
 
-	var ignore = func(t *Transaction) bool {
+	var ignore = func(t *CoordinatorTransaction) bool {
 		for _, ignoreTxn := range ignoreList {
 			if ignoreTxn.pt.ID == t.pt.ID {
 				return true

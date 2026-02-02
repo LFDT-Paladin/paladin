@@ -35,37 +35,37 @@ import (
 // The Grapher is not a graph data structure, but a simple index of transactions by ID and by state ID
 // the actual graph is the emergent data structure of the transactions maintaining links to each other
 type Grapher interface {
-	Add(context.Context, *Transaction)
-	TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction
-	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error)
-	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error
+	Add(context.Context, *CoordinatorTransaction)
+	TransactionByID(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction
+	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error)
+	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error
 	Forget(transactionID uuid.UUID) error
 	ForgetMints(transactionID uuid.UUID)
 }
 
 type grapher struct {
-	transactionByOutputState map[string]*Transaction
-	transactionByID          map[uuid.UUID]*Transaction
+	transactionByOutputState map[string]*CoordinatorTransaction
+	transactionByID          map[uuid.UUID]*CoordinatorTransaction
 	outputStatesByMinter     map[uuid.UUID][]string //used for reverse lookup to cleanup transactionByOutputState
 }
 
 func NewGrapher(ctx context.Context) Grapher {
 	return &grapher{
-		transactionByOutputState: make(map[string]*Transaction),
-		transactionByID:          make(map[uuid.UUID]*Transaction),
+		transactionByOutputState: make(map[string]*CoordinatorTransaction),
+		transactionByID:          make(map[uuid.UUID]*CoordinatorTransaction),
 		outputStatesByMinter:     make(map[uuid.UUID][]string),
 	}
 }
 
-func (s *grapher) Add(ctx context.Context, txn *Transaction) {
+func (s *grapher) Add(ctx context.Context, txn *CoordinatorTransaction) {
 	s.transactionByID[txn.pt.ID] = txn
 }
 
-func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error) {
+func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error) {
 	return s.transactionByOutputState[stateID.String()], nil
 }
 
-func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error {
+func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error {
 	if txn, ok := s.transactionByOutputState[stateID.String()]; ok {
 		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn.pt.ID.String(), transaction.pt.ID.String())
 		log.L(ctx).Error(msg)
@@ -91,7 +91,7 @@ func (s *grapher) ForgetMints(transactionID uuid.UUID) {
 	}
 }
 
-func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction {
+func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction {
 	return s.transactionByID[transactionID]
 }
 
@@ -100,8 +100,8 @@ func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) 
 // It returns an error if a circular dependency is detected or if any transaction has dependencies that are not in the input list.
 // This function is used to ensure that transactions are processed in the correct order, respecting their dependencies.
 // It assumes that the transactions are provided in a state where they are ready to be sequenced.
-func SortTransactions(ctx context.Context, transactions []*Transaction) ([]*Transaction, error) {
-	sortedTransactions := make([]*Transaction, 0, len(transactions))
+func SortTransactions(ctx context.Context, transactions []*CoordinatorTransaction) ([]*CoordinatorTransaction, error) {
+	sortedTransactions := make([]*CoordinatorTransaction, 0, len(transactions))
 	// Ensure the returned array is sorted according to the dependency graph
 
 	// continue to loop through all transactions picking off any who have no dependencies

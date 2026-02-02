@@ -58,7 +58,7 @@ type transportClientTestMocks struct {
 	domain          *componentsmocks.Domain
 	domainContext   *componentsmocks.DomainContext
 	transportWriter *transport.MockTransportWriter
-	originator      *originator.MockSeqOriginator
+	originator      *originator.MockOriginator
 	coordinator     *coordinator.MockCoordinator
 	metrics         *metrics.MockDistributedSequencerMetrics
 }
@@ -75,7 +75,7 @@ func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
 		domain:          componentsmocks.NewDomain(t),
 		domainContext:   componentsmocks.NewDomainContext(t),
 		transportWriter: transport.NewMockTransportWriter(t),
-		originator:      originator.NewMockSeqOriginator(t),
+		originator:      originator.NewMockOriginator(t),
 		coordinator:     coordinator.NewMockCoordinator(t),
 		metrics:         metrics.NewMockDistributedSequencerMetrics(t),
 	}

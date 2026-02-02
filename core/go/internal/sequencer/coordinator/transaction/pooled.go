@@ -27,7 +27,7 @@ import (
 )
 
 // Function hasDependenciesNotAssembled checks if the transaction has any dependencies that have not been assembled yet
-func (t *Transaction) hasDependenciesNotAssembled(ctx context.Context) bool {
+func (t *CoordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context) bool {
 	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
 		for _, dependencyID := range t.pt.PreAssembly.Dependencies.DependsOn {
 			dependency := t.grapher.TransactionByID(ctx, dependencyID)
@@ -46,7 +46,7 @@ func (t *Transaction) hasDependenciesNotAssembled(ctx context.Context) bool {
 }
 
 // Function hasUnknownDependencies checks if the transaction has any dependencies the coordinator does not have in memory.  These might be long gone confirmed to base ledger or maybe the delegation request for them hasn't reached us yet. At this point, we don't know
-func (t *Transaction) hasUnknownDependencies(ctx context.Context) bool {
+func (t *CoordinatorTransaction) hasUnknownDependencies(ctx context.Context) bool {
 
 	dependencies := t.dependencies.DependsOn
 	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
@@ -67,7 +67,7 @@ func (t *Transaction) hasUnknownDependencies(ctx context.Context) bool {
 }
 
 // Initializes (or re-initializes) the transaction as it arrives in the pool
-func (t *Transaction) initializeDependencies(ctx context.Context) error {
+func (t *CoordinatorTransaction) initializeDependencies(ctx context.Context) error {
 	if t.pt.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.pt.ID)
 		log.L(ctx).Error(msg)
@@ -107,7 +107,7 @@ func (t *Transaction) initializeDependencies(ctx context.Context) error {
 	return nil
 }
 
-func (t *Transaction) rePoolDependents(ctx context.Context) error {
+func (t *CoordinatorTransaction) rePoolDependents(ctx context.Context) error {
 	var rePoolError error
 	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
 	for _, dependencyID := range t.dependencies.PrereqOf {
@@ -132,7 +132,7 @@ func (t *Transaction) rePoolDependents(ctx context.Context) error {
 	return rePoolError
 }
 
-func action_recordRevert(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_recordRevert(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	err := txn.rePoolDependents(ctx)
 	if err != nil {
 		// log error but continue
@@ -144,18 +144,18 @@ func action_recordRevert(ctx context.Context, txn *Transaction, _ common.Event) 
 	return nil
 }
 
-func action_initializeDependencies(ctx context.Context, txn *Transaction, _ common.Event) error {
+func action_initializeDependencies(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.initializeDependencies(ctx)
 }
 
-func guard_HasUnassembledDependencies(ctx context.Context, txn *Transaction) bool {
+func guard_HasUnassembledDependencies(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.hasDependenciesNotAssembled(ctx)
 }
 
-func guard_HasUnknownDependencies(ctx context.Context, txn *Transaction) bool {
+func guard_HasUnknownDependencies(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.hasUnknownDependencies(ctx)
 }
 
-func guard_HasChainedTxInProgress(ctx context.Context, txn *Transaction) bool {
+func guard_HasChainedTxInProgress(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.chainedTxAlreadyDispatched
 }

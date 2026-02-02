@@ -34,8 +34,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-// SeqOriginator is the interface that consumers use to interact with the originator.
-type SeqOriginator interface {
+// Originator is the interface that consumers use to interact with the originator.
+type Originator interface {
 	QueueEvent(ctx context.Context, event common.Event)
 
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
@@ -55,9 +55,9 @@ type originator struct {
 	stateMachineEventLoop       *statemachine.StateMachineEventLoop[State, *originator]
 	activeCoordinatorNode       string
 	timeOfMostRecentHeartbeat   common.Time
-	transactionsByID            map[uuid.UUID]*transaction.Transaction
+	transactionsByID            map[uuid.UUID]*transaction.OriginatorTransaction
 	submittedTransactionsByHash map[pldtypes.Bytes32]*uuid.UUID
-	transactionsOrdered         []*transaction.Transaction
+	transactionsOrdered         []*transaction.OriginatorTransaction
 	currentBlockHeight          uint64
 	latestCoordinatorSnapshot   *common.CoordinatorSnapshot
 
@@ -93,7 +93,7 @@ func NewOriginator(
 ) (*originator, error) {
 	o := &originator{
 		nodeName:                    nodeName,
-		transactionsByID:            make(map[uuid.UUID]*transaction.Transaction),
+		transactionsByID:            make(map[uuid.UUID]*transaction.OriginatorTransaction),
 		submittedTransactionsByHash: make(map[pldtypes.Bytes32]*uuid.UUID),
 		transportWriter:             transportWriter,
 		blockRangeSize:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
@@ -193,14 +193,14 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
-func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	matchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		matchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if matchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)
@@ -209,14 +209,14 @@ func (o *originator) getTransactionsInStates(states []transaction.State) []*tran
 	return matchingTxns
 }
 
-func (o *originator) getTransactionsNotInStates(states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsNotInStates(states []transaction.State) []*transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	nonMatchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		nonMatchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if !nonMatchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)

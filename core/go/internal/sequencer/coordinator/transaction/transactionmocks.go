@@ -247,8 +247,8 @@ func (_m *MockGrapher) EXPECT() *MockGrapher_Expecter {
 }
 
 // Add provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) Add(context1 context.Context, transaction *Transaction) {
-	_mock.Called(context1, transaction)
+func (_mock *MockGrapher) Add(context1 context.Context, coordinatorTransaction *CoordinatorTransaction) {
+	_mock.Called(context1, coordinatorTransaction)
 	return
 }
 
@@ -259,20 +259,20 @@ type MockGrapher_Add_Call struct {
 
 // Add is a helper method to define mock.On call
 //   - context1 context.Context
-//   - transaction *Transaction
-func (_e *MockGrapher_Expecter) Add(context1 interface{}, transaction interface{}) *MockGrapher_Add_Call {
-	return &MockGrapher_Add_Call{Call: _e.mock.On("Add", context1, transaction)}
+//   - coordinatorTransaction *CoordinatorTransaction
+func (_e *MockGrapher_Expecter) Add(context1 interface{}, coordinatorTransaction interface{}) *MockGrapher_Add_Call {
+	return &MockGrapher_Add_Call{Call: _e.mock.On("Add", context1, coordinatorTransaction)}
 }
 
-func (_c *MockGrapher_Add_Call) Run(run func(context1 context.Context, transaction *Transaction)) *MockGrapher_Add_Call {
+func (_c *MockGrapher_Add_Call) Run(run func(context1 context.Context, coordinatorTransaction *CoordinatorTransaction)) *MockGrapher_Add_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *Transaction
+		var arg1 *CoordinatorTransaction
 		if args[1] != nil {
-			arg1 = args[1].(*Transaction)
+			arg1 = args[1].(*CoordinatorTransaction)
 		}
 		run(
 			arg0,
@@ -287,13 +287,13 @@ func (_c *MockGrapher_Add_Call) Return() *MockGrapher_Add_Call {
 	return _c
 }
 
-func (_c *MockGrapher_Add_Call) RunAndReturn(run func(context1 context.Context, transaction *Transaction)) *MockGrapher_Add_Call {
+func (_c *MockGrapher_Add_Call) RunAndReturn(run func(context1 context.Context, coordinatorTransaction *CoordinatorTransaction)) *MockGrapher_Add_Call {
 	_c.Run(run)
 	return _c
 }
 
 // AddMinter provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error {
+func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error {
 	ret := _mock.Called(ctx, stateID, transaction)
 
 	if len(ret) == 0 {
@@ -301,7 +301,7 @@ func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexByt
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, *Transaction) error); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, *CoordinatorTransaction) error); ok {
 		r0 = returnFunc(ctx, stateID, transaction)
 	} else {
 		r0 = ret.Error(0)
@@ -317,12 +317,12 @@ type MockGrapher_AddMinter_Call struct {
 // AddMinter is a helper method to define mock.On call
 //   - ctx context.Context
 //   - stateID pldtypes.HexBytes
-//   - transaction *Transaction
+//   - transaction *CoordinatorTransaction
 func (_e *MockGrapher_Expecter) AddMinter(ctx interface{}, stateID interface{}, transaction interface{}) *MockGrapher_AddMinter_Call {
 	return &MockGrapher_AddMinter_Call{Call: _e.mock.On("AddMinter", ctx, stateID, transaction)}
 }
 
-func (_c *MockGrapher_AddMinter_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction)) *MockGrapher_AddMinter_Call {
+func (_c *MockGrapher_AddMinter_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction)) *MockGrapher_AddMinter_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -332,9 +332,9 @@ func (_c *MockGrapher_AddMinter_Call) Run(run func(ctx context.Context, stateID 
 		if args[1] != nil {
 			arg1 = args[1].(pldtypes.HexBytes)
 		}
-		var arg2 *Transaction
+		var arg2 *CoordinatorTransaction
 		if args[2] != nil {
-			arg2 = args[2].(*Transaction)
+			arg2 = args[2].(*CoordinatorTransaction)
 		}
 		run(
 			arg0,
@@ -350,7 +350,7 @@ func (_c *MockGrapher_AddMinter_Call) Return(err error) *MockGrapher_AddMinter_C
 	return _c
 }
 
-func (_c *MockGrapher_AddMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error) *MockGrapher_AddMinter_Call {
+func (_c *MockGrapher_AddMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error) *MockGrapher_AddMinter_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -447,23 +447,23 @@ func (_c *MockGrapher_ForgetMints_Call) RunAndReturn(run func(transactionID uuid
 }
 
 // LookupMinter provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error) {
+func (_mock *MockGrapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error) {
 	ret := _mock.Called(ctx, stateID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for LookupMinter")
 	}
 
-	var r0 *Transaction
+	var r0 *CoordinatorTransaction
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes) (*Transaction, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes) (*CoordinatorTransaction, error)); ok {
 		return returnFunc(ctx, stateID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes) *Transaction); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes) *CoordinatorTransaction); ok {
 		r0 = returnFunc(ctx, stateID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Transaction)
+			r0 = ret.Get(0).(*CoordinatorTransaction)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, pldtypes.HexBytes) error); ok {
@@ -504,30 +504,30 @@ func (_c *MockGrapher_LookupMinter_Call) Run(run func(ctx context.Context, state
 	return _c
 }
 
-func (_c *MockGrapher_LookupMinter_Call) Return(transaction *Transaction, err error) *MockGrapher_LookupMinter_Call {
-	_c.Call.Return(transaction, err)
+func (_c *MockGrapher_LookupMinter_Call) Return(coordinatorTransaction *CoordinatorTransaction, err error) *MockGrapher_LookupMinter_Call {
+	_c.Call.Return(coordinatorTransaction, err)
 	return _c
 }
 
-func (_c *MockGrapher_LookupMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error)) *MockGrapher_LookupMinter_Call {
+func (_c *MockGrapher_LookupMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error)) *MockGrapher_LookupMinter_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // TransactionByID provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction {
+func (_mock *MockGrapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction {
 	ret := _mock.Called(ctx, transactionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransactionByID")
 	}
 
-	var r0 *Transaction
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) *Transaction); ok {
+	var r0 *CoordinatorTransaction
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) *CoordinatorTransaction); ok {
 		r0 = returnFunc(ctx, transactionID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Transaction)
+			r0 = ret.Get(0).(*CoordinatorTransaction)
 		}
 	}
 	return r0
@@ -563,12 +563,12 @@ func (_c *MockGrapher_TransactionByID_Call) Run(run func(ctx context.Context, tr
 	return _c
 }
 
-func (_c *MockGrapher_TransactionByID_Call) Return(transaction *Transaction) *MockGrapher_TransactionByID_Call {
-	_c.Call.Return(transaction)
+func (_c *MockGrapher_TransactionByID_Call) Return(coordinatorTransaction *CoordinatorTransaction) *MockGrapher_TransactionByID_Call {
+	_c.Call.Return(coordinatorTransaction)
 	return _c
 }
 
-func (_c *MockGrapher_TransactionByID_Call) RunAndReturn(run func(ctx context.Context, transactionID uuid.UUID) *Transaction) *MockGrapher_TransactionByID_Call {
+func (_c *MockGrapher_TransactionByID_Call) RunAndReturn(run func(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction) *MockGrapher_TransactionByID_Call {
 	_c.Call.Return(run)
 	return _c
 }

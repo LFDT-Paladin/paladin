@@ -162,7 +162,7 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a transaction with nil PrivateTransaction by manually constructing it
-	txn := &Transaction{
+	txn := &OriginatorTransaction{
 		pt: nil,
 		stateMachine: &StateMachine{
 			CurrentState: State_Initial,

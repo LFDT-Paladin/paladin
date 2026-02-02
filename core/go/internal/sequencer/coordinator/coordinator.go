@@ -64,8 +64,8 @@ type coordinator struct {
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
 	heartbeatInterval                          common.Duration
-	transactionsByID                           map[uuid.UUID]*transaction.Transaction
-	pooledTransactions                         []*transaction.Transaction
+	transactionsByID                           map[uuid.UUID]*transaction.CoordinatorTransaction
+	pooledTransactions                         []*transaction.CoordinatorTransaction
 	currentBlockHeight                         uint64
 	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.FlushPoint
 	grapher                                    transaction.Grapher
@@ -89,7 +89,7 @@ type coordinator struct {
 	engineIntegration common.EngineIntegration
 	txManager         components.TXManager
 	syncPoints        syncpoints.SyncPoints
-	readyForDispatch  func(context.Context, *transaction.Transaction)
+	readyForDispatch  func(context.Context, *transaction.CoordinatorTransaction)
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
 	coordinatorIdle   func(contractAddress *pldtypes.EthAddress)
 	heartbeatCtx      context.Context
@@ -97,10 +97,10 @@ type coordinator struct {
 	metrics           metrics.DistributedSequencerMetrics
 
 	/* Dispatch loop */
-	dispatchQueue       chan *transaction.Transaction
+	dispatchQueue       chan *transaction.CoordinatorTransaction
 	stopDispatchLoop    chan struct{}
 	dispatchLoopStopped chan struct{}
-	inFlightTxns        map[uuid.UUID]*transaction.Transaction
+	inFlightTxns        map[uuid.UUID]*transaction.CoordinatorTransaction
 	inFlightMutex       *sync.Cond
 }
 
@@ -118,7 +118,7 @@ func NewCoordinator(
 	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
-	readyForDispatch func(context.Context, *transaction.Transaction),
+	readyForDispatch func(context.Context, *transaction.CoordinatorTransaction),
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
@@ -127,8 +127,8 @@ func NewCoordinator(
 		ctx:                                ctx,
 		cancelCtx:                          cancelCtx,
 		heartbeatIntervalsSinceStateChange: 0,
-		transactionsByID:                   make(map[uuid.UUID]*transaction.Transaction),
-		pooledTransactions:                 make([]*transaction.Transaction, 0, maxInflightTransactions),
+		transactionsByID:                   make(map[uuid.UUID]*transaction.CoordinatorTransaction),
+		pooledTransactions:                 make([]*transaction.CoordinatorTransaction, 0, maxInflightTransactions),
 		domainAPI:                          domainAPI,
 		txManager:                          txManager,
 		transportWriter:                    transportWriter,
@@ -156,8 +156,8 @@ func NewCoordinator(
 
 	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
-	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
+	c.inFlightTxns = make(map[uuid.UUID]*transaction.CoordinatorTransaction, c.maxDispatchAhead)
+	c.dispatchQueue = make(chan *transaction.CoordinatorTransaction, maxInflightTransactions)
 
 	// Configuration
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
@@ -244,7 +244,7 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 	return nil
 }
 
-func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
+func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.CoordinatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	log.L(ctx).Debugf("getting transactions in states: %+v", states)
@@ -254,7 +254,7 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	}
 
 	log.L(ctx).Tracef("checking %d transactions for those in states: %+v", len(c.transactionsByID), states)
-	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
+	matchingTxns := make([]*transaction.CoordinatorTransaction, 0, len(c.transactionsByID))
 	for _, txn := range c.transactionsByID {
 		if matchingStates[txn.GetCurrentState()] {
 			log.L(ctx).Debugf("found transaction %s in state %s", txn.GetID().String(), txn.GetCurrentState())

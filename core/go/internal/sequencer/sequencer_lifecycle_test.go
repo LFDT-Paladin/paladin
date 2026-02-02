@@ -58,7 +58,7 @@ type sequencerLifecycleTestMocks struct {
 	keyManager       *componentsmocks.KeyManager
 	domainAPI        *componentsmocks.DomainSmartContract
 	transportWriter  *transport.MockTransportWriter
-	originator       *originator.MockSeqOriginator
+	originator       *originator.MockOriginator
 	coordinator      *coordinator.MockCoordinator
 	syncPoints       *syncpoints.MockSyncPoints
 	metrics          *metrics.MockDistributedSequencerMetrics
@@ -77,7 +77,7 @@ func newSequencerLifecycleTestMocks(t *testing.T) *sequencerLifecycleTestMocks {
 		keyManager:       componentsmocks.NewKeyManager(t),
 		domainAPI:        componentsmocks.NewDomainSmartContract(t),
 		transportWriter:  transport.NewMockTransportWriter(t),
-		originator:       originator.NewMockSeqOriginator(t),
+		originator:       originator.NewMockOriginator(t),
 		coordinator:      coordinator.NewMockCoordinator(t),
 		syncPoints:       syncpoints.NewMockSyncPoints(t),
 		metrics:          metrics.NewMockDistributedSequencerMetrics(t),
