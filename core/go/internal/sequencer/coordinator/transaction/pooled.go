@@ -136,7 +136,7 @@ func (t *Transaction) rePoolDependents(ctx context.Context) error {
 				},
 			})
 			if err != nil {
-				errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error notifying dependent transaction of revert", err)
+				errMsg := i18n.WrapError(ctx, err, msgs.MsgErrorNotifyingDependent)
 				log.L(ctx).Error(errMsg)
 				// Return the first error
 				if rePoolError == nil {
