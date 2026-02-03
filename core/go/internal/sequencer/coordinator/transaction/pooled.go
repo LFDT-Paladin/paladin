@@ -84,7 +84,7 @@ func (t *Transaction) hasUnknownDependencies(ctx context.Context) bool {
 }
 
 // Initializes (or re-initializes) the transaction as it arrives in the pool
-func (t *Transaction) initializeDependencies(ctx context.Context) error {
+func (t *Transaction) initializeForNewAssemply(ctx context.Context) error {
 	if t.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.ID)
 		log.L(ctx).Error(msg)
