@@ -41,17 +41,14 @@ func (t *Transaction) updateSigningIdentity() {
 	}
 }
 
-func (t *Transaction) isNotReady() bool {
-	// test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
-	// a failing test if we add new states in the future and forget to update this list
+func (t *Transaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
+	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
 
-	// "ready" is based on the transaction's dependencies and the signing identity. If the signer is fixed (i.e. the signer of this TX is
-	// the same as the signer of the dependency) we can rely on the base ledger nonce ensuring ordering of the on-chain transactions. However,
-	// if the signer is dynamic the base ledger TX for this Paladin transaction could be mined ahead of the dependency transaction, resulting
-	// in public TX revert & reassembly (with no guarantee of every getting them on to the base ledger in the correct order). In such cases
-	// we are forced to wait for the dependency to be confirmed, not just dispatched.
-
-	if !t.dynamicSigningIdentity {
+	// Whether or not we can safely dispatch this transaction's dependents is partly based on if the base-ledger is providing any ordering protection.
+	// For fixed signing keys the base ledger prevents a dependent transaction getting ahead of this one so as long as this TX has reached one of the dispatch
+	// (or later) states we can let the dependent transactions proceed. For dynamic signing keys there is no such base-ledger ordering guarantee so we
+	// must wait for the TX to get all the way to confirmed state.
+	if !dynamicSigningIdentity {
 		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.ID.String())
 		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
 		notReady := t.GetState() != State_Confirmed &&
@@ -84,7 +81,7 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	if t.previousTransaction != nil && t.previousTransaction.isNotReady() {
+	if t.previousTransaction != nil && t.previousTransaction.dependentsMustWait(t.dynamicSigningIdentity) {
 		return true
 	}
 
@@ -102,7 +99,7 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 			continue
 		}
 
-		if dependency.isNotReady() {
+		if dependency.dependentsMustWait(t.dynamicSigningIdentity) {
 			return true
 		}
 	}

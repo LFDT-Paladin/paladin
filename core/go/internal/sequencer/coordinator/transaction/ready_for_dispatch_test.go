@@ -128,60 +128,53 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 	assert.True(t, txn.dynamicSigningIdentity)
 }
 
-func Test_isNotReady_FixedSigningIdentity_Confirmed(t *testing.T) {
+func Test_dependentsMustWait_FixedSigningIdentity_Confirmed(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = false
 	txn.stateMachine.currentState = State_Confirmed
 
-	assert.False(t, txn.isNotReady())
+	assert.False(t, txn.dependentsMustWait(false))
 }
 
-func Test_isNotReady_FixedSigningIdentity_Submitted(t *testing.T) {
+func Test_dependentsMustWait_FixedSigningIdentity_Submitted(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = false
 	txn.stateMachine.currentState = State_Submitted
 
-	assert.False(t, txn.isNotReady())
+	assert.False(t, txn.dependentsMustWait(false))
 }
 
-func Test_isNotReady_FixedSigningIdentity_Dispatched(t *testing.T) {
+func Test_dependentsMustWait_FixedSigningIdentity_Dispatched(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = false
 	txn.stateMachine.currentState = State_Dispatched
 
-	assert.False(t, txn.isNotReady())
+	assert.False(t, txn.dependentsMustWait(false))
 }
 
-func Test_isNotReady_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
+func Test_dependentsMustWait_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = false
 	txn.stateMachine.currentState = State_Ready_For_Dispatch
 
-	assert.False(t, txn.isNotReady())
+	assert.False(t, txn.dependentsMustWait(false))
 }
 
-func Test_isNotReady_FixedSigningIdentity_NotReady(t *testing.T) {
+func Test_dependentsMustWait_FixedSigningIdentity_NotReady(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = false
 	txn.stateMachine.currentState = State_Assembling
 
-	assert.True(t, txn.isNotReady())
+	assert.True(t, txn.dependentsMustWait(false))
 }
 
-func Test_isNotReady_DynamicSigningIdentity_Confirmed(t *testing.T) {
+func Test_dependentsMustWait_DynamicSigningIdentity_Confirmed(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = true
 	txn.stateMachine.currentState = State_Confirmed
 
-	assert.False(t, txn.isNotReady())
+	assert.False(t, txn.dependentsMustWait(true))
 }
 
-func Test_isNotReady_DynamicSigningIdentity_NotReady(t *testing.T) {
+func Test_dependentsMustWait_DynamicSigningIdentity_NotReady(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dynamicSigningIdentity = true
 	txn.stateMachine.currentState = State_Ready_For_Dispatch
 
-	assert.True(t, txn.isNotReady())
+	assert.True(t, txn.dependentsMustWait(true))
 }
 
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
