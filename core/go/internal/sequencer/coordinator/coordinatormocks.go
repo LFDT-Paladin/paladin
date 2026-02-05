@@ -129,6 +129,39 @@ func (_c *MockCoordinator_QueueEvent_Call) RunAndReturn(run func(ctx context.Con
 	return _c
 }
 
+// Start provides a mock function for the type MockCoordinator
+func (_mock *MockCoordinator) Start() {
+	_mock.Called()
+	return
+}
+
+// MockCoordinator_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type MockCoordinator_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+func (_e *MockCoordinator_Expecter) Start() *MockCoordinator_Start_Call {
+	return &MockCoordinator_Start_Call{Call: _e.mock.On("Start")}
+}
+
+func (_c *MockCoordinator_Start_Call) Run(run func()) *MockCoordinator_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockCoordinator_Start_Call) Return() *MockCoordinator_Start_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockCoordinator_Start_Call) RunAndReturn(run func()) *MockCoordinator_Start_Call {
+	_c.Run(run)
+	return _c
+}
+
 // Stop provides a mock function for the type MockCoordinator
 func (_mock *MockCoordinator) Stop() {
 	_mock.Called()

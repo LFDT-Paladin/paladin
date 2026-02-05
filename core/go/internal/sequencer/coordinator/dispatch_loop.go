@@ -47,21 +47,20 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				}
 			}
 
-			// Dispatch and then asynchronously update the state machine to State_Dispatched
+			// Request dispatch via the transaction state machine (runs dispatch flow and transitions to State_Dispatched)
 			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
-			c.readyForDispatch(ctx, tx)
+			if err := tx.HandleEvent(ctx, &transaction.DispatchEvent{
+				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+					TransactionID: tx.GetID(),
+				},
+			}); err != nil {
+				log.L(ctx).Errorf("dispatch failed for transaction %s: %v", tx.GetID(), err)
+			}
 
 			// Dispatched transactions that result in a chained private transaction don't count towards max dispatch ahead
 			if !tx.HasPreparedPrivateTransaction() {
 				dispatchedAhead++
 			}
-
-			// Update the TX state machine
-			c.queueEventInternal(ctx, &transaction.DispatchedEvent{
-				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-					TransactionID: tx.GetID(),
-				},
-			})
 
 			// We almost never need to wait for the state machine's event loop to process the update to State_Dispatched
 			// but if we hit the max dispatch ahead limit after dispatching this transaction we do, because we can't be sure

@@ -496,7 +496,8 @@ func (dc *domainContract) EndorseTransaction(dCtx components.DomainContext, read
 	}, nil
 }
 
-func (dc *domainContract) PrepareTransaction(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction) error {
+func (dc *domainContract) PrepareTransaction(dCtx components.DomainContext, tx *components.PrivateTransaction) error {
+	readTX := dc.dm.persistence.NOTX()
 	if tx.PreAssembly == nil || tx.PreAssembly.TransactionSpecification == nil ||
 		tx.PostAssembly == nil || tx.Signer == "" {
 		return i18n.NewError(dCtx.Ctx(), msgs.MsgDomainTXIncompletePrepareTransaction)

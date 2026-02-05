@@ -350,7 +350,17 @@ func (tm *txManager) callTransactionPublic(ctx context.Context, result any, call
 	return err
 }
 
-func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (chained *components.ChainedPrivateTransaction, err error) {
+// There are no consumers of this function who want to pass their own DBTX in, but having the option to do so for tests is useful
+// for making assertions on database calls
+func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (chained *components.ChainedPrivateTransaction, err error) {
+	err = tm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		chained, err = tm.prepareChainedPrivateTransaction(ctx, dbTX, originalSender, originalTxID, originalDomain, originalDomainAddress, tx, submitMode)
+		return err
+	})
+	return chained, err
+}
+
+func (tm *txManager) prepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (chained *components.ChainedPrivateTransaction, err error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	tx.Type = pldapi.TransactionTypePrivate.Enum()
 	if tx.IdempotencyKey == "" {

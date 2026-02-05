@@ -15,11 +15,11 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -28,8 +28,8 @@ import (
 )
 
 func Test_guard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build(ctx)
 
 	// Initially revertReason should be nil (zero value for HexBytes)
 	// When nil, String() returns "", so guard returns false
@@ -40,8 +40,8 @@ func Test_guard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 }
 
 func Test_guard_HasRevertReason_TrueWhenSet(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build(ctx)
 
 	// Set revertReason to a non-empty value
 	txn.revertReason = pldtypes.MustParseHexBytes("0x1234567890abcdef")
@@ -53,22 +53,21 @@ func Test_guard_HasRevertReason_TrueWhenSet(t *testing.T) {
 }
 
 func Test_notifyDependentsOfConfirmation_NoDependents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build(ctx)
 
 	err := txn.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
 }
 
 func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build(ctx)
 	missingID := uuid.New()
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{missingID},
@@ -79,17 +78,18 @@ func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
 	// txn1 is the one that confirmed: it notifies its dependents (txn2). It must be in a "ready" state
 	// so that when txn2 receives DependencyReadyEvent, guard_HasDependenciesNotReady is false.
-	txn1 := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(grapher).Build()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(grapher).Build(ctx)
 	// txn2 is the dependent: in State_Blocked so that DependencyReadyEvent triggers transition to State_Confirming_Dispatchable
-	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).
 		PredefinedDependencies(txn1.pt.ID).
-		Build()
+		Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -104,7 +104,7 @@ func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfConfirmation_WithTraceEnabled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Enable trace logging to cover the traceDispatch path
 	log.EnsureInit()
@@ -113,44 +113,44 @@ func Test_notifyDependentsOfConfirmation_WithTraceEnabled(t *testing.T) {
 	defer log.SetLevel(originalLevel)
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.pt.PostAssembly = &components.TransactionPostAssembly{
-		Signatures: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PostAssembly(&components.TransactionPostAssembly{
+			Signatures: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier1",
+					},
 				},
 			},
-		},
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier2",
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier2",
+					},
 				},
 			},
-		},
-	}
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+		}).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build(ctx)
 
 	err := txn1.notifyDependentsOfConfirmation(ctx)
 	assert.NoError(t, err)
 }
 
 func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
 	// Create the main transaction that will notify dependents
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build(ctx)
 
 	// Create a dependent transaction in State_Blocked that will fail when handling DependencyReadyEvent
 	// This happens when transitioning to State_Confirming_Dispatchable triggers action_SendPreDispatchRequest
 	// which calls Hash(), which fails if PostAssembly is nil
 	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher)
-	dependentTxn := dependentTxnBuilder.Build()
+	dependentTxn, _ := dependentTxnBuilder.Build(ctx)
 	dependentID := dependentTxn.pt.ID
 
 	// Remove PostAssembly to cause Hash() to fail when transitioning to State_Confirming_Dispatchable
@@ -176,8 +176,11 @@ func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T)
 }
 
 func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	nonce := pldtypes.HexUint64(42)
 	revertReason := pldtypes.MustParseHexBytes("0x1234")
@@ -189,7 +192,7 @@ func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
 		RevertReason: revertReason,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, revertReason).
 		Return(nil)
 
@@ -198,5 +201,5 @@ func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
 
 	// Assert state: revertReason was set
 	assert.Equal(t, revertReason, txn.revertReason)
-	mocks.transportWriter.AssertExpectations(t)
+	mocks.TransportWriter.AssertExpectations(t)
 }

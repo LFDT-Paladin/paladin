@@ -71,7 +71,14 @@ func (c *realClock) ScheduleTimer(ctx context.Context, duration Duration, f func
 }
 
 type FakeClockForTesting struct {
-	currentTime int
+	currentTime   int
+	pendingTimers []pendingTimer
+}
+
+type pendingTimer struct {
+	fireTime  int
+	callback  func()
+	cancelled *bool
 }
 
 type fakeTime struct {
@@ -82,9 +89,22 @@ type fakeDuration struct {
 	milliseconds int
 }
 
-// On the fake clock, time is just a number
+// On the fake clock, time is just a number (milliseconds).
+// Advance adds to currentTime and runs any scheduled timer callbacks whose fire time is now in the past.
 func (c *FakeClockForTesting) Advance(advance int) {
 	c.currentTime += advance
+	var stillPending []pendingTimer
+	for _, pt := range c.pendingTimers {
+		if pt.cancelled != nil && *pt.cancelled {
+			continue
+		}
+		if pt.fireTime <= c.currentTime && pt.callback != nil {
+			pt.callback()
+			continue
+		}
+		stillPending = append(stillPending, pt)
+	}
+	c.pendingTimers = stillPending
 }
 
 func (c *FakeClockForTesting) Now() Time {
@@ -99,8 +119,19 @@ func (c *FakeClockForTesting) HasExpired(start Time, duration Duration) bool {
 
 }
 
-func (c *FakeClockForTesting) ScheduleTimer(context.Context, Duration, func()) (cancel func()) {
-	return func() {}
+func (c *FakeClockForTesting) ScheduleTimer(_ context.Context, duration Duration, f func()) (cancel func()) {
+	var durationMillis int
+	if fake, ok := duration.(*fakeDuration); ok {
+		durationMillis = fake.milliseconds
+	} else {
+		durationMillis = int(duration.(time.Duration).Milliseconds())
+	}
+	fireTime := c.currentTime + durationMillis
+	cancelled := false
+	c.pendingTimers = append(c.pendingTimers, pendingTimer{fireTime: fireTime, callback: f, cancelled: &cancelled})
+	return func() {
+		cancelled = true
+	}
 }
 
 func (c *FakeClockForTesting) Duration(milliseconds int) Duration {

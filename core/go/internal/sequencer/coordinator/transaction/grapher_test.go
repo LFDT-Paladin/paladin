@@ -16,7 +16,6 @@
 package transaction
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -27,7 +26,7 @@ import (
 )
 
 func Test_SortTransactions_EmptyInput(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{})
 	assert.NoError(t, err)
@@ -36,13 +35,13 @@ func Test_SortTransactions_EmptyInput(t *testing.T) {
 }
 
 func Test_SortTransactions_SingleTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(context.Background())
+	ctx := t.Context()
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn1})
 	assert.NoError(t, err)
 	require.Len(t, sortedTransactions, 1)
@@ -51,19 +50,19 @@ func Test_SortTransactions_SingleTransaction(t *testing.T) {
 }
 
 func Test_SortTransactions_SameOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn1, txn2})
 	require.NoError(t, err)
@@ -74,19 +73,19 @@ func Test_SortTransactions_SameOrder(t *testing.T) {
 }
 
 func Test_SortTransactions_ReverseOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
 	//Provide the transactions in reverse order to test sorting
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn1})
@@ -98,27 +97,27 @@ func Test_SortTransactions_ReverseOrder(t *testing.T) {
 }
 
 func Test_SortTransactions_EndlessLoopPrevention(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	//When a dependency exists that is not in the input list, it should not cause an endless loop
 	// Under normal usage, this should not happen but if it does, we should handle it gracefully with an error
 
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
 	//Provide the transactions in reverse order to test sorting
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
@@ -128,30 +127,30 @@ func Test_SortTransactions_EndlessLoopPrevention(t *testing.T) {
 }
 
 func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	//When a dependency exists that is not in the input list, but the grapher has forgotten it, then it should not cause an error
 	// This is most likely when a dependency exists but has long since been confirmed and removed from the grapher
 
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
 	err := grapher.Forget(txn1.pt.ID) // Simulate that the grapher has been instructed to forget the transaction as a result of it being confirmed
 	assert.NoError(t, err)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
 	//Provide the transactions in reverse order to test sorting
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
@@ -177,25 +176,25 @@ func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
 
 }
 func Test_SortTransactions_CircularDependency(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	// When a circular dependency exists, it should not cause an endless loop
 
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(ctx)
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
+		InputStateIDs(txn1.pt.PostAssembly.OutputStates[0].ID).
+		Build(ctx)
 
 	//Provide the transactions in reverse order to test sorting
 	sortedTransactions, err := SortTransactions(ctx, []*CoordinatorTransaction{txn2, txn3})
@@ -205,11 +204,12 @@ func Test_SortTransactions_CircularDependency(t *testing.T) {
 }
 
 func Test_grapher_Add_TransactionByID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	grapher := NewGrapher(ctx)
 
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).NumberOfOutputStates(1)
-	txn := txnBuilder.Build()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		NumberOfOutputStates(1).
+		Build(ctx)
 
 	grapher.Add(ctx, txn)
 
@@ -219,11 +219,12 @@ func Test_grapher_Add_TransactionByID(t *testing.T) {
 }
 
 func Test_grapher_Forget_RemovesTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	grapher := NewGrapher(ctx)
 
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).NumberOfOutputStates(1)
-	txn := txnBuilder.Build()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		NumberOfOutputStates(1).
+		Build(ctx)
 	grapher.Add(ctx, txn)
 
 	err := grapher.Forget(txn.pt.ID)
@@ -234,12 +235,13 @@ func Test_grapher_Forget_RemovesTransaction(t *testing.T) {
 }
 
 func Test_grapher_ForgetMints_RemovesMinterLookup(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	grapher := NewGrapher(ctx)
 
 	// Build txn with nil grapher so Build() does not register output state; we add it ourselves
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).NumberOfOutputStates(1)
-	txn := txnBuilder.Build()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		NumberOfOutputStates(1).
+		Build(ctx)
 	stateID := txn.pt.PostAssembly.OutputStates[0].ID
 
 	grapher.Add(ctx, txn)
@@ -258,19 +260,19 @@ func Test_grapher_ForgetMints_RemovesMinterLookup(t *testing.T) {
 }
 
 func Test_grapher_AddMinter_DuplicateMinter(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	grapher := NewGrapher(ctx)
 
 	// Create two different transactions
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn2 := txnBuilder2.Build()
+		NumberOfOutputStates(1).
+		Build(ctx)
 
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
 

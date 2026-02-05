@@ -28,7 +28,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -77,11 +76,20 @@ func (r *SentMessageRecorder) HasSentHeartbeat() bool {
 	return r.sentHeartbeatCount > 0
 }
 
+// noopBuildNullifiers is used in unit tests when the dispatch path is not exercised or uses mocks.
+var noopBuildNullifiers = func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error) {
+	return nil, nil
+}
+
+// noopNewPrivateTransactions is used in unit tests when the dispatch path is not exercised or uses mocks.
+var noopNewPrivateTransactions = func(context.Context, []*components.ValidatedTransaction) error {
+	return nil
+}
+
 type CoordinatorBuilderForTesting struct {
+	t                                        *testing.T
 	state                                    State
 	originatorIdentityPool                   []string
-	domainAPI                                *componentsmocks.DomainSmartContract
-	txManager                                *componentsmocks.TXManager
 	contractAddress                          *pldtypes.EthAddress
 	currentBlockHeight                       *uint64
 	activeCoordinatorBlockHeight             *uint64
@@ -101,8 +109,14 @@ type CoordinatorDependencyMocks struct {
 	SentMessageRecorder *SentMessageRecorder
 	Clock               *common.FakeClockForTesting
 	EngineIntegration   *common.FakeEngineIntegrationForTesting
-	SyncPoints          syncpoints.SyncPoints
+	SyncPoints          *syncpoints.MockSyncPoints
 	emittedEvents       []common.Event
+	DomainAPI           *componentsmocks.DomainSmartContract
+	Domain              *componentsmocks.Domain
+	TXManager           *componentsmocks.TXManager
+	KeyManager          *componentsmocks.KeyManager
+	PublicTxManager     *componentsmocks.PublicTxManager
+	DomainContext       components.DomainContext
 }
 
 // copySequencerDefaultsForTest returns a deep copy of SequencerDefaults so tests that mutate
@@ -180,16 +194,17 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 }
 
 func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuilderForTesting {
-
-	domainAPI := componentsmocks.NewDomainSmartContract(t)
-	txManager := componentsmocks.NewTXManager(t)
 	return &CoordinatorBuilderForTesting{
+		t:               t,
 		state:           state,
-		domainAPI:       domainAPI,
-		txManager:       txManager,
 		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 		sequencerConfig: copySequencerDefaultsForTest(),
 	}
+}
+
+func (b *CoordinatorBuilderForTesting) ActiveCoordinator(activeCoordinator string) *CoordinatorBuilderForTesting {
+	b.activeCoordinator = &activeCoordinator
+	return b
 }
 
 func (b *CoordinatorBuilderForTesting) OriginatorIdentityPool(originatorIdentityPool ...string) *CoordinatorBuilderForTesting {
@@ -238,14 +253,6 @@ func (b *CoordinatorBuilderForTesting) GetFlushPointHash() pldtypes.Bytes32 {
 	return *b.flushPointHash
 }
 
-func (b *CoordinatorBuilderForTesting) GetDomainAPI() *componentsmocks.DomainSmartContract {
-	return b.domainAPI
-}
-
-func (b *CoordinatorBuilderForTesting) GetTXManager() *componentsmocks.TXManager {
-	return b.txManager
-}
-
 func (b *CoordinatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerConfig {
 	return b.sequencerConfig
 }
@@ -264,22 +271,26 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		Clock:               &common.FakeClockForTesting{},
 		EngineIntegration:   &common.FakeEngineIntegrationForTesting{},
 		SyncPoints:          &syncpoints.MockSyncPoints{},
+		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
+		Domain:              componentsmocks.NewDomain(b.t),
+		TXManager:           componentsmocks.NewTXManager(b.t),
+		KeyManager:          componentsmocks.NewKeyManager(b.t),
+		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
+		DomainContext:       componentsmocks.NewDomainContext(b.t),
 	}
+	mocks.DomainAPI.EXPECT().Domain().Return(mocks.Domain).Maybe()
 
 	b.emitFunction = func(event common.Event) {
 		mocks.emittedEvents = append(mocks.emittedEvents, event)
 	}
 
-	ctx, cancelCtx := context.WithCancel(ctx)
-	b.domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	}).Maybe()
-	coordinator, err := NewCoordinator(
+	coordinator := NewCoordinator(
 		ctx,
-		cancelCtx,
 		b.contractAddress, // Contract address,
-		b.domainAPI,
-		b.txManager,
+		mocks.DomainAPI,
+		mocks.TXManager,
+		mocks.KeyManager,
+		mocks.PublicTxManager,
 		mocks.SentMessageRecorder,
 		mocks.Clock,
 		mocks.EngineIntegration,
@@ -288,20 +299,27 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		b.sequencerConfig,
 		"node1",
 		b.metrics,
-		func(context.Context, *transaction.CoordinatorTransaction) {},         // onReadyForDispatch function, not used in tests
+		mocks.DomainContext,
+		noopBuildNullifiers,
+		noopNewPrivateTransactions,
 		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {}, // coordinatorStarted function, not used in tests
 		func(contractAddress *pldtypes.EthAddress) {},                         // coordinatorIdle function, not used in tests
 	)
-	if err != nil {
-		panic(err)
-	}
 
 	for _, tx := range b.transactions {
 		coordinator.transactionsByID[tx.GetID()] = tx
+		coordinator.pooledTransactions = append(coordinator.pooledTransactions, tx)
 	}
 
 	coordinator.stateMachineEventLoop.StateMachine().CurrentState = b.state
 	switch b.state {
+	case State_Initial:
+		fallthrough
+	case State_Idle:
+		if b.currentBlockHeight == nil {
+			b.currentBlockHeight = ptrTo(uint64(0))
+		}
+		coordinator.currentBlockHeight = *b.currentBlockHeight
 	case State_Observing:
 		fallthrough
 	case State_Standby:

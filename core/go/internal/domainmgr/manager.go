@@ -308,6 +308,10 @@ func (dm *domainManager) getDomainByAddressOrNil(addr *pldtypes.EthAddress) *dom
 	return dm.domainsByAddress[*addr]
 }
 
+func (dm *domainManager) GetSmartContractByAddressNOTX(ctx context.Context, addr pldtypes.EthAddress) (components.DomainSmartContract, error) {
+	return dm.GetSmartContractByAddress(ctx, dm.persistence.NOTX(), addr)
+}
+
 func (dm *domainManager) GetSmartContractByAddress(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress) (components.DomainSmartContract, error) {
 	ctx = log.WithComponent(ctx, "domainmanager")
 	loadResult, dc, err := dm.getSmartContractCached(ctx, dbTX, addr)

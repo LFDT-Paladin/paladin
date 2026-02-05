@@ -63,8 +63,10 @@ type PublicTxManager interface {
 	QueryPublicTxWithBindings(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error)
 	GetPublicTransactionForHash(ctx context.Context, dbTX persistence.DBTX, hash pldtypes.Bytes32) (*pldapi.PublicTxWithBinding, error)
 
-	// Perform (potentially expensive) transaction level validation, such as gas estimation. Call before starting a DB transaction
+	// Perform (potentially expensive) transaction level validation, such as gas estimation.
+	// TODO: ValidateTransaction should not require a DBTX as it means we're holding a DB log while estimating gas on the chain
 	ValidateTransaction(ctx context.Context, dbTX persistence.DBTX, transaction *PublicTxSubmission) error
+	ValidateTransactionNOTX(ctx context.Context, transaction *PublicTxSubmission) error
 	// Write a set of validated transactions to the public TX mgr database, notifying the relevant orchestrator(s) to wake, assign nonces, and start the submission process
 	WriteNewTransactions(ctx context.Context, dbTX persistence.DBTX, transactions []*PublicTxSubmission) ([]*pldapi.PublicTx, error)
 	// Write a set of received public transaction submissions to the public TX mgr database. These are informational submissions, not for us to act on
