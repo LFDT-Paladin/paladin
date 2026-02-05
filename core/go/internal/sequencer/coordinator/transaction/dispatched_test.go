@@ -15,17 +15,20 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_action_Collected_SetsSignerAddress(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	signerAddr := pldtypes.RandAddress()
 	event := &CollectedEvent{
@@ -44,8 +47,11 @@ func Test_action_Collected_SetsSignerAddress(t *testing.T) {
 }
 
 func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	nonce := uint64(123)
 	event := &NonceAllocatedEvent{
@@ -55,7 +61,7 @@ func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 		Nonce: nonce,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, nonce).
 		Return(nil)
 
@@ -65,12 +71,15 @@ func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 	// Assert state: nonce was set
 	require.NotNil(t, txn.nonce)
 	assert.Equal(t, nonce, *txn.nonce)
-	mocks.transportWriter.AssertExpectations(t)
+	mocks.TransportWriter.AssertExpectations(t)
 }
 
 func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	event := &NonceAllocatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -79,7 +88,7 @@ func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 		Nonce: 1,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, uint64(1)).
 		Return(assert.AnError)
 
@@ -92,8 +101,11 @@ func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 }
 
 func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -103,7 +115,7 @@ func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(nil)
 
@@ -113,12 +125,15 @@ func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 	// Assert state: latestSubmissionHash was set
 	require.NotNil(t, txn.latestSubmissionHash)
 	assert.Equal(t, submissionHash, *txn.latestSubmissionHash)
-	mocks.transportWriter.AssertExpectations(t)
+	mocks.TransportWriter.AssertExpectations(t)
 }
 
 func Test_action_Submitted_PropagatesSendError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		TransportWriter(transport.NewMockTransportWriter(t)).
+		OriginatorNode("senderNode").
+		Build(ctx)
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -128,7 +143,7 @@ func Test_action_Submitted_PropagatesSendError(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(assert.AnError)
 

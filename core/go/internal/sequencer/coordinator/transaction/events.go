@@ -183,18 +183,17 @@ func (*CollectedEvent) TypeString() string {
 	return "Event_Collected"
 }
 
-// DispatchedEvent
-// Collected by the dispatcher thread and dispatched to the public transaction manager
-type DispatchedEvent struct {
+// DispatchEvent tells the transaction it can perform the dispatch flow (prepare, persist, chained txs) and transition to State_Dispatched.
+type DispatchEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*DispatchedEvent) Type() EventType {
-	return Event_Dispatched
+func (*DispatchEvent) Type() EventType {
+	return Event_Dispatch
 }
 
-func (*DispatchedEvent) TypeString() string {
-	return "Event_Dispatched"
+func (*DispatchEvent) TypeString() string {
+	return "Event_Dispatch"
 }
 
 // NonceAllocatedEvent

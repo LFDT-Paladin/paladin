@@ -40,21 +40,26 @@ type identityForTesting struct {
 }
 
 type PrivateTransactionBuilderForTesting struct {
-	id                     uuid.UUID
-	originatorName         string
-	originatorNode         string
-	originator             *identityForTesting
-	domain                 string
-	address                pldtypes.EthAddress
-	signerAddress          *pldtypes.EthAddress
-	numberOfEndorsers      int
-	numberOfEndorsements   int
-	numberOfOutputStates   int
-	inputStateIDs          []pldtypes.HexBytes
-	readStateIDs           []pldtypes.HexBytes
-	endorsers              []*identityForTesting
-	revertReason           *string
-	predefinedDependencies []uuid.UUID
+	id                        uuid.UUID
+	originatorName            string
+	originatorNode            string
+	originator                *identityForTesting
+	domain                    string
+	address                   pldtypes.EthAddress
+	signerAddress             *pldtypes.EthAddress
+	numberOfEndorsers         int
+	numberOfEndorsements      int
+	numberOfOutputStates      int
+	inputStateIDs             []pldtypes.HexBytes
+	readStateIDs              []pldtypes.HexBytes
+	endorsers                 []*identityForTesting
+	revertReason              *string
+	predefinedDependencies    []uuid.UUID
+	intent                    prototk.TransactionSpecification_Intent
+	preparedPrivateTransaction *pldapi.TransactionInput
+	preparedPublicTransaction  *pldapi.TransactionInput
+	noOutputStatesPotential   bool
+	signer                     string
 }
 
 // useful for creating multiple transactions in a test, from the same originator
@@ -201,6 +206,36 @@ func (b *PrivateTransactionBuilderForTesting) Reverts(revertReason string) *Priv
 	return b
 }
 
+// Intent sets the transaction specification intent (e.g. SEND_TRANSACTION, PREPARE_TRANSACTION).
+func (b *PrivateTransactionBuilderForTesting) Intent(intent prototk.TransactionSpecification_Intent) *PrivateTransactionBuilderForTesting {
+	b.intent = intent
+	return b
+}
+
+// PreparedPrivateTransaction sets the prepared private transaction result (as would be set by domain PrepareTransaction).
+func (b *PrivateTransactionBuilderForTesting) PreparedPrivateTransaction(tx *pldapi.TransactionInput) *PrivateTransactionBuilderForTesting {
+	b.preparedPrivateTransaction = tx
+	return b
+}
+
+// PreparedPublicTransaction sets the prepared public transaction result (as would be set by domain PrepareTransaction).
+func (b *PrivateTransactionBuilderForTesting) PreparedPublicTransaction(tx *pldapi.TransactionInput) *PrivateTransactionBuilderForTesting {
+	b.preparedPublicTransaction = tx
+	return b
+}
+
+// NoOutputStatesPotential leaves OutputStatesPotential nil so state distribution builder will fail (for error-path tests).
+func (b *PrivateTransactionBuilderForTesting) NoOutputStatesPotential() *PrivateTransactionBuilderForTesting {
+	b.noOutputStatesPotential = true
+	return b
+}
+
+// Signer sets the transaction signer (identity locator). If not set, pt.Signer is left empty.
+func (b *PrivateTransactionBuilderForTesting) Signer(s string) *PrivateTransactionBuilderForTesting {
+	b.signer = s
+	return b
+}
+
 func (b *PrivateTransactionBuilderForTesting) GetEndorsementName(endorserIndex int) string {
 	return fmt.Sprintf("endorse-%d", endorserIndex)
 }
@@ -244,14 +279,27 @@ func (b *PrivateTransactionBuilderForTesting) Build() *components.PrivateTransac
 
 	b.initializeOriginator()
 	b.initializeEndorsers()
-	return &components.PrivateTransaction{
-		ID:           b.id,
-		Domain:       b.domain,
-		Address:      b.address,
+	pt := &components.PrivateTransaction{
+		ID:          b.id,
+		Domain:      b.domain,
+		Address:     b.address,
 		PreAssembly:  b.BuildPreAssembly(),
 		PostAssembly: b.BuildPostAssembly(),
 	}
-
+	if b.signer != "" {
+		pt.Signer = b.signer
+	}
+	if b.preparedPrivateTransaction != nil {
+		copyTx := *b.preparedPrivateTransaction
+		copyTx.To = &pt.Address
+		pt.PreparedPrivateTransaction = &copyTx
+	}
+	if b.preparedPublicTransaction != nil {
+		copyTx := *b.preparedPublicTransaction
+		copyTx.To = &pt.Address
+		pt.PreparedPublicTransaction = &copyTx
+	}
+	return pt
 }
 
 // Function BuildSparse creates a new private transaction with only the PreAssembly populated
@@ -303,6 +351,15 @@ func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *components.Tra
 	if b.predefinedDependencies != nil {
 		preAssembly.Dependencies = &pldapi.TransactionDependencies{}
 		preAssembly.Dependencies.DependsOn = append(preAssembly.Dependencies.DependsOn, b.predefinedDependencies...)
+	}
+
+	intent := b.intent
+	if intent == 0 {
+		intent = prototk.TransactionSpecification_SEND_TRANSACTION
+	}
+	preAssembly.TransactionSpecification = &prototk.TransactionSpecification{
+		Intent: intent,
+		From:   b.originator.identityLocator,
 	}
 
 	return preAssembly
@@ -394,6 +451,11 @@ func (b *PrivateTransactionBuilderForTesting) BuildPostAssembly() *components.Tr
 		postAssembly.OutputStates = append(postAssembly.OutputStates, &components.FullState{
 			ID: pldtypes.HexBytes(pldtypes.RandBytes(32)),
 		})
+		if !b.noOutputStatesPotential {
+			postAssembly.OutputStatesPotential = append(postAssembly.OutputStatesPotential, &prototk.NewState{
+				DistributionList: []string{b.originator.identityLocator},
+			})
+		}
 	}
 
 	for _, inputStateID := range b.inputStateIDs {

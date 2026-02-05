@@ -16,11 +16,11 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -30,17 +30,18 @@ import (
 )
 
 func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
+	ctx := t.Context()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
+					Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
+				},
 			},
-		},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+		}).
+		Build(ctx)
+	mocks.DomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR}).Maybe()
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -52,9 +53,11 @@ func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) 
 }
 
 func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.pt.PostAssembly = nil
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR}).Maybe()
+	txn.domainAPI = mockDomainAPI
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -65,11 +68,13 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		Endorsements: []*prototk.AttestationResult{},
 	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR}).Maybe()
+	txn.domainAPI = mockDomainAPI
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -80,7 +85,7 @@ func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	verifierLookup := "verifier1"
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		Endorsements: []*prototk.AttestationResult{
@@ -94,7 +99,9 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 			},
 		},
 	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR}).Maybe()
+	txn.domainAPI = mockDomainAPI
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -105,7 +112,7 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		Endorsements: []*prototk.AttestationResult{
 			{
@@ -116,7 +123,9 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 			},
 		},
 	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR}).Maybe()
+	txn.domainAPI = mockDomainAPI
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -127,7 +136,7 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		Endorsements: []*prototk.AttestationResult{
 			{
@@ -141,7 +150,9 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 		},
 	}
 	// Use a different submitter selection value (0 is COORDINATOR, so use 1 or higher)
-	txn.submitterSelection = 999 // Invalid value to test the condition
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{SubmitterSelection: prototk.ContractConfig_SubmitterSelection(999)}).Maybe()
+	txn.domainAPI = mockDomainAPI
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -152,7 +163,7 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 }
 
 func Test_isNotReady_FixedSigningIdentity_Confirmed(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = false
 	txn.stateMachine.CurrentState = State_Confirmed
 
@@ -160,7 +171,7 @@ func Test_isNotReady_FixedSigningIdentity_Confirmed(t *testing.T) {
 }
 
 func Test_isNotReady_FixedSigningIdentity_Submitted(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = false
 	txn.stateMachine.CurrentState = State_Submitted
 
@@ -168,7 +179,7 @@ func Test_isNotReady_FixedSigningIdentity_Submitted(t *testing.T) {
 }
 
 func Test_isNotReady_FixedSigningIdentity_Dispatched(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = false
 	txn.stateMachine.CurrentState = State_Dispatched
 
@@ -176,7 +187,7 @@ func Test_isNotReady_FixedSigningIdentity_Dispatched(t *testing.T) {
 }
 
 func Test_isNotReady_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = false
 	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
 
@@ -184,7 +195,7 @@ func Test_isNotReady_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
 }
 
 func Test_isNotReady_FixedSigningIdentity_NotReady(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = false
 	txn.stateMachine.CurrentState = State_Assembling
 
@@ -192,7 +203,7 @@ func Test_isNotReady_FixedSigningIdentity_NotReady(t *testing.T) {
 }
 
 func Test_isNotReady_DynamicSigningIdentity_Confirmed(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = true
 	txn.stateMachine.CurrentState = State_Confirmed
 
@@ -200,7 +211,7 @@ func Test_isNotReady_DynamicSigningIdentity_Confirmed(t *testing.T) {
 }
 
 func Test_isNotReady_DynamicSigningIdentity_NotReady(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(t.Context())
 	txn.dynamicSigningIdentity = true
 	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
 
@@ -208,9 +219,9 @@ func Test_isNotReady_DynamicSigningIdentity_NotReady(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
 	txn.dependencies = &pldapi.TransactionDependencies{}
 	txn.pt.PreAssembly = nil
 
@@ -218,10 +229,10 @@ func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	missingID := uuid.New()
 	txn.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{missingID},
@@ -232,14 +243,14 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn1.stateMachine.CurrentState = State_Assembling
 	txn1.dynamicSigningIdentity = false
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -249,14 +260,14 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn1.stateMachine.CurrentState = State_Confirmed
 	txn1.dynamicSigningIdentity = false
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -266,14 +277,14 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn1.stateMachine.CurrentState = State_Assembling
 	txn1.dynamicSigningIdentity = false
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{}
 	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
 		Dependencies: &pldapi.TransactionDependencies{
@@ -285,18 +296,18 @@ func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn1.stateMachine.CurrentState = State_Confirmed
 	txn1.dynamicSigningIdentity = false
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.stateMachine.CurrentState = State_Assembling
 	txn2.dynamicSigningIdentity = false
 
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn3.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -310,9 +321,9 @@ func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *
 }
 
 func Test_traceDispatch_WithPostAssembly(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
 	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -335,9 +346,9 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
@@ -347,10 +358,10 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	missingID := uuid.New()
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{missingID},
@@ -361,16 +372,24 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
+
+	mockDomainAPI := componentsmocks.NewDomainSmartContract(t)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.EXPECT().FixedSigningIdentity().Return("").Maybe()
+	mockDomainAPI.EXPECT().Domain().Return(mockDomain).Maybe()
 	// txn1 is the notifier: it enters Ready_For_Dispatch and notifies its dependents (txn2)
-	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		// DomainAPI(mockDomainAPI).
+		Grapher(grapher).
+		Build(ctx)
 	// txn2 is the dependent: it must be in State_Blocked so that Event_DependencyReady causes a transition to State_Confirming_Dispatchable
-	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).
 		PredefinedDependencies(txn1.pt.ID).
-		Build()
+		Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -385,7 +404,7 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Enable trace logging to cover the traceDispatch path
 	log.EnsureInit()
@@ -394,7 +413,7 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 	defer log.SetLevel(originalLevel)
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn1.pt.PostAssembly = &components.TransactionPostAssembly{
 		Signatures: []*prototk.AttestationResult{
 			{
@@ -420,18 +439,18 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
 	// Create the main transaction that will notify dependents
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 
 	// Create a dependent transaction in State_Blocked that will fail when handling DependencyReadyEvent
 	// This happens when transitioning to State_Confirming_Dispatchable triggers action_SendPreDispatchRequest
 	// which calls Hash(), which fails if PostAssembly is nil
 	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher)
-	dependentTxn := dependentTxnBuilder.Build()
+	dependentTxn, _ := dependentTxnBuilder.Build(ctx)
 	dependentID := dependentTxn.pt.ID
 
 	// Remove PostAssembly to cause Hash() to fail when transitioning to State_Confirming_Dispatchable
@@ -457,10 +476,10 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 }
 
 func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.domainSigningIdentity = "domain-signer"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
+	mocks.Domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
@@ -471,10 +490,10 @@ func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
 }
 
 func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.domainSigningIdentity = ""
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
+	mocks.Domain.EXPECT().FixedSigningIdentity().Return("")
 	txn.pt.Signer = ""
 	addr := pldtypes.RandAddress()
 	txn.pt.Address = *addr
@@ -488,9 +507,9 @@ func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
 }
 
 func Test_action_NotifyDependentsOfReadiness_WithExistingSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
 	txn.pt.Signer = "existing-signer"
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
@@ -502,11 +521,12 @@ func Test_action_NotifyDependentsOfReadiness_WithExistingSigner(t *testing.T) {
 }
 
 func Test_action_NotifyDependentsOfReadiness_WithoutSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
+	mocks.Domain.EXPECT().FixedSigningIdentity().Return("")
 	txn.pt.Signer = ""
-	txn.domainSigningIdentity = ""
+	// domainAPI is nil so fixedIdentity is "" and dynamic identity is used
 	addr := pldtypes.RandAddress()
 	txn.pt.Address = *addr
 	txn.dependencies = &pldapi.TransactionDependencies{
@@ -519,9 +539,9 @@ func Test_action_NotifyDependentsOfReadiness_WithoutSigner(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_NoDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build(ctx)
 	txn.dependencies = &pldapi.TransactionDependencies{}
 	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
@@ -529,10 +549,10 @@ func Test_hasDependenciesNotIn_NoDependencies(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_DependencyNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	missingID := uuid.New()
 	txn.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{missingID},
@@ -543,11 +563,11 @@ func Test_hasDependenciesNotIn_DependencyNotInMemory(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_DependencyNotInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -557,11 +577,11 @@ func Test_hasDependenciesNotIn_DependencyNotInIgnoreList(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_DependencyInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -571,11 +591,11 @@ func Test_hasDependenciesNotIn_DependencyInIgnoreList(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_PreAssemblyDependencyNotInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{}
 	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
 		Dependencies: &pldapi.TransactionDependencies{
@@ -587,11 +607,11 @@ func Test_hasDependenciesNotIn_PreAssemblyDependencyNotInIgnoreList(t *testing.T
 }
 
 func Test_hasDependenciesNotIn_PreAssemblyDependencyInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn2.dependencies = &pldapi.TransactionDependencies{}
 	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
 		Dependencies: &pldapi.TransactionDependencies{
@@ -603,12 +623,12 @@ func Test_hasDependenciesNotIn_PreAssemblyDependencyInIgnoreList(t *testing.T) {
 }
 
 func Test_hasDependenciesNotIn_MultipleDependencies_OneInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn3.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID, txn2.pt.ID},
 	}
@@ -618,12 +638,12 @@ func Test_hasDependenciesNotIn_MultipleDependencies_OneInIgnoreList(t *testing.T
 }
 
 func Test_hasDependenciesNotIn_MultipleDependencies_AllInIgnoreList(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build(ctx)
 	txn3.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID, txn2.pt.ID},
 	}

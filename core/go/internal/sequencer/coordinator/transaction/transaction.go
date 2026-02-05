@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
@@ -43,9 +42,7 @@ type CoordinatorTransaction struct {
 	originator             string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode         string // The node the originator is running on e.g. "node1"
 	signerAddress          *pldtypes.EthAddress
-	domainSigningIdentity  string                                    // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
-	submitterSelection     prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
-	dynamicSigningIdentity bool                                      // True if the signing identity isn't fixed by domain config or endorser constraints
+	dynamicSigningIdentity bool // True if the signing identity isn't fixed by domain config or endorser constraints
 	latestSubmissionHash   *pldtypes.Bytes32
 	nonce                  *uint64
 	revertReason           pldtypes.HexBytes
@@ -79,6 +76,14 @@ type CoordinatorTransaction struct {
 	syncPoints               syncpoints.SyncPoints
 	queueEventForCoordinator func(context.Context, common.Event)
 	metrics                  metrics.DistributedSequencerMetrics
+	keyManager               components.KeyManager
+	publicTxManager          components.PublicTxManager
+	txManager                components.TXManager
+	domainAPI                components.DomainSmartContract
+	dCtx                     components.DomainContext
+	nodeName                 string
+	buildNullifiers          func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error)
+	newPrivateTransaction    func(context.Context, []*components.ValidatedTransaction) error
 }
 
 func NewTransaction(
@@ -86,6 +91,7 @@ func NewTransaction(
 	originator string,
 	pt *components.PrivateTransaction,
 	hasChainedTransaction bool,
+	nodeName string,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
@@ -94,10 +100,15 @@ func NewTransaction(
 	requestTimeout,
 	assembleTimeout common.Duration,
 	finalizingGracePeriod int,
-	domainSigningIdentity string,
-	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
+	keyManager components.KeyManager,
+	publicTxManager components.PublicTxManager,
+	txManager components.TXManager,
+	domainAPI components.DomainSmartContract,
+	dCtx components.DomainContext,
+	buildNullifiers func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error),
+	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
 ) (*CoordinatorTransaction, error) {
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
@@ -113,7 +124,6 @@ func NewTransaction(
 		queueEventForCoordinator:   queueEventForCoordinator,
 		engineIntegration:          engineIntegration,
 		syncPoints:                 syncPoints,
-		domainSigningIdentity:      domainSigningIdentity,
 		dynamicSigningIdentity:     true, // Assume no nonce protection for dispatch ordering until we determine otherwise
 		requestTimeout:             requestTimeout,
 		assembleTimeout:            assembleTimeout,
@@ -122,6 +132,14 @@ func NewTransaction(
 		grapher:                    grapher,
 		metrics:                    metrics,
 		chainedTxAlreadyDispatched: hasChainedTransaction,
+		keyManager:                 keyManager,
+		publicTxManager:            publicTxManager,
+		txManager:                  txManager,
+		domainAPI:                  domainAPI,
+		dCtx:                       dCtx,
+		nodeName:                   nodeName,
+		buildNullifiers:            buildNullifiers,
+		newPrivateTransaction:      newPrivateTransaction,
 	}
 	txn.initializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)
@@ -173,45 +191,10 @@ func (t *CoordinatorTransaction) GetErrorCount() int {
 	return t.errorCount
 }
 
-// GetPrivateTransaction returns the private transaction for code where we really cannot do without the whole struct.
-// Where possible, consumers should use the getters for individual values which then become immutable outside of this struct as
-// returning the pointer to the whole struct opens to the door to the possibility of modifications outside of the state machine.
-// TODO: Ideally there would be an interface around *components.PrivateTransaction to allow consumers more complete read only
-// access.
-func (t *CoordinatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt
-}
-
 func (t *CoordinatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
-}
-
-func (t *CoordinatorTransaction) GetDomain() string {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.Domain
-}
-
-func (t *CoordinatorTransaction) GetContractAddress() pldtypes.EthAddress {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.Address
-}
-
-func (t *CoordinatorTransaction) GetTransactionSpecification() *prototk.TransactionSpecification {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PreAssembly.TransactionSpecification
-}
-
-func (t *CoordinatorTransaction) GetOriginalSender() string {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PreAssembly.TransactionSpecification.From
 }
 
 func (t *CoordinatorTransaction) GetOutputStateIDs() []pldtypes.HexBytes {
@@ -230,16 +213,4 @@ func (t *CoordinatorTransaction) HasPreparedPrivateTransaction() bool {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreparedPrivateTransaction != nil
-}
-
-func (t *CoordinatorTransaction) HasPreparedPublicTransaction() bool {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.PreparedPublicTransaction != nil
-}
-
-func (t *CoordinatorTransaction) GetSigner() string {
-	t.RLock()
-	defer t.RUnlock()
-	return t.pt.Signer
 }

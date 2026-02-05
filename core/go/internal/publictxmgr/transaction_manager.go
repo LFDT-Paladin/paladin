@@ -253,6 +253,10 @@ func (ptm *pubTxManager) SingleTransactionSubmit(ctx context.Context, txi *compo
 	return tx, err
 }
 
+func (ptm *pubTxManager) ValidateTransactionNOTX(ctx context.Context, txi *components.PublicTxSubmission) error {
+	return ptm.ValidateTransaction(ctx, ptm.p.NOTX(), txi)
+}
+
 func (ptm *pubTxManager) ValidateTransaction(ctx context.Context, dbTX persistence.DBTX, txi *components.PublicTxSubmission) error {
 	ctx = log.WithComponent(ctx, "publictxnmanager")
 	log.L(ctx).Tracef("ValidateTransaction transaction: %+v", txi)

@@ -400,26 +400,6 @@ func TestCollectedEvent_Fields(t *testing.T) {
 	assert.Equal(t, signerAddress, event.SignerAddress)
 }
 
-func TestDispatchedEvent_Type(t *testing.T) {
-	event := &DispatchedEvent{}
-	assert.Equal(t, Event_Dispatched, event.Type())
-}
-
-func TestDispatchedEvent_TypeString(t *testing.T) {
-	event := &DispatchedEvent{}
-	assert.Equal(t, "Event_Dispatched", event.TypeString())
-}
-
-func TestDispatchedEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &DispatchedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
 func TestNonceAllocatedEvent_Type(t *testing.T) {
 	event := &NonceAllocatedEvent{}
 	assert.Equal(t, Event_NonceAllocated, event.Type())
@@ -746,7 +726,7 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&DispatchedEvent{
+		&DispatchEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

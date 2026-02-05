@@ -44,6 +44,7 @@ type Coordinator interface {
 	GetCurrentState() State
 
 	// Lifecycle
+	Start()
 	Stop()
 }
 
@@ -57,6 +58,7 @@ type coordinator struct {
 
 	ctx       context.Context
 	cancelCtx context.CancelFunc
+	started   bool
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
 	stateMachineEventLoop                      *statemachine.StateMachineEventLoop[State, *coordinator]
@@ -83,18 +85,22 @@ type coordinator struct {
 	maxDispatchAhead               int
 
 	/* Dependencies */
-	domainAPI         components.DomainSmartContract
-	transportWriter   transport.TransportWriter
-	clock             common.Clock
-	engineIntegration common.EngineIntegration
-	txManager         components.TXManager
-	syncPoints        syncpoints.SyncPoints
-	readyForDispatch  func(context.Context, *transaction.CoordinatorTransaction)
-	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
-	coordinatorIdle   func(contractAddress *pldtypes.EthAddress)
-	heartbeatCtx      context.Context
-	heartbeatCancel   context.CancelFunc
-	metrics           metrics.DistributedSequencerMetrics
+	domainAPI             components.DomainSmartContract
+	transportWriter       transport.TransportWriter
+	clock                 common.Clock
+	engineIntegration     common.EngineIntegration
+	txManager             components.TXManager
+	keyManager            components.KeyManager
+	publicTxManager       components.PublicTxManager
+	syncPoints            syncpoints.SyncPoints
+	dCtx                  components.DomainContext
+	buildNullifiers       func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error)
+	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error
+	coordinatorActive     func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
+	coordinatorIdle       func(contractAddress *pldtypes.EthAddress)
+	heartbeatCtx          context.Context
+	heartbeatCancel       context.CancelFunc
+	metrics               metrics.DistributedSequencerMetrics
 
 	/* Dispatch loop */
 	dispatchQueue       chan *transaction.CoordinatorTransaction
@@ -106,10 +112,11 @@ type coordinator struct {
 
 func NewCoordinator(
 	ctx context.Context,
-	cancelCtx context.CancelFunc,
 	contractAddress *pldtypes.EthAddress,
 	domainAPI components.DomainSmartContract,
 	txManager components.TXManager,
+	keyManager components.KeyManager,
+	publicTxManager components.PublicTxManager,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
@@ -118,19 +125,24 @@ func NewCoordinator(
 	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
-	readyForDispatch func(context.Context, *transaction.CoordinatorTransaction),
+	dCtx components.DomainContext,
+	buildNullifiers func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error),
+	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error,
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
-) (*coordinator, error) {
+) *coordinator {
 	maxInflightTransactions := confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
+	coordinatorCtx, coordinatorCancelCtx := context.WithCancel(ctx)
 	c := &coordinator{
-		ctx:                                ctx,
-		cancelCtx:                          cancelCtx,
+		ctx:                                coordinatorCtx,
+		cancelCtx:                          coordinatorCancelCtx,
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]*transaction.CoordinatorTransaction),
 		pooledTransactions:                 make([]*transaction.CoordinatorTransaction, 0, maxInflightTransactions),
 		domainAPI:                          domainAPI,
 		txManager:                          txManager,
+		keyManager:                         keyManager,
+		publicTxManager:                    publicTxManager,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
 		maxInflightTransactions:            maxInflightTransactions,
@@ -138,7 +150,9 @@ func NewCoordinator(
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
-		readyForDispatch:                   readyForDispatch,
+		dCtx:                               dCtx,
+		buildNullifiers:                    buildNullifiers,
+		newPrivateTransaction:              newPrivateTransaction,
 		coordinatorActive:                  coordinatorActive,
 		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
@@ -168,19 +182,22 @@ func NewCoordinator(
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
+	return c
+}
+
+func (c *coordinator) Start() {
 	// Start the state machine event loop
-	go c.stateMachineEventLoop.Start(ctx)
+	go c.stateMachineEventLoop.Start(c.ctx)
 
 	// Start dispatch queue loop
-	go c.dispatchLoop(ctx)
+	go c.dispatchLoop(c.ctx)
 
 	// Handle loopback messages to the same node in FIFO order without blocking the event loop
-	transportWriter.StartLoopbackWriter(ctx)
+	c.transportWriter.StartLoopbackWriter(c.ctx)
 
 	// Trigger the initial transition out of State_Initial
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
-
-	return c, nil
+	c.QueueEvent(c.ctx, &CoordinatorCreatedEvent{})
+	c.started = true
 }
 
 // GetCurrentState returns the current state of the coordinator.
@@ -196,6 +213,9 @@ func (c *coordinator) GetCurrentState() State {
 // have an active sequencer for the contract address since it may be the only originator that can honour dispatch
 // requests from another coordinator, but this node is no longer acting as the coordinator.
 func (c *coordinator) Stop() {
+	if !c.started {
+		return
+	}
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
 	// Make Stop() idempotent - check if already stopped

@@ -15,51 +15,15 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestStateMachine_InitializeOK(t *testing.T) {
-	ctx := context.Background()
-
-	transportWriter := transport.NewMockTransportWriter(t)
-	clock := &common.FakeClockForTesting{}
-	engineIntegration := common.NewMockEngineIntegration(t)
-	syncPoints := &syncpoints.MockSyncPoints{}
-	txn, err := NewTransaction(
-		ctx,
-		"sender@node1",
-		&components.PrivateTransaction{
-			ID: uuid.New(),
-		},
-		false,
-		transportWriter,
-		clock,
-		func(ctx context.Context, event common.Event) {
-			//don't expect any events during initialize
-			assert.Failf(t, "unexpected event", "%T", event)
-		},
-		engineIntegration,
-		syncPoints,
-		clock.Duration(1000),
-		clock.Duration(5000),
-		5,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		NewGrapher(ctx),
-		nil,
-	)
-	assert.NoError(t, err)
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build(ctx)
 	assert.NotNil(t, txn)
-
 	assert.Equal(t, State_Initial, txn.stateMachine.CurrentState, "current state is %s", txn.stateMachine.CurrentState.String())
 }
 
@@ -98,9 +62,10 @@ func Test_State_String_Unknown(t *testing.T) {
 }
 
 func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.heartbeatIntervalsSinceStateChange = 2
+	ctx := t.Context()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build(ctx)
 
 	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, txn, nil)
 	assert.NoError(t, err)

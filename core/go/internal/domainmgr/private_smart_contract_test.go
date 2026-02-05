@@ -869,7 +869,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 	ptx.Signer = pldtypes.RandAddress().String()
 
 	// And now prepare
-	err = psc.PrepareTransaction(dCtx, td.c.dbTX, ptx)
+	err = psc.PrepareTransaction(dCtx, ptx)
 	require.NoError(t, err)
 	assert.Len(t, ptx.PreparedPublicTransaction.ABI, 1)
 	assert.NotNil(t, ptx.PreparedPublicTransaction.Data)
@@ -1079,7 +1079,7 @@ func TestPrepareTransactionFail(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.mdc, tx)
 	assert.Regexp(t, "pop", err)
 }
 
@@ -1098,7 +1098,7 @@ func TestPrepareTransactionABIInvalid(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.mdc, tx)
 	assert.Regexp(t, "PD011607", err)
 }
 
@@ -1123,7 +1123,7 @@ func TestPrepareTransactionPrivateResult(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.mdc, tx)
 	require.NoError(t, err)
 	assert.Equal(t, pldapi.TransactionBase{
 		IdempotencyKey: fmt.Sprintf("%s_doTheNextThing", tx.ID),
@@ -1154,7 +1154,7 @@ func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.mdc, tx)
 	require.Regexp(t, "bad address", err)
 }
 
@@ -1180,7 +1180,7 @@ func TestPrepareTransactionUnknownContract(t *testing.T) {
 		}, nil
 	}
 
-	err := psc.PrepareTransaction(td.mdc, td.c.dbTX, tx)
+	err := psc.PrepareTransaction(td.mdc, tx)
 	require.Regexp(t, "PD011609", err)
 }
 
@@ -1259,7 +1259,7 @@ func TestIncompleteStages(t *testing.T) {
 	_, err = psc.EndorseTransaction(td.mdc, td.c.dbTX, nil)
 	assert.Regexp(t, "PD011630", err)
 
-	err = psc.PrepareTransaction(td.mdc, td.c.dbTX, ptx)
+	err = psc.PrepareTransaction(td.mdc, ptx)
 	assert.Regexp(t, "PD011632", err)
 }
 

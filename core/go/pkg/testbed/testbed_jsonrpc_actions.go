@@ -338,7 +338,7 @@ func (tb *testbed) execPrivateTransaction(ctx context.Context, tx *testbedTransa
 	}
 
 	// Prepare the transaction
-	if err := tx.psc.PrepareTransaction(dCtx, tb.c.Persistence().NOTX(), tx.ptx); err != nil {
+	if err := tx.psc.PrepareTransaction(dCtx, tx.ptx); err != nil {
 		return err
 	}
 

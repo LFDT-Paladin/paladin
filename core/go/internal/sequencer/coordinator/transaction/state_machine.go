@@ -59,7 +59,7 @@ const (
 	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
 	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
-	Event_Dispatched                                                                           // dispatched to the public TX manager
+	Event_Dispatch                                                                             // request to perform the dispatch (run dispatch flow and transition to State_Dispatched)
 	Event_Collected                                                                            // collected by the public TX manager
 	Event_NonceAllocated                                                                       // nonce allocated by the dispatcher thread
 	Event_Submitted                                                                            // submission made to the blockchain.  Each time this event is received, the submission hash is updated
@@ -275,11 +275,14 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Ready_For_Dispatch: {
 		OnTransitionTo: action_NotifyDependentsOfReadiness,
 		Events: map[EventType]EventHandler{
-			Event_Dispatched: {
-				Transitions: []Transition{
-					{
-						To: State_Dispatched,
-					}},
+			Event_Dispatch: {
+				Actions: []ActionRule{
+					{Action: action_Dispatch},
+					{Action: action_SendDispatchedToOriginator},
+				},
+				Transitions: []Transition{{
+					To: State_Dispatched,
+				}},
 			},
 			Event_DependencyReverted: {
 				Transitions: []Transition{{

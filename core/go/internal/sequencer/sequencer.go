@@ -349,6 +349,18 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 	return deployError
 }
 
+// HandleNewTransactions creates all validated transactions under a single database transaction.
+func (sMgr *sequencerManager) HandleNewTransactions(ctx context.Context, txis []*components.ValidatedTransaction) error {
+	return sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
+		for _, txi := range txis {
+			if err := sMgr.HandleNewTx(ctx, dbTx, txi); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Handling a new transaction. We don't need to persist anything under the DBTX but we do need to ensure the DBTX
 // has committed before passing any events to the sequencer to process the tranasction.
 func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
@@ -843,34 +855,5 @@ func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Co
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
-	return common.NewStateDistributionBuilder(sMgr.components, tx).Build(ctx)
-}
-
-func mapPreparedTransaction(tx *components.PrivateTransaction) *components.PreparedTransactionWithRefs {
-	pt := &components.PreparedTransactionWithRefs{
-		PreparedTransactionBase: &pldapi.PreparedTransactionBase{
-			ID:       tx.ID,
-			Domain:   tx.Domain,
-			To:       &tx.Address,
-			Metadata: tx.PreparedMetadata,
-		},
-	}
-	for _, s := range tx.PostAssembly.InputStates {
-		pt.StateRefs.Spent = append(pt.StateRefs.Spent, s.ID)
-	}
-	for _, s := range tx.PostAssembly.ReadStates {
-		pt.StateRefs.Read = append(pt.StateRefs.Read, s.ID)
-	}
-	for _, s := range tx.PostAssembly.OutputStates {
-		pt.StateRefs.Confirmed = append(pt.StateRefs.Confirmed, s.ID)
-	}
-	for _, s := range tx.PostAssembly.InfoStates {
-		pt.StateRefs.Info = append(pt.StateRefs.Info, s.ID)
-	}
-	if tx.PreparedPublicTransaction != nil {
-		pt.Transaction = *tx.PreparedPublicTransaction
-	} else {
-		pt.Transaction = *tx.PreparedPrivateTransaction
-	}
-	return pt
+	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }

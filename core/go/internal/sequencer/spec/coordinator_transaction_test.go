@@ -19,9 +19,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,7 @@ import (
 
 func TestCoordinatorTransaction_Initial_ToPooled_OnReceived_IfNoInflightDependencies(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -53,13 +54,13 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
 		Grapher(grapher)
 
-	txn1 := builder1.Build()
+	txn1, _ := builder1.Build(ctx)
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
 		Grapher(grapher).
 		Originator(builder1.GetOriginator()).
 		PredefinedDependencies(txn1.GetID())
-	txn2 := builder2.Build()
+	txn2, _ := builder2.Build(ctx)
 
 	err := txn2.HandleEvent(ctx, &transaction.ReceivedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -76,7 +77,7 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
 		PredefinedDependencies(uuid.New())
-	txn := builder.Build()
+	txn, _ := builder.Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -92,7 +93,9 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 	ctx := context.Background()
 
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).BuildWithMocks()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build(ctx)
+	mocks.EngineIntegration.On("GetStateLocks", mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(int64(100), nil)
 
 	err := txn.HandleEvent(ctx, &transaction.SelectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -107,8 +110,10 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 
 func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		AddPendingAssemblyRequest()
+	txn, mocks := txnBuilder.Build(ctx)
+	mocks.EngineIntegration.On("WriteLockStatesForTransaction", mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -116,7 +121,7 @@ func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *tes
 		},
 		PostAssembly: txnBuilder.BuildPostAssembly(),
 		PreAssembly:  txnBuilder.BuildPreAssembly(),
-		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
+		RequestID:    txnBuilder.GetPendingAssemblyRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -128,7 +133,7 @@ func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *tes
 func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleResponse_IfResponseDoesNotMatchPendingRequest(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn := txnBuilder.Build()
+	txn, _ := txnBuilder.Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -143,29 +148,36 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleResponse_IfRes
 
 func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout_IfNotAssembleTimeoutExpired(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	var requestsSent int
+	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		RequestTimeout(1).
+		AssembleTimeout(10).
+		AddPendingAssemblyRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { requestsSent++; return nil })
+	txn, mocks := txnBuilder.Build(ctx)
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() - 1)
+	mocks.Clock.Advance(9)
 
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentAssembleRequests())
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfSentAssembleRequests())
+	assert.Equal(t, 1, requestsSent)
 
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_Assembling_ToPooled_OnRequestTimeout_IfAssembleTimeoutExpired(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	var requestsSent int
+	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		RequestTimeout(1).
+		AssembleTimeout(10).
+		AddPendingAssemblyRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { requestsSent++; return nil })
+	txn, mocks := txnBuilder.Build(ctx)
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() + 1)
+	mocks.Clock.Advance(11)
 
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -181,18 +193,19 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnRequestTimeout_IfAssembleT
 func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		AddPendingAssemblyRequest().
 		Reverts("some revert reason")
 
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txn, mocks := txnBuilder.Build(ctx)
 
-	mocks.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
 		PostAssembly: txnBuilder.BuildPostAssembly(),
-		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
+		RequestID:    txnBuilder.GetPendingAssemblyRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
@@ -204,7 +217,7 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleRevertResponse
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
 		Reverts("some revert reason")
 
-	txn := txnBuilder.Build()
+	txn, _ := txnBuilder.Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -223,27 +236,32 @@ func TestCoordinatorTransaction_Pooled_ToPreAssemblyBlocked_OnDependencyReverted
 
 	//we need 2 transactions to know about each other so they need to share a state index
 	grapher := transaction.NewGrapher(ctx)
-
 	//transaction2 depends on transaction 1 and transaction 1 gets reverted
+	txn1Preassembly := &components.TransactionPreAssembly{
+		Dependencies: &pldapi.TransactionDependencies{},
+	}
 	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
 		Grapher(grapher).
+		PreAssembly(txn1Preassembly).
+		AddPendingAssemblyRequest().
 		Reverts("some revert reason")
-	txn1, mocks1 := builder1.BuildWithMocks()
+	txn1, mocks1 := builder1.Build(ctx)
 
-	mocks1.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks1.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
 		Grapher(grapher).
 		Originator(builder1.GetOriginator()).
 		PredefinedDependencies(txn1.GetID())
-	txn2 := builder2.Build()
+	txn2, _ := builder2.Build(ctx)
+	txn1Preassembly.Dependencies.PrereqOf = append(txn1Preassembly.Dependencies.PrereqOf, txn2.GetID())
 
 	err := txn1.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn1.GetID(),
 		},
 		PostAssembly: builder1.BuildPostAssembly(),
-		RequestID:    mocks1.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
+		RequestID:    builder1.GetPendingAssemblyRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
@@ -256,8 +274,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3)
 
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 3, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
+	txn, mocks := builder.Build(ctx)
 
 	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
 
@@ -267,7 +284,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 		},
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, 6, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
+	assert.Equal(t, 3, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
 
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 
@@ -276,11 +293,22 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests_Partial(t *testing.T) {
 	//emulate the case where only a subset of the endorsement requests have timed out
 	ctx := context.Background()
+	sentEndorsementRequests := map[uuid.UUID]int{}
+	totalRequests := 0
+	onSend := func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		totalRequests++
+		sentEndorsementRequests[idempotencyKey]++
+		return nil
+	}
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
+		RequestTimeout(1).
+		AddPendingEndorsementRequestWithCallback("endorse-0", "endorser-0@node-0", onSend).
+		AddPendingEndorsementRequestWithCallback("endorse-1", "endorser-1@node-1", onSend).
+		AddPendingEndorsementRequestWithCallback("endorse-2", "endorser-2@node-2", onSend).
+		AddPendingEndorsementRequestWithCallback("endorse-3", "endorser-3@node-3", onSend).
 		NumberOfRequiredEndorsers(4)
 
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 4, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
+	txn, mocks := builder.Build(ctx)
 
 	//2 endorsements come back in a timely manner
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(0))
@@ -289,7 +317,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 	err = txn.HandleEvent(ctx, builder.BuildEndorsedEvent(1))
 	assert.NoError(t, err)
 
-	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
+	mocks.Clock.Advance(2)
 
 	err = txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -297,11 +325,9 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 		},
 	})
 	assert.NoError(t, err)
-	assert.Equal(t, 6, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests()) // the 4 original requests plus 2 nudge requests
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[0]))
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[1]))
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[2]))
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[3]))
+	assert.Equal(t, 2, totalRequests)
+	assert.Equal(t, 1, sentEndorsementRequests[builder.GetEndorsementRequest("endorse-2", "endorser-2@node-2").IdempotencyKey()])
+	assert.Equal(t, 1, sentEndorsementRequests[builder.GetEndorsementRequest("endorse-3", "endorser-3@node-3").IdempotencyKey()])
 
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 
@@ -311,9 +337,10 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToConfirmingDispatch_OnEnd
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest("endorse-2", "endorser-2@node-2")
 
-	txn, mocks := builder.BuildWithMocks()
+	txn, mocks := builder.Build(ctx)
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
 	assert.NoError(t, err)
 
@@ -326,9 +353,9 @@ func TestCoordinatorTransaction_Endorsement_GatheringNoTransition_IfNotAttestati
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(1) //only 1 existing endorsement so the next one does not complete the attestation plan
-
-	txn, mocks := builder.BuildWithMocks()
+		NumberOfEndorsements(1). //only 1 existing endorsement so the next one does not complete the attestation plan
+		AddPendingEndorsementRequest("endorse-1", "endorser-1@node-1")
+	txn, mocks := builder.Build(ctx)
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(1))
 	assert.NoError(t, err)
@@ -348,14 +375,15 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 		Grapher(grapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
-	txn1 := builder1.Build()
+	txn1, _ := builder1.Build(ctx)
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		InputStateIDs(txn1.GetOutputStateIDs()[0])
-	txn2 := builder2.Build()
+		InputStateIDs(txn1.GetOutputStateIDs()[0]).
+		AddPendingEndorsementRequest("endorse-2", "endorser-2@node-2")
+	txn2, _ := builder2.Build(ctx)
 
 	err := txn2.HandleEvent(ctx, builder2.BuildEndorsedEvent(2))
 	assert.NoError(t, err)
@@ -368,9 +396,9 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-
-	txn := builder.Build()
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest("endorse-2", "endorser-2@node-2")
+	txn, _ := builder.Build(ctx)
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	assert.NoError(t, err)
 
@@ -381,9 +409,10 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 
 func TestCoordinatorTransaction_ConfirmingDispatch_NudgeRequest_OnRequestTimeout(t *testing.T) {
 	ctx := context.Background()
-	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable)
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentDispatchConfirmationRequests())
+	var nudged bool
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { nudged = true; return nil })
+	txn, mocks := builder.Build(ctx)
 
 	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
 
@@ -394,19 +423,22 @@ func TestCoordinatorTransaction_ConfirmingDispatch_NudgeRequest_OnRequestTimeout
 	})
 	assert.NoError(t, err)
 
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfSentDispatchConfirmationRequests())
+	assert.True(t, nudged)
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatchConfirmed(t *testing.T) {
+func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatchApproved(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).BuildWithMocks()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest()
+	txn, mocks := builder.Build(ctx)
+	mocks.Domain.On("FixedSigningIdentity").Return("")
 
 	err := txn.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
-		RequestID: mocks.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
+		RequestID: builder.GetPendingPreDispatchRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
@@ -415,7 +447,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatch
 
 func TestCoordinatorTransaction_ConfirmingDispatch_NoTransition_OnDispatchConfirmed_IfResponseDoesNotMatchPendingRequest(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -440,11 +472,13 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 
 	builderB := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
 		Grapher(grapher)
-	txnB := builderB.Build()
+	txnB, _ := builderB.Build(ctx)
 
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher)
-	txnC, mocksC := builderC.BuildWithMocks()
+		Grapher(grapher).
+		AddPendingPreDispatchRequest()
+	txnC, mocksC := builderC.Build(ctx)
+	mocksC.Domain.On("FixedSigningIdentity").Return("")
 
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
@@ -452,7 +486,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 			txnB.GetOutputStateIDs()[0],
 			txnC.GetOutputStateIDs()[0],
 		)
-	txnA := builderA.Build()
+	txnA, _ := builderA.Build(ctx)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing C to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
@@ -461,7 +495,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txnC.GetID(),
 		},
-		RequestID: mocksC.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
+		RequestID: builderC.GetPendingPreDispatchRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
@@ -479,12 +513,14 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 	grapher := transaction.NewGrapher(ctx)
 
 	builderB := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher)
-	txnB, mocksB := builderB.BuildWithMocks()
+		Grapher(grapher).
+		AddPendingPreDispatchRequest()
+	txnB, mocksB := builderB.Build(ctx)
+	mocksB.Domain.On("FixedSigningIdentity").Return("")
 
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
 		Grapher(grapher)
-	txnC := builderC.Build()
+	txnC, _ := builderC.Build(ctx)
 
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
@@ -492,7 +528,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 			txnB.GetOutputStateIDs()[0],
 			txnC.GetOutputStateIDs()[0],
 		)
-	txnA := builderA.Build()
+	txnA, _ := builderA.Build(ctx)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing B to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
@@ -501,7 +537,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txnB.GetID(),
 		},
-		RequestID: mocksB.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
+		RequestID: builderB.GetPendingPreDispatchRequest().IdempotencyKey(),
 	})
 	assert.NoError(t, err)
 
@@ -511,9 +547,17 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 
 func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Build(ctx)
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		args.Get(1).(*components.PrivateTransaction).PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&components.ChainedPrivateTransaction{
+		NewTransaction: &components.ValidatedTransaction{},
+	}, nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	err := txn.HandleEvent(ctx, &transaction.DispatchedEvent{
+	err := txn.HandleEvent(ctx, &transaction.DispatchEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
@@ -525,7 +569,7 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 
 func TestCoordinatorTransaction_Dispatched_ToSubmissionPrepared_OnCollected(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -539,7 +583,7 @@ func TestCoordinatorTransaction_Dispatched_ToSubmissionPrepared_OnCollected(t *t
 
 func TestCoordinatorTransaction_SubmissionPrepared_ToSubmitted_OnSubmitted(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_SubmissionPrepared).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_SubmissionPrepared).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -553,7 +597,7 @@ func TestCoordinatorTransaction_SubmissionPrepared_ToSubmitted_OnSubmitted(t *te
 
 func TestCoordinatorTransaction_Submitted_ToPooled_OnConfirmed_IfRevert(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -568,7 +612,8 @@ func TestCoordinatorTransaction_Submitted_ToPooled_OnConfirmed_IfRevert(t *testi
 
 func TestCoordinatorTransaction_Submitted_ToConfirmed_IfNoRevert(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build(ctx)
+	mocks.EngineIntegration.On("ResetTransactions", mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -582,7 +627,7 @@ func TestCoordinatorTransaction_Submitted_ToConfirmed_IfNoRevert(t *testing.T) {
 
 func TestCoordinatorTransaction_Confirmed_ToFinal_OnHeartbeatInterval_IfHasBeenIncludedInEnoughHeartbeats(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(4).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(4).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
@@ -592,7 +637,7 @@ func TestCoordinatorTransaction_Confirmed_ToFinal_OnHeartbeatInterval_IfHasBeenI
 
 func TestCoordinatorTransaction_Confirmed_NoTransition_OnHeartbeatInterval_IfNotHasBeenIncludedInEnoughHeartbeats(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(3).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(3).Build(ctx)
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
@@ -607,9 +652,9 @@ func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOrigina
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txn, mocks := txnBuilder.Build(ctx)
 
-	mocks.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.TransactionUnknownByOriginatorEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{

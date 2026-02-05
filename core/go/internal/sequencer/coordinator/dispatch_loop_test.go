@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,16 +39,21 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	config.MaxDispatchAhead = confutil.P(1)
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
+	c.Start()
 	defer c.Stop()
 
 	// Pre-populate inFlightTxns so the dispatch loop will enter the first Wait() when it pulls the tx
-	dummyTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	dummyTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build(ctx)
 	c.inFlightMutex.L.Lock()
 	c.inFlightTxns[dummyTxn.GetID()] = dummyTxn
 	c.inFlightMutex.L.Unlock()
 
-	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue.
+	// buildDispatchBatchAndPreparedTransactionDistributions requires PreAssembly.TransactionSpecification.
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{Intent: prototk.TransactionSpecification_SEND_TRANSACTION},
+		}).Build(ctx)
 	c.transactionsByID[txn.GetID()] = txn
 	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
@@ -69,7 +76,7 @@ func TestDispatchLoop_StopAtSelect(t *testing.T) {
 	config.MaxDispatchAhead = confutil.P(-1) // no dispatch progress, so loop stays in select
 	builder.OverrideSequencerConfig(config)
 	c, _ := builder.Build(ctx)
-
+	c.Start()
 	// Stop without ever queueing a tx; loop is blocked on select between dispatchQueue and stopDispatchLoop
 	c.Stop()
 }

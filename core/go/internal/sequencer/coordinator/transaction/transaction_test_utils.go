@@ -26,10 +26,14 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/mock"
 )
 
 type identityForTesting struct {
@@ -213,22 +217,29 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 }
 
 type TransactionBuilderForTesting struct {
+	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
 	originator                         *identityForTesting
-	dispatchConfirmed                  bool
 	signerAddress                      *pldtypes.EthAddress
 	latestSubmissionHash               *pldtypes.Bytes32
 	nonce                              *uint64
 	state                              State
-	sentMessageRecorder                *SentMessageRecorder
-	fakeClock                          *common.FakeClockForTesting
-	fakeEngineIntegration              *common.FakeEngineIntegrationForTesting
-	syncPoints                         syncpoints.SyncPoints
 	grapher                            Grapher
 	txn                                *CoordinatorTransaction
 	requestTimeout                     int
 	assembleTimeout                    int
 	heartbeatIntervalsSinceStateChange int
+	pendingAssemblyRequest             *common.IdempotentRequest
+	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest
+	pendingPreDispatchRequest          *common.IdempotentRequest
+	transportWriter                    *transport.MockTransportWriter
+	originatorNode                     string
+	preAssembly                        *components.TransactionPreAssembly
+	domain                             string
+	dependencies                       *pldapi.TransactionDependencies
+	postAssembly                       *components.TransactionPostAssembly
+	postAssemblySet                    bool                                 // true if PostAssembly() was called (allows setting nil)
+	domainAPI                          *componentsmocks.DomainSmartContract // optional; if set, used instead of creating a new mock
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
@@ -237,22 +248,16 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 	originatorName := "sender"
 	originatorNode := "senderNode"
 	builder := &TransactionBuilderForTesting{
+		t: t,
 		originator: &identityForTesting{
 			identityLocator: fmt.Sprintf("%s@%s", originatorName, originatorNode),
 			identity:        originatorName,
 			verifier:        pldtypes.RandAddress().String(),
 			keyHandle:       originatorName + "_KeyHandle",
 		},
-		dispatchConfirmed:         false,
-		signerAddress:             nil,
-		latestSubmissionHash:      nil,
 		state:                     state,
-		sentMessageRecorder:       NewSentMessageRecorder(),
-		fakeClock:                 &common.FakeClockForTesting{},
-		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
 		assembleTimeout:           5000,
 		requestTimeout:            100,
-		syncPoints:                &syncpoints.MockSyncPoints{},
 		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
 	}
 
@@ -324,6 +329,48 @@ func (b *TransactionBuilderForTesting) Grapher(grapher Grapher) *TransactionBuil
 	return b
 }
 
+// TransportWriter injects a mock transport writer for tests that need to set expectations on SendAssembleRequest etc.
+func (b *TransactionBuilderForTesting) TransportWriter(mock *transport.MockTransportWriter) *TransactionBuilderForTesting {
+	b.transportWriter = mock
+	return b
+}
+
+// OriginatorNode sets the transaction's originator node (e.g. for sendAssembleRequest tests).
+func (b *TransactionBuilderForTesting) OriginatorNode(node string) *TransactionBuilderForTesting {
+	b.originatorNode = node
+	return b
+}
+
+// PreAssembly sets the transaction's PreAssembly on the private transaction.
+func (b *TransactionBuilderForTesting) PreAssembly(pre *components.TransactionPreAssembly) *TransactionBuilderForTesting {
+	b.preAssembly = pre
+	return b
+}
+
+// PrivateTransactionBuilder returns the private transaction builder so tests can configure PreAssembly, prepared transaction results, etc. before Build().
+func (b *TransactionBuilderForTesting) PrivateTransactionBuilder() *testutil.PrivateTransactionBuilderForTesting {
+	return b.privateTransactionBuilder
+}
+
+// Domain sets the transaction's domain on the private transaction.
+func (b *TransactionBuilderForTesting) Domain(domain string) *TransactionBuilderForTesting {
+	b.domain = domain
+	return b
+}
+
+// Dependencies sets the transaction's dependencies.
+func (b *TransactionBuilderForTesting) Dependencies(deps *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
+	b.dependencies = deps
+	return b
+}
+
+// PostAssembly sets the transaction's PostAssembly on the private transaction. Pass nil to clear.
+func (b *TransactionBuilderForTesting) PostAssembly(pa *components.TransactionPostAssembly) *TransactionBuilderForTesting {
+	b.postAssembly = pa
+	b.postAssemblySet = true
+	return b
+}
+
 func (b *TransactionBuilderForTesting) Originator(originator *identityForTesting) *TransactionBuilderForTesting {
 	b.originator = originator
 	return b
@@ -340,6 +387,39 @@ func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *Tr
 	return b
 }
 
+func (b *TransactionBuilderForTesting) AddPendingAssemblyRequest() *TransactionBuilderForTesting {
+	return b.AddPendingAssemblyRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
+func (b *TransactionBuilderForTesting) AddPendingAssemblyRequestWithCallback(onSend func(ctx context.Context, idempotencyKey uuid.UUID) error) *TransactionBuilderForTesting {
+	b.pendingAssemblyRequest = common.NewIdempotentRequest(b.t.Context(), &common.FakeClockForTesting{}, b.requestTimeout, onSend)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AddPendingEndorsementRequest(endorsementName string, endorserIdentityLocator string) *TransactionBuilderForTesting {
+	return b.AddPendingEndorsementRequestWithCallback(endorsementName, endorserIdentityLocator, func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
+func (b *TransactionBuilderForTesting) AddPendingEndorsementRequestWithCallback(endorsementName string, endorserIdentityLocator string, onSend func(ctx context.Context, idempotencyKey uuid.UUID) error) *TransactionBuilderForTesting {
+	if b.pendingEndorsementRequests == nil {
+		b.pendingEndorsementRequests = make(map[string]map[string]*common.IdempotentRequest)
+	}
+	if _, ok := b.pendingEndorsementRequests[endorsementName]; !ok {
+		b.pendingEndorsementRequests[endorsementName] = make(map[string]*common.IdempotentRequest)
+	}
+	b.pendingEndorsementRequests[endorsementName][endorserIdentityLocator] = common.NewIdempotentRequest(b.t.Context(), &common.FakeClockForTesting{}, b.requestTimeout, onSend)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AddPendingPreDispatchRequestWithCallback(onSend func(ctx context.Context, idempotencyKey uuid.UUID) error) *TransactionBuilderForTesting {
+	b.pendingPreDispatchRequest = common.NewIdempotentRequest(b.t.Context(), &common.FakeClockForTesting{}, b.requestTimeout, onSend)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AddPendingPreDispatchRequest() *TransactionBuilderForTesting {
+	return b.AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
 func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }
@@ -352,6 +432,16 @@ func (b *TransactionBuilderForTesting) GetRequestTimeout() int {
 	return b.requestTimeout
 }
 
+func (b *TransactionBuilderForTesting) RequestTimeout(ms int) *TransactionBuilderForTesting {
+	b.requestTimeout = ms
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AssembleTimeout(ms int) *TransactionBuilderForTesting {
+	b.assembleTimeout = ms
+	return b
+}
+
 func (b *TransactionBuilderForTesting) GetEndorsers() []string {
 	endorsers := make([]string, b.privateTransactionBuilder.GetNumberOfEndorsers())
 	for i := range endorsers {
@@ -360,25 +450,39 @@ func (b *TransactionBuilderForTesting) GetEndorsers() []string {
 	return endorsers
 }
 
+func (b *TransactionBuilderForTesting) GetEndorsementRequest(endorsementName string, endorserIdentityLocator string) *common.IdempotentRequest {
+	if b.pendingEndorsementRequests == nil {
+		return nil
+	}
+	if _, ok := b.pendingEndorsementRequests[endorsementName]; !ok {
+		return nil
+	}
+	return b.pendingEndorsementRequests[endorsementName][endorserIdentityLocator]
+}
+
+func (b *TransactionBuilderForTesting) GetPendingAssemblyRequest() *common.IdempotentRequest {
+	return b.pendingAssemblyRequest
+}
+
+func (b *TransactionBuilderForTesting) GetPendingPreDispatchRequest() *common.IdempotentRequest {
+	return b.pendingPreDispatchRequest
+}
+
 type transactionDependencyFakes struct {
 	SentMessageRecorder *SentMessageRecorder
+	TransportWriter     *transport.MockTransportWriter
 	Clock               *common.FakeClockForTesting
-	EngineIntegration   *common.FakeEngineIntegrationForTesting
-	SyncPoints          syncpoints.SyncPoints
+	EngineIntegration   *common.MockEngineIntegration
+	SyncPoints          *syncpoints.MockSyncPoints
+	DomainAPI           *componentsmocks.DomainSmartContract
+	Domain              *componentsmocks.Domain
+	TXManager           *componentsmocks.TXManager
+	KeyManager          *componentsmocks.KeyManager
+	PublicTxManager     *componentsmocks.PublicTxManager
+	DomainContext       components.DomainContext
 }
 
-func (b *TransactionBuilderForTesting) BuildWithMocks() (*CoordinatorTransaction, *transactionDependencyFakes) {
-	mocks := &transactionDependencyFakes{
-		SentMessageRecorder: b.sentMessageRecorder,
-		Clock:               b.fakeClock,
-		EngineIntegration:   b.fakeEngineIntegration,
-		SyncPoints:          b.syncPoints,
-	}
-	return b.Build(), mocks
-}
-
-func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
-	ctx := context.Background()
+func (b *TransactionBuilderForTesting) Build(ctx context.Context) (*CoordinatorTransaction, *transactionDependencyFakes) {
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
 	}
@@ -386,25 +490,63 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 
 	privateTransaction := b.privateTransactionBuilder.Build()
 
+	var transportWriter transport.TransportWriter
+	fakeClock := &common.FakeClockForTesting{}
+	mocks := &transactionDependencyFakes{
+		Clock:             fakeClock,
+		EngineIntegration: common.NewMockEngineIntegration(b.t),
+		SyncPoints:        &syncpoints.MockSyncPoints{},
+		Domain:            componentsmocks.NewDomain(b.t),
+		TXManager:         componentsmocks.NewTXManager(b.t),
+		KeyManager:        componentsmocks.NewKeyManager(b.t),
+		PublicTxManager:   componentsmocks.NewPublicTxManager(b.t),
+		DomainContext:     componentsmocks.NewDomainContext(b.t),
+	}
+	if b.domainAPI != nil {
+		mocks.DomainAPI = b.domainAPI
+	} else {
+		mocks.DomainAPI = componentsmocks.NewDomainSmartContract(b.t)
+		mocks.DomainAPI.EXPECT().Domain().Return(mocks.Domain).Maybe()
+	}
+	if b.transportWriter != nil {
+		mocks.TransportWriter = b.transportWriter
+		transportWriter = b.transportWriter
+	} else {
+		mocks.SentMessageRecorder = NewSentMessageRecorder()
+		transportWriter = mocks.SentMessageRecorder
+	}
+	if b.domainAPI == nil {
+		mocks.DomainAPI.EXPECT().Domain().Return(mocks.Domain).Maybe()
+	}
+
 	txn, err := NewTransaction(
 		ctx,
 		b.originator.identityLocator,
 		privateTransaction,
 		false, // hasChainedTransaction
-		b.sentMessageRecorder,
-		b.fakeClock,
+		"",    // nodeName
+		transportWriter,
+		fakeClock,
 		func(ctx context.Context, event common.Event) {
 			// No-op event handler for tests
 		},
-		b.fakeEngineIntegration,
-		b.syncPoints,
-		b.fakeClock.Duration(b.requestTimeout),
-		b.fakeClock.Duration(b.assembleTimeout),
+		mocks.EngineIntegration,
+		mocks.SyncPoints,
+		fakeClock.Duration(b.requestTimeout),
+		fakeClock.Duration(b.assembleTimeout),
 		5,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
+		mocks.KeyManager,
+		mocks.PublicTxManager,
+		mocks.TXManager,
+		mocks.DomainAPI,
+		mocks.DomainContext,
+		func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error) {
+			// No-op nullifier builder for tests
+			return nil, nil
+		},
+		nil,
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))
@@ -420,6 +562,7 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.state == State_Confirming_Dispatchable ||
 		b.state == State_Ready_For_Dispatch {
 
+		mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, mock.Anything).Return(nil)
 		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly(), uuid.New())
 		if err != nil {
 			panic("error from applyPostAssembly")
@@ -431,21 +574,33 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
 	}
 
-	//enter the current state
-	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
-	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn, nil)
-		if err != nil {
-			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
-		}
-	}
-
 	b.txn.signerAddress = b.signerAddress
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.CurrentState = b.state
 	b.txn.dynamicSigningIdentity = false
-	return b.txn
+	b.txn.pendingAssembleRequest = b.pendingAssemblyRequest
+	b.txn.pendingPreDispatchRequest = b.pendingPreDispatchRequest
+	if b.pendingEndorsementRequests != nil {
+		b.txn.pendingEndorsementRequests = b.pendingEndorsementRequests
+		b.txn.cancelEndorsementRequestTimeoutSchedule = func() {}
+	}
+	if b.originatorNode != "" {
+		b.txn.originatorNode = b.originatorNode
+	}
+	if b.preAssembly != nil {
+		b.txn.pt.PreAssembly = b.preAssembly
+	}
+	if b.domain != "" {
+		b.txn.pt.Domain = b.domain
+	}
+	if b.dependencies != nil {
+		b.txn.dependencies = b.dependencies
+	}
+	if b.postAssemblySet {
+		b.txn.pt.PostAssembly = b.postAssembly
+	}
+	return b.txn, mocks
 
 }
 

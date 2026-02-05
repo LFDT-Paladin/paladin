@@ -37,7 +37,7 @@ func guard_HasDynamicSigningIdentity(_ context.Context, txn *CoordinatorTransact
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
 func (t *CoordinatorTransaction) updateSigningIdentity() {
-	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
+	if t.pt.PostAssembly != nil && t.domainAPI != nil && t.domainAPI.ContractConfig().GetSubmitterSelection() == prototk.ContractConfig_SUBMITTER_COORDINATOR {
 		for _, endorsement := range t.pt.PostAssembly.Endorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
@@ -155,11 +155,10 @@ func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 }
 
 func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
-
 	// Generate a dynamic signing identity unless Paladin config asserts something specific to use
-	if t.domainSigningIdentity != "" {
+	if fixedIdentity := t.domainAPI.Domain().FixedSigningIdentity(); fixedIdentity != "" {
 		log.L(ctx).Debugf("Domain has a fixed signing identity for TX %s - using that", t.pt.ID.String())
-		t.pt.Signer = t.domainSigningIdentity
+		t.pt.Signer = fixedIdentity
 		t.dynamicSigningIdentity = false
 		return
 	}
