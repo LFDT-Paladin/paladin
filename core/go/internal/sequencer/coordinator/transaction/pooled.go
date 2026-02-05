@@ -127,16 +127,16 @@ func (t *Transaction) initializeForNewAssemply(ctx context.Context) error {
 func (t *Transaction) rePoolDependents(ctx context.Context) error {
 	var rePoolError error
 	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
-	for _, dependencyID := range t.dependencies.PrereqOf {
-		dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
-		if dependencyTxn != nil {
-			err := dependencyTxn.HandleEvent(ctx, &DependencyRevertedEvent{
+	for _, dependentTXID := range t.dependencies.PrereqOf {
+		dependentTxn := t.grapher.TransactionByID(ctx, dependentTXID)
+		if dependentTxn != nil {
+			err := dependentTxn.HandleEvent(ctx, &DependencyRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependencyID,
+					TransactionID: dependentTXID,
 				},
 			})
 			if err != nil {
-				errMsg := i18n.WrapError(ctx, err, msgs.MsgErrorNotifyingDependent)
+				errMsg := i18n.WrapError(ctx, err, msgs.MsgSequencerErrorNotifyingDependent, dependentTXID, t.ID)
 				log.L(ctx).Error(errMsg)
 				// Return the first error
 				if rePoolError == nil {
@@ -153,7 +153,7 @@ func action_recordRevert(ctx context.Context, txn *Transaction) error {
 	err := txn.rePoolDependents(ctx)
 	if err != nil {
 		// log error but continue
-		errMsg := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error re-pooling dependents of transaction")
+		errMsg := i18n.NewError(ctx, msgs.MsgSequencerErrorRepoolingTX, txn.ID)
 		log.L(ctx).Error(errMsg)
 	}
 	now := pldtypes.TimestampNow()
@@ -162,7 +162,7 @@ func action_recordRevert(ctx context.Context, txn *Transaction) error {
 }
 
 func action_initializeDependencies(ctx context.Context, txn *Transaction) error {
-	return txn.initializeDependencies(ctx)
+	return txn.initializeForNewAssemply(ctx)
 }
 
 func guard_HasUnassembledDependencies(ctx context.Context, txn *Transaction) bool {

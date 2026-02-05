@@ -399,7 +399,7 @@ func (tm *txManager) GetTransactionByIDFull(ctx context.Context, id uuid.UUID) (
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+func (tm *txManager) getResolvedTransactionByIDWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*components.ResolvedTransaction, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	// This is cache optimized, because domains rely on the sender node's transaction store as
 	// the only place to read transaction data from for init and assembly.
@@ -410,11 +410,15 @@ func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUI
 	}
 
 	// Do the query - this function also does the caching (so individual TXs get cached from paginated queries)
-	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
+	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
 	if len(rtxs) == 0 || err != nil {
 		return nil, err
 	}
 	return rtxs[0], nil
+}
+
+func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+	return tm.getResolvedTransactionByIDWithinTX(ctx, id, tm.p.NOTX())
 }
 
 func (tm *txManager) GetTransactionByID(ctx context.Context, id uuid.UUID) (*pldapi.Transaction, error) {
@@ -434,10 +438,10 @@ func (tm *txManager) GetTransactionByIdempotencyKey(ctx context.Context, idempot
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+func (tm *txManager) getTransactionDependenciesWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*pldapi.TransactionDependencies, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	var persistedDeps []*transactionDep
-	err := tm.p.DB().
+	err := dbTX.DB().
 		WithContext(ctx).
 		Table(`transaction_deps`).
 		Where(`"transaction" = ?`, id).
@@ -459,6 +463,10 @@ func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUI
 		}
 	}
 	return res, nil
+}
+
+func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+	return tm.getTransactionDependenciesWithinTX(ctx, id, tm.p.NOTX())
 }
 
 func (tm *txManager) queryPublicTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {

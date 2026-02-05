@@ -212,6 +212,13 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		}
 	}
 
+	dbTX.AddPreCommit(func(ctx context.Context, dbTX persistence.DBTX) error {
+		// Update any transactions that had one of these transactions as a dependency. Success will result
+		// in the dependent tranasaction(s) being progressed, failure will mark them as failed (the latter
+		// requiring a safe DB update within this TX hence handled within a pre-commit).
+		return tm.notifyDependentTransactions(ctx, dbTX, receiptsToInsert)
+	})
+
 	dbTX.AddPostCommit(func(ctx context.Context) {
 		if len(receiptsToInsert) > 0 {
 			tm.notifyNewReceipts(receiptsToInsert)

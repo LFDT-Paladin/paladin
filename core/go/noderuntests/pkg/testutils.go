@@ -156,10 +156,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	}
 	i.ctx, i.cancelCtx = context.WithCancel(log.WithLogField(t.Context(), "node-name", binding.name))
 	if binding.sequencerConfig != nil {
-		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
-		i.conf.SequencerManager.AssembleTimeout = binding.sequencerConfig.AssembleTimeout
-		i.conf.SequencerManager.BlockHeightTolerance = binding.sequencerConfig.BlockHeightTolerance
-		i.conf.SequencerManager.ClosingGracePeriod = binding.sequencerConfig.ClosingGracePeriod
+		i.conf.SequencerManager = *binding.sequencerConfig
 	}
 
 	i.conf.BlockIndexer.FromBlock = json.RawMessage(`"latest"`)
@@ -391,6 +388,8 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 }
 
 func getBesuPort() int {
+	err := os.Setenv("BESU_PORT", "8545")
+	log.L(context.Background()).Infof("BESU_PORT error: %s", err)
 	if portStr := os.Getenv("BESU_PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil {
 			return port
