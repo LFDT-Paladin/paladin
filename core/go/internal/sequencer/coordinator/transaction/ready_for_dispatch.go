@@ -18,7 +18,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -93,10 +95,8 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	for _, dependencyID := range dependencies {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.ID.String(), dependencyID.String())
-			// assume the dependency has been confirmed and is no longer in memory since we can't wait for a non-existent transaction
-			// to be in the right state. Rely on TX re-assembly if the base ledger TX fails
-			continue
+			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound))
+			return true
 		}
 
 		if dependency.dependentsMustWait(t.dynamicSigningIdentity) {
@@ -133,7 +133,7 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.ID.String(), dependentId.String())
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -161,7 +161,7 @@ func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx cont
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.ID.String(), dependentId.String())
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
