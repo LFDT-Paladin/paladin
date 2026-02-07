@@ -49,6 +49,10 @@ type grapher struct {
 	outputStatesByMinter     map[uuid.UUID][]string //used for reverse lookup to cleanup transactionByOutputState
 }
 
+// The grapher is designed to be called on a single-threaded sequencer event loop and is not thread safe.
+// It must only be called from the state machine loop to ensure assembly of a TX is based on completion of
+// any updates made by a previous change in the state machine (e.g. removing states from a previously
+// reverted transaction)
 func NewGrapher(ctx context.Context) Grapher {
 	return &grapher{
 		transactionByOutputState: make(map[string]*CoordinatorTransaction),
@@ -89,6 +93,7 @@ func (s *grapher) ForgetMints(transactionID uuid.UUID) {
 		}
 		delete(s.outputStatesByMinter, transactionID)
 	}
+	// Note we specifically don't delete the transaction (i.e. the minter) here. Use Forget() to do both.
 }
 
 func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction {

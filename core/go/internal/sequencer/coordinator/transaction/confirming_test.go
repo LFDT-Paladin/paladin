@@ -75,7 +75,7 @@ func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
 	}
 
 	err := txn.notifyDependentsOfConfirmation(ctx)
-	assert.NoError(t, err)
+	assert.Error(t, err)
 }
 
 func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {

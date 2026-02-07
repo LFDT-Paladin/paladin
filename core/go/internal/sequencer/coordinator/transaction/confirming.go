@@ -17,7 +17,9 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -47,7 +49,7 @@ func (t *CoordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependentId.String())
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{

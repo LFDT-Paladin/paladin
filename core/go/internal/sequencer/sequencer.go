@@ -353,6 +353,19 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 // has committed before passing any events to the sequencer to process the tranasction.
 func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
 	tx := txi.Transaction
+
+	// First check if the TX has incomplete or failed dependencies
+	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, txi)
+	if err != nil {
+		return err
+	}
+	if blockedByDependencies {
+		// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
+		// 1. The periodic sequencer poll loop will attempt to resume it, making this same check
+		// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
+		return nil
+	}
+
 	if tx.To == nil {
 		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
 			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
@@ -385,6 +398,19 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 // the sequencer running while we wait for the original DB insert to commit.
 func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *components.ValidatedTransaction) error {
 	tx := txi.Transaction
+
+	// First check if the TX has incomplete or failed dependencies
+	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, txi)
+	if err != nil {
+		return err
+	}
+	if blockedByDependencies {
+		// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
+		// 1. The periodic sequencer poll loop will attempt to resume it, calling us again at which point we will make this same check
+		// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
+		return nil
+	}
+
 	if tx.To == nil {
 		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
 			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)

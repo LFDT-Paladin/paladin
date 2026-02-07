@@ -729,6 +729,8 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(chainedTxID, originalTxID, originalSender, originalDomain, contractAddress))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock WriteOrDistributeReceiptsPostSubmit
 			mc.sequencerMgr.On("WriteOrDistributeReceiptsPostSubmit", mock.Anything, mock.Anything, mock.MatchedBy(func(receipts []*components.ReceiptInputWithOriginator) bool {
 				if len(receipts) != 1 {
@@ -774,6 +776,8 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(nonMatchingTxID, uuid.New(), "sender1", "domain1", "0x1234"))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			// WriteOrDistributeReceiptsPostSubmit should NOT be called since receiptsToWrite is empty
 			mc.db.ExpectCommit()
 		})
@@ -810,6 +814,9 @@ func TestFinalizeTransactionsChainedReceiptPropagationMultipleMatches(t *testing
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(chainedTxID1, originalTxID1, "sender1", "domain1", "0x1111").
 					AddRow(chainedTxID2, originalTxID2, "sender2", "domain2", "0x2222"))
+			// Mock the transaction_deps query used by dependency notification pre-commit (2 receipts = 2 calls, no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock WriteOrDistributeReceiptsPostSubmit with 2 receipts
 			mc.sequencerMgr.On("WriteOrDistributeReceiptsPostSubmit", mock.Anything, mock.Anything, mock.MatchedBy(func(receipts []*components.ReceiptInputWithOriginator) bool {
 				if len(receipts) != 2 {
@@ -929,6 +936,9 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoChainingRecords(t *testi
 			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+
 			// WriteOrDistributeReceiptsPostSubmit should NOT be called
 			mc.db.ExpectCommit()
 		})

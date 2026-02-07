@@ -18,7 +18,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -51,17 +53,14 @@ func (t *CoordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *CoordinatorTransaction) isNotReady() bool {
-	// test against the list of states that we consider to be past the point of ready as there is more chance of us noticing
-	// a failing test if we add new states in the future and forget to update this list
+func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
+	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
 
-	// "ready" is based on the transaction's dependencies and the signing identity. If the signer is fixed (i.e. the signer of this TX is
-	// the same as the signer of the dependency) we can rely on the base ledger nonce ensuring ordering of the on-chain transactions. However,
-	// if the signer is dynamic the base ledger TX for this Paladin transaction could be mined ahead of the dependency transaction, resulting
-	// in public TX revert & reassembly (with no guarantee of every getting them on to the base ledger in the correct order). In such cases
-	// we are forced to wait for the dependency to be confirmed, not just dispatched.
-
-	if !t.dynamicSigningIdentity {
+	// Whether or not we can safely dispatch this transaction's dependents is partly based on if the base-ledger is providing any ordering protection.
+	// For fixed signing keys the base ledger prevents a dependent transaction getting ahead of this one so as long as this TX has reached one of the dispatch
+	// (or later) states we can let the dependent transactions proceed. For dynamic signing keys there is no such base-ledger ordering guarantee so we
+	// must wait for the TX to get all the way to confirmed state.
+	if !dynamicSigningIdentity {
 		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
 		notReady := t.stateMachine.CurrentState != State_Confirmed &&
@@ -101,13 +100,11 @@ func (t *CoordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	for _, dependencyID := range dependencies {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependencyID.String())
-			// assume the dependency has been confirmed and is no longer in memory since we can't wait for a non-existent transaction
-			// to be in the right state. Rely on TX re-assembly if the base ledger TX fails
-			continue
+			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound))
+			return true
 		}
 
-		if dependency.isNotReady() {
+		if dependency.dependentsMustWait(t.dynamicSigningIdentity) {
 			return true
 		}
 	}
@@ -137,7 +134,7 @@ func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			log.L(ctx).Warnf("TX %s has a dependency (%s) that's missing from memory", t.pt.ID.String(), dependentId.String())
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
