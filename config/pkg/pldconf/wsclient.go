@@ -28,6 +28,7 @@ type WSClientConfig struct {
 	ReadBufferSize         *string     `json:"readBufferSize"`
 	WriteBufferSize        *string     `json:"writeBufferSize"`
 	HeartbeatInterval      *string     `json:"heartbeatInterval"`
+	RequestTimeout         *string     `json:"requestTimeout"`
 }
 
 var DefaultWSConfig = WSClientConfig{
@@ -38,4 +39,5 @@ var DefaultWSConfig = WSClientConfig{
 	ConnectionTimeout:      confutil.P("30s"),
 	HeartbeatInterval:      confutil.P("15s"),
 	ConnectRetry:           GenericRetryDefaults.RetryConfig,
+	RequestTimeout:         confutil.P("2m"),
 }

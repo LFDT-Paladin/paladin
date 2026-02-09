@@ -130,7 +130,8 @@
 | httpHeaders | HTTP headers to include in requests | `map[string][any]` | - |
 | initialConnectAttempts | Number of initial connection attempts | `int` | `0` |
 | readBufferSize | WebSocket read buffer size | `string` | `"16Kb"` |
-| requestTimeout | Request timeout | `string` | - |
+| requestTimeout | Request timeout | `string` | `"2m"` |
+| requestTimeout | WebSocket request timeout | `string` | `"2m"` |
 | retry | HTTP retry configuration | [`HTTPRetryConfig`](#blockchainwsretry) | - |
 | tls | TLS configuration | [`TLSConfig`](#blockchainwstls) | - |
 | url | HTTP client URL | `string` | - |
