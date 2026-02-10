@@ -46,7 +46,7 @@ func NewWSClient(ctx context.Context, conf *pldconf.WSClientConfig) (WSClient, e
 func WrapWSConfig(conf *pldconf.WSClientConfig) WSClient {
 	return &wsRPCClient{
 		wsConf:              *conf,
-		requestTimeout:      confutil.DurationMin(conf.RequestTimeout, 1*time.Second, *pldconf.DefaultWSConfig.RequestTimeout),
+		requestTimeout:      confutil.DurationMin(conf.WSRequestTimeout, 1*time.Second, *pldconf.DefaultWSConfig.WSRequestTimeout),
 		calls:               make(map[string]chan *RPCResponse),
 		configuredSubs:      make(map[uuid.UUID]*sub),
 		pendingSubsByReqID:  make(map[string]*sub),
