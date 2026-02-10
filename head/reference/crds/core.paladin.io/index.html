@@ -3818,13 +3818,13 @@
 <td><code>local</code> <em><a href="#localledgerendpoint">LocalLedgerEndpoint</a></em></td>
 <td>Local specifies the configuration when the type is 'local'.</td>
 <td></td>
-<td></td>
+<td>Optional: {} <br /></td>
 </tr>
 <tr>
 <td><code>endpoint</code> <em><a href="#networkledgerendpoint">NetworkLedgerEndpoint</a></em></td>
 <td>Network specifies the configuration when the type is 'endpoint'.</td>
 <td></td>
-<td></td>
+<td>Optional: {} <br /></td>
 </tr>
 </tbody>
 </table>
@@ -4799,7 +4799,7 @@ Most common to use a simple one-reference-per-domain approach.</p>
 <td><code>besuNode</code> <em>string</em></td>
 <td>Deprecated: Use 'baseLedgerEndpoint' instead. Example:<br />{ "baseLedgerEndpoint": {"type": "local", "local": {"nodeName": "node-name"}} }<br />Optionally bind to a local Besu node deployed with this operator<br />(vs. configuring a connection to a production blockchain network).</td>
 <td></td>
-<td></td>
+<td>Optional: {} <br /></td>
 </tr>
 <tr>
 <td><code>authConfig</code> <em><a href="#auth">Auth</a></em></td>
