@@ -685,10 +685,12 @@ func (dc *domainContext) ExportSnapshot() ([]byte, error) {
 			Data:   s.Data,
 		})
 	}
-	return json.Marshal(&exportSnapshot{
+	jsonStr, err := json.Marshal(&exportSnapshot{
 		States: states,
 		Locks:  locks,
 	})
+	fmt.Printf("ExportSnapshot: JSON string: %s\n", jsonStr)
+	return jsonStr, err
 }
 
 // ImportSnapshot is used to restore the state of the domain context, by adding a set of locks

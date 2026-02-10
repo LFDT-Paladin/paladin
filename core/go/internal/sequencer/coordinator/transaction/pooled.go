@@ -118,6 +118,7 @@ func (t *Transaction) initializeForNewAssemply(ctx context.Context) error {
 	t.PostAssembly = nil
 	t.dependencies = &pldapi.TransactionDependencies{}
 	t.grapher.ForgetMints(t.ID)
+	t.grapher.ForgetLocks(t.ID)
 	t.cancelAssembleTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
 

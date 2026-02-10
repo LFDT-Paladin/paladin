@@ -15,6 +15,7 @@
 package transaction
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -88,10 +89,35 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 
 	// Once we've written the lock states we have output states which must be added to the grapher
 	for _, state := range postAssembly.OutputStates {
-		err := t.grapher.AddMinter(ctx, state.ID, t)
+		fmt.Printf("Post assembly for TX %s: Adding minter for output state ID %s and locking it\n", t.ID.String(), state.ID.String())
+		err := t.grapher.AddMinter(ctx, state, t)
 		if err != nil {
 			// Log internal error and return i
 			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", t.ID.String(), state.ID.String(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+		// If we created the state it must be locked until the transaction is confirmed
+		err = t.grapher.LockMintOnCreate(ctx, state.ID, t.ID)
+		if err != nil {
+			msg := fmt.Sprintf("error locking state %s for transaction %s: %s", state.ID.String(), t.ID.String(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+	}
+	for _, state := range postAssembly.InfoStates {
+		fmt.Printf("Post assembly for TX %s: Adding minter for info state ID %s and locking it\n", t.ID.String(), state.ID.String())
+		err := t.grapher.AddMinter(ctx, state, t)
+		if err != nil {
+			// Log internal error and return i
+			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", t.ID.String(), state.ID.String(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+		// If we created the state it must be locked until the transaction is confirmed
+		err = t.grapher.LockMintOnCreate(ctx, state.ID, t.ID)
+		if err != nil {
+			msg := fmt.Sprintf("error locking state %s for transaction %s: %s", state.ID.String(), t.ID.String(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
@@ -100,7 +126,7 @@ func (t *Transaction) applyPostAssembly(ctx context.Context, postAssembly *compo
 }
 
 func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
-	//assemble requests have a short and long timeout
+	// assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
 	// the action for the long timeout is to return the transaction to the mempool and let another transaction be selected
@@ -109,18 +135,33 @@ func (t *Transaction) sendAssembleRequest(ctx context.Context) error {
 	// we and nudge the request every requestTimeout event implement the short retry.
 	// the state machine will deal with the long timeout via the guard assembleTimeoutExpired
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		//fmt.Printf("Sending assemble request for transaction %s\n", t.ID.String())
 		stateLocks, err := t.engineIntegration.GetStateLocks(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to get engine state locks: %s", err)
 			return err
 		}
+		// Print state locks as hex string
+		//fmt.Printf("State locks exported from the domain context: %s\n", hex.EncodeToString(stateLocks))
+
+		grapherStateLocks, err := t.grapher.ExportMints(ctx)
+		if err != nil {
+			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
+			return err
+		}
+		//fmt.Printf("Grapher state locks: %s\n", hex.EncodeToString(grapherStateLocks))
 		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to get engine block height: %s", err)
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.ID, idempotencyKey, t.PreAssembly, stateLocks, blockHeight)
+		if !bytes.Equal(stateLocks, grapherStateLocks) {
+			// panic("Grapher not producing the same locks as the domain context")
+			fmt.Println("Warning - they don't match")
+		}
+
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.ID, idempotencyKey, t.PreAssembly, grapherStateLocks, blockHeight)
 	})
 
 	// Schedule a short retry timeout for e.g. network blip
@@ -289,8 +330,13 @@ func (t *Transaction) calculatePostAssembleDependencies(ctx context.Context) err
 			continue
 		}
 		if found[dependency.ID] {
+
 			continue
 		}
+
+		// This TX is locking this state ID so other transactions don't use it
+		fmt.Printf("calculatePostAssembleDependencies: Locking state ID %s for transaction ID %s\n", state.ID.String(), t.ID.String())
+		t.grapher.LockMintOnCreate(ctx, state.ID, t.ID)
 		found[dependency.ID] = true
 
 		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.ID)
@@ -339,6 +385,7 @@ func action_NotifyDependentsOfRevert(ctx context.Context, txn *Transaction) erro
 func action_NotifyOfConfirmation(ctx context.Context, txn *Transaction) error {
 	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.ID.String())
 	txn.engineIntegration.ResetTransactions(ctx, txn.ID)
+	txn.grapher.ForgetLocks(txn.ID)
 	return txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
 }
 
