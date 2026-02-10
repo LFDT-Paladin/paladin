@@ -40,6 +40,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"gorm.io/gorm"
@@ -330,6 +331,15 @@ func (dm *domainManager) getSmartContractCached(ctx context.Context, dbTX persis
 	return dm.dbGetSmartContract(ctx, dbTX, func(db *gorm.DB) *gorm.DB { return db.Where("address = ?", addr) })
 }
 
+func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContract, config *prototk.ContractConfig) {
+	if config != nil {
+		result.Config = &pldapi.ContractConfig{}
+		if config.ContractConfigJson != "" {
+			result.Config.ContractConfig = pldtypes.RawJSON(config.ContractConfigJson)
+		}
+	}
+}
+
 func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
 	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
 		P:           dm.persistence,
@@ -348,6 +358,7 @@ func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.Quer
 			}
 			if dc != nil {
 				result.DomainName = dc.Domain().Name()
+				dm.populateContractConfig(result, dc.config)
 			}
 			return result, nil
 		},
