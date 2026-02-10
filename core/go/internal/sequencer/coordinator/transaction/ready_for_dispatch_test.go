@@ -17,6 +17,7 @@ package transaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -259,7 +260,8 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	txn.previousTransaction = nil
 	txn.PreAssembly = nil
 
-	assert.False(t, txn.hasDependenciesNotReady(ctx))
+	// Missing dependency is an error case, should block next TX by returning true
+	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
 
 func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
@@ -399,9 +401,10 @@ func Test_notifyDependentsOfReadinessAndQueueForDispatch_DependentNotInMemory(t 
 	txn.onReadyForDispatch = func(ctx context.Context, t *Transaction) {
 		onReadyCalled = true
 	}
-
+	// Missing dependency is an error case, should block next TX by returning true
 	err := txn.notifyDependentsOfReadinessAndQueueForDispatch(ctx)
-	assert.NoError(t, err)
+	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "PD012645"))
 	assert.True(t, onReadyCalled)
 }
 
@@ -550,7 +553,8 @@ func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentNotInMemory
 	}
 
 	err := txn.notifyDependentsOfConfirmationAndQueueForDispatch(ctx)
-	assert.NoError(t, err)
+	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "PD012645"))
 }
 
 func Test_notifyDependentsOfConfirmationAndQueueForDispatch_DependentInMemory(t *testing.T) {

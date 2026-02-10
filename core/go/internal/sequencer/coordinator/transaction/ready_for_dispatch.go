@@ -95,7 +95,7 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	for _, dependencyID := range dependencies {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
-			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound))
+			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
 			return true
 		}
 
@@ -133,7 +133,7 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -161,7 +161,7 @@ func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx cont
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
