@@ -600,7 +600,9 @@ func (hGpc *HybridGasPriceClient) startGasPriceRefresh(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				// Context cancelled, stop refreshing
-				hGpc.gasOracleHTTPClientCloseFn()
+				if hGpc.gasOracleHTTPClientCloseFn != nil {
+					hGpc.gasOracleHTTPClientCloseFn()
+				}
 				return
 			case <-hGpc.gasPriceRefreshTicker.C:
 				// Ticker fired, refresh cache
