@@ -132,7 +132,7 @@ func (h *withdrawHandler) Assemble(ctx context.Context, tx *types.ParsedTransact
 	}
 
 	remainder := big.NewInt(0).Sub(inputStates.total, amount.Int())
-	outputCoin, outputState, err := h.prepareOutput(ctx, pldtypes.MustParseHexUint256(remainder.Text(10)), resolvedSender)
+	outputCoin, outputState, err := h.prepareOutput(ctx, useNullifiers, pldtypes.MustParseHexUint256(remainder.Text(10)), resolvedSender)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorPrepTxOutputs, err)
 	}
@@ -251,7 +251,7 @@ func (h *withdrawHandler) prepareInputs(ctx context.Context, useNullifiers bool,
 	return buildInputsForExpectedTotal(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, senderKey, expectedTotal, false)
 }
 
-func (h *withdrawHandler) prepareOutput(ctx context.Context, amount *pldtypes.HexUint256, resolvedRecipient *pb.ResolvedVerifier) (*types.ZetoCoin, *pb.NewState, error) {
+func (h *withdrawHandler) prepareOutput(ctx context.Context, useNullifiers bool, amount *pldtypes.HexUint256, resolvedRecipient *pb.ResolvedVerifier) (*types.ZetoCoin, *pb.NewState, error) {
 	recipientKey, err := common.LoadBabyJubKey([]byte(resolvedRecipient.Verifier))
 	if err != nil {
 		return nil, nil, i18n.NewError(ctx, msgs.MsgErrorLoadOwnerPubKey, err)
@@ -265,7 +265,7 @@ func (h *withdrawHandler) prepareOutput(ctx context.Context, amount *pldtypes.He
 		Amount: amount,
 	}
 
-	newState, err := makeNewState(ctx, h.stateSchemas.CoinSchema, false, newCoin, h.name, resolvedRecipient.Lookup)
+	newState, err := makeNewState(ctx, h.stateSchemas.CoinSchema, useNullifiers, newCoin, h.name, resolvedRecipient.Lookup)
 	if err != nil {
 		return nil, nil, i18n.NewError(ctx, msgs.MsgErrorCreateNewState, err)
 	}
