@@ -49,7 +49,7 @@ func (t *CoordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound)
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{

@@ -743,6 +743,8 @@ func TestBuildBadABIJSON(t *testing.T) {
 
 func TestGetters(t *testing.T) {
 
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	tx := &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			IdempotencyKey: "tx1",
@@ -756,8 +758,9 @@ func TestGetters(t *testing.T) {
 				Gas: confutil.P(pldtypes.HexUint64(100000)),
 			},
 		},
-		ABI:      abi.ABI{{Type: abi.Constructor}},
-		Bytecode: pldtypes.HexBytes(pldtypes.RandBytes(64)),
+		DependsOn: []uuid.UUID{dep1, dep2},
+		ABI:       abi.ABI{{Type: abi.Constructor}},
+		Bytecode:  pldtypes.HexBytes(pldtypes.RandBytes(64)),
 	}
 
 	// This isn't a valid TX, but we're just testing getters
@@ -773,6 +776,7 @@ func TestGetters(t *testing.T) {
 	assert.Equal(t, "function1", b.GetFunction())
 	assert.Equal(t, tx.Bytecode, b.GetBytecode())
 	assert.Equal(t, tx.PublicTxOptions, b.GetPublicTxOptions())
+	assert.Equal(t, tx.DependsOn, b.GetDependsOn())
 
 	require.NotNil(t, b.Client())
 
@@ -796,6 +800,38 @@ func TestGetters(t *testing.T) {
 
 	tx3 := b.BuildTX().CallTX()
 	require.Equal(t, callTX, tx3)
+}
+
+func TestDependsOn(t *testing.T) {
+	ctx := context.Background()
+	b := New().TxBuilder(ctx)
+
+	// DependsOn(nil) sets nil and allows chaining
+	chained := b.DependsOn(nil)
+	require.Same(t, b, chained)
+	assert.Nil(t, b.GetDependsOn())
+	built := b.BuildTX().TX()
+	assert.Nil(t, built.DependsOn)
+
+	// DependsOn(empty slice)
+	b = New().TxBuilder(ctx).DependsOn([]uuid.UUID{})
+	assert.Empty(t, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	assert.Empty(t, built.DependsOn)
+
+	// DependsOn with one or more UUIDs
+	dep1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	dep2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	deps := []uuid.UUID{dep1, dep2}
+	b = New().TxBuilder(ctx).DependsOn(deps)
+	require.Equal(t, deps, b.GetDependsOn())
+	built = b.BuildTX().TX()
+	require.Equal(t, deps, built.DependsOn)
+
+	// Overwrite: second DependsOn call replaces
+	dep3 := uuid.New()
+	b = b.DependsOn([]uuid.UUID{dep3})
+	require.Equal(t, []uuid.UUID{dep3}, b.GetDependsOn())
 }
 
 func TestBuildCallDataFunction(t *testing.T) {

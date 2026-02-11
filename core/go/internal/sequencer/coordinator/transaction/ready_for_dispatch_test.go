@@ -17,6 +17,7 @@ package transaction
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -221,6 +222,7 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	}
 	txn.pt.PreAssembly = nil
 
+	// Missing dependency is an error case, should block next TX by returning true
 	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
 
@@ -348,9 +350,10 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{missingID},
 	}
-
+	// Missing dependency is an error case, should block next TX by returning true
 	err := txn.notifyDependentsOfReadiness(ctx)
 	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "PD012645"))
 }
 
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
@@ -444,7 +447,7 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 		PrereqOf: []uuid.UUID{dependentID},
 	}
 
-	// Call notifyDependentsOfReadinessAndQueueForDispatch - should return error
+	// Call notifyDependentsOfReadiness - should return error
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	assert.Error(t, err)
 }

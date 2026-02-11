@@ -1614,8 +1614,8 @@ func TestTransactionWithExplicitPrereqSuccessfulAfterRestart(t *testing.T) {
 	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.AssembleTimeout = confutil.P("10s")              // In this test we don't want to hit this
-	sequencerConfig.RequestTimeout = confutil.P("3s")                // Extend this enough to give the bob node enough time to restart
+	sequencerConfig.AssembleTimeout = confutil.P("10s")
+	sequencerConfig.RequestTimeout = confutil.P("3s")
 	sequencerConfig.TransactionResumePollInterval = confutil.P("5s") // We're relying on sequencer TX resume to get TX2 through to completion
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
