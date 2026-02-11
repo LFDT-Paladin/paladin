@@ -388,8 +388,6 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 }
 
 func getBesuPort() int {
-	err := os.Setenv("BESU_PORT", "8545")
-	log.L(context.Background()).Infof("BESU_PORT error: %s", err)
 	if portStr := os.Getenv("BESU_PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil {
 			return port

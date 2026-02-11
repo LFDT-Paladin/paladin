@@ -1562,6 +1562,7 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 	// MapSubmissionRejected returns true for "execution reverted" errors
 	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
 		Return(ethclient.EstimateGasResult{RevertData: nil}, fmt.Errorf("execution reverted")).Once()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(mock.Anything, nil).Maybe()
 
 	err = ptm.UpdateTransaction(ctx, txID, pubTxnID, testAddress, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
