@@ -18,7 +18,6 @@ package perf
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -30,39 +29,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
+	"github.com/LFDT-Paladin/paladin/perf/internal/testsuite"
 	"github.com/LFDT-Paladin/paladin/perf/internal/util"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 
 	dto "github.com/prometheus/client_model/go"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
-
-//go:embed abis/SimpleStorage.json
-var simpleStorageBuildJSON []byte
-
-type simpleStorageContractData struct {
-	ABI      abi.ABI           `json:"abi"`
-	Bytecode pldtypes.HexBytes `json:"bytecode"`
-}
-
-func loadSimpleStorageContract() (*simpleStorageContractData, error) {
-	var contractData simpleStorageContractData
-	if err := json.Unmarshal(simpleStorageBuildJSON, &contractData); err != nil {
-		return nil, fmt.Errorf("failed to parse embedded SimpleStorage.json: %w", err)
-	}
-	return &contractData, nil
-}
 
 const workerPrefix = "worker-"
 
@@ -129,16 +109,9 @@ type PerfRunner interface {
 	Start() error
 }
 
-type TestCase interface {
-	WorkerID() int
-	RunOnce(iterationCount int) (trackingID string, err error)
-	Name() conf.TestName
-	ActionsPerLoop() int
-}
-
 type inflightTest struct {
 	time     time.Time
-	testCase TestCase
+	testCase testsuite.TestCase
 }
 
 type summary struct {
@@ -174,15 +147,9 @@ type perfRunner struct {
 	workerIDMap   sync.Map
 
 	wsReceivers   map[string]chan bool
-	subscriptions []rpcclient.Subscription
 
-	// Listener name for cleanup
-	listenerName string
-
-	// Pente test specific fields
-	privacyGroupID  *pldtypes.HexBytes
-	contractAddress *pldtypes.EthAddress
-	nodeManager     NodeManager
+	currentSuite testsuite.TestSuite
+	nodeManager  NodeManager
 
 	// Node kill coordination channels (one set per worker)
 	pauseRequests []chan struct{} // Channels to signal each worker to pause
@@ -203,7 +170,7 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 	wsReceivers := make(map[string]chan bool)
 	for i := 0; i < totalWorkers; i++ {
 		prefixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, i)
-		wsReceivers[prefixedWorkerID] = make(chan bool)
+		wsReceivers[prefixedWorkerID] = make(chan bool, 1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -281,305 +248,53 @@ func (pr *perfRunner) Init() (err error) {
 	return nil
 }
 
-func (pr *perfRunner) setupPenteTest() error {
-	// Load contract bytecode and ABI from embedded SimpleStorage.json
-	simpleStorage, err := loadSimpleStorageContract()
-	if err != nil {
-		return err
-	}
-
-	// Build members list from node names: "member@" + node name
-	members := make([]string, len(pr.cfg.Nodes))
-	for i, node := range pr.cfg.Nodes {
-		members[i] = fmt.Sprintf("member@%s", node.Name)
-	}
-
-	// Create privacy group using pgroup_createGroup API
-	log.Info("Creating privacy group for pente test...")
-	group, err := pr.httpClients[0].PrivacyGroups().CreateGroup(pr.ctx, &pldapi.PrivacyGroupInput{
-		Domain:  "pente",
-		Members: members,
-		Name:    "perf-test-privacy-group",
-		Configuration: map[string]string{
-			"evmVersion":           "shanghai",
-			"externalCallsEnabled": "true",
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create privacy group: %w", err)
-	}
-
-	pr.privacyGroupID = &group.ID
-	log.Infof("Privacy group created with ID: %s", group.ID)
-
-	// Wait for privacy group creation receipt by polling GetTransactionReceipt
-	log.Info("Waiting for privacy group creation receipt...")
-	receipt, err := pr.waitForTransactionReceipt(group.GenesisTransaction, 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to get privacy group creation receipt: %w", err)
-	}
-	if !receipt.Success {
-		return fmt.Errorf("privacy group creation transaction failed")
-	}
-	log.Info("Privacy group creation confirmed")
-
-	var function *abi.Entry
-	for _, entry := range simpleStorage.ABI {
-		if entry.Type == abi.Constructor {
-			function = entry
-			break
-		}
-	}
-
-	// Deploy contract to privacy group (omit `to`, provide `bytecode` and constructor function)
-	log.Info("Deploying contract to privacy group...")
-	deployTxID, err := pr.httpClients[0].PrivacyGroups().SendTransaction(pr.ctx, &pldapi.PrivacyGroupEVMTXInput{
-		Domain: "pente",
-		Group:  *pr.privacyGroupID,
-		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
-			From:     "member",
-			Bytecode: simpleStorage.Bytecode,
-			Function: function,
-			Input:    pldtypes.RawJSON(fmt.Sprintf("[%d]", 0)),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to deploy contract: %w", err)
-	}
-
-	// Wait for contract deployment receipt - use GetTransactionReceiptFull to get domain receipt
-	log.Info("Waiting for contract deployment receipt...")
-	deployReceipt, err := pr.waitForTransactionReceiptFull(deployTxID, 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to get contract deployment receipt: %w", err)
-	}
-	if !deployReceipt.Success {
-		return fmt.Errorf("contract deployment transaction failed")
-	}
-
-	// Extract contract address from domain receipt
-	if deployReceipt.DomainReceipt != nil {
-		var domainReceipt map[string]interface{}
-		if err := json.Unmarshal(deployReceipt.DomainReceipt, &domainReceipt); err == nil {
-			if receiptData, ok := domainReceipt["receipt"].(map[string]interface{}); ok {
-				if addrStr, ok := receiptData["contractAddress"].(string); ok {
-					addr := pldtypes.MustEthAddress(addrStr)
-					pr.contractAddress = addr
-					log.Infof("Contract deployed at address: %s", *addr)
-				}
-			}
-		}
-	}
-
-	if pr.contractAddress == nil {
-		return fmt.Errorf("contract address not found in deployment receipt")
-	}
-
-	return nil
-}
-
-func (pr *perfRunner) waitForTransactionReceipt(txID uuid.UUID, timeout time.Duration) (*pldapi.TransactionReceipt, error) {
-	deadline := time.Now().Add(timeout)
-	checkInterval := 1 * time.Second
-
-	for time.Now().Before(deadline) {
-		receipt, err := pr.httpClients[0].PTX().GetTransactionReceipt(pr.ctx, txID)
-		if err == nil && receipt != nil {
-			return receipt, nil
-		}
-
-		select {
-		case <-pr.ctx.Done():
-			return nil, pr.ctx.Err()
-		case <-time.After(checkInterval):
-			// Continue polling
-		}
-	}
-
-	return nil, fmt.Errorf("timeout waiting for transaction receipt: %s", txID)
-}
-
-func (pr *perfRunner) waitForTransactionReceiptFull(txID uuid.UUID, timeout time.Duration) (*pldapi.TransactionReceiptFull, error) {
-	deadline := time.Now().Add(timeout)
-	checkInterval := 1 * time.Second
-
-	for time.Now().Before(deadline) {
-		receipt, err := pr.httpClients[0].PTX().GetTransactionReceiptFull(pr.ctx, txID)
-		if err == nil && receipt != nil {
-			return receipt, nil
-		}
-
-		select {
-		case <-pr.ctx.Done():
-			return nil, pr.ctx.Err()
-		case <-time.After(checkInterval):
-			// Continue polling
-		}
-	}
-
-	return nil, fmt.Errorf("timeout waiting for transaction receipt: %s", txID)
-}
-
-func (pr *perfRunner) subscribeToPenteReceiptListener() error {
-	// Create receipt listener for pente transactions, starting from latest sequence
-	pr.listenerName = "penteperflistener"
-
-	var latestSequence *uint64
-	qb := query.NewQueryBuilder().Equal("type", "private").Equal("domain", "pente").Sort("-sequence").Limit(1)
-	receipts, err := pr.httpClients[0].PTX().QueryTransactionReceipts(pr.ctx, qb.Query())
-	if err == nil && len(receipts) > 0 {
-		seq := receipts[0].Sequence
-		latestSequence = &seq
-		log.Infof("Found latest sequence: %d, will start listener from sequence above this", seq)
-	} else {
-		log.Info("No existing receipts found, starting listener from beginning")
-	}
-
-	_, err = pr.httpClients[0].PTX().DeleteReceiptListener(pr.ctx, pr.listenerName)
-	if err != nil {
-		log.Debugf("No existing listener to delete (or delete failed): %v", err)
-	}
-
-	txType := pldapi.TransactionTypePrivate.Enum()
-	_, err = pr.httpClients[0].PTX().CreateReceiptListener(pr.ctx, &pldapi.TransactionReceiptListener{
-		Name: pr.listenerName,
-		Filters: pldapi.TransactionReceiptFilters{
-			Type:          &txType,
-			Domain:        "pente",
-			SequenceAbove: latestSequence,
-		},
-		Options: pldapi.TransactionReceiptListenerOptions{
-			DomainReceipts: true,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create receipt listener: %w", err)
-	}
-
-	// Subscribe to receipts using the same pattern as public contract test
-	sub, err := pr.wsClient.PTX().SubscribeReceipts(pr.ctx, pr.listenerName)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to pente receipts: %w", err)
-	}
-
-	pr.subscriptions = append(pr.subscriptions, sub)
-	go pr.batchEventLoop(sub)
-
-	return nil
-}
-
-func (pr *perfRunner) setupPublicContractTest() error {
-	// Load contract bytecode and ABI from embedded SimpleStorage.json
-	simpleStorage, err := loadSimpleStorageContract()
-	if err != nil {
-		return err
-	}
-
-	// Deploy contract as public transaction (omit `to`, provide `bytecode` and `abi`)
-	log.Info("Deploying contract as public transaction...")
-	deployTxID, err := pr.httpClients[0].PTX().SendTransaction(pr.ctx, &pldapi.TransactionInput{
-		TransactionBase: pldapi.TransactionBase{
-			Type: pldapi.TransactionTypePublic.Enum(),
-			From: "deploy",
-			Data: pldtypes.RawJSON(fmt.Sprintf("[%d]", 0)),
-		},
-		Bytecode: simpleStorage.Bytecode,
-		ABI:      simpleStorage.ABI,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to deploy contract: %w", err)
-	}
-
-	// Wait for contract deployment receipt
-	log.Info("Waiting for contract deployment receipt...")
-	deployReceipt, err := pr.waitForTransactionReceiptFull(*deployTxID, 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to get contract deployment receipt: %w", err)
-	}
-	if !deployReceipt.Success {
-		return fmt.Errorf("contract deployment transaction failed")
-	}
-
-	// Extract contract address from receipt data (public transactions have it directly in the receipt)
-	if deployReceipt.ContractAddress != nil {
-		pr.contractAddress = deployReceipt.ContractAddress
-		log.Infof("Contract deployed at address: %s", *deployReceipt.ContractAddress)
-	}
-
-	if pr.contractAddress == nil {
-		return fmt.Errorf("contract address not found in deployment receipt")
-	}
-
-	return nil
-}
-
 func (pr *perfRunner) Start() (err error) {
 	log.Infof("Running test:\n%+v", pr.cfg)
 
 	test := pr.cfg.Test
-
-	// Setup listeners based on test type
-	switch test.Name {
-	case conf.PerfTestPublicContract:
-		log.Infof("Running public contract test using first configured node: %s", pr.cfg.Nodes[0].HTTPEndpoint)
-		if err = pr.setupPublicContractTest(); err != nil {
-			return fmt.Errorf("failed to setup public contract test: %w", err)
-		}
-		if err = pr.subscribeToPublicContractListener(); err != nil {
-			return err
-		}
-	case conf.PerfTestPrivateTransactionNodeRestart:
-		log.Infof("Running private transaction node restart test")
-		if err = pr.setupPenteTest(); err != nil {
-			return fmt.Errorf("failed to setup pente test: %w", err)
-		}
-		if err = pr.subscribeToPenteReceiptListener(); err != nil {
-			return err
-		}
-	default:
+	suite := testsuite.GetTestSuite(test.Name, pr.ctx, pr.httpClients, pr.wsClient, pr.cfg.Nodes)
+	if suite == nil {
 		return fmt.Errorf("unknown test case '%s'", test.Name)
+	}
+	pr.currentSuite = suite
+
+	if err = suite.Setup(); err != nil {
+		return fmt.Errorf("failed to setup %s test: %w", test.Name, err)
+	}
+	sub, err := suite.Subscribe()
+	if err != nil {
+		return err
+	}
+	if sub != nil {
+		go pr.batchEventLoop(sub)
 	}
 
 	// Start workers
 	log.Infof("Starting %d workers for case \"%s\"", test.Workers, test.Name)
 	id := 0
 	for iWorker := 0; iWorker < test.Workers; iWorker++ {
-		var tc TestCase
-
-		switch test.Name {
-		case conf.PerfTestPublicContract:
-			tc = newPublicContractTestWorker(pr, id, test.ActionsPerLoop)
-		case conf.PerfTestPrivateTransactionNodeRestart:
-			if pr.privacyGroupID == nil || pr.contractAddress == nil {
-				return fmt.Errorf("pente test not properly initialized")
-			}
-			tc = newPrivateTransactionNodeRestartTestWorker(pr, id, test.ActionsPerLoop, pr.privacyGroupID, pr.contractAddress, pr.httpClients)
-		default:
-			return fmt.Errorf("unknown test case '%s'", test.Name)
-		}
+		tc := suite.NewWorker(pr.startTime, id)
 
 		delayPerWorker := pr.cfg.RampLength / time.Duration(test.Workers)
 
-		go func(i int) {
+		go func(workerID int) {
 			// Delay the start of the next worker by (ramp time) / (number of workers)
 			if delayPerWorker > 0 {
-				time.Sleep(delayPerWorker * time.Duration(i))
+				time.Sleep(delayPerWorker * time.Duration(workerID))
 				log.Infof("Ramping up. Starting next worker after waiting %v", delayPerWorker)
 			}
-			err := pr.runLoop(tc)
+			err := pr.runLoop(tc, workerID, test.ActionsPerLoop)
 			if err != nil {
-				log.Errorf("Worker %d failed: %s", tc.WorkerID(), err)
+				log.Errorf("Worker %d failed: %s", workerID, err)
 			}
-		}(iWorker)
+		}(id)
 		id++
 	}
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt)
-	signal.Notify(signalCh, os.Kill)
 	signal.Notify(signalCh, syscall.SIGTERM)
 	signal.Notify(signalCh, syscall.SIGQUIT)
-	signal.Notify(signalCh, syscall.SIGKILL)
 
 	i := 0
 	lastCheckedTime := time.Now()
@@ -797,29 +512,17 @@ perfLoop:
 }
 
 func (pr *perfRunner) cleanup() {
-	for _, sub := range pr.subscriptions {
-		err := sub.Unsubscribe(pr.ctx)
-		if err != nil {
-			log.Errorf("Error unsubscribing from subscription: %s", err.Error())
-		} else {
-			log.Info("Successfully unsubscribed")
-		}
+	if pr.currentSuite != nil {
+		pr.currentSuite.Unsubscribe()
 	}
 
 	// Set flag to indicate websocket is being closed
 	pr.closingWebsocket = true
 	pr.wsClient.Close()
 
-	// Clean up receipt listener after websocket is closed
-	if pr.listenerName != "" {
-		_, err := pr.httpClients[0].PTX().DeleteReceiptListener(pr.ctx, pr.listenerName)
-		if err != nil {
-			log.Debugf("Failed to delete receipt listener %s: %v", pr.listenerName, err)
-		} else {
-			log.Infof("Successfully deleted receipt listener: %s", pr.listenerName)
-		}
+	if pr.currentSuite != nil {
+		pr.currentSuite.Cleanup()
 	}
-
 }
 
 func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
@@ -879,7 +582,10 @@ func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
 						if workerID >= 0 {
 							prefixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, workerID)
 							// No need for locking as channel have built in support
-							pr.wsReceivers[prefixedWorkerID] <- true
+							select {
+							case pr.wsReceivers[prefixedWorkerID] <- true:
+							default:
+							}
 						}
 					}
 					return nil
@@ -918,9 +624,8 @@ func (pr *perfRunner) allActionsComplete() bool {
 	return pr.cfg.MaxActions > 0 && int64(getMetricVal(totalActionsCounter)) >= pr.cfg.MaxActions
 }
 
-func (pr *perfRunner) runLoop(tc TestCase) error {
+func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoop int) error {
 	testName := tc.Name()
-	workerID := tc.WorkerID()
 	preFixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, workerID)
 
 	loop := 0
@@ -955,7 +660,7 @@ func (pr *perfRunner) runLoop(tc TestCase) error {
 				err           error
 			}
 
-			actionResponses := make(chan *ActionResponse, tc.ActionsPerLoop())
+			actionResponses := make(chan *ActionResponse, actionsPerLoop)
 
 			var sentTime time.Time
 			var submissionSecondsPerLoop float64
@@ -963,7 +668,7 @@ func (pr *perfRunner) runLoop(tc TestCase) error {
 			transactionIDs := make([]string, 0)
 
 			pendingActions := 0
-			for actionsCompleted = 0; actionsCompleted < tc.ActionsPerLoop(); actionsCompleted++ {
+			for actionsCompleted = 0; actionsCompleted < actionsPerLoop; actionsCompleted++ {
 
 				if pr.allActionsComplete() {
 					break
@@ -992,14 +697,14 @@ func (pr *perfRunner) runLoop(tc TestCase) error {
 					}
 				} else {
 					transactionIDs = append(transactionIDs, aResponse.transactionID)
-					pr.workerIDMap.Store(aResponse.transactionID, tc.WorkerID())
+					pr.workerIDMap.Store(aResponse.transactionID, workerID)
 					pr.markTestInFlight(tc, aResponse.transactionID)
 					log.Debugf("%d --> %s Sent transaction ID: %s", workerID, testName, aResponse.transactionID)
 					totalActionsCounter.Inc()
 				}
 			}
 			// if we've reached the expected amount of metadata calls then stop
-			if resultCount == tc.ActionsPerLoop() {
+			if resultCount == actionsPerLoop {
 				submissionDurationPerLoop := time.Since(startTime)
 				pr.sendTime.Record(submissionDurationPerLoop)
 				submissionSecondsPerLoop = submissionDurationPerLoop.Seconds()
@@ -1068,7 +773,7 @@ func (pr *perfRunner) detectDelinquentMsgs() bool {
 	return len(delinquentMsgs) > 0
 }
 
-func (pr *perfRunner) markTestInFlight(tc TestCase, transactionID string) {
+func (pr *perfRunner) markTestInFlight(tc testsuite.TestCase, transactionID string) {
 	if len(transactionID) > 0 {
 		pr.msgTimeMap.Store(transactionID, &inflightTest{
 			testCase: tc,
@@ -1090,61 +795,8 @@ func (pr *perfRunner) stopTrackingRequest(transactionID string) {
 	pr.msgTimeMap.Delete(transactionID)
 }
 
-func (pr *perfRunner) subscribeToPublicContractListener() error {
-	// Create receipt listener for public transactions, starting from latest sequence
-	pr.listenerName = "publiclistener"
-	listenerName := pr.listenerName
-
-	var latestSequence *uint64
-	qb := query.NewQueryBuilder().Equal("type", "public").Sort("-sequence").Limit(1)
-	receipts, err := pr.httpClients[0].PTX().QueryTransactionReceipts(pr.ctx, qb.Query())
-	if err == nil && len(receipts) > 0 {
-		seq := receipts[0].Sequence
-		latestSequence = &seq
-		log.Infof("Found latest sequence: %d, will start listener from sequence above this", seq)
-	} else {
-		log.Info("No existing receipts found, starting listener from beginning")
-	}
-
-	_, err = pr.httpClients[0].PTX().DeleteReceiptListener(pr.ctx, listenerName)
-	if err != nil {
-		log.Debugf("No existing listener to delete (or delete failed): %v", err)
-	}
-
-	txType := pldapi.TransactionTypePublic.Enum()
-	_, err = pr.httpClients[0].PTX().CreateReceiptListener(pr.ctx, &pldapi.TransactionReceiptListener{
-		Name: listenerName,
-		Filters: pldapi.TransactionReceiptFilters{
-			Type:          &txType,
-			SequenceAbove: latestSequence,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create receipt listener: %w", err)
-	}
-
-	// Subscribe to receipts
-	sub, err := pr.wsClient.PTX().SubscribeReceipts(pr.ctx, listenerName)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to public receipts: %w", err)
-	}
-
-	pr.subscriptions = append(pr.subscriptions, sub)
-	go pr.batchEventLoop(sub)
-
-	return nil
-}
-
 func (pr *perfRunner) IsDaemon() bool {
 	return pr.cfg.Daemon
-}
-
-func (pr *perfRunner) getIdempotencyKey(workerId int, iteration int) string {
-	// Left pad worker ID to 5 digits (supporting up to 99,999 workers)
-	workerIdStr := fmt.Sprintf("%05d", workerId)
-	// Left pad iteration ID to 9 digits (supporting up to 999,999,999 iterations)
-	iterationIdStr := fmt.Sprintf("%09d", iteration)
-	return fmt.Sprintf("%v-%s-%s-%s", pr.startTime, workerIdStr, iterationIdStr, uuid.New())
 }
 
 func (pr *perfRunner) calculateCurrentTps(logValue bool) float64 {

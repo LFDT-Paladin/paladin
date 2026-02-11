@@ -30,11 +30,12 @@ task copySolidity(type: Copy, dependsOn: [":solidity:compile"]) {
     from fileTree(configurations.compiledContracts.asPath) {
         include 'contracts/testcontracts/SimpleStorage.sol/SimpleStorage.json'
     }
-    into 'internal/perf/abis'
 
     // Flatten all paths into the destination folder
     eachFile { path = name }
     includeEmptyDirs = false
+
+    into 'internal/contracts/abis'
 }
 
 task make(type: Exec, dependsOn: copySolidity) {
@@ -46,5 +47,5 @@ task build {
 }
 
 task clean(type: Delete) {
-    delete 'internal/perf/abis'
+    delete 'internal/contracts/abis'
 }
