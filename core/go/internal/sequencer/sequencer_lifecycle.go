@@ -72,6 +72,7 @@ type sequencer struct {
 
 // Return the sequencer for the requested contract address, instantiating it first if this is its first use
 func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistence.DBTX, contractAddr pldtypes.EthAddress, domainAPI components.DomainSmartContract, tx *components.PrivateTransaction) (Sequencer, error) {
+	log.L(ctx).Debugf("Loading sequencer for contract %s", contractAddr.String())
 	var err error
 	if domainAPI == nil {
 		// Does a domain exist at this address?
