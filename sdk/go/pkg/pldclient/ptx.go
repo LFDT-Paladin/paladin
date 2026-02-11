@@ -53,7 +53,7 @@ type PTX interface {
 	DecodeCall(ctx context.Context, callData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedCall *pldapi.ABIDecodedData, err error)
 	DecodeEvent(ctx context.Context, topics []pldtypes.Bytes32, eventData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedEvent *pldapi.ABIDecodedData, err error)
 
-	StoreABI(ctx context.Context, abi abi.ABI) (storedABI *pldapi.StoredABI, err error)
+	StoreABI(ctx context.Context, abi abi.ABI) (hashRef pldtypes.Bytes32, err error)
 	GetStoredABI(ctx context.Context, hashRef pldtypes.Bytes32) (storedABI *pldapi.StoredABI, err error)
 	QueryStoredABIs(ctx context.Context, jq *query.QueryJSON) (storedABIs []*pldapi.StoredABI, err error)
 
@@ -164,7 +164,7 @@ var ptxInfo = &rpcModuleInfo{
 		},
 		"ptx_storeABI": {
 			Inputs: []string{"abi"},
-			Output: "storedABI",
+			Output: "hashRef",
 		},
 		"ptx_getStoredABI": {
 			Inputs: []string{"hashRef"},
@@ -356,8 +356,8 @@ func (p *ptx) QueryPreparedTransactions(ctx context.Context, jq *query.QueryJSON
 	return
 }
 
-func (p *ptx) StoreABI(ctx context.Context, abi abi.ABI) (storedABI *pldapi.StoredABI, err error) {
-	err = p.c.CallRPC(ctx, &storedABI, "ptx_storeABI", abi)
+func (p *ptx) StoreABI(ctx context.Context, abi abi.ABI) (hashRef pldtypes.Bytes32, err error) {
+	err = p.c.CallRPC(ctx, &hashRef, "ptx_storeABI", abi)
 	return
 }
 
