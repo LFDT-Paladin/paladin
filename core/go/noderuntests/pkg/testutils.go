@@ -156,10 +156,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	}
 	i.ctx, i.cancelCtx = context.WithCancel(log.WithLogField(t.Context(), "node-name", binding.name))
 	if binding.sequencerConfig != nil {
-		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
-		i.conf.SequencerManager.AssembleTimeout = binding.sequencerConfig.AssembleTimeout
-		i.conf.SequencerManager.BlockHeightTolerance = binding.sequencerConfig.BlockHeightTolerance
-		i.conf.SequencerManager.ClosingGracePeriod = binding.sequencerConfig.ClosingGracePeriod
+		i.conf.SequencerManager = *binding.sequencerConfig
 	}
 
 	i.conf.BlockIndexer.FromBlock = json.RawMessage(`"latest"`)

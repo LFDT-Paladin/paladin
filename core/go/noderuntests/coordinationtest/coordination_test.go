@@ -21,6 +21,7 @@ package coordinationtest
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1426,4 +1427,410 @@ func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, bobsChainedTransaction, 1)
 	require.True(t, bobsChainedTransaction[0].Receipt.Success == false)
+}
+
+func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.T) {
+	// This test exercises the re-assembly and re-dispatch of transactions who's base ledger
+	// transactions revert. The simple storage domain base ledger contract has an option to
+	// ensure the value stored is prev+1. For out-of-sequence delivery where new signing addresses
+	// are used for each Paladin public TX it is possible (likely) for the base ledger transactions to
+	// revert. This test drops 30 transactions in and expects every one to be successful, knowing that
+	// several of them are likely to have at least 1 base ledger revert before being successful.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+	numberOfIterations := 30
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+		AmountVisible:   true,
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	// Submit a number of transactions that are likely to hit on-chain reverts but must all be eventually successful.
+	aliceTxns := make([]*uuid.UUID, numberOfIterations)
+	for i := 0; i < numberOfIterations; i++ {
+		aliceTx := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey("tx1-alice-" + uuid.New().String()).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "` + strconv.Itoa(i+1) + `"
+		}`)).
+			Send()
+		require.NoError(t, aliceTx.Error())
+		aliceTxns[i] = aliceTx.ID()
+
+	}
+
+	// Check all transactions are eventually successful
+	for i := 0; i < numberOfIterations; i++ {
+		assert.Eventually(t,
+			transactionReceiptCondition(t, ctx, *aliceTxns[i], alice.GetClient(), false),
+			transactionLatencyThreshold(t),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt for Alice TX %s", aliceTxns[i])
+	}
+}
+
+func TestTransactionWaitsUntilExplicitPrereqTransactionSuccessful(t *testing.T) {
+	// Test that a transaction with an explicit dependency doesn't complete until the dependency has.
+	// We test this with 2 contracts: one requires alice and bob to endorse, the other just requires alice.
+	// We stop the bob node so TX 1 can't complete, then we submit TX 2. Even though TX 2 only requires
+	// alice to endorse it shouldn't complete until we restart bob's node and TX 1 goes through.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+	})
+
+	constructorParameters1 := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+	}
+
+	constructorParameters2 := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.SelfEndorsement,
+	}
+
+	// Deploy 2 contracts, testing that a TX of one domain instance can have a dependency on a TX of the other domain instance
+	contractAddress1 := alice.DeploySimpleDomainInstanceContract(t, constructorParameters1, transactionLatencyThreshold)
+	contractAddress2 := alice.DeploySimpleDomainInstanceContract(t, constructorParameters2, transactionLatencyThreshold)
+
+	// Stop bob's node
+	stopNode(t, bob)
+
+	// Start a private transaction on alice's node
+	// This requires both nodes to be up because they are both endorsers of contract 1. Having stopped bob node already
+	// this TX cannot currently proceed.
+	aliceTx1 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress1).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx1.Error())
+
+	// Start a private transaction on alice's node
+	// This only requires Alice's not to endorse, but it has an explicit dependency on TX1 so must not be successful yet
+	aliceTx2 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		DependsOn([]uuid.UUID{*aliceTx1.ID()}). // This TX depends on TX1 and must wait for it to complete before being processed
+		IdempotencyKey("tx2-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress2).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx2.Error())
+
+	// Check that we don't receive a receipt for either transaction
+	result1 := aliceTx1.Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, result1.Error(), "timed out")
+	result2 := aliceTx2.Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, result2.Error(), "timed out")
+
+	// Restarting Bob's node should allow both transactions to go through
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, bob)
+	})
+
+	// Check that we then get a receipt for both
+	customThreshold := 15 * time.Second
+	result1 = aliceTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
+	require.NoError(t, result1.Error())
+	result2 = aliceTx2.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
+	require.NoError(t, result2.Error())
+}
+
+func TestTransactionWithExplicitPrereqSuccessfulAfterRestart(t *testing.T) {
+	// Test that a transaction with an explicit dependency doesn't complete until the dependency has.
+	// We test this with 2 contracts: one requires alice and bob to endorse, the other just requires alice.
+	// We stop the bob node so TX 1 can't complete, then we submit TX 2. Even though TX 2 only requires
+	// alice to endorse it shouldn't complete until we restart bob's node and TX 1 goes through.
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
+
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.AssembleTimeout = confutil.P("10s")
+	sequencerConfig.RequestTimeout = confutil.P("3s")
+	sequencerConfig.TransactionResumePollInterval = confutil.P("5s") // We're relying on sequencer TX resume to get TX2 through to completion
+	alice.OverrideSequencerConfig(&sequencerConfig)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	alice.AddPeer(carol.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+	bob.AddPeer(carol.GetNodeConfig())
+	carol.AddPeer(alice.GetNodeConfig())
+	carol.AddPeer(bob.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	startNode(t, carol, domainConfig)
+
+	constructorParameters1 := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+	}
+
+	constructorParameters2 := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), carol.GetIdentityLocator()},
+	}
+
+	// Deploy 2 contracts, testing that a TX of one domain instance can have a dependency on a TX of the other domain instance
+	contractAddress1 := alice.DeploySimpleDomainInstanceContract(t, constructorParameters1, transactionLatencyThreshold)
+	contractAddress2 := alice.DeploySimpleDomainInstanceContract(t, constructorParameters2, transactionLatencyThreshold)
+
+	// Stop carols's node
+	stopNode(t, carol)
+
+	// Start a private transaction on alice's node
+	// This requires both nodes to be up because they are both endorsers of contract 1. Having stopped bob node already
+	// this TX cannot currently proceed.
+	aliceTx1 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress1).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx1.Error())
+
+	// Start a private transaction on alice's node
+	// This only requires Alice's not to endorse, but it has an explicit dependency on TX1 so must not be successful yet
+	aliceTx2 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		DependsOn([]uuid.UUID{*aliceTx1.ID()}). // This TX depends on TX1 and must wait for it to complete before being processed
+		IdempotencyKey("tx2-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress2).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx2.Error())
+
+	// Check that we receive a receipt for TX1 but not TX2
+	assert.Eventually(t,
+		transactionReceiptConditionReceiptOnly(t, ctx, *aliceTx1.ID(), alice.GetClient()),
+		transactionLatencyThreshold(t),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt or result was incorrect",
+	)
+	result2 := aliceTx2.Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, result2.Error(), "timed out")
+
+	// Stop all remaining nodes
+	stopNode(t, alice)
+	stopNode(t, bob)
+
+	// Wait a mo
+	time.Sleep(1 * time.Second)
+
+	// Restarting Alice and Carol's nodes should allow TX 2 to be successful, because TX 1 completed before we stopped the nodes
+	// so there is no dependency blocking TX2
+	startNode(t, carol, domainConfig)
+	startNode(t, bob, domainConfig)
+	startNode(t, alice, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+		stopNode(t, carol)
+	})
+
+	// Check that we then get a receipt for TX2
+	customThreshold := 20 * time.Second
+	assert.Eventually(t,
+		transactionReceiptConditionReceiptOnly(t, ctx, *aliceTx2.ID(), alice.GetClient()),
+		transactionLatencyThresholdCustom(t, &customThreshold),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt or result was incorrect",
+	)
+}
+
+func TestTransactionFailsIfExplicitPrereqTransactionFails(t *testing.T) {
+	// Test that a transaction with an explicit dependency fails if that dependency reverts
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ONE_TIME_USE_KEYS,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters2 := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.SelfEndorsement,
+	}
+
+	// Deploy a contract
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters2, transactionLatencyThreshold)
+
+	// Start a private transaction on alice's node
+	// This is designed to revert at assembly time. TX2 should also fail because it is dependent on this TX
+	aliceTx1 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "1001"
+		}`)). // Special value 1001 in the simple domain causes revert at assembly time
+		Send()
+	require.NoError(t, aliceTx1.Error())
+
+	// Start another private transaction on alice's node, dependent on TX1
+	aliceTx2 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		DependsOn([]uuid.UUID{*aliceTx1.ID()}). // This TX depends on TX1 so if TX1 fails, this TX fails
+		IdempotencyKey("tx2-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx2.Error())
+
+	// Start one last private transaction on alice's node, dependent on TX2
+	aliceTx3 := alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		DependsOn([]uuid.UUID{*aliceTx2.ID()}). // This TX depends on TX2 so if TX2 fails, this TX fails
+		IdempotencyKey("tx3-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "123000000000000000000"
+		}`)).
+		Send()
+	require.NoError(t, aliceTx3.Error())
+
+	// Check that we then get a receipt for both, and that both were unsuccessful
+	assert.Eventually(t,
+		transactionReceiptConditionFailureReceiptOnly(t, ctx, *aliceTx1.ID(), alice.GetClient()),
+		transactionLatencyThreshold(t),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt or result was incorrect",
+	)
+	assert.Eventually(t,
+		transactionReceiptConditionFailureReceiptOnly(t, ctx, *aliceTx2.ID(), alice.GetClient()),
+		transactionLatencyThreshold(t),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt or result was incorrect",
+	)
+	assert.Eventually(t,
+		transactionReceiptConditionFailureReceiptOnly(t, ctx, *aliceTx3.ID(), alice.GetClient()),
+		transactionLatencyThreshold(t),
+		100*time.Millisecond,
+		"Transaction did not receive a receipt or result was incorrect",
+	)
 }

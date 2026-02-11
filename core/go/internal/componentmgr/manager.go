@@ -355,6 +355,10 @@ func (cm *componentManager) startEthClient() error {
 	})
 }
 
+func (cm *componentManager) stopEthClient() {
+	cm.ethClientFactory.Stop()
+}
+
 func (cm *componentManager) StartManagers() (err error) {
 
 	// start the eth client before any managers - this connects the WebSocket, and gathers the ChainID
@@ -577,6 +581,11 @@ func (cm *componentManager) Stop() {
 		c.Close()
 		log.L(cm.bgCtx).Debugf("Stopped %s", name)
 	}
+
+	log.L(cm.bgCtx).Infof("Stopping eth client")
+	cm.stopEthClient()
+	log.L(cm.bgCtx).Debugf("Stopped eth client")
+
 	log.L(cm.bgCtx).Debug("Stopped")
 }
 

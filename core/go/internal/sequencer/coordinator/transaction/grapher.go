@@ -40,6 +40,7 @@ type Grapher interface {
 	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error)
 	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error
 	Forget(transactionID uuid.UUID) error
+	ForgetMints(transactionID uuid.UUID)
 }
 
 type grapher struct {
@@ -48,6 +49,10 @@ type grapher struct {
 	outputStatesByMinter     map[uuid.UUID][]string //used for reverse lookup to cleanup transactionByOutputState
 }
 
+// The grapher is designed to be called on a single-threaded sequencer event loop and is not thread safe.
+// It must only be called from the state machine loop to ensure assembly of a TX is based on completion of
+// any updates made by a previous change in the state machine (e.g. removing states from a previously
+// reverted transaction)
 func NewGrapher(ctx context.Context) Grapher {
 	return &grapher{
 		transactionByOutputState: make(map[string]*Transaction),
@@ -76,14 +81,19 @@ func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, tran
 }
 
 func (s *grapher) Forget(transactionID uuid.UUID) error {
+	s.ForgetMints(transactionID)
+	delete(s.transactionByID, transactionID)
+	return nil
+}
+
+func (s *grapher) ForgetMints(transactionID uuid.UUID) {
 	if outputStates, ok := s.outputStatesByMinter[transactionID]; ok {
 		for _, stateID := range outputStates {
 			delete(s.transactionByOutputState, stateID)
 		}
 		delete(s.outputStatesByMinter, transactionID)
 	}
-	delete(s.transactionByID, transactionID)
-	return nil
+	// Note we specifically don't delete the transaction (i.e. the minter) here. Use Forget() to do both.
 }
 
 func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction {

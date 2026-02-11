@@ -28,11 +28,7 @@ import (
 )
 
 func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
-	transactions, err := o.transactionsOrderedByCreatedTime(ctx)
-	if err != nil {
-		log.L(ctx).Errorf("failed to get transactions ordered by created time: %v", err)
-		return err
-	}
+	transactions := o.transactionsOrderedByCreatedTime(ctx)
 
 	// Find pending transactions only and (optionally) already delegated transactions
 	// TODO - this is another place where we are checking state outside the state machine

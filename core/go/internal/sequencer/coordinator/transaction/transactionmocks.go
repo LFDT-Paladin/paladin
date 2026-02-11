@@ -406,6 +406,46 @@ func (_c *MockGrapher_Forget_Call) RunAndReturn(run func(transactionID uuid.UUID
 	return _c
 }
 
+// ForgetMints provides a mock function for the type MockGrapher
+func (_mock *MockGrapher) ForgetMints(transactionID uuid.UUID) {
+	_mock.Called(transactionID)
+	return
+}
+
+// MockGrapher_ForgetMints_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForgetMints'
+type MockGrapher_ForgetMints_Call struct {
+	*mock.Call
+}
+
+// ForgetMints is a helper method to define mock.On call
+//   - transactionID uuid.UUID
+func (_e *MockGrapher_Expecter) ForgetMints(transactionID interface{}) *MockGrapher_ForgetMints_Call {
+	return &MockGrapher_ForgetMints_Call{Call: _e.mock.On("ForgetMints", transactionID)}
+}
+
+func (_c *MockGrapher_ForgetMints_Call) Run(run func(transactionID uuid.UUID)) *MockGrapher_ForgetMints_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGrapher_ForgetMints_Call) Return() *MockGrapher_ForgetMints_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockGrapher_ForgetMints_Call) RunAndReturn(run func(transactionID uuid.UUID)) *MockGrapher_ForgetMints_Call {
+	_c.Run(run)
+	return _c
+}
+
 // LookupMinter provides a mock function for the type MockGrapher
 func (_mock *MockGrapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error) {
 	ret := _mock.Called(ctx, stateID)

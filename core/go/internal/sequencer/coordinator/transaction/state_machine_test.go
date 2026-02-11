@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -51,6 +52,8 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		clock.Duration(1000),
 		clock.Duration(5000),
 		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		NewGrapher(ctx),
 		nil,
 		func(context.Context, *Transaction) {}, // addToPool function, not used in tests

@@ -158,6 +158,8 @@ func TestPublicConfirmMatch(t *testing.T) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(12345))
 			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			// Pre-commit: notifyDependentTransactions queries transaction_deps (one call per receipt; no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
 
 			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {

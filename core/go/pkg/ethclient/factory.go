@@ -157,8 +157,12 @@ func (ecf *ethClientFactory) SharedWS() EthClient {
 }
 
 func (ecf *ethClientFactory) Stop() {
-	ecf.httpClient.Close()
-	ecf.sharedWSClient.Close()
+	if ecf.httpClient != nil {
+		ecf.httpClient.Close()
+	}
+	if ecf.sharedWSClient != nil {
+		ecf.sharedWSClient.Close()
+	}
 }
 
 func (ecf *ethClientFactory) ChainID() int64 {

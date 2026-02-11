@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -1016,6 +1017,39 @@ func TestWriteNewTransactionsEmptyList(t *testing.T) {
 	assert.Empty(t, pubTxns)
 }
 
+func TestWriteNewTransactionsTraceLogging(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, _, done := newTestPublicTxManager(t, true)
+	defer done()
+
+	// Enable trace so the "WriteNewTransactions transaction ID" block runs
+	log.SetLevel("trace")
+	defer log.SetLevel("info")
+
+	txID := uuid.New()
+	tx := &components.PublicTxSubmission{
+		Bindings: []*components.PaladinTXReference{
+			{TransactionID: txID, TransactionType: pldapi.TransactionTypePublic.Enum()},
+		},
+		PublicTxInput: pldapi.PublicTxInput{
+			From: pldtypes.RandAddress(),
+			PublicTxOptions: pldapi.PublicTxOptions{
+				Gas: confutil.P(pldtypes.HexUint64(21000)),
+			},
+		},
+	}
+
+	var pubTxns []*pldapi.PublicTx
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		var err error
+		pubTxns, err = ptm.WriteNewTransactions(ctx, dbTX, []*components.PublicTxSubmission{tx})
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, pubTxns, 1)
+	assert.NotNil(t, pubTxns[0].LocalID)
+}
+
 func TestWriteNewTransactionsDBError(t *testing.T) {
 	ctx := context.Background()
 	_, ptm, m, done := newTestPublicTxManager(t, false)
@@ -1528,6 +1562,7 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 	// MapSubmissionRejected returns true for "execution reverted" errors
 	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
 		Return(ethclient.EstimateGasResult{RevertData: nil}, fmt.Errorf("execution reverted")).Once()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(mock.Anything, nil).Maybe()
 
 	err = ptm.UpdateTransaction(ctx, txID, pubTxnID, testAddress, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{

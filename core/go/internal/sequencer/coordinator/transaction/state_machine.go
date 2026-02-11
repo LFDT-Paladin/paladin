@@ -20,9 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -229,6 +227,11 @@ func init() {
 						Action: action_NudgeEndorsementRequests,
 					}},
 				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Blocked: {
@@ -237,6 +240,11 @@ func init() {
 					Transitions: []Transition{{
 						To: State_Confirming_Dispatchable,
 						If: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady)),
+					}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
 					}},
 				},
 			},
@@ -256,16 +264,26 @@ func init() {
 						Action: action_NudgePreDispatchRequest,
 					}},
 				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Ready_For_Dispatch: {
-			OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+			OnTransitionTo: action_NotifyDependentsOfReadiness,
 			Events: map[EventType]EventHandler{
 				Event_Dispatched: {
 					Transitions: []Transition{
 						{
 							To: State_Dispatched,
 						}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
 				},
 			},
 		},
@@ -276,6 +294,11 @@ func init() {
 						{
 							To: State_SubmissionPrepared,
 						}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
 				},
 			},
 		},
@@ -288,6 +311,11 @@ func init() {
 						}},
 				},
 				Event_NonceAllocated: {},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Submitted: {
@@ -299,13 +327,16 @@ func init() {
 							To: State_Confirmed,
 						},
 						{
-							// MRW TODO - we're re-pooling this transaction. Should we discard other
-							// assembled transactions i.e. re-pool everything this coordinator is tracking?
 							On: action_recordRevert,
 							If: guard_HasRevertReason,
 							To: State_Pooled,
 						},
 					},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
 				},
 			},
 		},
@@ -369,7 +400,10 @@ func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error
 
 	//Determine whether this event triggers a state transition
 	err = t.evaluateTransitions(ctx, event, *eventHandler)
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 
 }
 
@@ -409,28 +443,14 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 	var err error
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
+		err = t.applyPostAssembly(ctx, event.PostAssembly, event.RequestID)
 		if err == nil {
-			err = t.writeLockStates(ctx)
-			if err != nil {
-				// Internal error. Only option is to revert the transaction
-				seqRevertEvent := &AssembleRevertResponseEvent{}
-				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
-				seqRevertEvent.TransactionID = t.ID
-				err = t.eventHandler(ctx, seqRevertEvent)
-				if err != nil {
-					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
-					log.L(ctx).Error(handlerErr)
-				}
-				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
-				// Return the original error
-				return err
-			}
+			// Assembling resolves the required verifiers which will need passing on for the endorse step
+			t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
 		}
-		// Assembling resolves the required verifiers which will need passing on for the endorse step
-		t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
+
 	case *AssembleRevertResponseEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
+		err = t.applyPostAssembly(ctx, event.PostAssembly, event.RequestID)
 	case *EndorsedEvent:
 		err = t.applyEndorsement(ctx, event.Endorsement, event.RequestID)
 	case *EndorsedRejectedEvent:

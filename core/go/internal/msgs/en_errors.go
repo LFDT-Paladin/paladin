@@ -435,6 +435,8 @@ var (
 	MsgTxMgrBlockchainEventListenerNoSources      = pde("PD012251", "Blockchain event listener '%s' has no sources configured")
 	MsgTxMgrBlockchainEventListenerNoABIs         = pde("PD012252", "Blockchain event listener '%s' has a source with no ABI configured")
 	MsgTxMgrVerifierNotEthAddress                 = pde("PD012253", "Verifier '%s' is not an Ethereum address")
+	MsgTxMgrDependencyLookupFailed                = pde("PD012254", "Failed to lookup dependency transaction %s: %s")
+	MsgTxMgrResumeTXFailed                        = pde("PD012255", "Failed to resume transaction %s: %s")
 
 	// FlushWriter module PD0123XX
 	MsgFlushWriterQuiescing      = pde("PD012300", "Writer shutting down")
@@ -510,6 +512,9 @@ var (
 	MsgSequencerAssembleRequestInvalid        = pde("PD012640", "Assemble request is invalid for transaction %s")
 	MsgSequencerAssembleTxnNotFound           = pde("PD012641", "Transaction %s not found in local node")
 	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. Transaction will be processed when in-flight transactions complete.")
+	MsgSequencerErrorNotifyingDependent       = pde("PD012643", "Error notifying dependent transaction %s of revert of TX %s")
+	MsgSequencerErrorRepoolingTX              = pde("PD012644", "Error repooling TX %s")
+	MsgSequencerGrapherDependencyNotFound     = pde("PD012645", "TX %s missing from transaction graph")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

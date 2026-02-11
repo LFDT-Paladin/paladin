@@ -66,7 +66,7 @@ var SequencerDefaults = SequencerConfig{
 	DelegateTimeout:               confutil.P("5s"),
 	HeartbeatInterval:             confutil.P("10s"),
 	MaxInflightTransactions:       confutil.P(500),
-	MaxDispatchAhead:              confutil.P(1), // TODO - temporarily reduced to 1 for safety until reliable re-assembly is implemented (see https://github.com/LFDT-Paladin/paladin/issues/917)
+	MaxDispatchAhead:              confutil.P(50),
 	TargetActiveCoordinators:      confutil.P(50),
 	TargetActiveSequencers:        confutil.P(50),
 	TransactionResumePollInterval: confutil.P("5m"),
