@@ -444,6 +444,12 @@ func (cm *componentManager) CompleteStart() error {
 		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
 	}
 
+	// Wait for transport plugins to complete ConfigureTransport before starting sequencer
+	if err == nil {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_TRANSPORT)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
 	// then start the block indexer
 	if err == nil {
 		err = cm.startBlockIndexer()

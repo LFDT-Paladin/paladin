@@ -241,6 +241,10 @@ func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivateP
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
+	if t.peerVerifier == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTransportNotConfigured)
+	}
+
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
 		// Replace an existing connection - unexpected as Paladin shouldn't do this
