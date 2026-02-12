@@ -8,6 +8,7 @@ import { IPrivacyGroupMessage } from "./privacygroups";
 export interface WebSocketSender {
   send: (json: object) => void;
   ack: (subscription: string) => void;
+  getSubscriptionName: (subscriptionId: string) => string | undefined;
 }
 
 export interface WebSocketConnectCallback {
@@ -33,6 +34,11 @@ export interface WebSocketClientOptions<TMessageTypes extends string> {
 export interface WebSocketSubscription<TMessageTypes extends string> {
   type: TMessageTypes;
   name: string;
+}
+
+export interface WebSocketResult {
+  id: number;
+  result: any;
 }
 
 export interface WebSocketEvent {
