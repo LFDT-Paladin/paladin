@@ -16,7 +16,6 @@ abstract class PaladinWebSocketClientBase<
 > {
   private logger: Logger;
   private socket: WebSocket | undefined;
-  private closed? = () => {};
   private pingTimer?: NodeJS.Timeout;
   private disconnectTimer?: NodeJS.Timeout;
   private reconnectTimer?: NodeJS.Timeout;
@@ -40,11 +39,21 @@ abstract class PaladinWebSocketClientBase<
   }
 
   private connect() {
-    // Ensure we've cleaned up any old socket
-    this.close();
+    // Clean up any old socket completely (including all listeners)
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      try {
+        this.socket.close();
+      } catch (e: any) {
+        this.logger.warn(`Failed to close old socket: ${e.message}`);
+      }
+      this.socket = undefined;
+    }
+
+    // Clear any pending reconnect timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
-      delete this.reconnectTimer;
+      this.reconnectTimer = undefined;
     }
 
     const auth =
@@ -56,7 +65,6 @@ abstract class PaladinWebSocketClientBase<
       auth,
       handshakeTimeout: this.options.heartbeatInterval,
     }));
-    this.closed = undefined;
 
     socket
       .on("open", () => {
@@ -84,13 +92,9 @@ abstract class PaladinWebSocketClientBase<
         this.logger.error("Error", err.stack);
       })
       .on("close", () => {
-        if (this.closed) {
-          this.logger.log("Closed");
-          this.closed(); // do this after all logging
-        } else {
-          this.disconnectDetected = true;
-          this.reconnect("Closed by peer");
-        }
+        // Note: this is always an unexpected close (direct calls will remove the listeners first)
+        this.disconnectDetected = true;
+        this.reconnect("Closed by peer");
       })
       .on("pong", () => {
         this.logger.debug && this.logger.debug(`WS received pong`);
@@ -128,7 +132,7 @@ abstract class PaladinWebSocketClientBase<
       });
   }
 
-   getSubscriptionName(subscriptionId: string) {
+  getSubscriptionName(subscriptionId: string) {
     for (const s of this.subscriptions.values()) {
       if (s.subscriptionId === subscriptionId) {
         return s.name;
@@ -164,18 +168,32 @@ abstract class PaladinWebSocketClientBase<
   }
 
   private reconnect(msg: string) {
-    if (!this.reconnectTimer) {
-      this.close();
-      this.logger.error(`Websocket closed: ${msg}`);
-      if (this.options.reconnectDelay === -1) {
-        // do not attempt to reconnect
-      } else {
-        this.reconnectTimer = setTimeout(
-          () => this.connect(),
-          this.options.reconnectDelay ?? 5000
-        );
-      }
+    if (this.reconnectTimer) {
+      // Reconnect already scheduled
+      return;
     }
+
+    this.logger.error(`Websocket closed: ${msg}`);
+    if (this.options.reconnectDelay === -1) {
+      // Reconnection disabled - just clean up
+      this.clearPingTimers();
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        try {
+          this.socket.close();
+        } catch {
+          // ignore
+        }
+        this.socket = undefined;
+      }
+      return;
+    }
+
+    // Schedule reconnect
+    this.reconnectTimer = setTimeout(
+      () => this.connect(),
+      this.options.reconnectDelay ?? 5000
+    );
   }
 
   send(json: object) {
@@ -196,18 +214,42 @@ abstract class PaladinWebSocketClientBase<
   }
 
   async close(wait?: boolean): Promise<void> {
-    const closedPromise = new Promise<void>((resolve) => {
-      this.closed = resolve;
-    });
     this.clearPingTimers();
-    if (this.socket) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+
+    if (!this.socket) {
+      return;
+    }
+
+    const socket = this.socket;
+    this.socket = undefined;
+
+    // Remove all listeners (disables reconnect on close, etc)
+    socket.removeAllListeners();
+
+    if (wait) {
+      // Add a one-time listener just for this close
+      return new Promise<void>((resolve) => {
+        socket.once("close", () => {
+          this.logger.log("Closed");
+          resolve();
+        });
+        try {
+          socket.close();
+        } catch (e: any) {
+          this.logger.warn(`Failed to close websocket: ${e.message}`);
+          resolve();
+        }
+      });
+    } else {
       try {
-        this.socket.close();
+        socket.close();
       } catch (e: any) {
-        this.logger.warn(`Failed to clean up websocket: ${e.message}`);
+        this.logger.warn(`Failed to close websocket: ${e.message}`);
       }
-      if (wait) await closedPromise;
-      this.socket = undefined;
     }
   }
 
