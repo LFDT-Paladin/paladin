@@ -20,6 +20,7 @@ abstract class PaladinWebSocketClientBase<
   private disconnectTimer?: NodeJS.Timeout;
   private reconnectTimer?: NodeJS.Timeout;
   private disconnectDetected = false;
+  private reconnectAttempts = 0;
   private counter = 1;
 
   // Track active subscriptions
@@ -68,6 +69,7 @@ abstract class PaladinWebSocketClientBase<
 
     socket
       .on("open", () => {
+        this.reconnectAttempts = 0;
         if (this.disconnectDetected) {
           this.disconnectDetected = false;
           this.logger.log("Connection restored");
@@ -189,11 +191,16 @@ abstract class PaladinWebSocketClientBase<
       return;
     }
 
-    // Schedule reconnect
-    this.reconnectTimer = setTimeout(
-      () => this.connect(),
-      this.options.reconnectDelay ?? 5000
-    );
+    // Compute reconnect delay
+    const baseDelay = this.options.reconnectDelay ?? 2000;
+    const maxDelay = this.options.reconnectMaxDelay;
+    const delay =
+      maxDelay !== undefined
+        ? Math.min(baseDelay * Math.pow(2, this.reconnectAttempts), maxDelay)
+        : baseDelay;
+
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
   send(json: object) {

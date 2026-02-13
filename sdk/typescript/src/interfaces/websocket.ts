@@ -26,7 +26,10 @@ export interface WebSocketClientOptions<TMessageTypes extends string> {
   subscriptions?: WebSocketSubscription<TMessageTypes>[];
   logger?: Logger;
   heartbeatInterval?: number;
+  // Initial delay (ms) before first reconnect. With reconnectMaxDelay, doubles each attempt up to the max.
   reconnectDelay?: number;
+  // If set, use exponential backoff up to a maximum delay.
+  reconnectMaxDelay?: number;
   afterConnect?: WebSocketConnectCallback;
   socketOptions?: WebSocket.ClientOptions | http.ClientRequestArgs;
 }
