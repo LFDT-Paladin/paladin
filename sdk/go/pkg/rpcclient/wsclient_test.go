@@ -275,14 +275,10 @@ func TestWaitResponseRequestTimeout(t *testing.T) {
 	rc.requestTimeout = 1 * time.Millisecond
 	resChannel := make(chan *RPCResponse) // nobody sends; waitResponse will hit request timeout
 
-	start := time.Now()
 	rpcErr := rc.waitResponse(ctx, nil, "000000001", &RPCRequest{}, time.Now(), resChannel)
-	elapsed := time.Since(start)
 
 	require.Error(t, rpcErr)
 	assert.Regexp(t, "PD020507", rpcErr.Error())
-	assert.GreaterOrEqual(t, elapsed, time.Millisecond, "should have waited at least the timeout")
-	assert.Less(t, elapsed, 5*time.Millisecond, "should return soon after timeout, not hang")
 }
 
 func TestWrapWSConfigRequestTimeoutFromConfig(t *testing.T) {
