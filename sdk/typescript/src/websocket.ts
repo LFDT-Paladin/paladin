@@ -22,14 +22,8 @@ abstract class PaladinWebSocketClientBase<
   private disconnectDetected = false;
   private reconnectAttempts = 0;
   private counter = 1;
-
-  // Track active subscriptions
-  // - key is the request ID from the subscription request
-  // - value includes the subscription name and the assigned subscription ID
-  private subscriptions = new Map<
-    number,
-    { subscriptionId?: string; name: string }
-  >();
+  private subscriptionRequests = new Map<number, string>(); // request ID -> subscription name
+  private activeSubscriptions = new Map<string, string>(); // subscription ID -> subscription name
 
   constructor(
     private options: WebSocketClientOptions<TMessageTypes>,
@@ -77,11 +71,12 @@ abstract class PaladinWebSocketClientBase<
           this.logger.log("Connected");
         }
         this.schedulePing();
-        this.subscriptions.clear();
+        this.subscriptionRequests.clear();
+        this.activeSubscriptions.clear();
         for (const sub of this.options.subscriptions ?? []) {
           // Automatically connect subscriptions
           const id = this.subscribe(sub.type, sub.name);
-          this.subscriptions.set(id, { name: sub.name });
+          this.subscriptionRequests.set(id, sub.name);
           this.logger.log(
             `Requested to start listening on subscription ${sub.name}`
           );
@@ -122,10 +117,12 @@ abstract class PaladinWebSocketClientBase<
         const event: TEvent | WebSocketResult = JSON.parse(data.toString());
         if (typeof event === "object" && event !== null && "result" in event) {
           // Result of a previously sent RPC - check if it's a subscription request
-          const sub = this.subscriptions.get(event.id);
-          if (sub) {
-            sub.subscriptionId = event.result as string;
-            this.logger.log(`Subscription ${sub.name} assigned ID: ${sub.subscriptionId}`);
+          const subName = this.subscriptionRequests.get(event.id);
+          if (subName) {
+            const subId = event.result as string;
+            this.logger.log(`Subscription ${subName} assigned ID: ${subId}`);
+            this.subscriptionRequests.delete(event.id);
+            this.activeSubscriptions.set(subId, subName);
           }
         } else {
           // Any other event - pass to the callback
@@ -135,12 +132,7 @@ abstract class PaladinWebSocketClientBase<
   }
 
   getSubscriptionName(subscriptionId: string) {
-    for (const s of this.subscriptions.values()) {
-      if (s.subscriptionId === subscriptionId) {
-        return s.name;
-      }
-    }
-    return undefined;
+    return this.activeSubscriptions.get(subscriptionId);
   }
 
   private clearPingTimers() {
