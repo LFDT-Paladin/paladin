@@ -637,6 +637,7 @@ var (
 	WSClientConfigReadBufferSize         = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
 	WSClientConfigWriteBufferSize        = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
 	WSClientConfigHeartbeatInterval      = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
+	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
 	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
