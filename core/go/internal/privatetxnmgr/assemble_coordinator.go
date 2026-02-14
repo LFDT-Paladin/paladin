@@ -46,7 +46,6 @@ type assembleCoordinator struct {
 
 type assembleRequest struct {
 	requestID              string
-	ac                     *assembleCoordinator
 	assemblingNode         string
 	assembleCoordinator    *assembleCoordinator
 	transactionID          uuid.UUID
@@ -56,7 +55,6 @@ type assembleRequest struct {
 
 func NewAssembleCoordinator(ctx context.Context, nodeName string, maxPendingRequests int, components components.AllComponents, domainAPI components.DomainSmartContract, domainContext components.DomainContext, transportWriter ptmgrtypes.TransportWriter, contractAddress pldtypes.EthAddress, sequencerEnvironment ptmgrtypes.SequencerEnvironment, requestTimeout time.Duration, localAssembler ptmgrtypes.LocalAssembler) ptmgrtypes.AssembleCoordinator {
 	ac := &assembleCoordinator{
-		ctx:                  ctx,
 		nodeName:             nodeName,
 		newRequests:          make(chan *assembleRequest, maxPendingRequests),
 		inflightRequests:     make(map[string]*assembleRequest),
@@ -104,14 +102,14 @@ func (ac *assembleCoordinator) Start() {
 						//we failed sending the request so we continue to the next request
 						// without waiting for this one to complete
 						// the sequencer event loop is responsible for requesting a new assemble
-						req.cleanup()
+						ac.cleanupRequest(req)
 						continue
 					}
 				}
 
 				//The actual response is processed on the sequencer event loop.  We just need to know when it is safe to proceed
 				// to the next request
-				req.waitForDone()
+				ac.waitForDone(req)
 			case <-ac.ctx.Done():
 				log.L(ac.ctx).Info("AssembleCoordinator loop exit due to canceled context")
 				return
@@ -120,20 +118,19 @@ func (ac *assembleCoordinator) Start() {
 	}()
 }
 
-func (ar *assembleRequest) cleanup() {
-	log.L(ar.ac.ctx).Debugf("AssembleCoordinator:cleanup %s", ar.requestID)
-	ar.ac.inflightMux.Lock()
-	delete(ar.ac.inflightRequests, ar.requestID)
-	ar.ac.inflightMux.Unlock()
+func (ac *assembleCoordinator) cleanupRequest(ar *assembleRequest) {
+	log.L(ac.ctx).Debugf("AssembleCoordinator:cleanup %s", ar.requestID)
+	ac.inflightMux.Lock()
+	delete(ac.inflightRequests, ar.requestID)
+	ac.inflightMux.Unlock()
 }
 
-func (ar *assembleRequest) waitForDone() {
-	ac := ar.ac
+func (ac *assembleCoordinator) waitForDone(ar *assembleRequest) {
 	log.L(ac.ctx).Debugf("AssembleCoordinator:waitForDone %s", ar.requestID)
 
 	// Always remove from the inflight request mux - including on timeout.
 	// Complete() will log if the completion comes after we give up waiting
-	defer ar.cleanup()
+	defer ac.cleanupRequest(ar)
 
 	// wait for the response or a timeout
 	timeoutTimer := time.NewTimer(ac.requestTimeout)
@@ -168,7 +165,6 @@ func (ac *assembleCoordinator) QueueAssemble(ctx context.Context, assemblingNode
 
 	req := &assembleRequest{
 		requestID:              uuid.New().String(),
-		ac:                     ac,
 		assemblingNode:         assemblingNode,
 		assembleCoordinator:    ac,
 		transactionID:          transactionID,
