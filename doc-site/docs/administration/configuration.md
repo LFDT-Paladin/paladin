@@ -135,6 +135,7 @@
 | tls | TLS configuration | [`TLSConfig`](#blockchainwstls) | - |
 | url | HTTP client URL | `string` | - |
 | writeBufferSize | WebSocket write buffer size | `string` | `"16Kb"` |
+| wsRequestTimeout | WebSocket request timeout | `string` | `"2m"` |
 
 ## blockchain.ws.auth
 

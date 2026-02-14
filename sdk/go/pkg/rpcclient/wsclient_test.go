@@ -268,6 +268,31 @@ func TestWaitResponseClosedContext(t *testing.T) {
 	assert.Regexp(t, "PD020000", rpcErr)
 }
 
+func TestWaitResponseRequestTimeout(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	// RequestTimeout is clamped to at least 1s in the client via config so set after creation
+	rc.requestTimeout = 1 * time.Millisecond
+	resChannel := make(chan *RPCResponse) // nobody sends; waitResponse will hit request timeout
+
+	start := time.Now()
+	rpcErr := rc.waitResponse(ctx, nil, "000000001", &RPCRequest{}, time.Now(), resChannel)
+	elapsed := time.Since(start)
+
+	require.Error(t, rpcErr)
+	assert.Regexp(t, "PD020507", rpcErr.Error())
+	assert.GreaterOrEqual(t, elapsed, time.Millisecond, "should have waited at least the timeout")
+	assert.Less(t, elapsed, 5*time.Millisecond, "should return soon after timeout, not hang")
+}
+
+func TestWrapWSConfigRequestTimeoutFromConfig(t *testing.T) {
+	conf := &pldconf.WSClientConfig{
+		WSRequestTimeout: confutil.P("2s"),
+	}
+	rc := WrapWSConfig(conf).(*wsRPCClient)
+	assert.Equal(t, 2*time.Second, rc.requestTimeout)
+}
+
 func TestWaitResponseErrorCode(t *testing.T) {
 	ctx, rc, _, _, done := newTestWSRPC(t)
 	defer done()
