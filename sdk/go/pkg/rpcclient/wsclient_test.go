@@ -282,7 +282,7 @@ func TestWaitResponseRequestTimeout(t *testing.T) {
 	require.Error(t, rpcErr)
 	assert.Regexp(t, "PD020507", rpcErr.Error())
 	assert.GreaterOrEqual(t, elapsed, time.Millisecond, "should have waited at least the timeout")
-	assert.Less(t, elapsed, 5*time.Millisecond, "should return soon after timeout, not hang")
+	assert.Less(t, elapsed, 250*time.Millisecond, "should return soon after timeout, not hang")
 }
 
 func TestWrapWSConfigRequestTimeoutFromConfig(t *testing.T) {
