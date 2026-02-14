@@ -37,7 +37,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type transactionFlowDepencyMocks struct {
+type transactionFlowDependencyMocks struct {
+	contractAddress     pldtypes.EthAddress
 	allComponents       *componentsmocks.AllComponents
 	domainSmartContract *componentsmocks.DomainSmartContract
 	domainContext       *componentsmocks.DomainContext
@@ -55,9 +56,9 @@ type transactionFlowDepencyMocks struct {
 	localAssembler      *ptmgrtypesmocks.LocalAssembler
 }
 
-func newTransactionFlowForTesting(t *testing.T, ctx context.Context, transaction *components.PrivateTransaction, nodeName string) (*transactionFlow, *transactionFlowDepencyMocks) {
-
-	mocks := &transactionFlowDepencyMocks{
+func newTransactionFlowDependencyMocks(t *testing.T) *transactionFlowDependencyMocks {
+	mocks := &transactionFlowDependencyMocks{
+		contractAddress:     *pldtypes.RandAddress(),
 		allComponents:       componentsmocks.NewAllComponents(t),
 		domainSmartContract: componentsmocks.NewDomainSmartContract(t),
 		domainContext:       componentsmocks.NewDomainContext(t),
@@ -74,13 +75,12 @@ func newTransactionFlowForTesting(t *testing.T, ctx context.Context, transaction
 		coordinatorSelector: ptmgrtypesmocks.NewCoordinatorSelector(t),
 		localAssembler:      ptmgrtypesmocks.NewLocalAssembler(t),
 	}
-	contractAddress := pldtypes.RandAddress()
 	mocks.allComponents.On("StateManager").Return(mocks.stateStore).Maybe()
 	mocks.allComponents.On("DomainManager").Return(mocks.domainMgr).Maybe()
 	mocks.allComponents.On("TransportManager").Return(mocks.transportManager).Maybe()
 	mocks.allComponents.On("KeyManager").Return(mocks.keyManager).Maybe()
 	mocks.endorsementGatherer.On("DomainContext").Return(mocks.domainContext).Maybe()
-	mocks.domainSmartContract.On("Address").Return(*contractAddress).Maybe()
+	mocks.domainSmartContract.On("Address").Return(mocks.contractAddress).Maybe()
 	mocks.domainSmartContract.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
 	}).Maybe()
@@ -89,7 +89,14 @@ func newTransactionFlowForTesting(t *testing.T, ctx context.Context, transaction
 	domain.On("Configuration").Return(&prototk.DomainConfig{}).Maybe()
 	mocks.domainSmartContract.On("Domain").Return(domain).Maybe()
 
-	assembleCoordinator := NewAssembleCoordinator(ctx, nodeName, 1, mocks.allComponents, mocks.domainSmartContract, mocks.domainContext, mocks.transportWriter, *contractAddress, mocks.environment, 1*time.Second, mocks.localAssembler)
+	return mocks
+}
+
+func newTransactionFlowForTesting(t *testing.T, ctx context.Context, transaction *components.PrivateTransaction, nodeName string) (*transactionFlow, *transactionFlowDependencyMocks) {
+
+	mocks := newTransactionFlowDependencyMocks(t)
+
+	assembleCoordinator := NewAssembleCoordinator(ctx, nodeName, 1, mocks.allComponents, mocks.domainSmartContract, mocks.domainContext, mocks.transportWriter, mocks.contractAddress, mocks.environment, 1*time.Second, mocks.localAssembler)
 
 	tp := NewTransactionFlow(ctx, transaction, nodeName, mocks.allComponents, mocks.domainSmartContract, mocks.domainContext, mocks.publisher, mocks.endorsementGatherer, mocks.identityResolver, mocks.syncPoints, mocks.transportWriter, 1*time.Minute, mocks.coordinatorSelector, assembleCoordinator, mocks.environment)
 
