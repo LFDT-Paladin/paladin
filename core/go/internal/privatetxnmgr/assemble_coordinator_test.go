@@ -162,11 +162,17 @@ func TestAssembleTimeoutStopInFlight(t *testing.T) {
 
 	txID := uuid.New()
 
+	isWaiting := make(chan struct{})
 	assembly := &components.TransactionPreAssembly{}
-	mocks.localAssembler.On("AssembleLocal", mock.Anything, mock.Anything, txID, assembly).Return()
+	mocks.localAssembler.On("AssembleLocal", mock.Anything, mock.Anything, txID, assembly).
+		Run(func(args mock.Arguments) {
+			close(isWaiting)
+		}).
+		Return()
 
 	ac.QueueAssemble(t.Context(), "node1" /* local */, txID, assembly)
 
+	<-isWaiting // only stop once we're waiting
 	ac.Stop()
 
 	// Wait for the request to timeout
