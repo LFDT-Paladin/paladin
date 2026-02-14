@@ -1,5 +1,5 @@
 /*
- * Copyright © 2024 Kaleido, Inc.
+ * Copyright © 2026 Kaleido, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -17,6 +17,7 @@ package privatetxnmgr
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -30,8 +31,10 @@ type assembleCoordinator struct {
 	ctx                  context.Context
 	nodeName             string
 	requests             chan *assembleRequest
-	stopProcess          chan bool
-	commit               chan string
+	stopProcess          chan struct{}
+	stopProcessOnce      sync.Once
+	inflightLock         sync.Mutex
+	inflight             map[string]chan struct{}
 	components           components.AllComponents
 	domainAPI            components.DomainSmartContract
 	domainContext        components.DomainContext
@@ -40,6 +43,29 @@ type assembleCoordinator struct {
 	sequencerEnvironment ptmgrtypes.SequencerEnvironment
 	requestTimeout       time.Duration
 	localAssembler       ptmgrtypes.LocalAssembler
+	timerFactory         func(time.Duration) coordinatorTimer
+}
+
+// Timer abstraction (allows mocking for test)
+type coordinatorTimer interface {
+	C() <-chan time.Time
+	Stop() bool
+}
+
+type defaultCoordinatorTimer struct {
+	timer *time.Timer
+}
+
+func (t *defaultCoordinatorTimer) C() <-chan time.Time {
+	return t.timer.C
+}
+
+func (t *defaultCoordinatorTimer) Stop() bool {
+	return t.timer.Stop()
+}
+
+func newDefaultTimer(d time.Duration) coordinatorTimer {
+	return &defaultCoordinatorTimer{timer: time.NewTimer(d)}
 }
 
 type assembleRequest struct {
@@ -53,9 +79,9 @@ func NewAssembleCoordinator(ctx context.Context, nodeName string, maxPendingRequ
 	return &assembleCoordinator{
 		ctx:                  ctx,
 		nodeName:             nodeName,
-		stopProcess:          make(chan bool, 1),
+		stopProcess:          make(chan struct{}),
 		requests:             make(chan *assembleRequest, maxPendingRequests),
-		commit:               make(chan string, 1),
+		inflight:             make(map[string]chan struct{}),
 		components:           components,
 		domainAPI:            domainAPI,
 		domainContext:        domainContext,
@@ -64,15 +90,18 @@ func NewAssembleCoordinator(ctx context.Context, nodeName string, maxPendingRequ
 		sequencerEnvironment: sequencerEnvironment,
 		requestTimeout:       requestTimeout,
 		localAssembler:       localAssembler,
+		timerFactory:         newDefaultTimer,
 	}
 }
 
 func (ac *assembleCoordinator) Complete(requestID string) {
-
-	log.L(ac.ctx).Debugf("AssembleCoordinator:Commit %s", requestID)
-	ac.commit <- requestID
-
+	if ac.completeInflight(requestID) {
+		log.L(ac.ctx).Debugf("AssembleCoordinator:Complete %s", requestID)
+		return
+	}
+	log.L(ac.ctx).Debugf("AssembleCoordinator:Complete ignored for unknown or stale request %s", requestID)
 }
+
 func (ac *assembleCoordinator) Start() {
 	log.L(ac.ctx).Info("Starting AssembleCoordinator")
 	go func() {
@@ -80,12 +109,14 @@ func (ac *assembleCoordinator) Start() {
 			select {
 			case req := <-ac.requests:
 				requestID := uuid.New().String()
+				doneCh := ac.registerInflight(requestID)
 				if req.assemblingNode == "" || req.assemblingNode == ac.nodeName {
 					req.processLocal(ac.ctx, requestID)
 				} else {
 					err := req.processRemote(ac.ctx, req.assemblingNode, requestID)
 					if err != nil {
 						log.L(ac.ctx).Errorf("AssembleCoordinator request failed: %s", err)
+						ac.removeInflight(requestID)
 						//we failed sending the request so we continue to the next request
 						// without waiting for this one to complete
 						// the sequencer event loop is responsible for requesting a new assemble
@@ -95,7 +126,7 @@ func (ac *assembleCoordinator) Start() {
 
 				//The actual response is processed on the sequencer event loop.  We just need to know when it is safe to proceed
 				// to the next request
-				ac.waitForDone(requestID)
+				ac.waitForDone(requestID, doneCh)
 			case <-ac.stopProcess:
 				log.L(ac.ctx).Info("assembleCoordinator loop process stopped")
 				return
@@ -107,26 +138,33 @@ func (ac *assembleCoordinator) Start() {
 	}()
 }
 
-func (ac *assembleCoordinator) waitForDone(requestID string) {
+func (ac *assembleCoordinator) waitForDone(requestID string, doneCh <-chan struct{}) {
 	log.L(ac.ctx).Debugf("AssembleCoordinator:waitForDone %s", requestID)
 
 	// wait for the response or a timeout
-	timeoutTimer := time.NewTimer(ac.requestTimeout)
+	timeoutTimer := ac.timerFactory(ac.requestTimeout)
+	defer func() {
+		ac.removeInflight(requestID)
+		if !timeoutTimer.Stop() {
+			select {
+			case <-timeoutTimer.C():
+			default:
+			}
+		}
+	}()
 out:
 	for {
 		select {
-		case response := <-ac.commit:
-			if response == requestID {
-				log.L(ac.ctx).Debugf("AssembleCoordinator:waitForDone received notification of completion %s", requestID)
-				break out
-			} else {
-				// the response was not for this request, must have been an old request that we have already timed out
-				log.L(ac.ctx).Debugf("AssembleCoordinator:waitForDone received spurious response %s. Continue to wait for %s", response, requestID)
-			}
+		case <-doneCh:
+			log.L(ac.ctx).Debugf("AssembleCoordinator:waitForDone received notification of completion %s", requestID)
+			break out
+		case <-ac.stopProcess:
+			log.L(ac.ctx).Info("AssembleCoordinator:waitForDone stopped")
+			return
 		case <-ac.ctx.Done():
 			log.L(ac.ctx).Info("AssembleCoordinator:waitForDone loop exit due to canceled context")
 			return
-		case <-timeoutTimer.C:
+		case <-timeoutTimer.C():
 			log.L(ac.ctx).Errorf("AssembleCoordinator:waitForDone request timeout for request %s", requestID)
 			//sequencer event loop is responsible for requesting a new assemble
 			break out
@@ -137,13 +175,36 @@ out:
 }
 
 func (ac *assembleCoordinator) Stop() {
-	// try to send an item in `stopProcess` channel, which has a buffer of 1
-	// if it already has an item in the channel, this function does nothing
-	select {
-	case ac.stopProcess <- true:
-	default:
-	}
+	ac.stopProcessOnce.Do(func() {
+		close(ac.stopProcess)
+	})
+}
 
+func (ac *assembleCoordinator) registerInflight(requestID string) chan struct{} {
+	ac.inflightLock.Lock()
+	defer ac.inflightLock.Unlock()
+	doneCh := make(chan struct{})
+	ac.inflight[requestID] = doneCh
+	return doneCh
+}
+
+func (ac *assembleCoordinator) completeInflight(requestID string) bool {
+	ac.inflightLock.Lock()
+	doneCh, found := ac.inflight[requestID]
+	if found {
+		delete(ac.inflight, requestID)
+	}
+	ac.inflightLock.Unlock()
+	if found {
+		close(doneCh)
+	}
+	return found
+}
+
+func (ac *assembleCoordinator) removeInflight(requestID string) {
+	ac.inflightLock.Lock()
+	delete(ac.inflight, requestID)
+	ac.inflightLock.Unlock()
 }
 
 // TODO really need to figure out the separation between PrivateTxManager and DomainManager
