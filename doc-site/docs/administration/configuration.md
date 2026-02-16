@@ -439,7 +439,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleRequestTimeout | Assemble request timeout | `string` | `"1s"` |
+| assembleRequestTimeout | Assemble request timeout | `string` | `"30s"` |
 | evalInterval | Evaluation interval | `string` | `"5m"` |
 | maxConcurrentProcess | Maximum concurrent processes | `int` | `500` |
 | maxInflightTransactions | Maximum inflight transactions | `int` | `500` |

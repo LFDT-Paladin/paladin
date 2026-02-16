@@ -43,7 +43,7 @@ var PrivateTxManagerDefaults = PrivateTxManagerConfig{
 		StaleTimeout:                        confutil.P("10m"),
 		MaxPendingEvents:                    confutil.P(500),
 		RoundRobinCoordinatorBlockRangeSize: confutil.P(100),
-		AssembleRequestTimeout:              confutil.P("1s"),
+		AssembleRequestTimeout:              confutil.P("30s"),
 	},
 	RequestTimeout: confutil.P("1s"),
 }

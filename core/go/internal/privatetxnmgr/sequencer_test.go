@@ -18,6 +18,7 @@ package privatetxnmgr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -192,7 +193,7 @@ func TestSequencerPollingLoopStop(t *testing.T) {
 	testOc, _, ocDone := newSequencerForTesting(t, ctx, nil)
 	defer ocDone()
 	testOc.TriggerSequencerEvaluation()
-	testOc.Stop()
+	testOc.Stop(fmt.Errorf("pop"))
 
 }
 
