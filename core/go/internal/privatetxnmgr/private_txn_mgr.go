@@ -18,6 +18,7 @@ package privatetxnmgr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -1076,7 +1077,7 @@ func (p *privateTxManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Conte
 			seq := p.getSequencerIfActive(ctx, r.DomainContractAddress)
 			if seq != nil {
 				log.L(ctx).Errorf("Due to transaction error the sequencer for smart contract %s in domain %s is STOPPING", seq.contractAddress, r.Domain)
-				seq.Stop()
+				seq.Stop(errors.New(r.FailureMessage))
 			}
 		}
 	}
