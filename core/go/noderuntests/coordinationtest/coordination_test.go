@@ -109,14 +109,14 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	require.NoError(t, aliceTx.Error())
 
 	// Check alice has the TX including the public TX information
-	assert.Eventually(t,
+	require.Eventually(t,
 		transactionReceiptConditionExpectedPublicTXCount(t, ctx, aliceTx.ID(), alice.GetClient(), 1),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
 		"Transaction did not receive a receipt with 1 public TX",
 	)
 	// Check bob has the public TX info as well
-	assert.Eventually(t,
+	require.Eventually(t,
 		transactionReceiptFullConditionExpectedPublicTXCount(t, ctx, aliceTx.ID(), bob.GetClient(), 1),
 		transactionLatencyThreshold(t),
 		100*time.Millisecond,
@@ -134,6 +134,8 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 
 	// Check the data both nodes have is consistent. We're comparing a transaction with a transaction receipt so domain is the only comparable field
 	assert.Equal(t, aliceTxFull.Domain, bobTxFull.Domain)
+
+	require.Len(t, aliceTxFull.Public, 1)
 
 	// Check the public transaction records are consistent
 	assert.Equal(t, aliceTxFull.Public[0].Dispatcher, bobTxFull.Public[0].Dispatcher)

@@ -268,6 +268,22 @@ func (b *CoordinatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.S
 }
 
 func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator, *CoordinatorDependencyMocks) {
+	// TODO: This is a bit of a hack, but all this code gets substantial rework in the restructing PRs so
+	// it makes sense to clean this up as part of that merge
+	hasContractConfigExpectation := false
+	for _, call := range b.domainAPI.ExpectedCalls {
+		if call.Method == "ContractConfig" {
+			hasContractConfigExpectation = true
+			break
+		}
+	}
+	if !hasContractConfigExpectation {
+		b.domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+			CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+			SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+		})
+	}
+
 	if b.contractAddress == nil {
 		b.contractAddress = pldtypes.RandAddress()
 	}

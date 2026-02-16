@@ -17,19 +17,23 @@ package coordinator
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
@@ -170,6 +174,9 @@ func NewCoordinator(
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
+	if err := c.initializeOriginatorNodePoolFromContractConfig(ctx); err != nil {
+		return nil, err
+	}
 
 	// Start the state machine event loop
 	go c.stateMachineEventLoop.Start(ctx)
@@ -228,6 +235,30 @@ func (c *coordinator) sendHandoverRequest(ctx context.Context) {
 	if err != nil {
 		log.L(ctx).Errorf("error sending handover request: %v", err)
 	}
+}
+
+func (c *coordinator) initializeOriginatorNodePoolFromContractConfig(ctx context.Context) error {
+	contractConfig := c.domainAPI.ContractConfig()
+	if contractConfig.GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_ENDORSER {
+		return nil
+	}
+	candidates := contractConfig.GetCoordinatorEndorserCandidates()
+	if len(candidates) == 0 {
+		log.L(ctx).Debugf("endorser coordinator mode for contract %s has no configured candidates; runtime originator updates will populate the pool", c.contractAddress.String())
+		return nil
+	}
+
+	c.originatorNodePool = make([]string, 0, len(candidates))
+	for _, locator := range candidates {
+		_, node, err := pldtypes.PrivateIdentityLocator(locator).Validate(ctx, "", false)
+		if err != nil {
+			return i18n.WrapError(ctx, err, msgs.MsgSequencerInvalidEndorserCandidate, locator)
+		}
+		c.originatorNodePool = append(c.originatorNodePool, node)
+	}
+	slices.Sort(c.originatorNodePool)
+	log.L(ctx).Debugf("initialized originator node pool from coordinator endorser candidates: %+v", c.originatorNodePool)
+	return nil
 }
 
 func (c *coordinator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
