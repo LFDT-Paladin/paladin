@@ -225,11 +225,6 @@ func NewSequencer(
 	return newSequencer, nil
 }
 
-func (s *Sequencer) abort(err error) {
-	log.L(s.ctx).Errorf("Sequencer aborting: %s", err)
-	s.stopProcess <- true
-
-}
 func (s *Sequencer) getTransactionProcessor(txID string) ptmgrtypes.TransactionFlow {
 	s.incompleteTxProcessMapMutex.Lock()
 	defer s.incompleteTxProcessMapMutex.Unlock()
@@ -264,9 +259,9 @@ func (s *Sequencer) ProcessNewTransaction(ctx context.Context, tx *components.Pr
 		} else {
 			s.incompleteTxSProcessMap[tx.ID.String()] = NewTransactionFlow(ctx, tx, s.nodeName, s.components, s.domainAPI, s.coordinatorDomainContext, s.publisher, s.endorsementGatherer, s.identityResolver, s.syncPoints, s.transportWriter, s.requestTimeout, s.coordinatorSelector, s.assembleCoordinator, s.environment)
 		}
-		s.pendingTransactionEvents <- &ptmgrtypes.TransactionSubmittedEvent{
+		s.HandleEvent(ctx, &ptmgrtypes.TransactionSubmittedEvent{
 			PrivateTransactionEventBase: ptmgrtypes.PrivateTransactionEventBase{TransactionID: tx.ID.String()},
-		}
+		})
 	}
 	return false
 }
@@ -283,10 +278,10 @@ func (s *Sequencer) ProcessInFlightTransaction(ctx context.Context, tx *componen
 		if delegationBlockHeight != nil {
 			// We need to inform the in-flight processor that the delegation is received, because it might override a
 			// delegating status that we have locally (depending on the block height)
-			s.pendingTransactionEvents <- &ptmgrtypes.DelegationForInFlightEvent{
+			s.HandleEvent(ctx, &ptmgrtypes.DelegationForInFlightEvent{
 				PrivateTransactionEventBase: ptmgrtypes.PrivateTransactionEventBase{TransactionID: tx.ID.String()},
 				BlockHeight:                 *delegationBlockHeight,
-			}
+			})
 		} else {
 			log.L(ctx).Warnf("Transaction %s already in memory. Ignoring", tx.ID)
 		}
@@ -299,15 +294,19 @@ func (s *Sequencer) ProcessInFlightTransaction(ctx context.Context, tx *componen
 		} else {
 			s.incompleteTxSProcessMap[tx.ID.String()] = NewTransactionFlow(ctx, tx, s.nodeName, s.components, s.domainAPI, s.coordinatorDomainContext, s.publisher, s.endorsementGatherer, s.identityResolver, s.syncPoints, s.transportWriter, s.requestTimeout, s.coordinatorSelector, s.assembleCoordinator, s.environment)
 		}
-		s.pendingTransactionEvents <- &ptmgrtypes.TransactionSwappedInEvent{
+		s.HandleEvent(ctx, &ptmgrtypes.TransactionSwappedInEvent{
 			PrivateTransactionEventBase: ptmgrtypes.PrivateTransactionEventBase{TransactionID: tx.ID.String()},
-		}
+		})
 	}
 	return false
 }
 
 func (s *Sequencer) HandleEvent(ctx context.Context, event ptmgrtypes.PrivateTransactionEvent) {
-	s.pendingTransactionEvents <- event
+	select {
+	case s.pendingTransactionEvents <- event:
+	case <-s.sequencerLoopDone:
+		log.L(ctx).Warnf("Failed to process event %T as sequencer closed", event)
+	}
 }
 
 func (s *Sequencer) Start(ctx context.Context) (done <-chan struct{}, err error) {
@@ -321,7 +320,11 @@ func (s *Sequencer) Start(ctx context.Context) (done <-chan struct{}, err error)
 }
 
 // Stop the InFlight transaction process.
-func (s *Sequencer) Stop() {
+func (s *Sequencer) Stop(err error) {
+	if err != nil {
+		log.L(s.ctx).Errorf("Sequencer aborting: %s", err)
+	}
+
 	// try to send an item in `stopProcess` channel, which has a buffer of 1
 	// if it already has an item in the channel, this function does nothing
 	s.assembleCoordinator.Stop()
