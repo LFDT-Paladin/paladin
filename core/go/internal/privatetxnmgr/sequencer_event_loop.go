@@ -139,7 +139,7 @@ func (s *Sequencer) handleTransactionEvent(ctx context.Context, event ptmgrtypes
 		// graph of transactions that can successfully be dispatched so only option here is to abandon everything we have in-memory for this contract
 		// and start again
 		log.L(ctx).Errorf("Error getting dispatchable transactions: %s", err)
-		s.abort(err)
+		s.Stop(err)
 		return
 	}
 	if len(dispatchableTransactions) == 0 {
