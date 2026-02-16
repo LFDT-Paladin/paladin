@@ -101,6 +101,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		return nil
 	}
 
+	transactionIDResults := make(map[uuid.UUID]bool)
 	possibleChainingRecordIDs := make([]uuid.UUID, 0, len(info))
 	receiptsToInsert := make([]*transactionReceipt, 0, len(info))
 	for _, ri := range info {
@@ -147,9 +148,56 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		default:
 			return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))
 		}
+		if transactionIDResults[receipt.TransactionID] {
+			log.L(ctx).Warnf("Skipping receipt that would override previous success in this batch txId=%s success=%t failure=%s txHash=%v", receipt.TransactionID, receipt.Success, failureMsg, receipt.TransactionHash)
+			continue
+		}
+		transactionIDResults[receipt.TransactionID] = receipt.Success
 		log.L(ctx).Infof("Inserting receipt txId=%s success=%t failure=%s txHash=%v", receipt.TransactionID, receipt.Success, failureMsg, receipt.TransactionHash)
 		receiptsToInsert = append(receiptsToInsert, receipt)
 		possibleChainingRecordIDs = append(possibleChainingRecordIDs, receipt.TransactionID)
+	}
+
+	// Failures must not override success, so when we have failure we check for previously persisted success
+	var failedTransactionIDs []uuid.UUID
+	for txID, isSuccess := range transactionIDResults {
+		if !isSuccess {
+			failedTransactionIDs = append(failedTransactionIDs, txID)
+		}
+	}
+	if len(failedTransactionIDs) > 0 {
+		var existingSuccessReceipts []*transactionReceipt
+		err := dbTX.DB().Table("transaction_receipts").
+			WithContext(ctx).
+			Where("success IS TRUE").
+			Where("transaction IN ?", failedTransactionIDs).
+			Find(&existingSuccessReceipts).
+			Error
+		if err != nil {
+			return err
+		}
+		if len(existingSuccessReceipts) > 0 {
+			trimmedReceiptsToInsert := make([]*transactionReceipt, 0, len(receiptsToInsert))
+			for _, receipt := range receiptsToInsert {
+				foundSuccess := false
+				for _, existingSuccess := range existingSuccessReceipts {
+					if existingSuccess.TransactionID == receipt.TransactionID {
+						foundSuccess = true
+						break
+					}
+				}
+				if foundSuccess {
+					var failureMsg string
+					if receipt.FailureMessage != nil {
+						failureMsg = *receipt.FailureMessage
+					}
+					log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded due to existing success receipt. Error: %s", receipt.TransactionID, failureMsg)
+				} else {
+					trimmedReceiptsToInsert = append(trimmedReceiptsToInsert, receipt)
+				}
+			}
+			receiptsToInsert = trimmedReceiptsToInsert
+		}
 	}
 
 	if len(receiptsToInsert) > 0 {
