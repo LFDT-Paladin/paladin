@@ -355,7 +355,7 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 	tx := txi.Transaction
 
 	// First check if the TX has incomplete or failed dependencies
-	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, txi)
+	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, dbTX, txi)
 	if err != nil {
 		return err
 	}
@@ -394,49 +394,50 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 	}, &txi.ResolvedTransaction, false)
 }
 
-// Resume a transaction we have read from the DB on startup. There is no DBTX because we don't need to delay
-// the sequencer running while we wait for the original DB insert to commit.
+// Resume a transaction we have read from the DB on startup.
 func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *components.ValidatedTransaction) error {
-	tx := txi.Transaction
+	return sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		tx := txi.Transaction
 
-	// First check if the TX has incomplete or failed dependencies
-	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, txi)
-	if err != nil {
-		return err
-	}
-	if blockedByDependencies {
-		// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
-		// 1. The periodic sequencer poll loop will attempt to resume it, calling us again at which point we will make this same check
-		// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
-		return nil
-	}
-
-	if tx.To == nil {
-		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
-			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
+		// First check if the TX has incomplete or failed dependencies
+		blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, dbTX, txi)
+		if err != nil {
+			return err
 		}
-		log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
-		return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
-			ID:     *tx.ID,
-			Domain: tx.Domain,
-			From:   tx.From,
-			Inputs: tx.Data,
-		})
-	}
-	intent := prototk.TransactionSpecification_SEND_TRANSACTION
-	if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
-		intent = prototk.TransactionSpecification_PREPARE_TRANSACTION
-	}
-	if txi.Function == nil || txi.Function.Definition == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
-	}
-	log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
-	return sMgr.handleTx(ctx, sMgr.components.Persistence().NOTX(), &components.PrivateTransaction{
-		ID:      *tx.ID,
-		Domain:  tx.Domain,
-		Address: *tx.To,
-		Intent:  intent,
-	}, &txi.ResolvedTransaction, true)
+		if blockedByDependencies {
+			// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
+			// 1. The periodic sequencer poll loop will attempt to resume it, calling us again at which point we will make this same check
+			// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
+			return nil
+		}
+
+		if tx.To == nil {
+			if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
+				return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
+			}
+			log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
+			return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
+				ID:     *tx.ID,
+				Domain: tx.Domain,
+				From:   tx.From,
+				Inputs: tx.Data,
+			})
+		}
+		intent := prototk.TransactionSpecification_SEND_TRANSACTION
+		if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
+			intent = prototk.TransactionSpecification_PREPARE_TRANSACTION
+		}
+		if txi.Function == nil || txi.Function.Definition == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
+		}
+		log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
+		return sMgr.handleTx(ctx, dbTX, &components.PrivateTransaction{
+			ID:      *tx.ID,
+			Domain:  tx.Domain,
+			Address: *tx.To,
+			Intent:  intent,
+		}, &txi.ResolvedTransaction, true)
+	})
 }
 
 // Start processing a new or resumed transaction. The state machine is designed to be idempotent to new transactions with the same ID being resumed, so there is no checking
