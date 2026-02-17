@@ -650,8 +650,6 @@ func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, co
 			From:         from, // The base ledger signing address
 			Hash:         confirmedTxn.OnChain.TransactionHash,
 			RevertReason: confirmedTxn.RevertData,
-			// TODO on the coordinator node we have the nonce, but public TX distribution to other nodes currently happens pre-nonce allocation
-			// Should we distribute public transactions post nonce allocation?
 			Nonce: nonce, // nil when nonce is not available
 		}
 
