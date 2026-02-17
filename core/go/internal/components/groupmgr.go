@@ -46,6 +46,7 @@ type PrivacyGroupMessageReceiver interface {
 }
 
 type PrivacyGroupMessageReceiverCloser interface {
+	SetActive()
 	Close()
 }
 
