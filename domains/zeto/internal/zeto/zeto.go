@@ -733,6 +733,6 @@ func (z *Zeto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 func (z *Zeto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 	return &prototk.CheckStateCompletionResponse{
 		// TODO: Implement manifests similar to noto, to allow receipts to be delivered to listeners reliably with partial state avaialability.
-		PrimaryMissingStateId: req.UnavailableStates.FirstUnavailableId,
+		NextMissingStateId: req.UnavailableStates.FirstUnavailableId,
 	}, nil
 }

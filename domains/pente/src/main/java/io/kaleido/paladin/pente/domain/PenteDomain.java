@@ -850,7 +850,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          // first unavailable ID that Paladin provided us
          var res = CheckStateCompletionResponse.newBuilder();
          if (request.getUnavailableStates().hasFirstUnavailableId()) {
-             res.setPrimaryMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
+             res.setNextMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
          }
          return CompletableFuture.completedFuture(res.build());
      }

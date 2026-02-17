@@ -1578,14 +1578,14 @@ func TestCheckStateCompletionOk(t *testing.T) {
 			},
 		}, cscr)
 		return &prototk.CheckStateCompletionResponse{
-			PrimaryMissingStateId: cscr.UnavailableStates.FirstUnavailableId,
+			NextMissingStateId: cscr.UnavailableStates.FirstUnavailableId,
 		}, nil
 	}
 
 	domain := td.d
-	primaryMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, txID, statesInput)
+	nextMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, txID, statesInput)
 	require.NoError(t, err)
-	require.Equal(t, statesInput.Unavailable.Info[0].String(), primaryMissingStateID.String())
+	require.Equal(t, statesInput.Unavailable.Info[0].String(), nextMissingStateID.String())
 }
 
 func TestCheckStateCompletionBadIDReturned(t *testing.T) {
@@ -1595,7 +1595,7 @@ func TestCheckStateCompletionBadIDReturned(t *testing.T) {
 
 	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 		return &prototk.CheckStateCompletionResponse{
-			PrimaryMissingStateId: confutil.P("wrong"),
+			NextMissingStateId: confutil.P("wrong"),
 		}, nil
 	}
 

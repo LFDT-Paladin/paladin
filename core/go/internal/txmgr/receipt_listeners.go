@@ -705,7 +705,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			return err
 		}
 
-		var primaryMissingStateID pldtypes.HexBytes
+		var nextMissingStateID pldtypes.HexBytes
 		if fr.States != nil && d != nil && fr.States.FirstUnavailable() != nil {
 			// Domains supporting PARTIAL completion processing use the FIRST "info" state for
 			// the manifest of the transaction. This allows us to determine that:
@@ -717,7 +717,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 			if len(fr.States.Info) == 0 && len(fr.States.Unavailable.Info) > 0 {
 				// We don't have the manifest - no point in calling the domain.
 				// Trigger again when the first info state is available.
-				primaryMissingStateID = fr.States.Unavailable.Info[0]
+				nextMissingStateID = fr.States.Unavailable.Info[0]
 			} else {
 				// Otherwise:
 				// - There are > 0 unavailable states
@@ -726,7 +726,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 				// We need the domain to get involved to determine if the transaction is complete,
 				// or we need to wait for at least one more state. It just needs to return the ID
 				// of one state we're waiting for (any one that we know is required).
-				primaryMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
+				nextMissingStateID, err = d.CheckStateCompletion(l.ctx, l.tm.p.NOTX(), pr.TransactionID, fr.States)
 				if err != nil {
 					return err
 				}
@@ -734,7 +734,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 		}
 
 		// Handle incomplete state based on the configured behavior
-		if primaryMissingStateID != nil {
+		if nextMissingStateID != nil {
 			behavior := l.spec.Options.IncompleteStateReceiptBehavior.V()
 			switch behavior {
 			case pldapi.IncompleteStateReceiptBehaviorBlockContract:
@@ -744,7 +744,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 					Source:      &fr.Source,
 					Sequence:    pr.Sequence,
 					DomainName:  fr.Domain,
-					StateID:     primaryMissingStateID,
+					StateID:     nextMissingStateID,
 					Transaction: fr.ID,
 				})
 				return nil
@@ -754,7 +754,7 @@ func (l *receiptListener) processPersistedReceipt(b *receiptDeliveryBatch, pr *t
 					Listener:   l.spec.Name,
 					Sequence:   pr.Sequence,
 					DomainName: fr.Domain,
-					StateID:    primaryMissingStateID,
+					StateID:    nextMissingStateID,
 				})
 				return nil
 			}

@@ -193,11 +193,11 @@ message ExecCallResponse {
 // **RECEIPT** given the available details of a confirmed transation, returns a domain specific receipt payload that an application can process
 message BuildReceiptRequest {
   string transaction_id = 1; // the transaction ID
-  bool unavailable_states = 2; // some domains only process complete data sets. If true, then there were additional states referenced in this request, but which are not currently available.
   repeated EndorsableState input_states = 3; // available input states
   repeated EndorsableState read_states = 4; // available read states
   repeated EndorsableState output_states = 5; // available output states
   repeated EndorsableState info_states = 6; // available info states  
+  bool unavailable_states = 7; // some domains only process complete data sets. If true, then there were additional states referenced in this request, but which are not currently available.
 }
 
 message BuildReceiptResponse {
@@ -271,15 +271,15 @@ message CheckStateCompletionRequest {
   repeated EndorsableState read_states = 3; // available read states
   repeated EndorsableState output_states = 4; // available output states
   repeated EndorsableState info_states = 5; // available info states
-  UnavailableStates unavailable_states = 6; // details of unavailable states by classification, including a could for a quick completion check
+  UnavailableStates unavailable_states = 6; // details of unavailable states by classification, including a pre-calculated boolean for a quick completion check
 }
 
 message CheckStateCompletionResponse {
-  optional string primary_missing_state_id = 1; // if set, then this transaction is considered incomplete until this state is available - at which point the completion check will run again with the new set of states available at that time
+  optional string next_missing_state_id = 1; // if set, then this transaction is considered incomplete until this state is available - at which point the completion check will run again with the new set of states available at that time
 }
 
 message DomainConfig {
-  bool custom_hash_function = 1; // If true then the ValidateStateHashes function must be implemeted, and all states must come with a pre-caclculated ID
+  bool custom_hash_function = 1; // If true then the ValidateStateHashes function must be implemented, and all states must come with a pre-calculated ID
   repeated string abi_state_schemas_json = 2; // A list of Schema definitions (in ABI parameter format) the domain requires for all state types it interacts with
   string abi_events_json = 3; // ABI events that the domain will process for state updates
   map<string, int32> signing_algorithms = 4; // A list of supported signing algorithms with the minimum key lengths for each algorithm

@@ -156,14 +156,14 @@ func (mt *manifestTester) withMissingNewStates(unavailable ...*prototk.NewState)
 func (mts *manifestTesterAvailabilityScenario) completeForIdentity(localAddress string) *manifestTesterAvailabilityScenario {
 	res, err := mts.runCheckStateCompletionWithIdentity(localAddress, mts.unavailable...)
 	require.NoError(mts.t, err)
-	require.Nil(mts.t, res.PrimaryMissingStateId)
+	require.Nil(mts.t, res.NextMissingStateId)
 	return mts
 }
 
 func (mts *manifestTesterAvailabilityScenario) incompleteForIdentity(localAddress string) *manifestTesterAvailabilityScenario {
 	res, err := mts.runCheckStateCompletionWithIdentity(localAddress, mts.unavailable...)
 	require.NoError(mts.t, err)
-	require.NotNil(mts.t, res.PrimaryMissingStateId)
+	require.NotNil(mts.t, res.NextMissingStateId)
 	return mts
 }
 

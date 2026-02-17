@@ -280,7 +280,7 @@ func TestDomainRequestsOK(t *testing.T) {
 		CheckStateCompletion: func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 			assert.Equal(t, `tx1`, cscr.TransactionId)
 			return &prototk.CheckStateCompletionResponse{
-				PrimaryMissingStateId: confutil.P("state1"),
+				NextMissingStateId: confutil.P("state1"),
 			}, nil
 		},
 	}
@@ -515,7 +515,7 @@ func TestDomainRequestsOK(t *testing.T) {
 		TransactionId: "tx1",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, `state1`, *cscr.PrimaryMissingStateId)
+	assert.Equal(t, `state1`, *cscr.NextMissingStateId)
 
 	// Add timeout for callbacks
 	var callbacks plugintk.DomainCallbacks
