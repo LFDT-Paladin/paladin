@@ -25,10 +25,10 @@ import (
 var _ plugintk.DomainCallbacks = &MockDomainCallbacks{}
 
 type MockDomainCallbacks struct {
-	MockFindAvailableStates  func() (*prototk.FindAvailableStatesResponse, error)
-	MockLocalNodeName        func() (*prototk.LocalNodeNameResponse, error)
-	MockValidateStates       func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
-	MockLookupKeyIdentifiers func(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	MockFindAvailableStates func() (*prototk.FindAvailableStatesResponse, error)
+	MockLocalNodeName       func() (*prototk.LocalNodeNameResponse, error)
+	MockValidateStates      func(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
+	MockReverseKeyLookup    func(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error)
 }
 
 func (dc *MockDomainCallbacks) FindAvailableStates(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
@@ -58,8 +58,8 @@ func (dc *MockDomainCallbacks) GetStatesByID(context.Context, *prototk.GetStates
 	return nil, nil
 }
 
-func (dc *MockDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
-	return dc.MockLookupKeyIdentifiers(ctx, req)
+func (dc *MockDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+	return dc.MockReverseKeyLookup(ctx, req)
 }
 
 func (dc *MockDomainCallbacks) ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error) {

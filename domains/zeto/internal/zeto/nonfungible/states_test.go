@@ -59,7 +59,7 @@ func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendT
 	return nil, nil
 }
 
-func (dc *testDomainCallbacks) LookupKeyIdentifiers(ctx context.Context, req *pb.LookupKeyIdentifiersRequest) (*pb.LookupKeyIdentifiersResponse, error) {
+func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
 	return nil, nil
 }
 

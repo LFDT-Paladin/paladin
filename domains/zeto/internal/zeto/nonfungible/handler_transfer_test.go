@@ -29,7 +29,7 @@ type testDomainCallbacksT struct {
 	retErr              error
 }
 
-func (dc *testDomainCallbacksT) LookupKeyIdentifiers(ctx context.Context, req *pb.LookupKeyIdentifiersRequest) (*pb.LookupKeyIdentifiersResponse, error) {
+func (dc *testDomainCallbacksT) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
 	panic("unimplemented")
 }
 

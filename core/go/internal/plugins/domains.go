@@ -125,12 +125,12 @@ func (br *domainBridge) RequestReply(ctx context.Context, reqMsg plugintk.Plugin
 				}
 			},
 		)
-	case *prototk.DomainMessage_LookupKeyIdentifiers:
-		return callManagerImpl(ctx, req.LookupKeyIdentifiers,
-			br.manager.LookupKeyIdentifiers,
-			func(resMsg *prototk.DomainMessage, res *prototk.LookupKeyIdentifiersResponse) {
-				resMsg.ResponseToDomain = &prototk.DomainMessage_LookupKeyIdentifiersRes{
-					LookupKeyIdentifiersRes: res,
+	case *prototk.DomainMessage_ReverseKeyLookup:
+		return callManagerImpl(ctx, req.ReverseKeyLookup,
+			br.manager.ReverseKeyLookup,
+			func(resMsg *prototk.DomainMessage, res *prototk.ReverseKeyLookupResponse) {
+				resMsg.ResponseToDomain = &prototk.DomainMessage_ReverseKeyLookupRes{
+					ReverseKeyLookupRes: res,
 				}
 			},
 		)

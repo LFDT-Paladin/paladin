@@ -107,20 +107,20 @@ skipState:
 
 func (mt *manifestTester) runCheckStateCompletionWithIdentity(localAddress string, unavailable ...*prototk.EndorsableState) (*prototk.CheckStateCompletionResponse, error) {
 
-	mt.mockCallbacks.MockLookupKeyIdentifiers = func(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
-		res := &prototk.LookupKeyIdentifiersResponse{
-			Results: make([]*prototk.LookupKeyIdentifierResult, len(req.Verifiers)),
+	mt.mockCallbacks.MockReverseKeyLookup = func(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+		res := &prototk.ReverseKeyLookupResponse{
+			Results: make([]*prototk.ReverseKeyLookupResult, len(req.Lookups)),
 		}
-		for i, v := range req.Verifiers {
-			if v == localAddress {
-				res.Results[i] = &prototk.LookupKeyIdentifierResult{
-					Verifier:      v,
+		for i, l := range req.Lookups {
+			if l.Verifier == localAddress {
+				res.Results[i] = &prototk.ReverseKeyLookupResult{
+					Verifier:      l.Verifier,
 					Found:         true,
 					KeyIdentifier: confutil.P("key1"),
 				}
 			} else {
-				res.Results[i] = &prototk.LookupKeyIdentifierResult{
-					Verifier: v,
+				res.Results[i] = &prototk.ReverseKeyLookupResult{
+					Verifier: l.Verifier,
 					Found:    false,
 				}
 			}

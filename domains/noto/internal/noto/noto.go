@@ -1074,10 +1074,7 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 	// Note we only get to this point if we're involved in the transaction in some way, and
 	// don't have the whole state set (Notary always has full set before submit).
 	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
-	lookupReq := &prototk.LookupKeyIdentifiersRequest{
-		Algorithm:    algorithms.ECDSA_SECP256K1,
-		VerifierType: verifiers.ETH_ADDRESS,
-	}
+	lookupReq := &prototk.ReverseKeyLookupRequest{}
 	uniqueAddresses := make(map[string]struct{})
 	for _, state := range manifest.States {
 		for _, target := range state.Participants {
@@ -1085,9 +1082,13 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 		}
 	}
 	for addr := range uniqueAddresses {
-		lookupReq.Verifiers = append(lookupReq.Verifiers, addr)
+		lookupReq.Lookups = append(lookupReq.Lookups, &prototk.ReverseKeyLookup{
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     addr,
+		})
 	}
-	lookupRes, err := n.Callbacks.LookupKeyIdentifiers(ctx, lookupReq)
+	lookupRes, err := n.Callbacks.ReverseKeyLookup(ctx, lookupReq)
 	if err != nil {
 		return nil, err
 	}

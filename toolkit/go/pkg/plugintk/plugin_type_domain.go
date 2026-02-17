@@ -55,7 +55,7 @@ type DomainCallbacks interface {
 	SendTransaction(ctx context.Context, tx *prototk.SendTransactionRequest) (*prototk.SendTransactionResponse, error)
 	LocalNodeName(context.Context, *prototk.LocalNodeNameRequest) (*prototk.LocalNodeNameResponse, error)
 	GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRequest) (*prototk.GetStatesByIDResponse, error)
-	LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error)
+	ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error)
 	ValidateStates(ctx context.Context, req *prototk.ValidateStatesRequest) (*prototk.ValidateStatesResponse, error)
 }
 
@@ -308,14 +308,14 @@ func (dp *domainHandler) GetStatesByID(ctx context.Context, req *prototk.GetStat
 	})
 }
 
-func (dp *domainHandler) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
+func (dp *domainHandler) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
 	res, err := dp.proxy.RequestFromPlugin(ctx, dp.Wrap(&prototk.DomainMessage{
-		RequestFromDomain: &prototk.DomainMessage_LookupKeyIdentifiers{
-			LookupKeyIdentifiers: req,
+		RequestFromDomain: &prototk.DomainMessage_ReverseKeyLookup{
+			ReverseKeyLookup: req,
 		},
 	}))
-	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_LookupKeyIdentifiersRes) *prototk.LookupKeyIdentifiersResponse {
-		return msg.LookupKeyIdentifiersRes
+	return responseToPluginAs(ctx, res, err, func(msg *prototk.DomainMessage_ReverseKeyLookupRes) *prototk.ReverseKeyLookupResponse {
+		return msg.ReverseKeyLookupRes
 	})
 }
 

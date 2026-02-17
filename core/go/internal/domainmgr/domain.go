@@ -860,24 +860,24 @@ func (d *domain) GetStatesByID(ctx context.Context, req *prototk.GetStatesByIDRe
 	}, err
 }
 
-func (d *domain) LookupKeyIdentifiers(ctx context.Context, req *prototk.LookupKeyIdentifiersRequest) (*prototk.LookupKeyIdentifiersResponse, error) {
-	results := make([]*prototk.LookupKeyIdentifierResult, len(req.Verifiers))
-	for i, verifier := range req.Verifiers {
-		resolve, err := d.dm.keyManager.ReverseKeyLookup(ctx, d.dm.persistence.NOTX(), req.Algorithm, req.VerifierType, verifier)
+func (d *domain) ReverseKeyLookup(ctx context.Context, req *prototk.ReverseKeyLookupRequest) (*prototk.ReverseKeyLookupResponse, error) {
+	results := make([]*prototk.ReverseKeyLookupResult, len(req.Lookups))
+	for i, lookup := range req.Lookups {
+		resolve, err := d.dm.keyManager.ReverseKeyLookup(ctx, d.dm.persistence.NOTX(), lookup.Algorithm, lookup.VerifierType, lookup.Verifier)
 		if err != nil {
 			i18nErr, ok := err.(i18n.PDError)
 			if ok && i18nErr.MessageKey() == msgs.MsgKeyManagerVerifierLookupNotFound {
-				log.L(ctx).Debugf("Key for verifier %s not found (algorithm=%s,verifierType=%s)", verifier, req.Algorithm, req.VerifierType)
-				results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: false}
+				log.L(ctx).Debugf("Key for verifier %s not found (algorithm=%s,verifierType=%s)", lookup.Verifier, lookup.Algorithm, lookup.VerifierType)
+				results[i] = &prototk.ReverseKeyLookupResult{Verifier: lookup.Verifier, Found: false}
 				continue
 			}
 			return nil, err
 		}
 		keyIdentifier := resolve.Identifier
-		log.L(ctx).Debugf("Key available locally for verifier %s (algorithm=%s,verifierType=%s): %s", verifier, req.Algorithm, req.VerifierType, keyIdentifier)
-		results[i] = &prototk.LookupKeyIdentifierResult{Verifier: verifier, Found: true, KeyIdentifier: &keyIdentifier}
+		log.L(ctx).Debugf("Key available locally for verifier %s (algorithm=%s,verifierType=%s): %s", lookup.Verifier, lookup.Algorithm, lookup.VerifierType, keyIdentifier)
+		results[i] = &prototk.ReverseKeyLookupResult{Verifier: lookup.Verifier, Found: true, KeyIdentifier: &keyIdentifier}
 	}
-	return &prototk.LookupKeyIdentifiersResponse{Results: results}, nil
+	return &prototk.ReverseKeyLookupResponse{Results: results}, nil
 }
 
 func (d *domain) mapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, isOutput bool, createdByTX *components.PrivateTransaction) (newStatesToWrite []*components.StateUpsert, err error) {

@@ -1609,7 +1609,7 @@ func TestCheckStateCompletionBadIDReturned(t *testing.T) {
 	require.Regexp(t, "PD020007", err)
 }
 
-func TestLookupKeyIdentifiersMixedResult(t *testing.T) {
+func TestReverseKeyLookupMixedResult(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
 			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
@@ -1632,28 +1632,34 @@ func TestLookupKeyIdentifiersMixedResult(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	res, err := td.d.LookupKeyIdentifiers(td.ctx, &prototk.LookupKeyIdentifiersRequest{
-		Algorithm:    algorithms.ECDSA_SECP256K1,
-		VerifierType: verifiers.ETH_ADDRESS,
-		Verifiers: []string{
-			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
-			"0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+	res, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, res.Results, 2)
-	require.Equal(t, &prototk.LookupKeyIdentifierResult{
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
 		Verifier: "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
 		Found:    false,
 	}, res.Results[0])
-	require.Equal(t, &prototk.LookupKeyIdentifierResult{
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
 		Verifier:      "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
 		Found:         true,
 		KeyIdentifier: confutil.P("key.one"),
 	}, res.Results[1])
 }
 
-func TestLookupKeyIdentifiersFail(t *testing.T) {
+func TestReverseKeyLookupFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
 		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
 			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
@@ -1662,12 +1668,18 @@ func TestLookupKeyIdentifiersFail(t *testing.T) {
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
-	_, err := td.d.LookupKeyIdentifiers(td.ctx, &prototk.LookupKeyIdentifiersRequest{
-		Algorithm:    algorithms.ECDSA_SECP256K1,
-		VerifierType: verifiers.ETH_ADDRESS,
-		Verifiers: []string{
-			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
-			"0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+	_, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
 		},
 	})
 	require.Regexp(t, "pop", err)

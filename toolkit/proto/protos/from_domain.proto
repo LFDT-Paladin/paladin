@@ -100,17 +100,21 @@ message GetStatesByIDResponse {
   repeated StoredState states = 1;
 }
 
-message LookupKeyIdentifiersRequest {
+message ReverseKeyLookupRequest {
+  repeated ReverseKeyLookup lookups = 1;
+}
+
+message ReverseKeyLookup {
   string algorithm = 1;
   string verifier_type = 2;
-  repeated string verifiers = 3;
+  string verifier = 3;
 }
 
-message LookupKeyIdentifiersResponse {
-  repeated LookupKeyIdentifierResult results = 1;
+message ReverseKeyLookupResponse {
+  repeated ReverseKeyLookupResult results = 1;
 }
 
-message LookupKeyIdentifierResult {
+message ReverseKeyLookupResult {
   string verifier = 1;
   bool found = 2;
   optional string key_identifier = 3;
