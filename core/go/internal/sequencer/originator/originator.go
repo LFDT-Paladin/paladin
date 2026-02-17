@@ -102,7 +102,7 @@ func NewOriginator(
 		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
 		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:                     metrics,
-		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		originatorEvents:            make(chan common.Event, 50),
 		stopEventLoop:               make(chan struct{}),
 		eventLoopStopped:            make(chan struct{}),
 		stopDelegateLoop:            make(chan struct{}),
@@ -132,9 +132,6 @@ func (o *originator) eventLoop(ctx context.Context) {
 		case <-o.stopEventLoop:
 			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
 			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("originator event loop cancelled for contract %s", o.contractAddress.String())
-			return
 		}
 	}
 }
@@ -160,9 +157,6 @@ func (o *originator) delegateLoop(ctx context.Context) {
 		case <-o.stopDelegateLoop:
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
 			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop cancelled for contract %s", o.contractAddress.String())
-			return
 		}
 	}
 }
@@ -170,14 +164,37 @@ func (o *originator) delegateLoop(ctx context.Context) {
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
 	if txn := o.transactionsByID[event.GetTransactionID()]; txn != nil {
 		return txn.HandleEvent(ctx, event)
-	} else {
-		log.L(ctx).Debugf("ignoring event because transaction not known to this originator %s", event.GetTransactionID().String())
 	}
-	return nil
+
+	// Transaction not known to this originator.
+	// The most likely cause is that the transaction reached a terminal state (e.g., reverted during assembly)
+	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
+	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
+
+	// Extract coordinator from events that require a response
+	var coordinator string
+
+	switch e := event.(type) {
+	case *transaction.AssembleRequestReceivedEvent:
+		coordinator = e.Coordinator
+	case *transaction.PreDispatchRequestReceivedEvent:
+		coordinator = e.Coordinator
+	default:
+		// Other events can be safely ignored
+		return nil
+	}
+
+	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
+		event.TypeString(), event.GetTransactionID(), coordinator)
+	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
 func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
-	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics)
+	// Cleanup callback to remove transaction from originator's tracking maps
+	onCleanup := func(ctx context.Context) {
+		o.removeTransaction(ctx, txn.ID)
+	}
+	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics, onCleanup)
 	if err != nil {
 		log.L(ctx).Errorf("error creating transaction: %v", err)
 		return err
@@ -194,13 +211,30 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 	return nil
 }
 
-func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {
+func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
+	log.L(ctx).Debugf("removing transaction %s from originator", txnID.String())
+
+	// Remove from transactionsByID
+	delete(o.transactionsByID, txnID)
+
+	// Remove from transactionsOrdered
+	for i, id := range o.transactionsOrdered {
+		if *id == txnID {
+			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
+			break
+		}
+	}
+
+	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
+}
+
+func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) []*transaction.Transaction {
 	//TODO are we actually saving anything by transactionsOrdered being an array of IDs rather than an array of *transaction.Transaction
 	ordered := make([]*transaction.Transaction, len(o.transactionsOrdered))
 	for i, id := range o.transactionsOrdered {
 		ordered[i] = o.transactionsByID[*id]
 	}
-	return ordered, nil
+	return ordered
 }
 
 func (o *originator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
@@ -243,6 +277,15 @@ func ptrTo[T any](v T) *T {
 // This hook point provides a place to perform any tidy up actions needed in the originator
 func (o *originator) Stop() {
 	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
+
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-o.eventLoopStopped:
+		return
+	default:
+	}
+
+	// Stop the event and delegate loops
 	o.stopEventLoop <- struct{}{}
 	o.stopDelegateLoop <- struct{}{}
 	<-o.eventLoopStopped

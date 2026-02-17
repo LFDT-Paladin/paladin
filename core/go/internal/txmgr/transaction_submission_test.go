@@ -1609,85 +1609,56 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
 }
 
-func TestPrepareInsertRemoteTransactionOK(t *testing.T) {
+func TestHasChainedTransactionWithRecords(t *testing.T) {
+	txID := uuid.New()
+	chainedTxID := uuid.New()
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectBegin()
-			mc.db.ExpectExec("INSERT.*transactions").WillReturnResult(driver.ResultNoRows)
-			mc.db.ExpectExec("INSERT.*transaction_deps").WillReturnResult(driver.ResultNoRows)
-			mc.db.ExpectCommit()
-		},
-	)
-	defer done()
-
-	txID := uuid.New()
-	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
-			{
-				ResolvedTransaction: components.ResolvedTransaction{
-					Function: &components.ResolvedFunction{},
-					Transaction: &pldapi.Transaction{
-						ID: &txID,
-						TransactionBase: pldapi.TransactionBase{
-							Type:         pldapi.TransactionTypePublic.Enum(),
-							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
-						},
-					},
-					DependsOn: []uuid.UUID{uuid.New()},
-				},
-			},
-		}, true)
-		return err
-	})
-	require.NoError(t, err)
-
-}
-
-func TestPrepareInsertRemoteTransactionErr(t *testing.T) {
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectBegin()
-			mc.db.ExpectExec("INSERT.*transactions").WillReturnError(fmt.Errorf("pop"))
-		},
-	)
-	defer done()
-
-	txID := uuid.New()
-	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		_, err = txm.InsertRemoteTransactions(ctx, dbTX, []*components.ValidatedTransaction{
-			{
-				ResolvedTransaction: components.ResolvedTransaction{
-					Function: &components.ResolvedFunction{},
-					Transaction: &pldapi.Transaction{
-						ID: &txID,
-						TransactionBase: pldapi.TransactionBase{
-							Type:         pldapi.TransactionTypePublic.Enum(),
-							ABIReference: confutil.P((pldtypes.Bytes32)(pldtypes.RandBytes(32))),
-						},
-					},
-				},
-			},
-		}, true)
-		return err
-	})
-	require.Regexp(t, "pop", err)
-}
-
-func TestHasChainedTransaction(t *testing.T) {
-	txID := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(
-				sqlmock.NewRows([]string{"transaction"}).AddRow(txID))
-		},
-	)
+			columns := []string{"chained_private_txns", "transaction", "sender", "domain", "contract_address"}
+			rows := sqlmock.NewRows(columns).
+				AddRow(chainedTxID, txID, "sender1", "domain1", "0x1234567890123456789012345678901234567890")
+			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
+				WithArgs(txID, 1).
+				WillReturnRows(rows)
+		})
 	defer done()
 
 	hasChained, err := txm.HasChainedTransaction(ctx, txID)
 	require.NoError(t, err)
 	require.True(t, hasChained)
+}
+
+func TestHasChainedTransactionNoRecords(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			rows := sqlmock.NewRows([]string{"chained_private_txns", "transaction", "sender", "domain", "contract_address"})
+			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
+				WithArgs(txID, 1).
+				WillReturnRows(rows)
+		})
+	defer done()
+
+	hasChained, err := txm.HasChainedTransaction(ctx, txID)
+	require.NoError(t, err)
+	assert.False(t, hasChained)
+}
+
+func TestHasChainedTransactionError(t *testing.T) {
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
+				WithArgs(txID, 1).
+				WillReturnError(fmt.Errorf("database error"))
+		})
+	defer done()
+
+	hasChained, err := txm.HasChainedTransaction(ctx, txID)
+	assert.Error(t, err)
+	assert.False(t, hasChained)
+	assert.Contains(t, err.Error(), "database error")
 }

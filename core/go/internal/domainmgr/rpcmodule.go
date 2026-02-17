@@ -24,12 +24,9 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
-
-func (dm *domainManager) RPCModule() *rpcserver.RPCModule {
-	return dm.rpcModule
-}
 
 func (dm *domainManager) buildRPCModule() {
 	dm.rpcModule = rpcserver.NewRPCModule("domain").
@@ -57,10 +54,12 @@ func (dm *domainManager) rpcGetDomain() rpcserver.RPCHandler {
 		if err != nil {
 			return nil, err
 		}
-		return &pldapi.Domain{
+		result := &pldapi.Domain{
 			Name:            domain.name,
 			RegistryAddress: domain.registryAddress,
-		}, nil
+		}
+		dm.populateDomainConfig(result, domain.Configuration())
+		return result, nil
 	})
 }
 
@@ -71,11 +70,22 @@ func (dm *domainManager) rpcGetDomainByAddress() rpcserver.RPCHandler {
 		if err != nil {
 			return nil, err
 		}
-		return &pldapi.Domain{
+		result := &pldapi.Domain{
 			Name:            domain.name,
 			RegistryAddress: domain.registryAddress,
-		}, nil
+		}
+		dm.populateDomainConfig(result, domain.Configuration())
+		return result, nil
 	})
+}
+
+func (dm *domainManager) populateDomainConfig(result *pldapi.Domain, config *prototk.DomainConfig) {
+	if config != nil {
+		result.Config = &pldapi.DomainConfig{}
+		if len(config.SigningAlgorithms) > 0 {
+			result.Config.SigningAlgorithms = config.SigningAlgorithms
+		}
+	}
 }
 
 func (dm *domainManager) rpcQuerySmartContracts() rpcserver.RPCHandler {
@@ -99,10 +109,12 @@ func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 		if err != nil {
 			return nil, err
 		}
-		return &pldapi.DomainSmartContract{
+		result := &pldapi.DomainSmartContract{
 			DomainName:    sc.Domain().Name(),
 			DomainAddress: sc.Domain().RegistryAddress(),
 			Address:       sc.Address(),
-		}, nil
+		}
+		dm.populateContractConfig(result, sc.ContractConfig())
+		return result, nil
 	})
 }

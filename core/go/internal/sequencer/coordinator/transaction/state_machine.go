@@ -20,9 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -48,27 +46,27 @@ const (
 type EventType = common.EventType
 
 const (
-	Event_Received                 EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
-	Event_Selected                                                                       // selected from the pool as the next transaction to be assembled
-	Event_AssembleRequestSent                                                            // assemble request sent to the assembler
-	Event_Assemble_Success                                                               // assemble response received from the originator
-	Event_Assemble_Revert_Response                                                       // assemble response received from the originator with a revert reason
-	Event_Endorsed                                                                       // endorsement received from one endorser
-	Event_EndorsedRejected                                                               // endorsement received from one endorser with a revert reason
-	Event_DependencyReady                                                                // another transaction, for which this transaction has a dependency on, has become ready for dispatch
-	Event_DependencyAssembled                                                            // another transaction, for which this transaction has a dependency on, has been assembled
-	Event_DependencyReverted                                                             // another transaction, for which this transaction has a dependency on, has been reverted
-	Event_DispatchRequestApproved                                                        // dispatch confirmation received from the originator
-	Event_DispatchRequestRejected                                                        // dispatch confirmation response received from the originator with a rejection
-	Event_Dispatched                                                                     // dispatched to the public TX manager
-	Event_Collected                                                                      // collected by the public TX manager
-	Event_NonceAllocated                                                                 // nonce allocated by the dispatcher thread
-	Event_Submitted                                                                      // submission made to the blockchain.  Each time this event is received, the submission hash is updated
-	Event_Confirmed                                                                      // confirmation received from the blockchain of either a successful or reverted transaction
-	Event_RequestTimeoutInterval                                                         // event emitted by the state machine on a regular period while we have pending requests
-	Event_StateTransition                                                                // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
-	Event_HeartbeatInterval                                                              // event emitted by the state machine on a regular period while we have pending requests
-	Event_AssembleTimeout                                                                // the assemble timeout period has passed since we sent the first assemble request
+	Event_Received                       EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
+	Event_Selected                                                                             // selected from the pool as the next transaction to be assembled
+	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
+	Event_Assemble_Success                                                                     // assemble response received from the originator
+	Event_Assemble_Revert_Response                                                             // assemble response received from the originator with a revert reason
+	Event_Endorsed                                                                             // endorsement received from one endorser
+	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
+	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
+	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
+	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
+	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
+	Event_Dispatched                                                                           // dispatched to the public TX manager
+	Event_Collected                                                                            // collected by the public TX manager
+	Event_NonceAllocated                                                                       // nonce allocated by the dispatcher thread
+	Event_Submitted                                                                            // submission made to the blockchain.  Each time this event is received, the submission hash is updated
+	Event_Confirmed                                                                            // confirmation received from the blockchain of either a successful or reverted transaction
+	Event_RequestTimeoutInterval                                                               // event emitted by the state machine on a regular period while we have pending requests
+	Event_StateTransition                                                                      // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
+	Event_AssembleTimeout                                                                      // the assemble timeout period has passed since we sent the first assemble request
+	Event_TransactionUnknownByOriginator                                                       // originator has reported that it doesn't recognize this transaction
 )
 
 type StateMachine struct {
@@ -189,6 +187,16 @@ func init() {
 						To: State_Reverted,
 					}},
 				},
+				// Handle response from originator indicating it doesn't recognize this transaction.
+				// The most likely cause is that the transaction reached a terminal state (e.g., reverted
+				// during assembly) but the response was lost, and the transaction has since been removed
+				// from memory on the originator after cleanup. The coordinator should clean up this transaction.
+				Event_TransactionUnknownByOriginator: {
+					Transitions: []Transition{{
+						To: State_Final,
+						On: action_FinalizeAsUnknownByOriginator,
+					}},
+				},
 			},
 		},
 		State_Endorsement_Gathering: {
@@ -219,6 +227,11 @@ func init() {
 						Action: action_NudgeEndorsementRequests,
 					}},
 				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Blocked: {
@@ -227,6 +240,11 @@ func init() {
 					Transitions: []Transition{{
 						To: State_Confirming_Dispatchable,
 						If: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady)),
+					}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
 					}},
 				},
 			},
@@ -246,16 +264,26 @@ func init() {
 						Action: action_NudgePreDispatchRequest,
 					}},
 				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Ready_For_Dispatch: {
-			OnTransitionTo: action_NotifyDependentsOfReadiness, //TODO also at this point we should notify the dispatch thread to come and collect this transaction
+			OnTransitionTo: action_NotifyDependentsOfReadiness,
 			Events: map[EventType]EventHandler{
 				Event_Dispatched: {
 					Transitions: []Transition{
 						{
 							To: State_Dispatched,
 						}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
 				},
 			},
 		},
@@ -266,6 +294,11 @@ func init() {
 						{
 							To: State_SubmissionPrepared,
 						}},
+				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
 				},
 			},
 		},
@@ -278,6 +311,11 @@ func init() {
 						}},
 				},
 				Event_NonceAllocated: {},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Submitted: {
@@ -289,20 +327,23 @@ func init() {
 							To: State_Confirmed,
 						},
 						{
-							// MRW TODO - we're re-pooling this transaction. Should we discard other
-							// assembled transactions i.e. re-pool everything this coordinator is tracking?
 							On: action_recordRevert,
 							If: guard_HasRevertReason,
 							To: State_Pooled,
 						},
 					},
 				},
+				Event_DependencyReverted: {
+					Transitions: []Transition{{
+						To: State_Pooled,
+					}},
+				},
 			},
 		},
 		State_Reverted: {
 			OnTransitionTo: action_NotifyDependentsOfRevert,
 			Events: map[EventType]EventHandler{
-				Event_HeartbeatInterval: {
+				common.Event_HeartbeatInterval: {
 					Transitions: []Transition{
 						{
 							If: guard_HasGracePeriodPassedSinceStateChange,
@@ -314,7 +355,7 @@ func init() {
 		State_Confirmed: {
 			OnTransitionTo: action_NotifyOfConfirmation,
 			Events: map[EventType]EventHandler{
-				Event_HeartbeatInterval: {
+				common.Event_HeartbeatInterval: {
 					Transitions: []Transition{
 						{
 							If: guard_HasGracePeriodPassedSinceStateChange,
@@ -359,7 +400,10 @@ func (t *Transaction) HandleEvent(ctx context.Context, event common.Event) error
 
 	//Determine whether this event triggers a state transition
 	err = t.evaluateTransitions(ctx, event, *eventHandler)
-	return err
+	if err != nil {
+		return err
+	}
+	return nil
 
 }
 
@@ -399,28 +443,14 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 	var err error
 	switch event := event.(type) {
 	case *AssembleSuccessEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
+		err = t.applyPostAssembly(ctx, event.PostAssembly, event.RequestID)
 		if err == nil {
-			err = t.writeLockStates(ctx)
-			if err != nil {
-				// Internal error. Only option is to revert the transaction
-				seqRevertEvent := &AssembleRevertResponseEvent{}
-				seqRevertEvent.RequestID = event.RequestID // Must match what the state machine thinks the current assemble request ID is
-				seqRevertEvent.TransactionID = t.ID
-				err = t.eventHandler(ctx, seqRevertEvent)
-				if err != nil {
-					handlerErr := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Failed to pass revert event to handler", err)
-					log.L(ctx).Error(handlerErr)
-				}
-				t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
-				// Return the original error
-				return err
-			}
+			// Assembling resolves the required verifiers which will need passing on for the endorse step
+			t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
 		}
-		// Assembling resolves the required verifiers which will need passing on for the endorse step
-		t.PreAssembly.Verifiers = event.PreAssembly.Verifiers
+
 	case *AssembleRevertResponseEvent:
-		err = t.applyPostAssembly(ctx, event.PostAssembly)
+		err = t.applyPostAssembly(ctx, event.PostAssembly, event.RequestID)
 	case *EndorsedEvent:
 		err = t.applyEndorsement(ctx, event.Endorsement, event.RequestID)
 	case *EndorsedRejectedEvent:
@@ -436,8 +466,8 @@ func (t *Transaction) applyEvent(ctx context.Context, event common.Event) error 
 		t.latestSubmissionHash = &event.SubmissionHash
 	case *ConfirmedEvent:
 		t.revertReason = event.RevertReason
-	case *HeartbeatIntervalEvent:
-		log.L(ctx).Infof("coordinator transaction increasing heartbeatIntervalsSinceStateChange")
+	case *common.HeartbeatIntervalEvent:
+		log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.ID.String(), t.GetCurrentState().String(), t.heartbeatIntervalsSinceStateChange+1)
 		t.heartbeatIntervalsSinceStateChange++
 	default:
 		//other events may trigger actions and/or state transitions but not require any internal state to be updated

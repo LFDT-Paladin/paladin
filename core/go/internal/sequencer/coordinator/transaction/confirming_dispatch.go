@@ -46,7 +46,7 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 				hash,
 			)
 		})
-		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleInterval(ctx, t.requestTimeout, func() {
+		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
 			err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: t.ID,
@@ -60,14 +60,6 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 	}
 
 	sendErr := t.pendingPreDispatchRequest.Nudge(ctx)
-
-	// MRW TODO - we are the ones doing the dispatching, so after we've informed the originator we can just update our own state?
-	// t.HandleEvent(ctx, &DispatchConfirmedEvent{
-	// 	BaseCoordinatorEvent: BaseCoordinatorEvent{
-	// 		TransactionID: t.ID,
-	// 	},
-	// 	RequestID: t.pendingDispatchConfirmationRequest.IdempotencyKey(),
-	// })
 
 	return sendErr
 

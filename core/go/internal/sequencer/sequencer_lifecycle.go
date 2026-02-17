@@ -17,7 +17,6 @@ package sequencer
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -90,6 +89,7 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 			sMgr.sequencersLock.RUnlock()
 		}
 	}()
+
 	if sMgr.sequencers[contractAddr.String()] == nil {
 		//swap the read lock for a write lock
 		sMgr.sequencersLock.RUnlock()
@@ -225,6 +225,15 @@ func (sMgr *sequencerManager) LoadSequencer(ctx context.Context, dbTX persistenc
 	return sMgr.sequencers[contractAddr.String()], nil
 }
 
+func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
+	sMgr.sequencersLock.Lock()
+	defer sMgr.sequencersLock.Unlock()
+	for _, sequencer := range sMgr.sequencers {
+		sequencer.GetCoordinator().Stop()
+		sequencer.GetOriginator().Stop()
+	}
+}
+
 func (sMgr *sequencerManager) setInitialCoordinator(ctx context.Context, tx *components.PrivateTransaction, sequencer *sequencer) error {
 
 	if tx != nil && tx.PreAssembly != nil && tx.PreAssembly.RequiredVerifiers != nil {
@@ -255,27 +264,6 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		log.L(ctx).Errorf("error getting domain API for contract %s: %s", t.Address.String(), err)
 		return
 	}
-
-	submitterSelection := domainAPI.ContractConfig().GetSubmitterSelection()
-
-	if submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.PostAssembly.Endorsements {
-			for _, constraint := range endorsement.Constraints {
-				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
-					t.Signer = endorsement.Verifier.Lookup
-					break
-				}
-			}
-		}
-	}
-	if t.Signer == "" {
-		if domainAPI.Domain().FixedSigningIdentity() != "" {
-			t.Signer = domainAPI.Domain().FixedSigningIdentity()
-		} else {
-			t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
-		}
-	}
-	log.L(ctx).Debugf("Transaction %s signer %s", t.ID.String(), t.Signer)
 
 	// Prepare the public or private transaction
 	readTX := sMgr.components.Persistence().NOTX() // no DB transaction required here
@@ -368,7 +356,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		for i, pt := range publicTransactionsToSend {
 			log.L(ctx).Debugf("DispatchTransactions: creating PublicTxSubmission from %s", pt.Signer)
 			publicTXs[i] = &components.PublicTxSubmission{
-				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
+				Bindings: []*components.PaladinTXReference{{TransactionID: pt.ID, TransactionType: pldapi.TransactionTypePrivate.Enum(), TransactionSender: pt.PreAssembly.TransactionSpecification.From, TransactionContractAddress: t.Address.String()}},
 				PublicTxInput: pldapi.PublicTxInput{
 					From:            resolvedAddrs[i],
 					To:              &t.Address,
@@ -376,7 +364,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 				},
 			}
 
-			// MRW TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
+			// TODO - We currently issue state machine CollectEvents from the publix TX manager, but we could arguably do it here.
 
 			data, err := pt.PreparedPublicTransaction.ABI[0].EncodeCallDataJSONCtx(ctx, pt.PreparedPublicTransaction.Data)
 			if err != nil {
@@ -436,7 +424,13 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 
 // Must be called within the sequencer's write lock
 func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
-
+	readlock := true
+	sMgr.sequencersLock.RLock()
+	defer func() {
+		if readlock {
+			sMgr.sequencersLock.RUnlock()
+		}
+	}()
 	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("max concurrent sequencers reached, finding lowest priority sequencer to stop")
 	if len(sMgr.sequencers) != 0 {
 		// If any sequencers are already closing we can wait for them to close instead of stopping a different one
@@ -454,7 +448,14 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 				sequencer.coordinator.GetCurrentState() == coordinator.State_Observing {
 				// This sequencer is already idle or observing so we can page it out immediately
 
+				// swap the read lock for a write lock
+				sMgr.sequencersLock.RUnlock()
+				readlock = false
+				sMgr.sequencersLock.Lock()
+				defer sMgr.sequencersLock.Unlock()
+
 				log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencer.contractAddress)
+				sequencer.coordinator.Stop()
 				sequencer.originator.Stop()
 				delete(sMgr.sequencers, sequencer.contractAddress)
 				return
@@ -469,6 +470,12 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 		sort.Slice(sequencers, func(i, j int) bool {
 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
 		})
+
+		// swap the read lock for a write lock
+		sMgr.sequencersLock.RUnlock()
+		readlock = false
+		sMgr.sequencersLock.Lock()
+		defer sMgr.sequencersLock.Unlock()
 
 		// Stop the lowest priority sequencer by emitting an event and waiting for it to move to closed
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
@@ -511,9 +518,16 @@ func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
 		})
 
+		// swap the read lock for a write lock
+		sMgr.sequencersLock.RUnlock()
+		readlock = false
+		sMgr.sequencersLock.Lock()
+		defer sMgr.sequencersLock.Unlock()
+
 		// Stop the lowest priority coordinator by emitting an event asking it to handover to another coordinator
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
 		sequencers[0].coordinator.Stop()
+		sequencers[0].originator.Stop()
 		delete(sMgr.sequencers, sequencers[0].contractAddress)
 	} else {
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Debugf("%d coordinators within max coordinator limit %d", activeCoordinators, sMgr.targetActiveCoordinatorsLimit)

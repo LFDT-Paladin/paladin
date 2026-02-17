@@ -106,6 +106,7 @@ var (
 	PublicTxRevertData                     = pdm("PublicTx.revertData", "The revert data (optional)")
 	PublicTxSubmissions                    = pdm("PublicTx.submissions", "The submission data (optional)")
 	PublicTxActivity                       = pdm("PublicTx.activity", "The transaction activity records (optional)")
+	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher that submitted this public transaction")
 	PublicTxBindingTransaction             = pdm("PublicTxBinding.transaction", "The transaction ID")
 	PublicTxBindingTransactionType         = pdm("PublicTxBinding.transactionType", "The transaction type")
 )
@@ -137,6 +138,9 @@ var (
 	TransactionFullReceipt                                  = pdm("TransactionFull.receipt", "Transaction receipt data - available if the transaction has reached a final state")
 	TransactionFullPublic                                   = pdm("TransactionFull.public", "List of public transactions associated with this transaction")
 	TransactionFullHistory                                  = pdm("TransactionFull.history", "List of values that have previously been provided for this transaction")
+	TransactionFullSequencerActivity                        = pdm("TransactionFull.sequencerActivity", "List of sequencer activities associated with this transaction")
+	TransactionFullDispatch                                 = pdm("TransactionFull.dispatches", "List of dispatches for this transaction")
+	TransactionFullChainedPrivateTransactions               = pdm("TransactionFull.chainedTransactions", "Chained private transactions resulting from this transaction")
 	TransactionReceiptID                                    = pdm("TransactionReceipt.id", "Transaction ID")
 	TransactionReceiptDataOnchainTransactionHash            = pdm("TransactionReceiptDataOnchain.transactionHash", "Transaction hash")
 	TransactionReceiptDataOnchainBlockNumber                = pdm("TransactionReceiptDataOnchain.blockNumber", "Block number")
@@ -153,6 +157,9 @@ var (
 	TransactionReceiptFullStates                            = pdm("TransactionReceiptFull.states", "The state receipt for the transaction (private transactions only)")
 	TransactionReceiptFullDomainReceipt                     = pdm("TransactionReceiptFull.domainReceipt", "The domain receipt for the transaction (private transaction only)")
 	TransactionReceiptFullDomainReceiptError                = pdm("TransactionReceiptFull.domainReceiptError", "Contains the error if it was not possible to obtain the domain receipt for a private transaction")
+	TransactionReceiptFullPublic                            = pdm("TransactionReceiptFull.public", "Public transactions submitted for this receipt's transaction")
+	TransactionReceiptFullDispatch                          = pdm("TransactionReceiptFull.dispatches", "Dispatches for this receipt's transaction")
+	TransactionReceiptFullChainedPrivateTransactions        = pdm("TransactionReceiptFull.chainedTransactions", "Chained private transactions resulting from this receipt's transaction")
 	TransactionActivityRecordTime                           = pdm("TransactionActivityRecord.time", "Time the record occurred")
 	TransactionActivityRecordMessage                        = pdm("TransactionActivityRecord.message", "Activity message")
 	TransactionDependenciesDependsOn                        = pdm("TransactionDependencies.dependsOn", "Transactions that this transaction depends on")
@@ -492,10 +499,12 @@ var (
 	KeyManagerInlineConfigWallets         = pdm("KeyManagerInlineConfig.wallets", "List of wallet configurations")
 	KeyManagerInlineConfigIdentifierCache = pdm("KeyManagerInlineConfig.identifierCache", "Identifier cache configuration")
 	KeyManagerInlineConfigVerifierCache   = pdm("KeyManagerInlineConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerInlineConfigDisableSignRPC  = pdm("KeyManagerInlineConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
 
 	// KeyManagerConfig field descriptions
 	KeyManagerConfigIdentifierCache = pdm("KeyManagerConfig.identifierCache", "Identifier cache configuration")
 	KeyManagerConfigVerifierCache   = pdm("KeyManagerConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerConfigDisableSignRPC  = pdm("KeyManagerConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
 
 	// SigningModuleConfig field descriptions
 	SigningModuleConfigInit   = pdm("SigningModuleConfig.init", "Signing module initialization configuration")

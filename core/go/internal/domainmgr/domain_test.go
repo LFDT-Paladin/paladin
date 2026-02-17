@@ -253,7 +253,15 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 }
 
 func registerTestDomain(t *testing.T, dm *domainManager, tp *testPlugin) {
-	d, err := dm.registerDomain("test1", tp)
+	// Extract domain name from the domain manager's config (assumes single domain)
+	var domainName string
+	for name := range dm.conf.Domains {
+		domainName = name
+		break
+	}
+	require.NotEmpty(t, domainName, "Domain manager must have at least one domain configured")
+
+	d, err := dm.registerDomain(domainName, tp)
 	require.NoError(t, err)
 
 	// For unit tests, we want any errors to pop out - rather than the actual runtime behavior of infinite retry
@@ -262,7 +270,7 @@ func registerTestDomain(t *testing.T, dm *domainManager, tp *testPlugin) {
 	// Kick off the init (as would happen in DomainRegistered callback otherwise)
 	go d.init()
 
-	da, err := dm.getDomainByName(context.Background(), "test1")
+	da, err := dm.getDomainByName(context.Background(), domainName)
 	require.NoError(t, err)
 	tp.d = da
 	<-tp.d.initDone
@@ -1745,4 +1753,69 @@ func TestValidateStatesBadSchmea(t *testing.T) {
 		},
 	})
 	require.Regexp(t, "PD011613.*schema1", err)
+}
+
+func TestDomainFixedSigningIdentity(t *testing.T) {
+	// Test with FixedSigningIdentity set
+	_, dm, mc, dmDone := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				Config:               map[string]any{"some": "conf"},
+				RegistryAddress:      pldtypes.RandHex(20),
+				DefaultGasLimit:      confutil.P(uint64(100000)),
+				FixedSigningIdentity: "test-signer@node1",
+				Init:                 pldconf.DomainInitConfig{},
+			},
+		},
+	})
+	defer dmDone()
+
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			assert.Equal(t, "test-signer@node1", cdr.FixedSigningIdentity)
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+	}
+
+	registerTestDomain(t, dm, tp)
+	assert.Equal(t, "test-signer@node1", tp.d.FixedSigningIdentity())
+
+	// Test with empty FixedSigningIdentity
+	_, dm2, mc2, dmDone2 := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test2": {
+				Config:          map[string]any{"some": "conf"},
+				RegistryAddress: pldtypes.RandHex(20),
+				DefaultGasLimit: confutil.P(uint64(100000)),
+				Init:            pldconf.DomainInitConfig{},
+			},
+		},
+	})
+	defer dmDone2()
+
+	mc2.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	tp2 := newTestPlugin(nil)
+	tp2.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			assert.Equal(t, "", cdr.FixedSigningIdentity)
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+	}
+
+	registerTestDomain(t, dm2, tp2)
+	assert.Equal(t, "", tp2.d.FixedSigningIdentity())
 }

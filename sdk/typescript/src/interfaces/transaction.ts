@@ -20,7 +20,12 @@ export interface PublicTxOptions {
   maxFeePerGas?: BigNumberish;
 }
 
+export interface PublicCallOptions {
+  block?: BigNumberish | string;
+}
+
 export interface ITransactionBase {
+  idempotencyKey?: string;
   type: TransactionType;
   domain?: string;
   function?: string;
@@ -31,10 +36,13 @@ export interface ITransactionBase {
   };
 }
 
+export type SubmitMode = "auto" | "external" | "call" | "prepare";
+
 export interface ITransaction extends ITransactionBase {
   id: string;
   created: string;
   abiReference: string;
+  submitMode?: SubmitMode;
 }
 
 export interface IPreparedTransaction {
@@ -57,9 +65,12 @@ export interface ITransactionInput extends ITransactionBase {
   abiReference?: string;
   abi?: ethers.InterfaceAbi;
   bytecode?: string;
+  dependsOn?: string[];
 }
 
-export interface ITransactionCall extends ITransactionInput {}
+export interface ITransactionCall extends ITransactionInput, PublicCallOptions {
+  dataFormat?: string;
+}
 
 export interface ITransactionReceipt {
   blockNumber: number;
@@ -146,11 +157,6 @@ export interface ITransactionStates {
     confirmed?: string[];
     info?: string[];
   };
-}
-
-export enum TransactionType {
-  Private = "private",
-  Public = "public",
 }
 
 export interface IABIDecodedData {

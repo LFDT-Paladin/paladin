@@ -36,7 +36,7 @@ import (
 
 type msgWithErrChan struct {
 	*prototk.PaladinMsg
-	errChan chan error
+	errorHandler func(ctx context.Context, err error)
 }
 
 type peer struct {
@@ -393,8 +393,8 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			msg, errorAck, err = p.tm.buildPrivacyGroupMessageMsg(p.ctx, dbTX, rm)
 		case pldapi.RMTReceipt:
 			msg, errorAck, err = p.tm.buildReceiptDistributionMsg(p.ctx, dbTX, rm)
-		case pldapi.RMTPublicTransaction:
-			msg, errorAck, err = p.tm.buildPublicTransactionMsg(p.ctx, dbTX, rm)
+		case pldapi.RMTSequencingActivity:
+			msg, errorAck, err = p.tm.buildSequencingProgressActivityMsg(p.ctx, dbTX, rm)
 		case pldapi.RMTPublicTransactionSubmission:
 			msg, errorAck, err = p.tm.buildPublicTransactionSubmissionMsg(p.ctx, dbTX, rm)
 		default:
@@ -481,12 +481,9 @@ func (p *peer) sender() {
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
-					if msg.errChan != nil {
-						msg.errChan <- err
+					if msg.errorHandler != nil {
+						msg.errorHandler(p.ctx, err)
 					}
-				}
-				if msg.errChan != nil {
-					close(msg.errChan)
 				}
 			}
 		}

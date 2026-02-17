@@ -26,7 +26,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -108,6 +111,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	for _, fn := range init {
 		fn(conf, mc)
 	}
+	mc.publicTxMgr.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(make(map[uuid.UUID][]*pldapi.PublicTx), nil).Maybe()
 
 	ic, err := txm.PreInit(componentsmocks)
 	require.NoError(t, err)

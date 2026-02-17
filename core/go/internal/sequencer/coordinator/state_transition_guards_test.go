@@ -308,7 +308,7 @@ func TestGuard_HasTransactionsInflight_OnlyConfirmedTransactions(t *testing.T) {
 		tx2.ID: tx2,
 	}
 	result := guard_HasTransactionsInflight(ctx, c)
-	assert.False(t, result, "only confirmed should return false")
+	assert.True(t, result, "only confirmed should return true")
 }
 
 func TestGuard_HasTransactionsInflight_TransactionInPooledState(t *testing.T) {

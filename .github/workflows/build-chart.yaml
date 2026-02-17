@@ -98,6 +98,9 @@ jobs:
             -PpaladinImageName=${{ inputs.paladin-image }} \
             -PpaladinImageTag=${{ inputs.paladin-image-tag }} \
             -PdeleteCluster=false
+     
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
 
       - name: Port-forward pprof endpoints
         if: failure()
@@ -156,4 +159,3 @@ jobs:
             goroutine_dump_node1.txt
             goroutine_dump_node2.txt
             goroutine_dump_node3.txt
-            

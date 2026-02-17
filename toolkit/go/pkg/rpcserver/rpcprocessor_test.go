@@ -451,8 +451,7 @@ func TestRPCProcessor_ChainAuthorize_ReturnsError(t *testing.T) {
 
 func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	// Test HTTP request where context doesn't have authentication results
-	// This covers the case where getAuthenticationResults returns nil for HTTP (line 37)
-	ctx := context.Background() // Context without authResultKey
+	ctx := context.Background()
 
 	// Create server with authorizers
 	_, server, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
@@ -489,7 +488,6 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 }
 
 func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
-	// Create a minimal webSocketConnection with no authentication results
 	ctx := context.Background()
 	wsc := &webSocketConnection{
 		authenticationResults: []string{}, // Empty authentication results
@@ -530,7 +528,6 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 }
 
 func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
-	// Create a webSocketConnection with fewer authentication results than authorizers
 	ctx := context.Background()
 	wsc := &webSocketConnection{
 		authenticationResults: []string{`{"plugin":"auth1"}`}, // Only one authentication result, but we'll have 2 authorizers

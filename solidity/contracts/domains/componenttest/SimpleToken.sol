@@ -12,6 +12,8 @@ contract SimpleToken {
         bytes signature
     );
 
+    uint256 public storedAmount = 0;
+
     error BadNotary(address sender);
     bytes32 public constant SINGLE_FUNCTION_SELECTOR = keccak256("SimpleToken()");
     
@@ -31,6 +33,16 @@ contract SimpleToken {
         if (outputs.length > 0 && outputs[0] == hex"1e7d508a2dd3e97c760b48f999658e0a55f47e825e00e1599725d366ccf31d01") {
             revert("simple domain revert");
         }
+        emit UTXOTransfer(txId, inputs, outputs, abi.encodePacked(signature));
+    }
+
+    // Version of the on-chain function that exposes the actual amount the transfer represents and enforces a fixed validation rule
+    // that every amount muust be +=1 the previous amount. We use this to exercise simple on-ledger in-order delivery in the tests
+    function executeNotarizedAmountExposed(bytes32 txId, bytes32[] calldata inputs, bytes32[] calldata outputs, bytes calldata signature, uint256 amount) public {
+        if (amount != storedAmount + 1) {
+            revert("tx arrived out of order, amount not expected");
+        }
+        storedAmount = amount;
         emit UTXOTransfer(txId, inputs, outputs, abi.encodePacked(signature));
     }
 

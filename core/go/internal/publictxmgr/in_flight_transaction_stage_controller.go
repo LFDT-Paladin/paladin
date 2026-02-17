@@ -400,7 +400,6 @@ func (it *inFlightTransactionStageController) processSigningStageOutput(ctx cont
 		if rsc.StageOutputsToBePersisted.TxUpdates == nil {
 			rsc.StageOutputsToBePersisted.TxUpdates = &BaseTXUpdates{}
 		}
-		rsc.InMemoryTx.GetGasPriceObject()
 		gasPriceJSON, _ := json.Marshal(rsc.InMemoryTx.GetGasPriceObject())
 		rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission = &DBPubTxnSubmission{
 			from:            rsc.InMemoryTx.GetFrom().String(),
@@ -408,10 +407,15 @@ func (it *inFlightTransactionStageController) processSigningStageOutput(ctx cont
 			Created:         pldtypes.TimestampNow(),
 			TransactionHash: *rsc.StageOutput.SignOutput.TxHash,
 			GasPricing:      gasPriceJSON,
-			PrivateTXID:     it.privateTXID,
+			SequencerTXReference: SequencerTXReference{
+				PrivateTXID:         it.privateTXID,
+				PrivateTXOriginator: rsc.InMemoryTx.GetPrivateTXOriginator(),
+				ContractAddress:     rsc.InMemoryTx.GetContractAddress(),
+			},
 		}
-		if rsc.InMemoryTx.GetTo() != nil {
-			rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.ContractAddress = rsc.InMemoryTx.GetTo().String()
+		transactionType := rsc.InMemoryTx.GetTransactionType()
+		if transactionType != nil {
+			rsc.StageOutputsToBePersisted.TxUpdates.NewValues.NewSubmission.SequencerTXReference.TransactionType = pldtypes.Enum[pldapi.TransactionType](*transactionType)
 		}
 		rsc.StageOutputsToBePersisted.TxUpdates.NewValues.TransactionHash = rsc.StageOutput.SignOutput.TxHash
 	}

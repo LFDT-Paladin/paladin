@@ -17,31 +17,31 @@ package originator
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
-	// Test the progression of a single transaction through the originator's lifecycle
-	// Simulating coordinator node by inspecting the originator output messages and by sending events that would normally be triggered
-	//  by coordinator node sending messages to the transaction originator.
-	// At each stage, we inspect the state of the transaction by querying the seoriginatornder's status API
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	//ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -133,8 +133,6 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 }
 
 func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
-	//delegate a transaction then receive a heartbeat that does not contain that transaction, and check that
-	// it continues to get re-delegated until it is in included in a heartbeat
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -144,6 +142,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	config.DelegateTimeout = confutil.P("100ms")
 	builder.OverrideSequencerConfig(config)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	//ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -204,7 +203,6 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 }
 
 func TestOriginator_DelegateLoopStopsOnContextCancellation(t *testing.T) {
-	// Test that the delegate loop stops gracefully when the context is cancelled
 
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -219,6 +217,7 @@ func TestOriginator_DelegateLoopStopsOnContextCancellation(t *testing.T) {
 	defer cancel()
 
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -258,13 +257,13 @@ func TestOriginator_DelegateLoopStopsOnContextCancellation(t *testing.T) {
 }
 
 func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T) {
-	// Test that propagateEventToTransaction handles events for transactions not known to the originator
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	s, _ := builder.Build(ctx)
+	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Create a transaction event with a transaction ID that doesn't exist in the originator
 	unknownTxID := uuid.New()
@@ -279,19 +278,51 @@ func TestOriginator_PropagateEventToTransaction_UnknownTransaction(t *testing.T)
 		StateLocksJSON:          []byte("{}"),
 	}
 
-	// ProcessEvent should call propagateEventToTransaction, which should handle the unknown transaction gracefully
+	// ProcessEvent should call propagateEventToTransaction, which should send a TransactionUnknown response
 	err := s.ProcessEvent(ctx, event)
 	assert.NoError(t, err, "ProcessEvent should return nil when transaction is not known to originator")
+
+	// Verify that SendTransactionUnknown was called with the correct parameters
+	assert.True(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to be called")
+	txID, coordinator := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
+	assert.Equal(t, unknownTxID, txID, "TransactionUnknown should be sent for the correct transaction ID")
+	assert.Equal(t, coordinatorLocator, coordinator, "TransactionUnknown should be sent to the correct coordinator")
+}
+func TestOriginator_PropagateEventToTransaction_UnknownTransaction_NoResponse(t *testing.T) {
+	// Test that propagateEventToTransaction does NOT send a TransactionUnknown response
+	// for events that don't require a response (e.g., confirmation events)
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, mocks := builder.Build(ctx)
+	defer s.Stop()
+
+	// Create a ConfirmedSuccessEvent for an unknown transaction
+	unknownTxID := uuid.New()
+	event := &transaction.ConfirmedSuccessEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: unknownTxID,
+		},
+	}
+
+	// ProcessEvent should not send a TransactionUnknown response for confirmation events
+	err := s.ProcessEvent(ctx, event)
+	assert.NoError(t, err, "ProcessEvent should return nil when transaction is not known to originator")
+
+	// Verify that SendTransactionUnknown was NOT called
+	assert.False(t, mocks.SentMessageRecorder.HasSentTransactionUnknown(), "Expected SendTransactionUnknown to NOT be called for confirmation events")
 }
 
 func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {
-	// Test that createTransaction properly handles and returns errors from transaction.NewTransaction
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, _ := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -316,13 +347,13 @@ func TestOriginator_CreateTransaction_ErrorFromNewTransaction(t *testing.T) {
 }
 
 func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
-	// Test that the eventLoop properly handles errors from ProcessEvent
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -364,13 +395,13 @@ func TestOriginator_EventLoop_ErrorHandling(t *testing.T) {
 }
 
 func TestOriginator_EventLoop_StopSignal(t *testing.T) {
-	// Test that the eventLoop properly handles the stop signal from Stop()
 
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
 	s, mocks := builder.Build(ctx)
+	defer s.Stop()
 
 	// Ensure the originator is in observing mode by emulating a heartbeat from an active coordinator
 	heartbeatEvent := &HeartbeatReceivedEvent{}
@@ -403,7 +434,7 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 	// Call Stop() - this should send a signal to stopEventLoop channel, and then wait for it
 	s.Stop()
 
-	// Verify that Stop() completed without blocking (the channel send should succeed)
+	// Verify that Stop() completed by loading up len(s.originatorEvents) events but no more. These should be buffered and hence should not block
 	transactionBuilder2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn2 := transactionBuilder2.BuildSparse()
 	event2 := &TransactionCreatedEvent{
@@ -415,5 +446,235 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 		// This just needs to not block - it checks the event loop is not done
 		s.QueueEvent(ctx, event2)
 	}
+}
 
+func TestOriginator_Stop_Idempotent(t *testing.T) {
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, _ := builder.Build(ctx)
+
+	// Call Stop() first time
+	s.Stop()
+
+	// Call Stop() second time - should be idempotent and not panic
+	s.Stop()
+
+	// Verify that the originator is stopped by checking that event loops are stopped
+	// We can verify this by checking that the channels are closed
+	select {
+	case <-s.eventLoopStopped:
+		// Event loop is stopped, which is expected
+	default:
+		t.Error("Event loop should be stopped after Stop()")
+	}
+
+	select {
+	case <-s.delegateLoopStopped:
+		// Delegate loop is stopped, which is expected
+	default:
+		t.Error("Delegate loop should be stopped after Stop()")
+	}
+}
+
+func TestOriginator_SetActiveCoordinator_EmptyString(t *testing.T) {
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, _ := builder.Build(ctx)
+
+	// Try to set empty coordinator
+	err := s.SetActiveCoordinator(ctx, "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Cannot set active coordinator to an empty string")
+}
+
+func TestOriginator_GetCurrentCoordinator(t *testing.T) {
+	// Test GetCurrentCoordinator returns the active coordinator
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, _ := builder.Build(ctx)
+
+	// Get current coordinator (should be set in Build)
+	coordinator := s.GetCurrentCoordinator()
+	assert.Equal(t, "coordinator", coordinator)
+
+	// Set a new coordinator
+	err := s.SetActiveCoordinator(ctx, "newCoordinator")
+	assert.NoError(t, err)
+
+	// Verify the coordinator was updated
+	coordinator = s.GetCurrentCoordinator()
+	assert.Equal(t, "newCoordinator", coordinator)
+}
+
+type mockFailingTransaction struct {
+	*transaction.Transaction
+	handleEventError error
+}
+
+func (m *mockFailingTransaction) HandleEvent(ctx context.Context, event common.Event) error {
+	return m.handleEventError
+}
+
+func TestOriginator_CreateTransaction_ErrorFromHandleEvent(t *testing.T) {
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
+	s, mocks := builder.Build(ctx)
+
+	// Ensure the originator is in observing mode
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	contractAddress := builder.GetContractAddress()
+	heartbeatEvent.ContractAddress = &contractAddress
+
+	err := s.ProcessEvent(ctx, heartbeatEvent)
+	assert.NoError(t, err)
+	assert.True(t, s.GetCurrentState() == State_Observing)
+
+	// Create a transaction
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+
+	// Create a real transaction using NewTransaction (this is what createTransaction does at line 174)
+	testMetrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
+	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, s.ProcessEvent, mocks.EngineIntegration, testMetrics, func(context.Context) {})
+	require.NoError(t, err)
+
+	// Wrap it in a mock that will fail HandleEvent
+	expectedError := errors.New("mock HandleEvent error")
+	mockTxn := &mockFailingTransaction{
+		Transaction:      realTxn,
+		handleEventError: expectedError,
+	}
+
+	createdEvent := &transaction.CreatedEvent{}
+	createdEvent.TransactionID = txn.ID
+
+	// Call HandleEvent on the mock - this should return our error (line 183)
+	err = mockTxn.HandleEvent(ctx, createdEvent)
+
+	// Verify the error is returned (this tests lines 184-186)
+	assert.Error(t, err)
+	assert.Equal(t, expectedError, err)
+	assert.Contains(t, err.Error(), "mock HandleEvent error")
+}
+
+func TestValidator_TransactionDoesNotExist_InvalidEventType(t *testing.T) {
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, mocks := builder.Build(ctx)
+	_ = mocks // Suppress unused variable warning
+
+	// Create an event that is not a *TransactionCreatedEvent
+	invalidEvent := &HeartbeatReceivedEvent{}
+
+	// Call the validator directly
+	valid, err := validator_TransactionDoesNotExist(ctx, o, invalidEvent)
+
+	// Should return false (invalid) and no error
+	assert.NoError(t, err)
+	assert.False(t, valid, "validator should return false for non-TransactionCreatedEvent")
+}
+
+func TestValidator_TransactionDoesNotExist_TransactionAlreadyExists(t *testing.T) {
+
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, _ := builder.Build(ctx)
+
+	// Ensure the originator is in observing mode
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	contractAddress := builder.GetContractAddress()
+	heartbeatEvent.ContractAddress = &contractAddress
+
+	err := o.ProcessEvent(ctx, heartbeatEvent)
+	assert.NoError(t, err)
+	assert.True(t, o.GetCurrentState() == State_Observing)
+
+	// Create and add a transaction to the originator
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+
+	err = o.ProcessEvent(ctx, &TransactionCreatedEvent{
+		Transaction: txn,
+	})
+	assert.NoError(t, err)
+
+	// Verify transaction was added
+	require.NotNil(t, o.transactionsByID[txn.ID], "transaction should be in transactionsByID")
+
+	// Now try to create the same transaction again
+	duplicateEvent := &TransactionCreatedEvent{
+		Transaction: txn,
+	}
+
+	// Call the validator directly
+	valid, err := validator_TransactionDoesNotExist(ctx, o, duplicateEvent)
+
+	// Should return false (invalid) because transaction already exists
+	assert.NoError(t, err)
+	assert.False(t, valid, "validator should return false when transaction already exists")
+}
+
+func TestSendDelegationRequest_HandleEventError(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, mocks := builder.Build(ctx)
+
+	// Ensure the originator is in sending mode
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	contractAddress := builder.GetContractAddress()
+	heartbeatEvent.ContractAddress = &contractAddress
+
+	err := o.ProcessEvent(ctx, heartbeatEvent)
+	assert.NoError(t, err)
+
+	// Create a transaction and add it to the originator
+	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
+	txn := transactionBuilder.BuildSparse()
+
+	// Create a real transaction
+	testMetrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
+	realTxn, err := transaction.NewTransaction(ctx, txn, mocks.SentMessageRecorder, o.ProcessEvent, mocks.EngineIntegration, testMetrics, func(context.Context) {})
+	require.NoError(t, err)
+
+	// Add the transaction to the originator
+	o.transactionsByID[txn.ID] = realTxn
+	o.transactionsOrdered = append(o.transactionsOrdered, &txn.ID)
+
+	// Set transaction to Pending state so it will be included in the delegation request
+	createdEvent := &transaction.CreatedEvent{}
+	createdEvent.TransactionID = txn.ID
+	err = realTxn.HandleEvent(ctx, createdEvent)
+	require.NoError(t, err)
+	require.Equal(t, transaction.State_Pending, realTxn.GetCurrentState(), "transaction should be in Pending state")
+
+	// Set activeCoordinatorNode to empty to cause HandleEvent to fail
+	o.activeCoordinatorNode = ""
+
+	err = action_SendDelegationRequest(ctx, o)
+
+	// Should return an error with the expected message
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "error handling delegated event")
 }

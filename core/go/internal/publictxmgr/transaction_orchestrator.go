@@ -266,6 +266,7 @@ func (oc *orchestrator) initNextNonceFromDB(ctx context.Context) error {
 		WithContext(ctx).
 		Where(`"from" = ?`, oc.signingAddress).
 		Where("nonce IS NOT NULL").
+		Where("dispatcher = ? OR dispatcher = ''", oc.nodeName).
 		Order("nonce DESC").
 		Limit(1).
 		Find(&txns).
@@ -405,6 +406,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 				Where(`"Completed"."tx_hash" IS NULL`).
 				Where("suspended IS FALSE").
 				Where(`"from" = ?`, oc.signingAddress).
+				Where(`"dispatcher" = ? OR "dispatcher" = ''`, oc.nodeName). // Make sure this isn't a transaction another node dispatched and gave us a read-only copy of
 				Order(`"public_txns"."pub_txn_id"`).
 				Limit(spaces)
 			if len(oc.inFlightTxs) > 0 {
@@ -427,8 +429,8 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		}
 
 		for _, tx := range additional {
-			if tx.To != nil {
-				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.To.String(), tx.Binding.Transaction)
+			if tx.Binding != nil && tx.Binding.ContractAddress != "" {
+				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.Binding.ContractAddress, tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing TX collected to sequencer for %d: %s", tx.PublicTxnID, err)
 				}
@@ -447,8 +449,8 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 		}
 
 		for _, tx := range additional {
-			if tx.To != nil {
-				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.To.String(), tx.Binding.Transaction)
+			if tx.Binding != nil && tx.Binding.ContractAddress != "" {
+				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.Binding.ContractAddress, tx.Binding.Transaction)
 				if err != nil {
 					log.L(ctx).Warnf("Orchestrator poll and process: error while handing nonce assignment to sequencer for %d: %s", tx.PublicTxnID, err)
 				}

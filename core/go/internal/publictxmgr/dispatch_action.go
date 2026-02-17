@@ -37,6 +37,7 @@ func (ptm *pubTxManager) persistSuspendedFlag(ctx context.Context, from pldtypes
 		Table("public_txns").
 		Where(`"from" = ?`, from).
 		Where("nonce = ?", nonce).
+		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
 		UpdateColumn("suspended", suspended).
 		Error
 }

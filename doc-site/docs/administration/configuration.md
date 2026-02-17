@@ -6,6 +6,7 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
@@ -338,6 +339,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | identifierCache | Identifier cache configuration | [`CacheConfig`](#keymanageridentifiercache) | - |
 | verifierCache | Verifier cache configuration | [`CacheConfig`](#keymanagerverifiercache) | - |
 
@@ -787,7 +789,7 @@
 | delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | heartbeatThreshold | Heartbeat threshold | `int` | - |
-| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `10` |
+| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |

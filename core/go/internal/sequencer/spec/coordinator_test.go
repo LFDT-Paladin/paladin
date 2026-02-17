@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,9 @@ func TestCoordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 
 	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Idle)
 	builder.OriginatorIdentityPool(originator)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
@@ -82,6 +86,12 @@ func TestCoordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(194) // default tolerance is 5 so this is behind
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	c, _ := builder.Build(ctx)
 
 	err := c.ProcessEvent(ctx, &coordinator.TransactionsDelegatedEvent{
@@ -101,6 +111,13 @@ func TestCoordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 		OriginatorIdentityPool(originator).
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(195) // default tolerance is 5 so this is not behind
+
+	mockDomain := componentsmocks.NewDomain(t)
+	mockDomain.On("FixedSigningIdentity").Return("")
+	builder.GetDomainAPI().On("Domain").Return(mockDomain)
+	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
+		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
+	})
 	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
 	c, mocks := builder.Build(ctx)
 
@@ -203,23 +220,16 @@ func TestCoordinator_PreparedNoTransition_OnTransactionConfirmed_IfNotFlushCompl
 
 }
 
-func TestCoordinator_Active_ToIdle_OnTransactionConfirmed_IfNoTransactionsInFlight(t *testing.T) {
+func TestCoordinator_Active_ToIdle_NoTransactionsInFlight(t *testing.T) {
 	ctx := context.Background()
 
-	soleTransaction := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Active).
-		Transactions(soleTransaction).
 		Build(ctx)
 
-	err := c.ProcessEvent(ctx, &coordinator.TransactionConfirmedEvent{
-		From:  soleTransaction.GetSignerAddress(),
-		Nonce: *soleTransaction.GetNonce(),
-		Hash:  *soleTransaction.GetLatestSubmissionHash(),
-	})
+	err := c.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{})
 	assert.NoError(t, err)
-	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
 
+	assert.Equal(t, coordinator.State_Idle, c.GetCurrentState(), "current state is %s", c.GetCurrentState())
 }
 
 func TestCoordinator_ActiveNoTransition_OnTransactionConfirmed_IfNotTransactionsEmpty(t *testing.T) {

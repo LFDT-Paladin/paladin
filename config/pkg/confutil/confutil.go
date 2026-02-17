@@ -38,6 +38,20 @@ func Int(iVal *int, def int) int {
 	return *iVal
 }
 
+// Behaves identically to IntMin, but min is only applied to positive durations. If a negative value is supplied the
+// min value is not returned but the supplied value is returned instead. Provides a convenient utility to support -1 for
+// disabling a function, while still supporting a minumum value when the option is enabled.
+func IntMinIfPositive(iVal *int, min int, def int) int {
+	if iVal == nil {
+		return def
+	} else if *iVal < 0 || *iVal >= min {
+		return *iVal
+	}
+
+	// *iVal < min - return min
+	return min
+}
+
 func IntMin(iVal *int, min int, def int) int {
 	if iVal == nil {
 		return def
@@ -148,6 +162,34 @@ func DurationMin(sVal *string, min time.Duration, def string) time.Duration {
 			dVal = &d
 		}
 	}
+
+	if dVal == nil {
+		defDuration, _ := time.ParseDuration(def)
+		dVal = &defDuration
+	} else if *dVal < min {
+		return min
+	}
+	return *dVal
+}
+
+// Behaves identically to DurationMin, but min is only applied to positive durations. If a negative value is supplied the
+// min value is not returned but the supplied value is returned instead. Provides a convenient utility to support -1 for
+// disabling a function, while still supporting a minumum value when the option is enabled. E.g. heartbeat no more often
+// than every 100ms (min=100ms), but disable heartbeating by setting to -1. The caller must know how to treat a negative duration.
+func DurationMinIfPositive(sVal *string, min time.Duration, def string) time.Duration {
+	var dVal *time.Duration
+	if sVal != nil {
+		d, err := time.ParseDuration(*sVal)
+		if err == nil {
+			dVal = &d
+		}
+	}
+
+	// If duration is negative don't apply min val enforcement.
+	if dVal != nil && *dVal < 0 {
+		return *dVal
+	}
+
 	if dVal == nil {
 		defDuration, _ := time.ParseDuration(def)
 		dVal = &defDuration

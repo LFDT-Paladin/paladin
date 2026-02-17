@@ -131,10 +131,13 @@ type TransactionHistory struct {
 // Additional fields returned on output when "full" specified
 type TransactionFull struct {
 	*Transaction
-	DependsOn []uuid.UUID             `docstruct:"TransactionFull" json:"dependsOn,omitempty"` // transactions registered as dependencies when the transaction was created
-	Receipt   *TransactionReceiptData `docstruct:"TransactionFull" json:"receipt"`             // available if the transaction has reached a final state
-	Public    []*PublicTx             `docstruct:"TransactionFull" json:"public"`              // list of public transactions associated
-	History   []*TransactionHistory   `docstruct:"TransactionFull" json:"history,omitempty"`   // list of values previously provided for this transaction
+	DependsOn                  []uuid.UUID             `docstruct:"TransactionFull" json:"dependsOn,omitempty"`           // transactions registered as dependencies when the transaction was created
+	Receipt                    *TransactionReceiptData `docstruct:"TransactionFull" json:"receipt"`                       // available if the transaction has reached a final state
+	Public                     []*PublicTx             `docstruct:"TransactionFull" json:"public"`                        // list of public transactions associated
+	History                    []*TransactionHistory   `docstruct:"TransactionFull" json:"history,omitempty"`             // list of values previously provided for this transaction
+	SequencerActivity          []*SequencerActivity    `docstruct:"TransactionFull" json:"sequencerActivity,omitempty"`   // list of sequencing activity for this transactions
+	Dispatches                 []*Dispatch             `docstruct:"TransactionFull" json:"dispatches,omitempty"`          // list of dispatches for this transaction
+	ChainedPrivateTransactions []*ChainedTransaction   `docstruct:"TransactionFull" json:"chainedTransactions,omitempty"` // list of chained transactions for this transaction
 }
 
 type ABIDecodedData struct {
@@ -151,9 +154,12 @@ type TransactionReceipt struct {
 
 type TransactionReceiptFull struct {
 	*TransactionReceipt
-	States             *TransactionStates `docstruct:"TransactionReceiptFull" json:"states,omitempty"`
-	DomainReceipt      pldtypes.RawJSON   `docstruct:"TransactionReceiptFull" json:"domainReceipt,omitempty"`
-	DomainReceiptError string             `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
+	States                     *TransactionStates    `docstruct:"TransactionReceiptFull" json:"states,omitempty"`
+	DomainReceipt              pldtypes.RawJSON      `docstruct:"TransactionReceiptFull" json:"domainReceipt,omitempty"`
+	DomainReceiptError         string                `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
+	Public                     []*PublicTx           `docstruct:"TransactionReceiptFull" json:"public"`                        // list of public transactions associated with this receipt
+	Dispatches                 []*Dispatch           `docstruct:"TransactionReceiptFull" json:"dispatches,omitempty"`          // list of dispatches for this receipt
+	ChainedPrivateTransactions []*ChainedTransaction `docstruct:"TransactionReceiptFull" json:"chainedTransactions,omitempty"` // list of chained transactions for this transaction
 }
 
 type TransactionReceiptBatch struct {

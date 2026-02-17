@@ -23,6 +23,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -98,6 +100,34 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 				},
 			},
 		},
+	}
+}
+
+func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencerActivity {
+	return &pldapi.SequencerActivity{
+		LocalID:        psa.LocalID,
+		SubjectID:      psa.SubjectID,
+		Timestamp:      psa.Timestamp,
+		ActivityType:   psa.ActivityType,
+		SequencingNode: psa.SequencingNode,
+		TransactionID:  psa.TransactionID,
+	}
+}
+
+func (tm *txManager) mapPersistedTXDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
+	return &pldapi.Dispatch{
+		ID:                       pd.ID,
+		PrivateTransactionID:     pd.PrivateTransactionID,
+		PublicTransactionAddress: pd.PublicTransactionAddress,
+		PublicTransactionID:      pd.PublicTransactionID,
+	}
+}
+
+func (tm *txManager) mapPersistedChainedTransaction(pd *persistedChainedPrivateTxn) *pldapi.ChainedTransaction {
+	return &pldapi.ChainedTransaction{
+		ChainedTransactionID: pd.ChainedTransaction.String(),
+		TransactionID:        pd.Transaction.String(),
+		LocalID:              pd.ID.String(),
 	}
 }
 
@@ -203,6 +233,21 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		return nil, err
 	}
 
+	ptxs, err = tm.AddDispatches(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
+	ptxs, err = tm.AddChainedTranasctions(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
+	ptxs, err = tm.AddSequencerActivity(ctx, dbTX, txIDs, ptxs)
+	if err != nil {
+		return nil, err
+	}
+
 	return tm.mergePublicTransactions(ctx, dbTX, txIDs, ptxs)
 }
 
@@ -234,6 +279,85 @@ func (tm *txManager) AddTransactionHistory(ctx context.Context, dbTX persistence
 	return ptxs, nil
 }
 
+func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txsas := []*sequencer.DBSequencingActivity{}
+	err := dbTX.DB().Table("sequencer_activities").
+		WithContext(ctx).
+		Order(`"timestamp" DESC`).
+		Where(`"transaction_id" IN (?)`, txIDs).
+		Find(&txsas).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txsaMap := make(map[uuid.UUID][]*sequencer.DBSequencingActivity, len(txsas))
+	for _, txsa := range txsas {
+		txsaMap[txsa.TransactionID] = append(txsaMap[txsa.TransactionID], txsa)
+	}
+	for _, tx := range ptxs {
+		if txsas, ok := txsaMap[*tx.ID]; ok {
+			tx.SequencerActivity = make([]*pldapi.SequencerActivity, len(txsas))
+			for i, txsa := range txsas {
+				tx.SequencerActivity[i] = tm.mapPersistedTXSequencingActivity(txsa)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
+func (tm *txManager) AddDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txdps := []*syncpoints.DispatchPersisted{}
+	err := dbTX.DB().Table("dispatches").
+		WithContext(ctx).
+		Where(`"private_transaction_id" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
+	}
+	for _, tx := range ptxs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
+			for i, txdp := range txdps {
+				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
+func (tm *txManager) AddChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
+	txdps := []*persistedChainedPrivateTxn{}
+	err := dbTX.DB().Table("chained_private_txns").
+		WithContext(ctx).
+		Where(`"transaction" IN (?)`, txIDs).
+		Find(&txdps).
+		Error
+	if err != nil {
+		return nil, err
+	}
+	// group by txID
+	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
+	for _, txdp := range txdps {
+		txdpMap[txdp.Transaction.String()] = append(txdpMap[txdp.Transaction.String()], txdp)
+	}
+	for _, tx := range ptxs {
+		if txdps, ok := txdpMap[tx.ID.String()]; ok {
+			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
+			for i, txdp := range txdps {
+				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
+			}
+		}
+	}
+	return ptxs, nil
+}
+
 func (tm *txManager) mergePublicTransactions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
 	pubTxByTX, err := tm.publicTxMgr.QueryPublicTxForTransactions(ctx, dbTX, txIDs, nil)
 	if err != nil {
@@ -243,7 +367,6 @@ func (tm *txManager) mergePublicTransactions(ctx context.Context, dbTX persisten
 		tx.Public = pubTxByTX[*tx.ID]
 	}
 	return txs, nil
-
 }
 
 func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX persistence.DBTX, txs []*components.ResolvedTransaction) (_ []*components.ResolvedTransaction, err error) {
@@ -276,7 +399,7 @@ func (tm *txManager) GetTransactionByIDFull(ctx context.Context, id uuid.UUID) (
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+func (tm *txManager) getResolvedTransactionByIDWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*components.ResolvedTransaction, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	// This is cache optimized, because domains rely on the sender node's transaction store as
 	// the only place to read transaction data from for init and assembly.
@@ -287,19 +410,20 @@ func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUI
 	}
 
 	// Do the query - this function also does the caching (so individual TXs get cached from paginated queries)
-	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
+	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
 	if len(rtxs) == 0 || err != nil {
 		return nil, err
 	}
 	return rtxs[0], nil
 }
 
-func (tm *txManager) GetTransactionByID(ctx context.Context, id uuid.UUID) (*pldapi.Transaction, error) {
-	return tm.GetTransactionByIDWithDBTX(ctx, tm.p.NOTX(), id)
+func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+	return tm.getResolvedTransactionByIDWithinTX(ctx, id, tm.p.NOTX())
 }
 
-func (tm *txManager) GetTransactionByIDWithDBTX(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.Transaction, error) {
-	ptxs, err := tm.QueryTransactions(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
+func (tm *txManager) GetTransactionByID(ctx context.Context, id uuid.UUID) (*pldapi.Transaction, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	ptxs, err := tm.QueryTransactions(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
 	if len(ptxs) == 0 || err != nil {
 		return nil, err
 	}
@@ -314,10 +438,10 @@ func (tm *txManager) GetTransactionByIdempotencyKey(ctx context.Context, idempot
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+func (tm *txManager) getTransactionDependenciesWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*pldapi.TransactionDependencies, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	var persistedDeps []*transactionDep
-	err := tm.p.DB().
+	err := dbTX.DB().
 		WithContext(ctx).
 		Table(`transaction_deps`).
 		Where(`"transaction" = ?`, id).
@@ -339,6 +463,10 @@ func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUI
 		}
 	}
 	return res, nil
+}
+
+func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+	return tm.getTransactionDependenciesWithinTX(ctx, id, tm.p.NOTX())
 }
 
 func (tm *txManager) queryPublicTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {

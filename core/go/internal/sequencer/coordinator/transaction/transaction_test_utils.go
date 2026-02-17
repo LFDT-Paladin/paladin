@@ -181,6 +181,10 @@ func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID
 	return nil
 }
 
+func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
+	return nil
+}
+
 func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordinatorLocator string, transactions []*components.PrivateTransaction, blockHeight uint64) error {
 	return nil
 }
@@ -386,6 +390,8 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.fakeClock.Duration(b.requestTimeout),
 		b.fakeClock.Duration(b.assembleTimeout),
 		5,
+		"",
+		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
 		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
@@ -407,7 +413,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		b.state == State_Confirming_Dispatchable ||
 		b.state == State_Ready_For_Dispatch {
 
-		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly())
+		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly(), uuid.New())
 		if err != nil {
 			panic("error from applyPostAssembly")
 		}
@@ -431,6 +437,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.currentState = b.state
+	b.txn.dynamicSigningIdentity = false
 	return b.txn
 
 }

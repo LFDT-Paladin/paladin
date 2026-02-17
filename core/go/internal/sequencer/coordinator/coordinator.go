@@ -111,9 +111,11 @@ type coordinator struct {
 	transactionSelector TransactionSelector
 
 	/* Event loop */
-	coordinatorEvents chan common.Event
-	stopEventLoop     chan struct{}
-	eventLoopStopped  chan struct{}
+	coordinatorEvents         chan common.Event
+	coordinatorEventsInternal chan common.Event
+	stopEventLoop             chan struct{}
+	eventLoopStopped          chan struct{}
+
 	/* Dispatch loop */
 	dispatchQueue       chan *transaction.Transaction
 	stopDispatchLoop    chan struct{}
@@ -160,7 +162,8 @@ func NewCoordinator(
 		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
-		coordinatorEvents:                  make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
+		coordinatorEvents:                  make(chan common.Event, 100), // External node requests and replies
+		coordinatorEventsInternal:          make(chan common.Event, 10),  // Internal state machine events
 		stopEventLoop:                      make(chan struct{}),
 		eventLoopStopped:                   make(chan struct{}),
 		stopDispatchLoop:                   make(chan struct{}),
@@ -169,7 +172,7 @@ func NewCoordinator(
 	c.originatorNodePool = make([]string, 0)
 	c.InitializeStateMachine(State_Idle)
 	c.transactionSelector = NewTransactionSelector(ctx, c)
-	c.maxDispatchAhead = confutil.IntMin(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
+	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
 	c.inFlightTxns = make(map[uuid.UUID]*transaction.Transaction, c.maxDispatchAhead)
 	c.dispatchQueue = make(chan *transaction.Transaction, maxInflightTransactions)
@@ -200,17 +203,33 @@ func (c *coordinator) eventLoop(ctx context.Context) {
 	log.L(ctx).Debugf("coordinator event loop started for contract %s", c.contractAddress.String())
 	for {
 		select {
+		case event := <-c.coordinatorEventsInternal: // Drain the internal queue fully on each loop
+			err := c.ProcessEvent(ctx, event)
+			if err != nil {
+				log.L(ctx).Errorf("error processing event from the internal queue: %v", err)
+			}
+		default:
+		}
+		select {
 		case event := <-c.coordinatorEvents:
-			log.L(ctx).Debugf("coordinator for contract %s pulled event from the queue: %s", c.contractAddress.String(), event.TypeString())
 			err := c.ProcessEvent(ctx, event)
 			if err != nil {
 				log.L(ctx).Errorf("error processing event: %v", err)
 			}
+		case event := <-c.coordinatorEventsInternal:
+			err := c.ProcessEvent(ctx, event)
+			if err != nil {
+				log.L(ctx).Errorf("error processing event from the internal queue: %v", err)
+			}
 		case <-c.stopEventLoop:
+			// Synchronously move the state machine to closed
+			err := c.ProcessEvent(ctx, &CoordinatorClosedEvent{})
+			if err != nil {
+				// Log internal error
+				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "error processing coordinator closed event for contract %s: %v", c.contractAddress.String(), err)
+				log.L(ctx).Error(err)
+			}
 			log.L(ctx).Debugf("coordinator event loop stopped for contract %s", c.contractAddress.String())
-			return
-		case <-c.ctx.Done():
-			log.L(ctx).Debugf("coordinator event loop cancelled for contract %s", c.contractAddress.String())
 			return
 		}
 	}
@@ -243,7 +262,7 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			}
 
 			// Update the TX state machine
-			c.QueueEvent(ctx, &transaction.DispatchedEvent{
+			c.queueEventInternal(ctx, &transaction.DispatchedEvent{
 				BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 					TransactionID: tx.ID,
 				},
@@ -261,9 +280,6 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 			c.inFlightMutex.L.Unlock()
 		case <-c.stopDispatchLoop:
 			log.L(ctx).Debugf("coordinator dispatch loop for contract %s stopped", c.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Debugf("coordinator dispatch loop for contract %s cancelled", c.contractAddress.String())
 			return
 		}
 	}
@@ -358,6 +374,11 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	var previousTransaction *transaction.Transaction
 	for _, txn := range transactions {
 
+		if c.transactionsByID[txn.ID] != nil {
+			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			continue
+		}
+
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
 			// We'll rely on the fact that originators retry incomplete transactions periodically
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
@@ -375,6 +396,8 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.requestTimeout,
 			c.assembleTimeout,
 			c.closingGracePeriod,
+			c.domainAPI.Domain().FixedSigningIdentity(),
+			c.domainAPI.ContractConfig().GetSubmitterSelection(),
 			c.grapher,
 			c.metrics,
 			c.AddTransactionToBackOfPool,
@@ -403,7 +426,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 				dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
 				for _, txn := range dispatchingTransactions {
 					if txn.PreparedPrivateTransaction == nil {
-						// We don't count transactions the result in new private transactions
+						// We don't count transactions that result in new private transactions
 						c.inFlightTxns[txn.ID] = txn
 					}
 				}
@@ -500,22 +523,6 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 		}
 	}
 	log.L(ctx).Tracef("%d transactions in states: %+v", len(matchingTxns), states)
-	return matchingTxns
-}
-
-func (c *coordinator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
-	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
-	// deferring until we have a comprehensive test suite to catch errors
-	nonMatchingStates := make(map[transaction.State]bool)
-	for _, state := range states {
-		nonMatchingStates[state] = true
-	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(c.transactionsByID))
-	for _, txn := range c.transactionsByID {
-		if !nonMatchingStates[txn.GetState()] {
-			matchingTxns = append(matchingTxns, txn)
-		}
-	}
 	return matchingTxns
 }
 
@@ -617,15 +624,24 @@ func ptrTo[T any](v T) *T {
 func (c *coordinator) Stop() {
 	log.L(context.Background()).Infof("stopping coordinator for contract %s", c.contractAddress.String())
 
-	// MRW TODO - The state machine doesn't really have a "please take over from me" path. Not a current priority
-	// but it will be needed in the future.
+	// Make Stop() idempotent - make sure we've not already been stopped
+	select {
+	case <-c.eventLoopStopped:
+		return
+	default:
+	}
 
+	// Stop the event and dispatch loops
 	c.stopEventLoop <- struct{}{}
 	c.stopDispatchLoop <- struct{}{}
-	c.cancelCtx()
 	<-c.eventLoopStopped
 	<-c.dispatchLoopStopped
+
+	// Stop the loopback goroutine
 	c.transportWriter.StopLoopbackWriter()
+
+	// Cancel this coordinator's context which will cancel any timers started
+	c.cancelCtx()
 }
 
 //TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.

@@ -60,6 +60,7 @@ type ComponentTestInstance interface {
 	ResolveEthereumAddress(identity string) string
 	GetComponentManager() componentmgr.ComponentManager
 	GetPluginManager() plugins.UnitTestPluginLoader
+	CancelInstanceCtx()
 }
 
 type componentTestInstance struct {
@@ -67,6 +68,7 @@ type componentTestInstance struct {
 	name                   string
 	conf                   *pldconf.PaladinConfig
 	ctx                    context.Context
+	cancelCtx              context.CancelFunc
 	client                 pldclient.PaladinClient
 	resolveEthereumAddress func(identity string) string
 	cm                     componentmgr.ComponentManager
@@ -120,6 +122,10 @@ func (testutils *componentTestInstance) GetPluginManager() plugins.UnitTestPlugi
 	return testutils.pluginManager
 }
 
+func (testutils *componentTestInstance) CancelInstanceCtx() {
+	testutils.cancelCtx()
+}
+
 func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddress, bindingConfig interface{}, peerNodes []interface{}, domainConfig interface{}, enableWS bool, configPath string, manualTestCleanup bool) ComponentTestInstance {
 
 	f, err := os.CreateTemp("", "component-test.*.sock")
@@ -148,13 +154,9 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 		conf:       &conf,
 		wsConfig:   &wsConfig,
 	}
-	i.ctx = log.WithLogField(t.Context(), "node-name", binding.name)
-
+	i.ctx, i.cancelCtx = context.WithCancel(log.WithLogField(t.Context(), "node-name", binding.name))
 	if binding.sequencerConfig != nil {
-		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
-		i.conf.SequencerManager.AssembleTimeout = binding.sequencerConfig.AssembleTimeout
-		i.conf.SequencerManager.BlockHeightTolerance = binding.sequencerConfig.BlockHeightTolerance
-		i.conf.SequencerManager.ClosingGracePeriod = binding.sequencerConfig.ClosingGracePeriod
+		i.conf.SequencerManager = *binding.sequencerConfig
 	}
 
 	i.conf.BlockIndexer.FromBlock = json.RawMessage(`"latest"`)
@@ -369,7 +371,8 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 	err = os.Remove(grpcTarget)
 	require.NoError(t, err)
 
-	cmTmp := componentmgr.NewComponentManager(t.Context(), grpcTarget, uuid.New(), &tmpConf)
+	ctx, cancelCtx := context.WithCancel(t.Context())
+	cmTmp := componentmgr.NewComponentManager(ctx, grpcTarget, uuid.New(), &tmpConf)
 	err = cmTmp.Init()
 	require.NoError(t, err)
 	err = cmTmp.StartManagers()
@@ -379,6 +382,7 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 	domainRegistryAddress := domains.DeploySmartContract(t, cmTmp.Persistence(), cmTmp.TxManager(), cmTmp.KeyManager())
 
 	cmTmp.Stop()
+	cancelCtx()
 	return domainRegistryAddress
 
 }
@@ -620,6 +624,7 @@ func (p *partyForTesting) Start(t *testing.T, domainConfig any, configPath strin
 func (p *partyForTesting) Stop(t *testing.T) {
 	p.instance.GetComponentManager().Stop()
 	p.instance.GetPluginManager().Stop()
+	p.instance.CancelInstanceCtx()
 }
 
 func (p *partyForTesting) ResolveEthereumAddress(identity string) string {

@@ -34,6 +34,10 @@ func (*CoordinatorStateEventActivated) Type() EventType {
 	return Event_Activated
 }
 
+func (*CoordinatorStateEventActivated) TypeString() string {
+	return "Event_Activated"
+}
+
 type TransactionsDelegatedEvent struct {
 	common.BaseEvent
 	Originator             string // Fully qualified identity locator for the originator
@@ -47,6 +51,18 @@ func (*TransactionsDelegatedEvent) Type() EventType {
 
 func (*TransactionsDelegatedEvent) TypeString() string {
 	return "Event_TransactionsDelegated"
+}
+
+type CoordinatorClosedEvent struct {
+	common.BaseEvent
+}
+
+func (*CoordinatorClosedEvent) Type() EventType {
+	return Event_Closed
+}
+
+func (*CoordinatorClosedEvent) TypeString() string {
+	return "Event_Closed"
 }
 
 type CoordinatorFlushedEvent struct{}

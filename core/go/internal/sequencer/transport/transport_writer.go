@@ -50,6 +50,7 @@ type TransportWriter interface {
 	SendPreDispatchRequest(ctx context.Context, originatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, hash *pldtypes.Bytes32) error
 	SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
 	SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
+	SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error
 }
 
 func NewTransportWriter(contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
@@ -623,6 +624,40 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 	return err
 }
 
+// SendTransactionUnknown is called by an originator when it receives a message for a transaction
+// it doesn't recognize. The most likely cause is that the transaction reached a terminal state
+// (e.g. reverted during assembly) but the response to the coordinator was lost, and the
+// transaction has since been removed from memory on the originator after cleanup.
+func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
+	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Warnf("transport writer sending transaction unknown message for tx %s to coordinator %s", txID, coordinatorNode)
+
+	if tw.contractAddress == nil {
+		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send transaction unknown without specifying contract address")
+		return err
+	}
+
+	txUnknown := &engineProto.TransactionUnknown{
+		Id:              uuid.New().String(),
+		TransactionId:   txID.String(),
+		ContractAddress: tw.contractAddress.HexString(),
+	}
+	txUnknownBytes, err := proto.Marshal(txUnknown)
+	if err != nil {
+		log.L(ctx).Errorf("error marshalling transaction unknown message: %s", err)
+		return err
+	}
+
+	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
+		MessageType: MessageType_TransactionUnknown,
+		Payload:     txUnknownBytes,
+		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
+		Node:        coordinatorNode,
+	}); err != nil {
+		log.L(ctx).Errorf("error sending transaction unknown message: %s", err)
+	}
+	return err
+}
+
 func (tw *transportWriter) send(ctx context.Context, payload *components.FireAndForgetMessageSend) error {
 	if payload.Node == "" {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send message without specifying destination node name")
@@ -662,9 +697,6 @@ func (tw *transportWriter) loopbackSender(ctx context.Context) {
 			}
 		case <-tw.stopLoopbackSender:
 			log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
-			return
-		case <-ctx.Done():
-			log.L(ctx).Infof("cancelled loopback sender for contract %s", tw.contractAddress.String())
 			return
 		}
 	}

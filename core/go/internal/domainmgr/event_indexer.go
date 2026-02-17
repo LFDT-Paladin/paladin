@@ -125,7 +125,6 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 
 func (dm *domainManager) notifyTransactions(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
-
 		// The domain manager is responsible ONLY for a notification to the sequencer that a completion has happened.
 		// Likely this results in a set of batch optimized queries by a worker in the sequencer, to generate
 		// transition events to the various state machines.
