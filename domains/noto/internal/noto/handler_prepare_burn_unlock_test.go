@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -33,6 +34,7 @@ import (
 )
 
 func TestPrepareBurnUnlock(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -41,6 +43,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
@@ -128,12 +131,12 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // data + lockInfo (no outputs for burn)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + lockInfo (no outputs for burn)
 	assert.Equal(t, lockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
-	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
+	lockInfo, err := n.unmarshalLock(assembleRes.AssembledTransaction.InfoStates[2].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), lockInfo.Owner.String())
 	assert.Equal(t, lockID, lockInfo.LockID)
@@ -273,9 +276,28 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	// Verify prepared transaction
 	assert.Equal(t, pldtypes.MustEthAddress(contractAddress), hookParams.Prepared.ContractAddress)
 	assert.NotEmpty(t, hookParams.Prepared.EncodedCall)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	lockState := assembleRes.AssembledTransaction.InfoStates[2]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(lockState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
 }
 
 func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -284,6 +306,7 @@ func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]
@@ -360,6 +383,7 @@ func TestPrepareBurnUnlock_InvalidParams(t *testing.T) {
 }
 
 func TestPrepareBurnUnlock_BurnNotAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:        mockCallbacks,
 		coinSchema:       &prototk.StateSchema{Id: "coin"},
@@ -368,6 +392,7 @@ func TestPrepareBurnUnlock_BurnNotAllowed(t *testing.T) {
 		lockInfoSchemaV1: &prototk.StateSchema{Id: "lockInfo_v1"},
 		dataSchemaV0:     &prototk.StateSchema{Id: "data"},
 		dataSchemaV1:     &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema:   &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["prepareBurnUnlock"]

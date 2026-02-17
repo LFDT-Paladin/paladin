@@ -22,9 +22,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -302,6 +304,7 @@ func TestDomainInitStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, td.d, byAddr)
 	assert.True(t, td.d.Initialized())
+	assert.Empty(t, td.d.FixedSigningIdentity())
 
 }
 
@@ -1234,7 +1237,7 @@ func TestGetDomainReceiptAllAvailable(t *testing.T) {
 	assert.Nil(t, td.d.initError.Load())
 
 	td.tp.Functions.BuildReceipt = func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-		require.True(t, req.Complete)
+		require.False(t, req.UnavailableStates)
 		require.Len(t, req.InputStates, 1)
 		require.Equal(t, stateID1.String(), req.InputStates[0].Id)
 		require.Len(t, req.ReadStates, 1)
@@ -1274,7 +1277,7 @@ func TestGetDomainReceiptIncomplete(t *testing.T) {
 	assert.Nil(t, td.d.initError.Load())
 
 	td.tp.Functions.BuildReceipt = func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
-		require.False(t, req.Complete)
+		require.True(t, req.UnavailableStates)
 		require.Len(t, req.InputStates, 1)
 
 		return &prototk.BuildReceiptResponse{
@@ -1497,6 +1500,259 @@ func TestDomainInitPrivacyGroupBadResFromAddr(t *testing.T) {
 	_, err := domain.InitPrivacyGroup(td.ctx, pldtypes.RandBytes(32), &pldapi.PrivacyGroupGenesisState{})
 	assert.Regexp(t, "bad address", err)
 
+}
+
+func TestCheckStateCompletionOk(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	schemaID := pldtypes.RandBytes32()
+	txID := uuid.New()
+	statesInput := &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Read: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Spent: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Confirmed: []*pldapi.StateBase{
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+			{ID: pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()), Schema: schemaID},
+		},
+		Unavailable: &pldapi.UnavailableStates{
+			Info: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Read: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Spent: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+			Confirmed: []pldtypes.HexBytes{
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+				pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String()),
+			},
+		},
+	}
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		require.Equal(t, &prototk.CheckStateCompletionRequest{
+			TransactionId: pldtypes.Bytes32UUIDFirst16(txID).String(),
+			InfoStates: []*prototk.EndorsableState{
+				{Id: statesInput.Info[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Info[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			ReadStates: []*prototk.EndorsableState{
+				{Id: statesInput.Read[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Read[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			InputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Spent[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Spent[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			OutputStates: []*prototk.EndorsableState{
+				{Id: statesInput.Confirmed[0].ID.String(), SchemaId: schemaID.String()},
+				{Id: statesInput.Confirmed[1].ID.String(), SchemaId: schemaID.String()},
+			},
+			UnavailableStates: &prototk.UnavailableStates{
+				FirstUnavailableId: confutil.P(statesInput.Unavailable.Info[0].String()),
+				InfoStateIds: []string{
+					statesInput.Unavailable.Info[0].String(),
+					statesInput.Unavailable.Info[1].String(),
+				},
+				ReadStateIds: []string{
+					statesInput.Unavailable.Read[0].String(),
+					statesInput.Unavailable.Read[1].String(),
+				},
+				InputStateIds: []string{
+					statesInput.Unavailable.Spent[0].String(),
+					statesInput.Unavailable.Spent[1].String(),
+				},
+				OutputStateIds: []string{
+					statesInput.Unavailable.Confirmed[0].String(),
+					statesInput.Unavailable.Confirmed[1].String(),
+				},
+			},
+		}, cscr)
+		return &prototk.CheckStateCompletionResponse{
+			NextMissingStateId: cscr.UnavailableStates.FirstUnavailableId,
+		}, nil
+	}
+
+	domain := td.d
+	nextMissingStateID, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, txID, statesInput)
+	require.NoError(t, err)
+	require.Equal(t, statesInput.Unavailable.Info[0].String(), nextMissingStateID.String())
+}
+
+func TestCheckStateCompletionBadIDReturned(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	td.tp.Functions.CheckStateCompletion = func(ctx context.Context, cscr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		return &prototk.CheckStateCompletionResponse{
+			NextMissingStateId: confutil.P("wrong"),
+		}, nil
+	}
+
+	domain := td.d
+	infoStateID := pldtypes.MustParseHexBytes(pldtypes.RandBytes32().String())
+	_, err := domain.CheckStateCompletion(td.ctx, td.c.dbTX, uuid.New(), &pldapi.TransactionStates{
+		Info: []*pldapi.StateBase{
+			{ID: infoStateID},
+		},
+	})
+	require.Regexp(t, "PD020007", err)
+}
+
+func TestReverseKeyLookupMixedResult(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		).Return(nil, i18n.NewError(context.Background(), msgs.MsgKeyManagerVerifierLookupNotFound))
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+		).Return(&pldapi.KeyMappingAndVerifier{
+			Verifier: &pldapi.KeyVerifier{
+				Algorithm: algorithms.ECDSA_SECP256K1,
+				Type:      verifiers.ETH_ADDRESS,
+				Verifier:  "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+			KeyMappingWithPath: &pldapi.KeyMappingWithPath{
+				KeyMapping: &pldapi.KeyMapping{
+					Identifier: "key.one",
+				},
+			},
+		}, nil)
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	res, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Results, 2)
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
+		Verifier: "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		Found:    false,
+	}, res.Results[0])
+	require.Equal(t, &prototk.ReverseKeyLookupResult{
+		Verifier:      "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+		Found:         true,
+		KeyIdentifier: confutil.P("key.one"),
+	}, res.Results[1])
+}
+
+func TestReverseKeyLookupFail(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
+		mc.keyManager.On("ReverseKeyLookup", mock.Anything, mock.Anything, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS,
+			"0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+		).Return(nil, fmt.Errorf("pop"))
+	})
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	_, err := td.d.ReverseKeyLookup(td.ctx, &prototk.ReverseKeyLookupRequest{
+		Lookups: []*prototk.ReverseKeyLookup{
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x44b6dc58be64be0852e609aee1d7a0a0db674019",
+			},
+			{
+				Algorithm:    algorithms.ECDSA_SECP256K1,
+				VerifierType: verifiers.ETH_ADDRESS,
+				Verifier:     "0x4d2a5f9ac7672fe5036bac105a3a840db7e8af2a",
+			},
+		},
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestValidateStates(t *testing.T) {
+	td, done := newTestDomain(t, true /* use real state store for this one */, goodDomainConf())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Good state
+	state := &fakeState{
+		Salt:   pldtypes.RandBytes32(),
+		Owner:  pldtypes.EthAddress(pldtypes.RandBytes(20)),
+		Amount: ethtypes.NewHexIntegerU64(100000000),
+	}
+	stateJSON, err := json.Marshal(state)
+	require.NoError(t, err)
+	res, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(stateJSON), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.States, 1)
+
+	// Bad state
+	_, err = td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: td.tp.stateSchemas[0].Id},
+		},
+	})
+	require.Regexp(t, "FF22040", err)
+}
+
+func TestValidateStatesBadContext(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: "wrong",
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011649.*wrong", err)
+}
+
+func TestValidateStatesBadSchmea(t *testing.T) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
+	defer done()
+	assert.Nil(t, td.d.initError.Load())
+
+	// Bad state
+	_, err := td.d.ValidateStates(td.ctx, &prototk.ValidateStatesRequest{
+		StateQueryContext: td.c.id,
+		States: []*prototk.NewState{
+			{StateDataJson: string(`{}`), SchemaId: "schema1"},
+		},
+	})
+	require.Regexp(t, "PD011613.*schema1", err)
 }
 
 func TestDomainFixedSigningIdentity(t *testing.T) {

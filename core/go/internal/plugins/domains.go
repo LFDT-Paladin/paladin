@@ -125,6 +125,24 @@ func (br *domainBridge) RequestReply(ctx context.Context, reqMsg plugintk.Plugin
 				}
 			},
 		)
+	case *prototk.DomainMessage_ReverseKeyLookup:
+		return callManagerImpl(ctx, req.ReverseKeyLookup,
+			br.manager.ReverseKeyLookup,
+			func(resMsg *prototk.DomainMessage, res *prototk.ReverseKeyLookupResponse) {
+				resMsg.ResponseToDomain = &prototk.DomainMessage_ReverseKeyLookupRes{
+					ReverseKeyLookupRes: res,
+				}
+			},
+		)
+	case *prototk.DomainMessage_ValidateStates:
+		return callManagerImpl(ctx, req.ValidateStates,
+			br.manager.ValidateStates,
+			func(resMsg *prototk.DomainMessage, res *prototk.ValidateStatesResponse) {
+				resMsg.ResponseToDomain = &prototk.DomainMessage_ValidateStatesRes{
+					ValidateStatesRes: res,
+				}
+			},
+		)
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgPluginBadRequestBody, req)
 	}
@@ -408,6 +426,21 @@ func (br *domainBridge) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.
 		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
 			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_WrapPrivacyGroupEvmtxRes); ok {
 				res = r.WrapPrivacyGroupEvmtxRes
+			}
+			return res != nil
+		},
+	)
+	return
+}
+
+func (br *domainBridge) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (res *prototk.CheckStateCompletionResponse, err error) {
+	err = br.toPlugin.RequestReply(ctx,
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) {
+			dm.Message().RequestToDomain = &prototk.DomainMessage_CheckStateCompletion{CheckStateCompletion: req}
+		},
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
+			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_CheckStateCompletionRes); ok {
+				res = r.CheckStateCompletionRes
 			}
 			return res != nil
 		},

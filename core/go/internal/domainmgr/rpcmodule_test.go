@@ -40,7 +40,7 @@ func TestRPCQueryTransactions_EmptyDomains(t *testing.T) {
 	})
 	defer done()
 
-	handler := dm.rpcQueryTransactions()
+	handler := dm.rpcListDomains()
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
 		ID:      pldtypes.RawJSON(`"1"`),
@@ -70,7 +70,7 @@ func TestRPCQueryTransactions_SingleDomain(t *testing.T) {
 	})
 	defer done()
 
-	handler := dm.rpcQueryTransactions()
+	handler := dm.rpcListDomains()
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
 		ID:      pldtypes.RawJSON(`"1"`),
@@ -106,7 +106,7 @@ func TestRPCQueryTransactions_MultipleDomains(t *testing.T) {
 	})
 	defer done()
 
-	handler := dm.rpcQueryTransactions()
+	handler := dm.rpcListDomains()
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
 		ID:      pldtypes.RawJSON(`"1"`),

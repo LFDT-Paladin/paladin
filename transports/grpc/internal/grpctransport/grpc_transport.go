@@ -345,16 +345,22 @@ func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLoc
 func (t *grpcTransport) StopTransport(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
 	log.L(t.bgCtx).Infof("Stopping gRPC server for plugin %s", t.name)
 
-	gracefullyStopped := make(chan struct{})
-	go func() {
-		defer close(gracefullyStopped)
-		t.grpcServer.GracefulStop()
-	}()
+	if t.grpcServer != nil {
+		gracefullyStopped := make(chan struct{})
+		go func() {
+			defer close(gracefullyStopped)
+			t.grpcServer.GracefulStop()
+		}()
+		t.waitStopOrForce(gracefullyStopped)
+	}
+
+	return &prototk.StopTransportResponse{}, nil
+}
+
+func (t *grpcTransport) waitStopOrForce(gracefullyStopped chan struct{}) {
 	select {
 	case <-gracefullyStopped:
 	case <-time.After(t.gracefulShutdownTimeout):
 		t.grpcServer.Stop()
 	}
-
-	return &prototk.StopTransportResponse{}, nil
 }

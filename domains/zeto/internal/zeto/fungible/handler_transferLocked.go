@@ -347,7 +347,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 }
 
 func validateTransferLockedParams(ctx context.Context, params types.FungibleTransferLockedParams) error {
-	if params.LockedInputs == nil || len(params.LockedInputs) == 0 {
+	if len(params.LockedInputs) == 0 {
 		return i18n.NewError(ctx, msgs.MsgErrorMissingLockInputs)
 	}
 	if params.Delegate == "" {

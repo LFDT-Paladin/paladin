@@ -34,6 +34,7 @@ func TestNameValidateParams(t *testing.T) {
 }
 
 func TestNameInitCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
@@ -55,6 +56,7 @@ func TestNameInitCall(t *testing.T) {
 }
 
 func TestNameExecCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}

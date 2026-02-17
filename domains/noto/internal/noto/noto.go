@@ -109,6 +109,7 @@ var allSchemas = []*abi.Parameter{
 	types.NotoLockedCoinABI,
 	types.TransactionDataABI_V0,
 	types.TransactionDataABI_V1,
+	types.NotoManifestABI,
 }
 
 var schemasJSON = mustParseSchemas(allSchemas)
@@ -126,6 +127,7 @@ type Noto struct {
 	dataSchemaV1         *prototk.StateSchema
 	lockInfoSchemaV0     *prototk.StateSchema
 	lockInfoSchemaV1     *prototk.StateSchema
+	manifestSchema       *prototk.StateSchema
 }
 
 type NotoDeployParams struct {
@@ -372,8 +374,11 @@ func (n *Noto) DataSchemaID() string {
 	return n.dataSchemaV1.Id
 }
 
+func (n *Noto) ManifestSchemaID() string {
+	return n.manifestSchema.Id
+}
+
 func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	var config types.DomainConfig
 	err := json.Unmarshal([]byte(req.ConfigJson), &config)
 	if err != nil {
@@ -394,7 +399,6 @@ func (n *Noto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 }
 
 func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
 	for i, schema := range allSchemas {
 		switch schema.Name {
 		case types.NotoCoinABI.Name:
@@ -409,6 +413,8 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 			n.lockInfoSchemaV0 = req.AbiStateSchemas[i]
 		case types.NotoLockInfoABI_V1.Name:
 			n.lockInfoSchemaV1 = req.AbiStateSchemas[i]
+		case types.NotoManifestABI.Name:
+			n.manifestSchema = req.AbiStateSchemas[i]
 		}
 	}
 	return &prototk.InitDomainResponse{}, nil
@@ -465,10 +471,11 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	notaryAddress, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
+	notaryInfo, err := n.findEthAddressVerifier(ctx, "notary", params.Notary, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
+	notaryAddress := notaryInfo.address
 
 	deployData := &types.NotoConfigData_V0{
 		NotaryLookup: notaryQualified.String(),
@@ -1034,6 +1041,97 @@ func (n *Noto) InitPrivacyGroup(ctx context.Context, req *prototk.InitPrivacyGro
 
 func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error) {
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}
+
+func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	res := &prototk.CheckStateCompletionResponse{}
+	if req.UnavailableStates == nil || req.UnavailableStates.FirstUnavailableId == nil {
+		// There's nothing unavailable - we have all the states (in reality Paladin does not call us in this case)
+		return res, nil
+	}
+	// Determine if we have a manifest available.
+	var manifestState *prototk.EndorsableState
+	for _, potentialManifest := range req.InfoStates {
+		if potentialManifest.SchemaId == n.ManifestSchemaID() {
+			manifestState = potentialManifest
+			break
+		}
+	}
+	// If we don't (Noto V0, or just not available yet) then we return the pre-calculated FirstUnavailableId
+	// provided by us by Paladin.
+	if manifestState == nil {
+		res.NextMissingStateId = req.UnavailableStates.FirstUnavailableId
+		log.L(ctx).Debugf("No manifest available. Returning pre-calculated first unavailable state for transaction %s: %s", req.TransactionId, *res.NextMissingStateId)
+		return res, nil
+	}
+	// Decode the manifest
+	var manifest types.NotoManifest
+	if err := json.Unmarshal([]byte(manifestState.StateDataJson), &manifest); err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidManifestState, manifestState.Id)
+	}
+	// Now, it get's a little complex - we need to ask the Paladin node which of the addresses
+	// in the state distribution list are "ours". There's a batch API for this provided.
+	// Note we only get to this point if we're involved in the transaction in some way, and
+	// don't have the whole state set (Notary always has full set before submit).
+	// So a bit of efficient in-memory processing overhead is perfectly acceptable.
+	lookupReq := &prototk.ReverseKeyLookupRequest{}
+	uniqueAddresses := make(map[string]struct{})
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			uniqueAddresses[target.String()] = struct{}{}
+		}
+	}
+	for addr := range uniqueAddresses {
+		lookupReq.Lookups = append(lookupReq.Lookups, &prototk.ReverseKeyLookup{
+			Algorithm:    algorithms.ECDSA_SECP256K1,
+			VerifierType: verifiers.ETH_ADDRESS,
+			Verifier:     addr,
+		})
+	}
+	lookupRes, err := n.Callbacks.ReverseKeyLookup(ctx, lookupReq)
+	if err != nil {
+		return nil, err
+	}
+	// Now we build a list of all states we expect to find for this
+	var requiredStateIDs []string
+	for _, state := range manifest.States {
+		for _, target := range state.Participants {
+			for _, keyLookup := range lookupRes.Results {
+				if target.String() == keyLookup.Verifier && keyLookup.Found {
+					log.L(ctx).Debugf("Require state %s as we own key %s for address %s", state.ID, *keyLookup.KeyIdentifier, target)
+					requiredStateIDs = append(requiredStateIDs, state.ID.String())
+				}
+			}
+		}
+	}
+	// The states could be in any set of unavailable
+	for _, requiredStateID := range requiredStateIDs {
+		for _, unavailableID := range req.UnavailableStates.InfoStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required info state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.InputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required input state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.OutputStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required output state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+		for _, unavailableID := range req.UnavailableStates.ReadStateIds {
+			if unavailableID == requiredStateID {
+				log.L(ctx).Warnf("Required read state %s unavailable for transaction %s", unavailableID, req.TransactionId)
+				return &prototk.CheckStateCompletionResponse{NextMissingStateId: &requiredStateID}, nil
+			}
+		}
+	}
+	return res, nil
 }
 
 // getInterfaceABI returns the appropriate interface ABI based on the variant

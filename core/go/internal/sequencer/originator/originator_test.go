@@ -441,7 +441,9 @@ func TestOriginator_EventLoop_StopSignal(t *testing.T) {
 		Transaction: txn2,
 	}
 
-	for i := 0; i < len(s.originatorEvents); i++ {
+	// We have to get past the buffer in the channel to validate it doesn't block
+	for i := 0; i < len(s.originatorEvents)+1; i++ {
+		// This just needs to not block - it checks the event loop is not done
 		s.QueueEvent(ctx, event2)
 	}
 }

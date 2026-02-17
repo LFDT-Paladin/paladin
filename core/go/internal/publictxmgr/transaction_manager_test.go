@@ -540,6 +540,7 @@ func TestEngineSuspendResumeRealDB(t *testing.T) {
 	})
 	defer done()
 
+	m.sequencerManager.On("HandlePublicTXSubmission", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	fakeTx := &pldapi.Transaction{}
 	fakeTx.From = "sender@node1"
 
