@@ -129,6 +129,7 @@ func TestProduceLatestInFlightStageContextStatusUpdatePanic(t *testing.T) {
 	ctx, o, _, done := newTestOrchestrator(t)
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
+	it.testOnlyNoActionMode = true
 
 	// trigger status change
 	assert.Nil(t, it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx))

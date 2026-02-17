@@ -115,6 +115,7 @@ type transactionFlow struct {
 	requestedSignatures         bool                                      //TODO add precision here so that we can track individual requests and implement retry as per endorsement
 	pendingEndorsementRequests  map[string]map[string]*endorsementRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	localCoordinator            bool
+	dispatchPending             bool
 	dispatched                  bool
 	prepared                    bool
 	clock                       ptmgrtypes.Clock
@@ -134,8 +135,13 @@ func (tf *transactionFlow) ReadyForSequencing(ctx context.Context) bool {
 	return tf.transaction.PostAssembly != nil && tf.transaction.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_OK
 }
 
-func (tf *transactionFlow) Dispatched(_ context.Context) bool {
-	return tf.dispatched
+// Called by the sequencer dispatcher, when dispatch is initiated
+func (tf *transactionFlow) SetDispatchPending(_ context.Context, dispatchPending bool) {
+	tf.dispatchPending = dispatchPending
+}
+
+func (tf *transactionFlow) DispatchInitiated(_ context.Context) bool {
+	return tf.dispatchPending || tf.dispatched
 }
 
 func (tf *transactionFlow) IsEndorsed(ctx context.Context) bool {

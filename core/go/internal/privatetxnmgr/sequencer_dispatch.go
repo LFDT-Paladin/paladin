@@ -193,6 +193,11 @@ func (s *Sequencer) DispatchTransactions(ctx context.Context, dispatchableTransa
 	}
 	for signingAddress, sequence := range dispatchableTransactions {
 		for _, transactionFlow := range sequence {
+			// We need to mark that the transaction is dispatchPending, so if there's another event in the
+			// queue for the same transaction (such as a duplicate endorsement) we won't dispatch a duplicate
+			transactionFlow.SetDispatchPending(ctx, true)
+
+			// Then push the event back to the sequencer which will update the final tf.dispatched state
 			s.publisher.PublishTransactionDispatchedEvent(ctx, transactionFlow.ID(ctx).String(), uint64(0) /*TODO*/, signingAddress)
 		}
 	}
