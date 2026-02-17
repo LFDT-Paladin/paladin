@@ -12,10 +12,25 @@ describe("Atom", function () {
   it("atomic operation with 2 encoded calls", async function () {
     const [notary1, notary2, anybody1, anybody2] = await ethers.getSigners();
 
-    const NotoFactory = await ethers.getContractFactory("NotoFactory");
-    const notoFactory = await NotoFactory.deploy();
-
+    // Deploy the Noto implementation
     const Noto = await ethers.getContractFactory("Noto");
+    const notoImpl = await Noto.deploy();
+
+    // Deploy the factory implementation
+    const NotoFactory = await ethers.getContractFactory("NotoFactory");
+    const notoFactoryImpl = await NotoFactory.deploy();
+
+    // Deploy the factory proxy with initialize calldata
+    const ERC1967Proxy = await ethers.getContractFactory("ERC1967Proxy");
+    const initData = NotoFactory.interface.encodeFunctionData("initialize", [
+      await notoImpl.getAddress(),
+    ]);
+    const proxy = await ERC1967Proxy.deploy(
+      await notoFactoryImpl.getAddress(),
+      initData
+    );
+    const notoFactory = NotoFactory.attach(await proxy.getAddress());
+
     const AtomFactory = await ethers.getContractFactory("AtomFactory");
     const Atom = await ethers.getContractFactory("Atom");
     const ERC20Simple = await ethers.getContractFactory("ERC20Simple");
@@ -112,10 +127,25 @@ describe("Atom", function () {
   it("revert propagation", async function () {
     const [notary1, anybody1, anybody2] = await ethers.getSigners();
 
-    const NotoFactory = await ethers.getContractFactory("NotoFactory");
-    const notoFactory = await NotoFactory.deploy();
-
+    // Deploy the Noto implementation
     const Noto = await ethers.getContractFactory("Noto");
+    const notoImpl = await Noto.deploy();
+
+    // Deploy the factory implementation
+    const NotoFactory = await ethers.getContractFactory("NotoFactory");
+    const notoFactoryImpl = await NotoFactory.deploy();
+
+    // Deploy the factory proxy with initialize calldata
+    const ERC1967Proxy = await ethers.getContractFactory("ERC1967Proxy");
+    const initData = NotoFactory.interface.encodeFunctionData("initialize", [
+      await notoImpl.getAddress(),
+    ]);
+    const proxy = await ERC1967Proxy.deploy(
+      await notoFactoryImpl.getAddress(),
+      initData
+    );
+    const notoFactory = NotoFactory.attach(await proxy.getAddress());
+
     const AtomFactory = await ethers.getContractFactory("AtomFactory");
     const Atom = await ethers.getContractFactory("Atom");
 

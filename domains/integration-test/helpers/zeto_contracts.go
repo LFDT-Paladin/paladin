@@ -40,6 +40,9 @@ import (
 //go:embed abis/ZetoFactory.json
 var zetoFactoryJSON []byte
 
+//go:embed abis/ERC1967Proxy.json
+var erc1967ProxyJSON []byte
+
 type ZetoDomainConfig struct {
 	DomainContracts zetoDomainContracts `yaml:"contracts"`
 }
@@ -180,12 +183,30 @@ func deployDomainContracts(ctx context.Context, rpc rpcclient.Client, deployer s
 		return nil, err
 	}
 
-	// deploy the factory contract
-	factoryAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
+	// deploy the factory implementation contract
+	factoryImplAddr, _, err := deployContract(ctx, rpc, deployer, &config.DomainContracts.Factory, deployedContracts)
 	if err != nil {
 		return nil, err
 	}
-	log.L(ctx).Infof("Deployed factory contract to %s", factoryAddr.String())
+	log.L(ctx).Infof("Deployed factory implementation to %s", factoryImplAddr.String())
+
+	// deploy ERC1967Proxy with factory impl and initialize() calldata
+	zetoFactoryABI := solutils.MustParseBuildABI(zetoFactoryJSON)
+	initCalldata, err := zetoFactoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(`[]`))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode initialize calldata: %s", err)
+	}
+
+	proxyBuild := solutils.MustLoadBuild(erc1967ProxyJSON)
+	proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryImplAddr.String(), pldtypes.HexBytes(initCalldata))
+	var proxyAddrStr string
+	rpcerr := rpc.CallRPC(ctx, &proxyAddrStr, "testbed_deployBytecode",
+		deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+	if rpcerr != nil {
+		return nil, fmt.Errorf("failed to deploy factory proxy: %s", rpcerr)
+	}
+	factoryAddr := pldtypes.MustEthAddress(proxyAddrStr)
+	log.L(ctx).Infof("Deployed factory proxy to %s", factoryAddr.String())
 
 	ctrs := newZetoDomainContracts()
 	ctrs.FactoryAddress = factoryAddr
