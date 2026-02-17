@@ -60,13 +60,12 @@ type domain struct {
 	registryAddress      *pldtypes.EthAddress
 	fixedSigningIdentity string
 
-	stateLock          sync.Mutex
-	initialized        atomic.Bool
-	initRetry          *retry.Retry
-	config             *prototk.DomainConfig
-	schemasBySignature map[string]components.Schema
-	schemasByID        map[string]components.Schema
-	eventStream        *blockindexer.EventStream
+	stateLock   sync.Mutex
+	initialized atomic.Bool
+	initRetry   *retry.Retry
+	config      *prototk.DomainConfig
+	schemasByID map[string]components.Schema
+	eventStream *blockindexer.EventStream
 
 	initError atomic.Pointer[error]
 	initDone  chan struct{}
@@ -96,11 +95,8 @@ func (dm *domainManager) newDomain(name string, conf *pldconf.DomainConfig, toDo
 		initDone:             make(chan struct{}),
 		registryAddress:      pldtypes.MustEthAddress(conf.RegistryAddress), // check earlier in startup
 		fixedSigningIdentity: conf.FixedSigningIdentity,
-
-		schemasByID:        make(map[string]components.Schema),
-		schemasBySignature: make(map[string]components.Schema),
-
-		inFlight: make(map[string]*inFlightDomainRequest),
+		schemasByID:          make(map[string]components.Schema),
+		inFlight:             make(map[string]*inFlightDomainRequest),
 	}
 	if conf.DefaultGasLimit != nil {
 		d.defaultGasLimit = pldtypes.HexUint64(*conf.DefaultGasLimit)
@@ -138,7 +134,6 @@ func (d *domain) processDomainConfig(dbTX persistence.DBTX, confRes *prototk.Con
 	for i, s := range schemas {
 		schemaID := s.ID()
 		d.schemasByID[schemaID.String()] = s
-		d.schemasBySignature[s.Signature()] = s
 		schemasProto[i] = &prototk.StateSchema{
 			Id:        schemaID.String(),
 			Signature: s.Signature(),
@@ -884,9 +879,6 @@ func (d *domain) mapPotentialStates(dCtx components.DomainContext, potentialStat
 	newStatesToWrite = make([]*components.StateUpsert, len(potentialStates))
 	for i, s := range potentialStates {
 		schema := d.schemasByID[s.SchemaId]
-		if schema == nil {
-			schema = d.schemasBySignature[s.SchemaId]
-		}
 		if schema == nil {
 			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
 		}
