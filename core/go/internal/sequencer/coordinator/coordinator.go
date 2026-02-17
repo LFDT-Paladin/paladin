@@ -177,7 +177,7 @@ func NewCoordinator(
 	// Start dispatch queue loop
 	go c.dispatchLoop(ctx)
 
-	// Handle loopback messages to the same node in FIFO order without blocking the event loop
+	// Handle loopback messages to the same node without blocking the event loop
 	transportWriter.StartLoopbackWriter(ctx)
 
 	// Trigger the initial transition out of State_Initial
