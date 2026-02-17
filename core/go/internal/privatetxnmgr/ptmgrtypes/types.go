@@ -126,7 +126,8 @@ type TransactionFlow interface {
 	CoordinatingLocally(ctx context.Context) bool
 	IsComplete(ctx context.Context) bool
 	ReadyForSequencing(ctx context.Context) bool
-	Dispatched(ctx context.Context) bool
+	SetDispatchPending(ctx context.Context, dispatchPending bool)
+	DispatchInitiated(ctx context.Context) bool
 	ID(ctx context.Context) uuid.UUID
 	PrivateTransaction() *components.PrivateTransaction
 	IsEndorsed(ctx context.Context) bool
