@@ -988,7 +988,7 @@ func (p *privateTxManager) NotifyFailedPublicTx(ctx context.Context, dbTX persis
 					Type:             pldtypes.OnChainTransaction,
 					TransactionHash:  tx.Hash,
 					BlockNumber:      tx.BlockNumber,
-					TransactionIndex: tx.BlockNumber,
+					TransactionIndex: tx.TransactionIndex,
 				},
 				RevertData: tx.RevertReason,
 			},
