@@ -27,7 +27,7 @@ type EventType int
 type EmitEvent func(event Event)
 
 const (
-	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config a
+	Event_HeartbeatInterval          EventType = iota // emitted on a regular basis, interval defined by the sequencer config
 	Event_TransactionStateTransition                  // transaction state machine transition; originator/coordinator handle cleanup and side effects
 )
 
