@@ -779,11 +779,11 @@ func TestStateMachineEventLoop_StartStopAndMethods(t *testing.T) {
 
 	entity := newTestEntity(definitions, "test-entity")
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:        State_Idle,
-		Definitions:         definitions,
-		Entity:              entity,
-		EventLoopBufferSize: 10,
-		Name:                "pel-test",
+		InitialState:   State_Idle,
+		Definitions:    definitions,
+		Entity:         entity,
+		EventQueueSize: 10,
+		Name:           "pel-test",
 	})
 
 	ctx := context.Background()
@@ -1071,43 +1071,6 @@ func TestStateMachineEventLoop_WithPreProcessError(t *testing.T) {
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
 }
 
-func TestStateMachineEventLoop_ZeroBufferSizeUsesDefault(t *testing.T) {
-	definitions := StateDefinitions[TestState, *TestEntity]{
-		State_Idle: {
-			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
-				Event_Start: {
-					Transitions: []Transition[TestState, *TestEntity]{{
-						To: State_Active,
-					}},
-				},
-			},
-		},
-	}
-
-	entity := newTestEntity(definitions, "test-entity")
-	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:        State_Idle,
-		Definitions:         definitions,
-		Entity:              entity,
-		EventLoopBufferSize: 0,
-		Name:                "zero-buffer-test",
-	})
-
-	ctx := context.Background()
-	go sel.Start(ctx)
-	syncEv := NewSyncEvent()
-	sel.QueueEvent(ctx, syncEv)
-	<-syncEv.Done
-
-	sel.QueueEvent(ctx, newTestEvent(Event_Start))
-	syncEv2 := NewSyncEvent()
-	sel.QueueEvent(ctx, syncEv2)
-	<-syncEv2.Done
-	sel.Stop()
-
-	assert.Equal(t, State_Active, sel.GetCurrentState())
-}
-
 // TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain verifies that the priority queue
 // is fully drained before any event from the main queue is processed.
 func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
@@ -1162,11 +1125,11 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 	entity := newTestEntity(definitions, "test-entity")
 	entity.ProcessOrder = make([]string, 0, 4)
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:        State_Idle,
-		Definitions:         definitions,
-		Entity:              entity,
-		EventLoopBufferSize: 10,
-		Name:                "priority-drain-test",
+		InitialState:   State_Idle,
+		Definitions:    definitions,
+		Entity:         entity,
+		EventQueueSize: 10,
+		Name:           "priority-drain-test",
 	})
 
 	ctx := context.Background()
@@ -1267,12 +1230,12 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 	blockStarted := make(chan struct{})
 	blockCount := 0
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:                State_Idle,
-		Definitions:                 definitions,
-		Entity:                      entity,
-		EventLoopBufferSize:         10,
-		PriorityEventLoopBufferSize: 2,
-		Name:                        "try-priority-test",
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		EventQueueSize:         10,
+		PriorityEventQueueSize: 2,
+		Name:                   "try-priority-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {
@@ -1349,9 +1312,9 @@ func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
 	sel.Stop()
 }
 
-// TestStateMachineEventLoop_PriorityEventLoopBufferSize verifies that PriorityEventLoopBufferSize
+// TestStateMachineEventLoop_PriorityEventQueueSize verifies that PriorityEventQueueSize
 // is used when set (buffer size 3 allows 3 queued, 4th TryQueuePriorityEvent fails).
-func TestStateMachineEventLoop_PriorityEventLoopBufferSize(t *testing.T) {
+func TestStateMachineEventLoop_PriorityEventQueueSize(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -1369,12 +1332,12 @@ func TestStateMachineEventLoop_PriorityEventLoopBufferSize(t *testing.T) {
 	blockStarted := make(chan struct{})
 	blockCount := 0
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:                State_Idle,
-		Definitions:                 definitions,
-		Entity:                      entity,
-		EventLoopBufferSize:         50,
-		PriorityEventLoopBufferSize: 3,
-		Name:                        "priority-buffer-size-test",
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		EventQueueSize:         50,
+		PriorityEventQueueSize: 3,
+		Name:                   "priority-buffer-size-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {
@@ -1429,12 +1392,12 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 	blockStarted := make(chan struct{})
 	blockCount := 0
 	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
-		InitialState:                State_Idle,
-		Definitions:                 definitions,
-		Entity:                      entity,
-		EventLoopBufferSize:         2,
-		PriorityEventLoopBufferSize: 10,
-		Name:                        "try-queue-test",
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		EventQueueSize:         2,
+		PriorityEventQueueSize: 10,
+		Name:                   "try-queue-test",
 		PreProcess: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
 			blockCount++
 			if blockCount == 1 {

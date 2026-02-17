@@ -85,10 +85,9 @@ func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	for _, state := range postAssembly.OutputStates {
 		err := t.grapher.AddMinter(ctx, state.ID, t)
 		if err != nil {
-			// Log internal error and return it
-			msg := fmt.Sprintf("error adding TX %s as minter for state %s: %s", t.pt.ID.String(), state.ID.String(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			errMsg := i18n.NewError(ctx, msgs.MsgSequencerAddMinterError, t.pt.ID.String(), state.ID.String(), err)
+			log.L(ctx).Error(errMsg)
+			return errMsg
 		}
 	}
 	return t.calculatePostAssembleDependencies(ctx)

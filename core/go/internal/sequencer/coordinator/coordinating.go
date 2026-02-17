@@ -89,7 +89,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
 
-		receivedEvent := &transaction.ReceivedEvent{}
+		receivedEvent := &transaction.DelegatedEvent{}
 		receivedEvent.TransactionID = txn.ID
 
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)

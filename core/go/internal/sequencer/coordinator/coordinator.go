@@ -151,8 +151,11 @@ func NewCoordinator(
 		c.updateOriginatorNodePool(node)
 	}
 
+	coordinatorEventQueueSize := confutil.IntMin(configuration.CoordinatorEventQueueSize, pldconf.SequencerMinimum.CoordinatorEventQueueSize, *pldconf.SequencerDefaults.CoordinatorEventQueueSize)
+	coordinatorPriorityEventQueueSize := confutil.IntMin(configuration.CoordinatorPriorityEventQueueSize, pldconf.SequencerMinimum.CoordinatorPriorityEventQueueSize, *pldconf.SequencerDefaults.CoordinatorPriorityEventQueueSize)
+
 	// Initialize the state machine event loop (state machine + event loop combined)
-	c.initializeStateMachineEventLoop(State_Initial)
+	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
 	c.maxDispatchAhead = confutil.IntMinIfPositive(configuration.MaxDispatchAhead, pldconf.SequencerMinimum.MaxDispatchAhead, *pldconf.SequencerDefaults.MaxDispatchAhead)
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
@@ -184,10 +187,9 @@ func NewCoordinator(
 }
 
 // GetCurrentState returns the current state of the coordinator.
-// This method does NOT acquire a lock because:
-//  1. Reading a single int (State enum) is atomic on all modern architectures
-//  2. This method may be called from callbacks during event processing when the
-//     coordinator's mutex is already held, which would cause a deadlock with RLock()
+// TODO This method cannot acquire a lock because this method may be called from callbacks during event processing when the
+// coordinator's mutex is already held, which would cause a deadlock with RLock(). Currently it is always called in a thread
+// safe way, but as it is not guaranteed to be in the future this needs more refactoring.
 func (c *coordinator) GetCurrentState() State {
 	return c.stateMachineEventLoop.GetCurrentState()
 }

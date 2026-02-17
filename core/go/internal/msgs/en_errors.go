@@ -515,6 +515,7 @@ var (
 	MsgSequencerErrorNotifyingDependent       = pde("PD012643", "Error notifying dependent transaction %s of revert of TX %s")
 	MsgSequencerErrorRepoolingTX              = pde("PD012644", "Error repooling TX %s")
 	MsgSequencerGrapherDependencyNotFound     = pde("PD012645", "TX %s missing from transaction graph")
+	MsgSequencerAddMinterError                = pde("PD012646", "Error adding TX %s as minter for state %s: %s")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

@@ -383,11 +383,11 @@ type StateMachineEventLoopConfig[S State, E Lockable] struct {
 	// Entity is the entity that the state machine manages
 	Entity E
 
-	// EventLoopBufferSize is the size of the event channel buffer (default: 50)
-	EventLoopBufferSize int
+	// EventQueueSize is the size of the event channel buffer.
+	EventQueueSize int
 
-	// PriorityEventLoopBufferSize is the size of the priority event channel buffer (default: same as EventLoopBufferSize)
-	PriorityEventLoopBufferSize int
+	// PriorityEventQueueSize is the size of the priority event channel buffer.
+	PriorityEventQueueSize int
 
 	// Name for the event loop and the state machine; required. Used in logging (e.g. transition logs).
 	// The same name is applied to both.
@@ -417,15 +417,6 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 	}
 	sm := NewStateMachine(config.InitialState, config.Definitions, config.Name, smOpts...)
 
-	bufferSize := config.EventLoopBufferSize
-	if bufferSize <= 0 {
-		bufferSize = 50
-	}
-	priorityBufferSize := config.PriorityEventLoopBufferSize
-	if priorityBufferSize <= 0 {
-		priorityBufferSize = 10
-	}
-
 	// Event processor: PreProcess (own lock scope) then state machine ProcessEvent.
 	processEvent := func(ctx context.Context, event common.Event) error {
 		if config.PreProcess != nil {
@@ -445,8 +436,8 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 	sel := &StateMachineEventLoop[S, E]{
 		stateMachine:   sm,
 		entity:         config.Entity,
-		events:         make(chan common.Event, bufferSize),
-		eventsPriority: make(chan common.Event, priorityBufferSize),
+		events:         make(chan common.Event, config.EventQueueSize),
+		eventsPriority: make(chan common.Event, config.PriorityEventQueueSize),
 		stopLoop:       make(chan struct{}, 1),
 		loopStopped:    make(chan struct{}),
 		onStop:         config.OnStop,
@@ -539,6 +530,7 @@ func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event co
 
 // TryQueueEvent attempts to queue an event without blocking.
 // Returns true if the event was queued, false if the buffer is full.
+// This function should only be used if it is acceptable for the event to never be processed, e.g. because it is a periodic event,
 func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event common.Event) bool {
 	select {
 	case sel.events <- event:

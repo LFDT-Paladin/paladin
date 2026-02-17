@@ -47,7 +47,7 @@ const (
 type EventType = common.EventType
 
 const (
-	Event_Received                       EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
+	Event_Delegated                      EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
 	Event_Selected                                                                             // selected from the pool as the next transaction to be assembled
 	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
 	Event_Assemble_Success                                                                     // assemble response received from the originator
@@ -86,7 +86,7 @@ type (
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
 		Events: map[EventType]EventHandler{
-			Event_Received: { //TODO rename this event type because it is the first one we see in this struct and it seems like we are saying this is a definition related to receiving an event (at one level that is correct but it is not what is meant by Event_Received)
+			Event_Delegated: {
 				Transitions: []Transition{
 					{
 						To: State_Submitted,

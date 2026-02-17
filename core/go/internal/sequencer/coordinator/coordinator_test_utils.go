@@ -128,6 +128,18 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 		v := *def.BlockRange
 		copy.BlockRange = &v
 	}
+	if def.CoordinatorEventQueueSize != nil {
+		v := *def.CoordinatorEventQueueSize
+		copy.CoordinatorEventQueueSize = &v
+	}
+	if def.CoordinatorPriorityEventQueueSize != nil {
+		v := *def.CoordinatorPriorityEventQueueSize
+		copy.CoordinatorPriorityEventQueueSize = &v
+	}
+	if def.OriginatorEventQueueSize != nil {
+		v := *def.OriginatorEventQueueSize
+		copy.OriginatorEventQueueSize = &v
+	}
 	if def.ClosingGracePeriod != nil {
 		v := *def.ClosingGracePeriod
 		copy.ClosingGracePeriod = &v

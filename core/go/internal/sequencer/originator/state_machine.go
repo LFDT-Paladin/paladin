@@ -134,14 +134,14 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 }
 
-func (o *originator) initializeStateMachineEventLoop(initialState State) {
+func (o *originator) initializeStateMachineEventLoop(initialState State, eventQueueSize int) {
 	o.stateMachineEventLoop = statemachine.NewStateMachineEventLoop(statemachine.StateMachineEventLoopConfig[State, *originator]{
-		InitialState:        initialState,
-		Definitions:         stateDefinitionsMap,
-		Entity:              o,
-		EventLoopBufferSize: 50,
-		Name:       fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
-		PreProcess: o.preProcessEvent,
+		InitialState:   initialState,
+		Definitions:    stateDefinitionsMap,
+		Entity:         o,
+		EventQueueSize: eventQueueSize,
+		Name:           fmt.Sprintf("originator-%s", o.contractAddress.String()[0:8]),
+		PreProcess:     o.preProcessEvent,
 	})
 }
 

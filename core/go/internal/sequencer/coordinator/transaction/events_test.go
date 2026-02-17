@@ -46,19 +46,19 @@ func TestBaseCoordinatorEvent_GetEventTime(t *testing.T) {
 	assert.Equal(t, eventTime, event.GetEventTime())
 }
 
-func TestReceivedEvent_Type(t *testing.T) {
-	event := &ReceivedEvent{}
-	assert.Equal(t, Event_Received, event.Type())
+func TestDelegatedEvent_Type(t *testing.T) {
+	event := &DelegatedEvent{}
+	assert.Equal(t, Event_Delegated, event.Type())
 }
 
-func TestReceivedEvent_TypeString(t *testing.T) {
-	event := &ReceivedEvent{}
-	assert.Equal(t, "Event_Received", event.TypeString())
+func TestDelegatedEvent_TypeString(t *testing.T) {
+	event := &DelegatedEvent{}
+	assert.Equal(t, "Event_Delegated", event.TypeString())
 }
 
-func TestReceivedEvent_GetTransactionID(t *testing.T) {
+func TestDelegatedEvent_GetTransactionID(t *testing.T) {
 	txID := uuid.New()
-	event := &ReceivedEvent{
+	event := &DelegatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: txID,
 		},
@@ -66,9 +66,9 @@ func TestReceivedEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
-func TestReceivedEvent_GetEventTime(t *testing.T) {
+func TestDelegatedEvent_GetEventTime(t *testing.T) {
 	eventTime := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	event := &ReceivedEvent{
+	event := &DelegatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			BaseEvent: common.BaseEvent{
 				EventTime: eventTime,
@@ -696,7 +696,7 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseCoordinatorEvent implement the Event interface
 	txID := uuid.New()
 	events := []Event{
-		&ReceivedEvent{
+		&DelegatedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

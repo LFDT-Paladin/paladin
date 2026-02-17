@@ -32,7 +32,7 @@ func TestCoordinatorTransaction_Initial_ToPooled_OnReceived_IfNoInflightDependen
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
+	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},
@@ -61,7 +61,7 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 		PredefinedDependencies(txn1.GetID())
 	txn2 := builder2.Build()
 
-	err := txn2.HandleEvent(ctx, &transaction.ReceivedEvent{
+	err := txn2.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn2.GetID(),
 		},
@@ -78,7 +78,7 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 		PredefinedDependencies(uuid.New())
 	txn := builder.Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
+	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 			TransactionID: txn.GetID(),
 		},

@@ -130,6 +130,8 @@ func NewTransaction(
 
 // This function is external but doesn't not need a lock as ints are atomic
 func (t *CoordinatorTransaction) GetCurrentState() State {
+	t.RLock()
+	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
 

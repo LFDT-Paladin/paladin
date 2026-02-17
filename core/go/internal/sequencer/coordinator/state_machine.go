@@ -297,14 +297,14 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 }
 
-func (c *coordinator) initializeStateMachineEventLoop(initialState State) {
+func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQueueSize int, priorityEventQueueSize int) {
 	c.stateMachineEventLoop = statemachine.NewStateMachineEventLoop(statemachine.StateMachineEventLoopConfig[State, *coordinator]{
-		InitialState:                initialState,
-		Definitions:                 stateDefinitionsMap,
-		Entity:                      c,
-		EventLoopBufferSize:         100,
-		PriorityEventLoopBufferSize: 10,
-		Name:                        fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
+		InitialState:           initialState,
+		Definitions:            stateDefinitionsMap,
+		Entity:                 c,
+		EventQueueSize:         eventQueueSize,
+		PriorityEventQueueSize: priorityEventQueueSize,
+		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
 		OnStop: func(ctx context.Context) common.Event {
 			// Return the final event to process when stopping
 			return &CoordinatorClosedEvent{}

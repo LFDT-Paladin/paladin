@@ -106,7 +106,8 @@ func NewOriginator(
 		stopDelegateLoop:            make(chan struct{}),
 		delegateLoopStopped:         make(chan struct{}),
 	}
-	o.initializeStateMachineEventLoop(State_Idle)
+	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
+	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize)
 
 	go o.stateMachineEventLoop.Start(ctx)
 	go o.delegateLoop(ctx)
@@ -157,6 +158,9 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
+			// TryQueueEvent is acceptable here as if the event cannot be queued, it will be retried next
+			// time the ticker fires. Not blocking on a full channel means that we aren't blocked on
+			// shutdown if 0.stopDelegateLoop fires
 			o.stateMachineEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
 		case <-o.stopDelegateLoop:
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
