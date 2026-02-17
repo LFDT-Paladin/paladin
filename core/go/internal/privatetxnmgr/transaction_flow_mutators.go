@@ -181,6 +181,7 @@ func (tf *transactionFlow) applyTransactionDispatchedEvent(ctx context.Context, 
 	log.L(ctx).Debugf("transactionFlow:applyTransactionDispatchedEvent transactionID:%s nonce:%d signingAddress:%s", tf.transaction.ID.String(), event.Nonce, event.SigningAddress)
 	tf.latestEvent = "TransactionDispatchedEvent"
 	tf.status = "dispatched"
+	tf.dispatchPending = false
 	tf.dispatched = true
 }
 
