@@ -165,60 +165,19 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		// This means if transaction A commits before transaction B, it is guaranteed that the sequence number(s) allocated
 		// in transaction A will be lower than transaction B (not guaranteed otherwise).
 		err := tm.p.TakeNamedLock(ctx, dbTX, "transaction_receipts")
-
-		// Failures must not override success, so when we have failure we check for previously persisted success
-		// (it's a shame we need to hold the table lock here, but we do this on multiple threads due to detecting
-		// failures remotely and successes locally)
-		var receiptsToDelete []uuid.UUID
-		if err == nil {
-			var duplicateReceipts []*transactionReceipt
-			err = dbTX.DB().Table("transaction_receipts").
-				WithContext(ctx).
-				Where(`"transaction" IN ?`, transactionIDs).
-				Find(&duplicateReceipts).
-				Error
-			if len(duplicateReceipts) > 0 {
-				trimmedReceiptsToInsert := make([]*transactionReceipt, 0, len(receiptsToInsert))
-				for _, receipt := range receiptsToInsert {
-					var duplicate *transactionReceipt
-					for _, existing := range duplicateReceipts {
-						if existing.TransactionID == receipt.TransactionID {
-							duplicate = existing
-							break
-						}
-					}
-					if duplicate != nil && duplicate.Success {
-						var failureMsg string
-						if receipt.FailureMessage != nil {
-							failureMsg = *receipt.FailureMessage
-						}
-						log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded due to existing success receipt. Error: %s", receipt.TransactionID, failureMsg)
-					} else {
-						if duplicate != nil && receipt.Success {
-							// We need to remove the previous duplicate, otherwise we won't insert the success receipt
-							receiptsToDelete = append(receiptsToDelete, duplicate.TransactionID)
-						}
-						trimmedReceiptsToInsert = append(trimmedReceiptsToInsert, receipt)
-					}
-				}
-				receiptsToInsert = trimmedReceiptsToInsert
-			}
-		}
-		if err == nil && len(receiptsToDelete) > 0 {
-			err = dbTX.DB().Table("transaction_receipts").
-				WithContext(ctx).
-				Delete(&transactionReceipt{}, `"transaction" IN ?`, receiptsToDelete).
-				Error
-		}
 		if err == nil && len(receiptsToInsert) > 0 {
-			err = dbTX.DB().Table("transaction_receipts").
+			tx := dbTX.DB().Table("transaction_receipts").
 				WithContext(ctx).
 				Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "transaction"}},
 					DoNothing: true, // once inserted, the receipt is immutable
 				}).
-				Create(receiptsToInsert).
-				Error
+				Create(receiptsToInsert)
+			err = tx.Error
+			if err == nil && tx.RowsAffected != int64(len(receiptsToInsert)) {
+				log.L(ctx).Warnf("Potential duplicate receipt receipts=%d inserted=%d", len(receiptsToInsert), tx.RowsAffected)
+				err = tm.ensureSuccessOverridesFailure(ctx, dbTX, transactionIDs, receiptsToInsert)
+			}
 		}
 		if err != nil {
 			return err
@@ -264,6 +223,56 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		}
 	})
 	return nil
+}
+
+// Failures must not override success, but success can override failure.
+// In the success-over-failure case, we delete the old receipt, and insert a new successful one.
+//
+// Note we cannot just edit the receipt, as it might already have been dispatched to a listener.
+//
+// Function is only called after a rowsAffected check on the simple ON CONFLICT inserts.
+func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX persistence.DBTX, transactionIDs []uuid.UUID, newReceipts []*transactionReceipt) error {
+	var replacementIDsToDelete []uuid.UUID
+	var replacementInserts []*transactionReceipt
+	var existingReceipts []*transactionReceipt
+	err := dbTX.DB().Table("transaction_receipts").
+		WithContext(ctx).
+		Where(`"transaction" IN ?`, transactionIDs).
+		Find(&existingReceipts).
+		Error
+	if err == nil {
+		for _, receipt := range newReceipts {
+			var existing *transactionReceipt
+			for _, candidate := range existingReceipts {
+				if candidate.TransactionID == receipt.TransactionID {
+					existing = candidate
+					break
+				}
+			}
+			if existing != nil {
+				if !existing.Success /* do not override success */ && receipt.Success /* do not replace the first failure */ {
+					log.L(ctx).Warnf("Duplicate receipt for transaction %s replaces existing failure receipt. Previous error: %s", receipt.TransactionID, stringOrEmpty(existing.FailureMessage))
+					replacementIDsToDelete = append(replacementIDsToDelete, existing.TransactionID)
+					replacementInserts = append(replacementInserts, receipt)
+				} else {
+					log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded (success=%t) Error: %s", receipt.TransactionID, receipt.Success, stringOrEmpty(receipt.FailureMessage))
+				}
+			}
+		}
+	}
+	if err == nil && len(replacementIDsToDelete) > 0 {
+		err = dbTX.DB().Table("transaction_receipts").
+			WithContext(ctx).
+			Delete(&transactionReceipt{}, `"transaction" IN ?`, replacementIDsToDelete).
+			Error
+	}
+	if err == nil && len(replacementInserts) > 0 {
+		err = dbTX.DB().Table("transaction_receipts").
+			WithContext(ctx).
+			Create(replacementInserts). // note no OnConflict, as we just deleted all the conflicts
+			Error
+	}
+	return err
 }
 
 func (tm *txManager) CalculateRevertError(ctx context.Context, dbTX persistence.DBTX, revertData pldtypes.HexBytes) error {
