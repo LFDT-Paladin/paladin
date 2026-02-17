@@ -45,37 +45,37 @@
  import org.web3j.rlp.RlpEncoder;
  import org.web3j.rlp.RlpList;
  import org.web3j.rlp.RlpString;
- 
+
  import java.nio.charset.StandardCharsets;
  import java.util.ArrayList;
  import java.util.Arrays;
  import java.util.Deque;
  import java.util.List;
  import java.util.stream.Collectors;
- 
+
  public class EVMRunner {
- 
+
      private static final Logger logger = PaladinLogging.getLogger(EVMRunner.class);
- 
+
      private final EVMVersion evmVersion;
- 
+
      private final VirtualBlockchain virtualBlockchain;
- 
+
      private final Address coinbase;
- 
+
      public static Address randomAddress() {
          return Address.wrap(Bytes.random(20));
      }
- 
+
      private final DynamicLoadWorldState world;
- 
+
      public EVMRunner(EVMVersion evmVersion, AccountLoader accountLoader, long blockNumber) {
          this.evmVersion = evmVersion;
          this.coinbase = randomAddress();
          this.world = new DynamicLoadWorldState(accountLoader, evmVersion.evmConfiguration());
          this.virtualBlockchain = new VirtualBlockchain(blockNumber);
      }
- 
+
      @SuppressWarnings("rawtypes")
      public MessageFrame runContractDeployment(
              Address sender,
@@ -93,7 +93,7 @@
          }
          return runContractDeploymentBytes(sender, smartContractAddress, codeBytes, constructorParamsBytes, initialGas, logAccumulator);
      }
- 
+
      public static Address nonceSmartContractAddress(Address address, long nonce) {
          var rlpBytes = RlpEncoder.encode(new RlpList(
                  RlpString.create(address.toArray()),
@@ -102,7 +102,7 @@
          var hash = new Keccak.Digest256().digest(rlpBytes);
          return Address.wrap(Bytes.wrap(Arrays.copyOfRange(hash, 12, hash.length)));
      }
- 
+
      public MessageFrame runContractDeploymentBytes(
              Address senderAddress,
              Address smartContractAddress,
@@ -114,13 +114,13 @@
          if (constructorParamsBytes != null) {
              codeBytes = Bytes.wrap(codeBytes, constructorParamsBytes);
          }
- 
+
          Code code = this.evmVersion.evm().getCode(Hash.hash(codeBytes), codeBytes);
          var sender = this.world.getUpdater().getOrCreate(senderAddress);
          if (smartContractAddress == null) {
              smartContractAddress = nonceSmartContractAddress(senderAddress, sender.getNonce());
          }
- 
+
          // Build the message frame
          logger.debug("Deploying to={} from={} nonce={}", smartContractAddress, senderAddress, sender.getNonce());
          final MessageFrame frame =
@@ -146,8 +146,8 @@
          this.runFrame(frame, logAccumulator);
          return frame;
      }
- 
- 
+
+
      public String methodSignature(Function function) {
          StringBuilder result = new StringBuilder();
          result.append(function.getName());
@@ -157,7 +157,7 @@
          result.append(")");
          return result.toString();
      }
- 
+
      @SuppressWarnings("rawtypes")
      public MessageFrame runContractInvoke(
              Address sender,
@@ -167,13 +167,13 @@
              List<JsonEVMLog> logAccumulator,
              Type ...parameters
      ) {
- 
+
          // Use web3j to encode the call data
          Function function = new Function(methodName, List.of(parameters), List.of());
          String callDataHex = FunctionEncoder.encode(function);
          return runContractInvokeBytes(sender, smartContractAddress, Bytes.fromHexString(callDataHex), initialGas, logAccumulator);
      }
- 
+
      public MessageFrame runContractInvokeBytes(
              Address senderAddress,
              Address smartContractAddress,
@@ -183,7 +183,7 @@
      ) {
          var sender = this.world.getUpdater().getOrCreate(senderAddress);
          logger.debug("Invoking to={} from={} nonce={}", smartContractAddress, senderAddress, sender.getNonce());
- 
+
          // Build the message frame
          var contractAccount = this.world.getUpdater().get(smartContractAddress);
          if (contractAccount == null) {
@@ -215,16 +215,16 @@
          this.runFrame(frame, logAccumulator);
          return frame;
      }
- 
+
      public List<Type<?>> decodeReturn( MessageFrame frame, List<TypeReference<?>> returns) {
          return FunctionReturnDecoder.decode(
                  frame.getOutputData().toHexString(),
                  Utils.convert(returns)).stream().map(r ->
                  (Type<?>)(r)
          ).collect(Collectors.toList());
- 
+
      }
- 
+
      @JsonIgnoreProperties(ignoreUnknown = true)
      public record JsonEVMLog(
              @JsonProperty()
@@ -232,9 +232,11 @@
              @JsonProperty()
              List<JsonHex.Bytes32> topics,
              @JsonProperty()
-             JsonHex.Bytes data
+             JsonHex.Bytes data,
+             @JsonProperty()
+             int logIndex
      ) {}
- 
+
      public void runFrame(MessageFrame initialFrame, List<JsonEVMLog> logAccumulator)  {
          final OperationTracer tracer = new DebugEVMTracer();
          Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
@@ -255,9 +257,9 @@
                  case CONTRACT_CREATION -> ccp.process(messageFrame, tracer);
                  case MESSAGE_CALL -> mcp.process(messageFrame, tracer);
              }
- 
+
              logger.debug("Frame {}/{} completed: {}", messageFrame.getType(),  Integer.toHexString(messageFrame.hashCode()), messageFrame.getState());
- 
+
              if (messageFrame.getExceptionalHaltReason().isPresent()) {
                  logger.debug(messageFrame.getExceptionalHaltReason().get().toString());
              }
@@ -272,19 +274,20 @@
              var frameLogs = messageFrame.getLogs();
              if (frameLogs != null) {
                  var addr = new JsonHex.Address(messageFrame.getContractAddress().toArray());
-                 logAccumulator.addAll(
-                         frameLogs.stream().map(l -> new JsonEVMLog(
-                                 addr,
-                                 l.getTopics().stream().map(t -> new JsonHex.Bytes32(t.toArray())).toList(),
-                                 new JsonHex.Bytes(l.getData().toArray())
-                         )).toList()
-                 );
+                 for (int i = 0; i < frameLogs.size(); i++) {
+                     var log = frameLogs.get(i);
+                     logAccumulator.add(new JsonEVMLog(
+                             addr,
+                             log.getTopics().stream().map(t -> new JsonHex.Bytes32(t.toArray())).toList(),
+                             new JsonHex.Bytes(log.getData().toArray()),
+                             i
+                     ));
+                 }
              }
          }
      }
- 
+
      public DynamicLoadWorldState getWorld() {
          return world;
      }
  }
- 
