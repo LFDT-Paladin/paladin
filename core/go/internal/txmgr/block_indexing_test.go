@@ -156,6 +156,7 @@ func TestPublicConfirmMatch(t *testing.T) {
 				}, nil)
 
 			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(12345))
 			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
@@ -322,6 +323,7 @@ func TestConfirmInsertError(t *testing.T) {
 				}, nil)
 
 			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnError(fmt.Errorf("pop"))
 		})
 	defer done()

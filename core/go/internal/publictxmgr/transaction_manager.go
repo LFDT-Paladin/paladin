@@ -803,7 +803,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 	}
 
 	if len(completions) > 0 {
-		// We have some completions to persis - in the same order as the confirmations that came in
+		// We have some completions to persist - in the same order as the confirmations that came in
 		err := dbTX.DB().
 			Table("public_completions").
 			Clauses(clause.OnConflict{

@@ -101,7 +101,8 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		return nil
 	}
 
-	possibleChainingRecordIDs := make([]uuid.UUID, 0, len(info))
+	transactionIDResults := make(map[uuid.UUID]bool)
+	transactionIDs := make([]uuid.UUID, 0, len(info))
 	receiptsToInsert := make([]*transactionReceipt, 0, len(info))
 	for _, ri := range info {
 		receipt := &transactionReceipt{
@@ -147,9 +148,14 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		default:
 			return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))
 		}
+		if transactionIDResults[receipt.TransactionID] {
+			log.L(ctx).Warnf("Skipping receipt that would override previous success in this batch txId=%s success=%t failure=%s txHash=%v", receipt.TransactionID, receipt.Success, failureMsg, receipt.TransactionHash)
+			continue
+		}
+		transactionIDResults[receipt.TransactionID] = receipt.Success
 		log.L(ctx).Infof("Inserting receipt txId=%s success=%t failure=%s txHash=%v", receipt.TransactionID, receipt.Success, failureMsg, receipt.TransactionHash)
 		receiptsToInsert = append(receiptsToInsert, receipt)
-		possibleChainingRecordIDs = append(possibleChainingRecordIDs, receipt.TransactionID)
+		transactionIDs = append(transactionIDs, receipt.TransactionID)
 	}
 
 	if len(receiptsToInsert) > 0 {
@@ -159,7 +165,52 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		// This means if transaction A commits before transaction B, it is guaranteed that the sequence number(s) allocated
 		// in transaction A will be lower than transaction B (not guaranteed otherwise).
 		err := tm.p.TakeNamedLock(ctx, dbTX, "transaction_receipts")
+
+		// Failures must not override success, so when we have failure we check for previously persisted success
+		// (it's a shame we need to hold the table lock here, but we do this on multiple threads due to detecting
+		// failures remotely and successes locally)
+		var receiptsToDelete []uuid.UUID
 		if err == nil {
+			var duplicateReceipts []*transactionReceipt
+			err = dbTX.DB().Table("transaction_receipts").
+				WithContext(ctx).
+				Where(`"transaction" IN ?`, transactionIDs).
+				Find(&duplicateReceipts).
+				Error
+			if len(duplicateReceipts) > 0 {
+				trimmedReceiptsToInsert := make([]*transactionReceipt, 0, len(receiptsToInsert))
+				for _, receipt := range receiptsToInsert {
+					var duplicate *transactionReceipt
+					for _, existing := range duplicateReceipts {
+						if existing.TransactionID == receipt.TransactionID {
+							duplicate = existing
+							break
+						}
+					}
+					if duplicate != nil && duplicate.Success {
+						var failureMsg string
+						if receipt.FailureMessage != nil {
+							failureMsg = *receipt.FailureMessage
+						}
+						log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded due to existing success receipt. Error: %s", receipt.TransactionID, failureMsg)
+					} else {
+						if duplicate != nil && receipt.Success {
+							// We need to remove the previous duplicate, otherwise we won't insert the success receipt
+							receiptsToDelete = append(receiptsToDelete, duplicate.TransactionID)
+						}
+						trimmedReceiptsToInsert = append(trimmedReceiptsToInsert, receipt)
+					}
+				}
+				receiptsToInsert = trimmedReceiptsToInsert
+			}
+		}
+		if err == nil && len(receiptsToDelete) > 0 {
+			err = dbTX.DB().Table("transaction_receipts").
+				WithContext(ctx).
+				Delete(&transactionReceipt{}, `"transaction" IN ?`, receiptsToDelete).
+				Error
+		}
+		if err == nil && len(receiptsToInsert) > 0 {
 			err = dbTX.DB().Table("transaction_receipts").
 				WithContext(ctx).
 				Clauses(clause.OnConflict{
@@ -174,10 +225,10 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		}
 	}
 
-	if len(possibleChainingRecordIDs) > 0 {
+	if len(transactionIDs) > 0 {
 		var chainingRecords []*persistedChainedPrivateTxn
 		err := dbTX.DB().
-			Where(`"chained_transaction" IN ?`, possibleChainingRecordIDs).
+			Where(`"chained_transaction" IN ?`, transactionIDs).
 			Find(&chainingRecords).
 			Error
 		// Recurse into PrivateTXManager, who will call us back, or send via the transport mgr
