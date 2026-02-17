@@ -174,7 +174,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			var duplicateReceipts []*transactionReceipt
 			err = dbTX.DB().Table("transaction_receipts").
 				WithContext(ctx).
-				Where("transaction IN ?", transactionIDs).
+				Where("`transaction` IN ?", transactionIDs).
 				Find(&duplicateReceipts).
 				Error
 			if len(duplicateReceipts) > 0 {
@@ -207,7 +207,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 		if err == nil && len(receiptsToDelete) > 0 {
 			err = dbTX.DB().Table("transaction_receipts").
 				WithContext(ctx).
-				Delete(&transactionReceipt{}, "transaction IN ?", receiptsToDelete).
+				Delete(&transactionReceipt{}, "`transaction` IN ?", receiptsToDelete).
 				Error
 		}
 		if err == nil && len(receiptsToInsert) > 0 {
