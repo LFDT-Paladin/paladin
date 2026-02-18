@@ -100,11 +100,12 @@ type receiptListener struct {
 
 	newReceipts chan bool
 
-	nextBatchID  uint64
-	newReceivers chan bool
-	receiverLock sync.Mutex
-	receivers    []*registeredReceiptReceiver
-	done         chan struct{}
+	nextBatchID      uint64
+	newReceivers     chan bool
+	receiverLock     sync.Mutex
+	receivers        []*registeredReceiptReceiver
+	pendingReceivers []*registeredReceiptReceiver
+	done             chan struct{}
 }
 
 type registeredReceiptReceiver struct {
@@ -169,6 +170,10 @@ func (tm *txManager) CreateReceiptListener(ctx context.Context, spec *pldapi.Tra
 
 func (rr *registeredReceiptReceiver) Close() {
 	rr.l.removeReceiver(rr.id)
+}
+
+func (rr *registeredReceiptReceiver) SetActive() {
+	rr.l.setActive(rr)
 }
 
 func (tm *txManager) AddReceiptReceiver(ctx context.Context, name string, r components.ReceiptReceiver) (components.ReceiverCloser, error) {
@@ -521,29 +526,48 @@ func (l *receiptListener) addReceiver(r components.ReceiptReceiver) *registeredR
 		l:               l,
 		ReceiptReceiver: r,
 	}
-	l.receivers = append(l.receivers, registered)
+	l.pendingReceivers = append(l.pendingReceivers, registered)
+
+	return registered
+}
+
+func (l *receiptListener) setActive(receiver *registeredReceiptReceiver) {
+	l.receiverLock.Lock()
+	defer l.receiverLock.Unlock()
+
+	for _, existing := range l.receivers {
+		if existing.id == receiver.id {
+			return // already active
+		}
+	}
+	l.receivers = append(l.receivers, receiver)
+	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, receiver.id)
 
 	select {
 	case l.newReceivers <- true:
 	default:
 	}
-
-	return registered
 }
 
 func (l *receiptListener) removeReceiver(rid uuid.UUID) {
 	l.receiverLock.Lock()
 	defer l.receiverLock.Unlock()
 
-	if len(l.receivers) > 0 {
-		newReceivers := make([]*registeredReceiptReceiver, 0, len(l.receivers)-1)
-		for _, existing := range l.receivers {
-			if existing.id != rid {
-				newReceivers = append(newReceivers, existing)
-			}
-		}
-		l.receivers = newReceivers
+	l.receivers = l.removeReceiverFromList(l.receivers, rid)
+	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, rid)
+}
+
+func (l *receiptListener) removeReceiverFromList(receivers []*registeredReceiptReceiver, rid uuid.UUID) []*registeredReceiptReceiver {
+	if len(receivers) == 0 {
+		return receivers
 	}
+	newReceivers := make([]*registeredReceiptReceiver, 0, len(receivers))
+	for _, existing := range receivers {
+		if existing.id != rid {
+			newReceivers = append(newReceivers, existing)
+		}
+	}
+	return newReceivers
 }
 
 func (l *receiptListener) loadCheckpoint() error {

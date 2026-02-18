@@ -110,10 +110,10 @@ func (c *webSocketConnection) handleCloseAsync(aw *asyncWrapper) {
 	delete(c.asyncInstances, aw.id)
 }
 
-func (c *webSocketConnection) handleNewAsync(ctx context.Context, rpcReq *rpcclient.RPCRequest, ash RPCAsyncHandler) (res *rpcclient.RPCResponse) {
+func (c *webSocketConnection) handleNewAsync(ctx context.Context, rpcReq *rpcclient.RPCRequest, ash RPCAsyncHandler) (res *rpcclient.RPCResponse, afterSend func()) {
 
 	aw := &asyncWrapper{wsc: c, id: uuid.New()}
-	aw.instance, res = ash.HandleStart(ctx, rpcReq, aw)
+	aw.instance, res, afterSend = ash.HandleStart(ctx, rpcReq, aw)
 
 	c.asyncMux.Lock()
 	defer c.asyncMux.Unlock()
@@ -122,7 +122,7 @@ func (c *webSocketConnection) handleNewAsync(ctx context.Context, rpcReq *rpccli
 	if isOK && aw.instance != nil {
 		c.asyncInstances[aw.id] = aw
 	}
-	return res
+	return res, afterSend
 }
 
 func (c *webSocketConnection) handleLifecycle(ctx context.Context, rpcReq *rpcclient.RPCRequest, ash RPCAsyncHandler) *rpcclient.RPCResponse {
@@ -171,6 +171,9 @@ func (c *webSocketConnection) handleMessage(payload []byte) {
 	r := c.server.rpcHandler(c.ctx, bytes.NewBuffer(payload), c)
 	if r.sendRes {
 		c.sendMessage(r.res)
+	}
+	if r.postSend != nil {
+		r.postSend()
 	}
 }
 

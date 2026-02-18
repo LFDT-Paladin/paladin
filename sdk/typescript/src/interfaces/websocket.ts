@@ -8,6 +8,7 @@ import { IPrivacyGroupMessage } from "./privacygroups";
 export interface WebSocketSender {
   send: (json: object) => void;
   ack: (subscription: string) => void;
+  getSubscriptionName: (subscriptionId: string) => string | undefined;
 }
 
 export interface WebSocketConnectCallback {
@@ -25,7 +26,10 @@ export interface WebSocketClientOptions<TMessageTypes extends string> {
   subscriptions?: WebSocketSubscription<TMessageTypes>[];
   logger?: Logger;
   heartbeatInterval?: number;
+  // Initial delay (ms) before first reconnect. With reconnectMaxDelay, doubles each attempt up to the max.
   reconnectDelay?: number;
+  // If set, use exponential backoff up to a maximum delay.
+  reconnectBackoffMaxDelay?: number;
   afterConnect?: WebSocketConnectCallback;
   socketOptions?: WebSocket.ClientOptions | http.ClientRequestArgs;
 }
@@ -33,6 +37,11 @@ export interface WebSocketClientOptions<TMessageTypes extends string> {
 export interface WebSocketSubscription<TMessageTypes extends string> {
   type: TMessageTypes;
   name: string;
+}
+
+export interface WebSocketResult {
+  id: number;
+  result: any;
 }
 
 export interface WebSocketEvent {

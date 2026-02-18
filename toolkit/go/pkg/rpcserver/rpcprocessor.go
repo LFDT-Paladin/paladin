@@ -25,13 +25,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
-func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest, wsc *webSocketConnection) (*rpcclient.RPCResponse, bool) {
+func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest, wsc *webSocketConnection) (*rpcclient.RPCResponse, bool, func()) {
 	if rpcReq.ID == nil {
 		// While the JSON/RPC standard does not strictly require an ID (it strongly discourages use of a null ID),
 		// we choose to make an ID mandatory. We do not enforce the type - it can be a number, string, or even boolean.
 		// However, it cannot be null.
 		err := i18n.NewError(ctx, pldmsgs.MsgJSONRPCMissingRequestID)
-		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
 	}
 
 	var mh *rpcMethodEntry
@@ -42,18 +42,19 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 	}
 	if mh == nil {
 		err := i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnsupportedMethod, rpcReq.Method)
-		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
 	}
 
 	var rpcRes *rpcclient.RPCResponse
+	var afterSend func()
 	if mh.methodType == rpcMethodTypeMethod {
 		rpcRes = mh.handler.Handle(ctx, rpcReq)
 	} else {
 		if wsc == nil {
-			return rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, pldmsgs.MsgJSONRPCAysncNonWSConn, rpcReq.Method), rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+			return rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, pldmsgs.MsgJSONRPCAysncNonWSConn, rpcReq.Method), rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
 		}
 		if mh.methodType == rpcMethodTypeAsyncStart {
-			rpcRes = wsc.handleNewAsync(ctx, rpcReq, mh.async)
+			rpcRes, afterSend = wsc.handleNewAsync(ctx, rpcReq, mh.async)
 		} else {
 			rpcRes = wsc.handleLifecycle(ctx, rpcReq, mh.async)
 		}
@@ -62,5 +63,5 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 	if rpcRes != nil {
 		isOK = rpcRes.Error == nil
 	}
-	return rpcRes, isOK
+	return rpcRes, isOK, afterSend
 }

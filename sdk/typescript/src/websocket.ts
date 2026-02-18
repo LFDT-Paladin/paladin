@@ -6,7 +6,8 @@ import {
   PrivacyGroupWebSocketEvent,
   WebSocketClientOptions,
   WebSocketEvent,
-  WebSocketEventCallback
+  WebSocketEventCallback,
+  WebSocketResult,
 } from "./interfaces/websocket";
 
 abstract class PaladinWebSocketClientBase<
@@ -15,12 +16,14 @@ abstract class PaladinWebSocketClientBase<
 > {
   private logger: Logger;
   private socket: WebSocket | undefined;
-  private closed? = () => {};
   private pingTimer?: NodeJS.Timeout;
   private disconnectTimer?: NodeJS.Timeout;
   private reconnectTimer?: NodeJS.Timeout;
   private disconnectDetected = false;
+  private reconnectAttempts = 0;
   private counter = 1;
+  private subscriptionRequests = new Map<number, string>(); // request ID -> subscription name
+  private activeSubscriptions = new Map<string, string>(); // subscription ID -> subscription name
 
   constructor(
     private options: WebSocketClientOptions<TMessageTypes>,
@@ -31,11 +34,21 @@ abstract class PaladinWebSocketClientBase<
   }
 
   private connect() {
-    // Ensure we've cleaned up any old socket
-    this.close();
+    // Clean up any old socket completely (including all listeners)
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      try {
+        this.socket.close();
+      } catch (e: any) {
+        this.logger.warn(`Failed to close old socket: ${e.message}`);
+      }
+      this.socket = undefined;
+    }
+
+    // Clear any pending reconnect timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
-      delete this.reconnectTimer;
+      this.reconnectTimer = undefined;
     }
 
     const auth =
@@ -47,10 +60,10 @@ abstract class PaladinWebSocketClientBase<
       auth,
       handshakeTimeout: this.options.heartbeatInterval,
     }));
-    this.closed = undefined;
 
     socket
       .on("open", () => {
+        this.reconnectAttempts = 0;
         if (this.disconnectDetected) {
           this.disconnectDetected = false;
           this.logger.log("Connection restored");
@@ -58,10 +71,15 @@ abstract class PaladinWebSocketClientBase<
           this.logger.log("Connected");
         }
         this.schedulePing();
+        this.subscriptionRequests.clear();
+        this.activeSubscriptions.clear();
         for (const sub of this.options.subscriptions ?? []) {
           // Automatically connect subscriptions
-          this.subscribe(sub.type, sub.name);
-          this.logger.log(`Started listening on subscription ${sub.name}`);
+          const id = this.subscribe(sub.type, sub.name);
+          this.subscriptionRequests.set(id, sub.name);
+          this.logger.log(
+            `Requested to start listening on subscription ${sub.name}`
+          );
         }
         if (this.options?.afterConnect !== undefined) {
           this.options.afterConnect(this);
@@ -71,13 +89,9 @@ abstract class PaladinWebSocketClientBase<
         this.logger.error("Error", err.stack);
       })
       .on("close", () => {
-        if (this.closed) {
-          this.logger.log("Closed");
-          this.closed(); // do this after all logging
-        } else {
-          this.disconnectDetected = true;
-          this.reconnect("Closed by peer");
-        }
+        // Note: this is always an unexpected close (direct calls will remove the listeners first)
+        this.disconnectDetected = true;
+        this.reconnect("Closed by peer");
       })
       .on("pong", () => {
         this.logger.debug && this.logger.debug(`WS received pong`);
@@ -100,9 +114,25 @@ abstract class PaladinWebSocketClientBase<
         );
       })
       .on("message", (data) => {
-        const event: TEvent = JSON.parse(data.toString());
-        this.callback(this, event);
+        const event: TEvent | WebSocketResult = JSON.parse(data.toString());
+        if (typeof event === "object" && event !== null && "result" in event) {
+          // Result of a previously sent RPC - check if it's a subscription request
+          const subName = this.subscriptionRequests.get(event.id);
+          if (subName) {
+            const subId = event.result as string;
+            this.logger.log(`Subscription ${subName} assigned ID: ${subId}`);
+            this.subscriptionRequests.delete(event.id);
+            this.activeSubscriptions.set(subId, subName);
+          }
+        } else {
+          // Any other event - pass to the callback
+          this.callback(this, event);
+        }
       });
+  }
+
+  getSubscriptionName(subscriptionId: string) {
+    return this.activeSubscriptions.get(subscriptionId);
   }
 
   private clearPingTimers() {
@@ -132,18 +162,37 @@ abstract class PaladinWebSocketClientBase<
   }
 
   private reconnect(msg: string) {
-    if (!this.reconnectTimer) {
-      this.close();
-      this.logger.error(`Websocket closed: ${msg}`);
-      if (this.options.reconnectDelay === -1) {
-        // do not attempt to reconnect
-      } else {
-        this.reconnectTimer = setTimeout(
-          () => this.connect(),
-          this.options.reconnectDelay ?? 5000
-        );
-      }
+    if (this.reconnectTimer) {
+      // Reconnect already scheduled
+      return;
     }
+
+    this.logger.error(`Websocket closed: ${msg}`);
+    if (this.options.reconnectDelay === -1) {
+      // Reconnection disabled - just clean up
+      this.clearPingTimers();
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        try {
+          this.socket.close();
+        } catch (e: any) {
+          this.logger.warn(`Failed to close websocket: ${e.message}`);
+        }
+        this.socket = undefined;
+      }
+      return;
+    }
+
+    // Compute reconnect delay
+    const baseDelay = this.options.reconnectDelay ?? 2000;
+    const maxDelay = this.options.reconnectBackoffMaxDelay;
+    const delay =
+      maxDelay !== undefined
+        ? Math.min(baseDelay * Math.pow(2, this.reconnectAttempts), maxDelay)
+        : baseDelay;
+
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
   send(json: object) {
@@ -153,31 +202,57 @@ abstract class PaladinWebSocketClientBase<
   }
 
   sendRpc(method: string, params: any[]) {
+    const id = this.counter++;
     this.send({
       jsonrpc: "2.0",
-      id: this.counter++,
+      id,
       method,
       params,
     });
+    return id;
   }
 
   async close(wait?: boolean): Promise<void> {
-    const closedPromise = new Promise<void>((resolve) => {
-      this.closed = resolve;
-    });
     this.clearPingTimers();
-    if (this.socket) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+
+    if (!this.socket) {
+      return;
+    }
+
+    const socket = this.socket;
+    this.socket = undefined;
+
+    // Remove all listeners (disables reconnect on close, etc)
+    socket.removeAllListeners();
+
+    if (wait) {
+      // Add a one-time listener just for this close
+      return new Promise<void>((resolve) => {
+        socket.once("close", () => {
+          this.logger.log("Closed");
+          resolve();
+        });
+        try {
+          socket.close();
+        } catch (e: any) {
+          this.logger.warn(`Failed to close websocket: ${e.message}`);
+          resolve();
+        }
+      });
+    } else {
       try {
-        this.socket.close();
+        socket.close();
       } catch (e: any) {
-        this.logger.warn(`Failed to clean up websocket: ${e.message}`);
+        this.logger.warn(`Failed to close websocket: ${e.message}`);
       }
-      if (wait) await closedPromise;
-      this.socket = undefined;
     }
   }
 
-  abstract subscribe(type: TMessageTypes, name: string): void;
+  abstract subscribe(type: TMessageTypes, name: string): number;
   abstract ack(subscription: string): void;
   abstract nack(subscription: string): void;
 }
@@ -187,7 +262,7 @@ export class PaladinWebSocketClient extends PaladinWebSocketClientBase<
   WebSocketEvent
 > {
   subscribe(type: "receipts" | "blockchainevents", name: string) {
-    this.sendRpc("ptx_subscribe", [type, name]);
+    return this.sendRpc("ptx_subscribe", [type, name]);
   }
 
   ack(subscription: string) {
@@ -204,7 +279,7 @@ export class PrivacyGroupWebSocketClient extends PaladinWebSocketClientBase<
   PrivacyGroupWebSocketEvent
 > {
   subscribe(type: "messages", name: string) {
-    this.sendRpc("pgroup_subscribe", [type, name]);
+    return this.sendRpc("pgroup_subscribe", [type, name]);
   }
 
   ack(subscription: string) {
