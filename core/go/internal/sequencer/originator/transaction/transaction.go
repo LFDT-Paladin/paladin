@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -37,14 +38,16 @@ type assembleRequestFromCoordinator struct {
 	preAssembly             []byte
 }
 
-// Transaction tracks the state of a transaction that is being sent by the local node in originator state.
-type Transaction struct {
-	stateMachine *StateMachine
-	*components.PrivateTransaction
+// OriginatorTransaction tracks the state of a transaction that is being sent by the local node in originator state.
+// It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
+// pt holds the private transaction; it is not embedded so that all modifications must go through this package.
+type OriginatorTransaction struct {
+	sync.RWMutex
+	stateMachine                     *StateMachine
+	pt                               *components.PrivateTransaction
 	engineIntegration                common.EngineIntegration
 	transportWriter                  transport.TransportWriter
-	eventHandler                     func(context.Context, common.Event) error
-	onCleanup                        func(context.Context)
+	queueEventForOriginator          func(context.Context, common.Event)
 	currentDelegate                  string
 	lastDelegatedTime                *common.Time
 	latestAssembleRequest            *assembleRequestFromCoordinator
@@ -60,63 +63,98 @@ func NewTransaction(
 	ctx context.Context,
 	pt *components.PrivateTransaction,
 	transportWriter transport.TransportWriter,
-	eventHandler func(context.Context, common.Event) error,
+	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
-	onCleanup func(context.Context),
-
-) (*Transaction, error) {
+) (*OriginatorTransaction, error) {
 	if pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
 	}
-	txn := &Transaction{
-		PrivateTransaction: pt,
-		engineIntegration:  engineIntegration,
-		transportWriter:    transportWriter,
-		eventHandler:       eventHandler,
-		onCleanup:          onCleanup,
-		metrics:            metrics,
+	txn := &OriginatorTransaction{
+		pt:                      pt,
+		engineIntegration:       engineIntegration,
+		transportWriter:         transportWriter,
+		queueEventForOriginator: queueEventForOriginator,
+		metrics:                 metrics,
 	}
 
-	txn.InitializeStateMachine(State_Initial)
+	txn.initializeStateMachine(State_Initial)
 
 	return txn, nil
 }
 
-func (t *Transaction) Hash(ctx context.Context) (*pldtypes.Bytes32, error) {
-	if t.PrivateTransaction == nil {
+func (t *OriginatorTransaction) GetID() uuid.UUID {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.ID
+}
+
+// GetPrivateTransaction returns the private transaction for code where we really cannot do without the whole struct.
+func (t *OriginatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt
+}
+
+// GetStatus returns the transaction status for external use. Caller may call from any goroutine.
+func (t *OriginatorTransaction) GetStatus(ctx context.Context) components.PrivateTxStatus {
+	t.RLock()
+	defer t.RUnlock()
+	if t.pt == nil {
+		return components.PrivateTxStatus{TxID: "", Status: "unknown"}
+	}
+	return components.PrivateTxStatus{
+		TxID:         t.pt.ID.String(),
+		Status:       t.stateMachine.GetCurrentState().String(),
+		LatestEvent:  t.stateMachine.GetLatestEvent(),
+		Endorsements: t.getEndorsementStatus(ctx),
+		Transaction:  t.pt,
+	}
+}
+
+func (t *OriginatorTransaction) GetHash(ctx context.Context) (*pldtypes.Bytes32, error) {
+	t.RLock()
+	defer t.RUnlock()
+	return t.hashInternal(ctx)
+}
+
+// hashInternal contains the hashing logic; used internally and by the public Hash.
+func (t *OriginatorTransaction) hashInternal(ctx context.Context) (*pldtypes.Bytes32, error) {
+	if t.pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot hash transaction without PrivateTransaction")
 	}
-	if t.PostAssembly == nil {
+	if t.pt.PostAssembly == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot hash transaction without PostAssembly")
 	}
 
-	log.L(ctx).Debugf("hashing transaction %s with %d signatures and %d endorsements", t.ID.String(), len(t.PostAssembly.Signatures), len(t.PostAssembly.Endorsements))
+	log.L(ctx).Debugf("hashing transaction %s with %d signatures and %d endorsements", t.pt.ID.String(), len(t.pt.PostAssembly.Signatures), len(t.pt.PostAssembly.Endorsements))
 
 	// MRW TODO MUST DO - it's not clear is a originator transaction hash if valid without any signatures or endorsements.
 	// After assemble a Pente TX can have just the assembler's endorsement (not everyone else's), so comparing hashes with > 1 endorsements will fail
-	// if len(t.PostAssembly.Signatures) == 0 {
+	// if len(t.pt.PostAssembly.Signatures) == 0 {
 	// 	return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, " cannot hash transaction without at least one Signature")
 	// }
 
 	hash := sha3.NewLegacyKeccak256()
-	for _, signature := range t.PostAssembly.Signatures {
+	for _, signature := range t.pt.PostAssembly.Signatures {
 		hash.Write(signature.Payload)
 	}
 	var h32 pldtypes.Bytes32
 	_ = hash.Sum(h32[0:0])
 	return &h32, nil
-
 }
 
-func (t *Transaction) GetEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
-	endorsementRequestStates := make([]components.PrivateTxEndorsementStatus, len(t.PostAssembly.AttestationPlan))
-	for i, attRequest := range t.PostAssembly.AttestationPlan {
+func (t *OriginatorTransaction) getEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
+	if t.pt == nil || t.pt.PostAssembly == nil {
+		return nil
+	}
+	endorsementRequestStates := make([]components.PrivateTxEndorsementStatus, len(t.pt.PostAssembly.AttestationPlan))
+	for i, attRequest := range t.pt.PostAssembly.AttestationPlan {
 		if attRequest.AttestationType == prototk.AttestationType_ENDORSE {
 			for _, party := range attRequest.Parties {
 				found := false
 				endorsementRequestState := &components.PrivateTxEndorsementStatus{Party: party, EndorsementReceived: false}
-				for _, endorsement := range t.PostAssembly.Endorsements {
+				for _, endorsement := range t.pt.PostAssembly.Endorsements {
 					log.L(ctx).Debugf("existing endorsement from party %s", endorsement.Verifier.Lookup)
 					found = endorsement.Name == attRequest.Name &&
 						party == endorsement.Verifier.Lookup &&
@@ -137,33 +175,38 @@ func ptrTo[T any](v T) *T {
 	return &v
 }
 
-//TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
-// We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
-
-func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.currentState
+func (t *OriginatorTransaction) GetCurrentState() State {
+	t.RLock()
+	defer t.RUnlock()
+	return t.stateMachine.GetCurrentState()
 }
 
-func (t *Transaction) GetLatestEvent() string {
-	return t.stateMachine.latestEvent
+func (t *OriginatorTransaction) GetLatestEvent() string {
+	t.RLock()
+	defer t.RUnlock()
+	return t.stateMachine.GetLatestEvent()
 }
 
-func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {
+func (t *OriginatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
+	t.RLock()
+	defer t.RUnlock()
 	return t.signerAddress
 }
 
-func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+func (t *OriginatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+	t.RLock()
+	defer t.RUnlock()
 	return t.latestSubmissionHash
 }
 
-func (t *Transaction) GetNonce() *uint64 {
+func (t *OriginatorTransaction) GetNonce() *uint64 {
+	t.RLock()
+	defer t.RUnlock()
 	return t.nonce
 }
 
-func (t *Transaction) GetLastDelegatedTime() *common.Time {
+func (t *OriginatorTransaction) GetLastDelegatedTime() *common.Time {
+	t.RLock()
+	defer t.RUnlock()
 	return t.lastDelegatedTime
-}
-
-func (t *Transaction) UpdateLastDelegatedTime() {
-	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
 }

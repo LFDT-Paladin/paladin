@@ -16,7 +16,6 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBaseEvent_GetTransactionID(t *testing.T) {
@@ -34,16 +32,6 @@ func TestBaseEvent_GetTransactionID(t *testing.T) {
 		TransactionID: txID,
 	}
 	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestBaseEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	event := &BaseEvent{}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err, "BaseEvent.ApplyToTransaction should be a no-op and not return an error")
 }
 
 func TestBaseEvent_GetEventTime(t *testing.T) {
@@ -147,33 +135,6 @@ func TestDelegatedEvent_Fields(t *testing.T) {
 	assert.Equal(t, coordinator, event.Coordinator)
 }
 
-func TestDelegatedEvent_ApplyToTransaction_Success(t *testing.T) {
-	ctx := context.Background()
-	coordinator := "coordinator@testNode"
-	event := &DelegatedEvent{
-		Coordinator: coordinator,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, coordinator, txn.currentDelegate)
-}
-
-func TestDelegatedEvent_ApplyToTransaction_EmptyCoordinator(t *testing.T) {
-	ctx := context.Background()
-	event := &DelegatedEvent{
-		Coordinator: "",
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "transaction delegate cannot be set to an empty node identity")
-}
-
 func TestAssembleRequestReceivedEvent_Type(t *testing.T) {
 	event := &AssembleRequestReceivedEvent{}
 	assert.Equal(t, Event_AssembleRequestReceived, event.Type())
@@ -210,34 +171,6 @@ func TestAssembleRequestReceivedEvent_Fields(t *testing.T) {
 	assert.Equal(t, preAssembly, event.PreAssembly)
 }
 
-func TestAssembleRequestReceivedEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	requestID := uuid.New()
-	coordinator := "coordinator@testNode"
-	blockHeight := int64(100)
-	stateLocksJSON := []byte(`{"locks": []}`)
-	preAssembly := []byte(`{"pre": "assembly"}`)
-
-	event := &AssembleRequestReceivedEvent{
-		RequestID:               requestID,
-		Coordinator:             coordinator,
-		CoordinatorsBlockHeight: blockHeight,
-		StateLocksJSON:          stateLocksJSON,
-		PreAssembly:             preAssembly,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, coordinator, txn.currentDelegate)
-	require.NotNil(t, txn.latestAssembleRequest)
-	assert.Equal(t, requestID, txn.latestAssembleRequest.requestID)
-	assert.Equal(t, blockHeight, txn.latestAssembleRequest.coordinatorsBlockHeight)
-	assert.Equal(t, stateLocksJSON, txn.latestAssembleRequest.stateLocksJSON)
-	assert.Equal(t, preAssembly, txn.latestAssembleRequest.preAssembly)
-}
-
 func TestAssembleAndSignSuccessEvent_Type(t *testing.T) {
 	event := &AssembleAndSignSuccessEvent{}
 	assert.Equal(t, Event_AssembleAndSignSuccess, event.Type())
@@ -258,29 +191,11 @@ func TestAssembleAndSignSuccessEvent_Fields(t *testing.T) {
 			TransactionID: txID,
 		},
 		PostAssembly: postAssembly,
-		RequestID:   requestID,
+		RequestID:    requestID,
 	}
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
 	assert.Equal(t, requestID, event.RequestID)
-}
-
-func TestAssembleAndSignSuccessEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{}
-
-	event := &AssembleAndSignSuccessEvent{
-		PostAssembly: postAssembly,
-		RequestID:    requestID,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
-	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
 }
 
 func TestAssembleRevertEvent_Type(t *testing.T) {
@@ -303,29 +218,11 @@ func TestAssembleRevertEvent_Fields(t *testing.T) {
 			TransactionID: txID,
 		},
 		PostAssembly: postAssembly,
-		RequestID:   requestID,
+		RequestID:    requestID,
 	}
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
 	assert.Equal(t, requestID, event.RequestID)
-}
-
-func TestAssembleRevertEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{}
-
-	event := &AssembleRevertEvent{
-		PostAssembly: postAssembly,
-		RequestID:    requestID,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
-	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
 }
 
 func TestAssembleParkEvent_Type(t *testing.T) {
@@ -353,24 +250,6 @@ func TestAssembleParkEvent_Fields(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
 	assert.Equal(t, requestID, event.RequestID)
-}
-
-func TestAssembleParkEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	requestID := uuid.New()
-	postAssembly := &components.TransactionPostAssembly{}
-
-	event := &AssembleParkEvent{
-		PostAssembly: postAssembly,
-		RequestID:    requestID,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
-	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
 }
 
 func TestAssembleErrorEvent_Type(t *testing.T) {
@@ -436,20 +315,6 @@ func TestCoordinatorChangedEvent_Fields(t *testing.T) {
 	assert.Equal(t, coordinator, event.Coordinator)
 }
 
-func TestCoordinatorChangedEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	coordinator := "newCoordinator@testNode"
-	event := &CoordinatorChangedEvent{
-		Coordinator: coordinator,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, coordinator, txn.currentDelegate)
-}
-
 func TestDispatchedEvent_Type(t *testing.T) {
 	event := &DispatchedEvent{}
 	assert.Equal(t, Event_Dispatched, event.Type())
@@ -471,20 +336,6 @@ func TestDispatchedEvent_Fields(t *testing.T) {
 	}
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, signerAddress, event.SignerAddress)
-}
-
-func TestDispatchedEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	signerAddress := *pldtypes.RandAddress()
-	event := &DispatchedEvent{
-		SignerAddress: signerAddress,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, &signerAddress, txn.signerAddress)
 }
 
 func TestNonceAssignedEvent_Type(t *testing.T) {
@@ -511,23 +362,6 @@ func TestNonceAssignedEvent_Fields(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, signerAddress, event.SignerAddress)
 	assert.Equal(t, nonce, event.Nonce)
-}
-
-func TestNonceAssignedEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	signerAddress := *pldtypes.RandAddress()
-	nonce := uint64(42)
-	event := &NonceAssignedEvent{
-		SignerAddress: signerAddress,
-		Nonce:         nonce,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, &signerAddress, txn.signerAddress)
-	assert.Equal(t, &nonce, txn.nonce)
 }
 
 func TestSubmittedEvent_Type(t *testing.T) {
@@ -557,26 +391,6 @@ func TestSubmittedEvent_Fields(t *testing.T) {
 	assert.Equal(t, signerAddress, event.SignerAddress)
 	assert.Equal(t, nonce, event.Nonce)
 	assert.Equal(t, submissionHash, event.LatestSubmissionHash)
-}
-
-func TestSubmittedEvent_ApplyToTransaction(t *testing.T) {
-	ctx := context.Background()
-	signerAddress := *pldtypes.RandAddress()
-	nonce := uint64(42)
-	submissionHash := pldtypes.RandBytes32()
-	event := &SubmittedEvent{
-		SignerAddress:        signerAddress,
-		Nonce:                nonce,
-		LatestSubmissionHash: submissionHash,
-	}
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	err := event.ApplyToTransaction(ctx, txn)
-	assert.NoError(t, err)
-	assert.Equal(t, &signerAddress, txn.signerAddress)
-	assert.Equal(t, &nonce, txn.nonce)
-	assert.Equal(t, &submissionHash, txn.latestSubmissionHash)
 }
 
 func TestResumedEvent_Type(t *testing.T) {
@@ -664,14 +478,6 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 
 		// Verify that GetEventTime() is callable
 		_ = event.GetEventTime()
-
-		// Verify that ApplyToTransaction() is callable
-		builder := NewTransactionBuilderForTesting(t, State_Initial)
-		txn, _ := builder.BuildWithMocks()
-		err := event.ApplyToTransaction(context.Background(), txn)
-		// Some events may return errors (like DelegatedEvent with empty coordinator)
-		// but the method should be callable
-		_ = err
 	}
 }
 
@@ -710,4 +516,3 @@ func TestEvent_GetEventTime(t *testing.T) {
 		assert.Equal(t, eventTime, event.GetEventTime())
 	}
 }
-

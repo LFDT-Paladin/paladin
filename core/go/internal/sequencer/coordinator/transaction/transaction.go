@@ -18,10 +18,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -29,35 +27,27 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"golang.org/x/crypto/sha3"
+	"github.com/google/uuid"
 )
 
-type TransactionState string
+// CoordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
+// It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
+// pt holds the private transaction; it is not embedded so that all modifications go through this package.
+type CoordinatorTransaction struct {
+	sync.RWMutex
 
-const (
-	TransactionState_Pooled                TransactionState = "TransactionState_Pooled"
-	TransactionState_Assembled             TransactionState = "TransactionState_Assembled"
-	TransactionState_ConfirmingForDispatch TransactionState = "TransactionState_ConfirmingForDispatch"
-	TransactionState_Dispatched            TransactionState = "TransactionState_Dispatched"
-	TransactionState_Submitted             TransactionState = "TransactionState_Submitted"
-	TransactionState_Rejected              TransactionState = "TransactionState_Rejected"
-	TransactionState_ConfirmedSuccess      TransactionState = "TransactionState_ConfirmedSuccess"
-	TransactionState_ConfirmedReverted     TransactionState = "TransactionState_ConfirmedReverted"
-)
+	pt *components.PrivateTransaction
 
-// Transaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
-type Transaction struct {
-	*components.PrivateTransaction
+	stateMachine *StateMachine
+
 	originator             string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode         string // The node the originator is running on e.g. "node1"
-	originatorIdentity     string // The member ID e.g. "member1"
 	signerAddress          *pldtypes.EthAddress
 	domainSigningIdentity  string                                    // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	submitterSelection     prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
 	dynamicSigningIdentity bool                                      // True if the signing identity isn't fixed by domain config or endorser constraints
 	latestSubmissionHash   *pldtypes.Bytes32
 	nonce                  *uint64
-	stateMachine           *StateMachine
 	revertReason           pldtypes.HexBytes
 	revertTime             *pldtypes.Timestamp
 
@@ -68,17 +58,12 @@ type Transaction struct {
 	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
 	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
 	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
-	onCleanup                                        func(context.Context)                           // function to be called when the transaction is removed from memory, e.g. when it is confirmed or reverted
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex
 	pendingPreDispatchRequest                        *common.IdempotentRequest
 	chainedTxAlreadyDispatched                       bool
 	latestError                                      string
 	dependencies                                     *pldapi.TransactionDependencies
-	previousTransaction                              *Transaction
-	nextTransaction                                  *Transaction
-	addToPool                                        func(context.Context, *Transaction) // To put ourselves to the back of the pooled transactions queue
-	onReadyForDispatch                               func(context.Context, *Transaction)
 
 	//Configuration
 	requestTimeout        common.Duration
@@ -87,26 +72,23 @@ type Transaction struct {
 	finalizingGracePeriod int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 
 	// Dependencies
-	clock              common.Clock
-	transportWriter    transport.TransportWriter
-	grapher            Grapher
-	engineIntegration  common.EngineIntegration
-	syncPoints         syncpoints.SyncPoints
-	notifyOfTransition OnStateTransition
-	eventHandler       func(context.Context, common.Event) error
-	metrics            metrics.DistributedSequencerMetrics
+	clock                    common.Clock
+	transportWriter          transport.TransportWriter
+	grapher                  Grapher
+	engineIntegration        common.EngineIntegration
+	syncPoints               syncpoints.SyncPoints
+	queueEventForCoordinator func(context.Context, common.Event)
+	metrics                  metrics.DistributedSequencerMetrics
 }
-
-// TODO think about naming of this compared to the OnTransitionTo func in the state machine
-type OnStateTransition func(ctx context.Context, t *Transaction, to, from State) // function to be invoked when transitioning into this state.  Called after transitioning event has been applied and any actions have fired
 
 func NewTransaction(
 	ctx context.Context,
 	originator string,
 	pt *components.PrivateTransaction,
+	hasChainedTransaction bool,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
-	eventHandler func(context.Context, common.Event) error,
+	queueEventForCoordinator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	requestTimeout,
@@ -116,158 +98,150 @@ func NewTransaction(
 	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-	addToPool func(context.Context, *Transaction),
-	onReadyForDispatch func(context.Context, *Transaction),
-	onStateTransition OnStateTransition,
-	onCleanup func(context.Context),
-) (*Transaction, error) {
-	originatorIdentity, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
+) (*CoordinatorTransaction, error) {
+	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
 		return nil, err
 	}
-	txn := &Transaction{
-		originator:             originator,
-		originatorIdentity:     originatorIdentity,
-		originatorNode:         originatorNode,
-		PrivateTransaction:     pt,
-		transportWriter:        transportWriter,
-		clock:                  clock,
-		eventHandler:           eventHandler,
-		engineIntegration:      engineIntegration,
-		syncPoints:             syncPoints,
-		domainSigningIdentity:  domainSigningIdentity,
-		dynamicSigningIdentity: true, // Assume no nonce protection for dispatch ordering until we determine otherwise
-		submitterSelection:     submitterSelection,
-		requestTimeout:         requestTimeout,
-		assembleTimeout:        assembleTimeout,
-		finalizingGracePeriod:  finalizingGracePeriod,
-		dependencies:           &pldapi.TransactionDependencies{},
-		grapher:                grapher,
-		metrics:                metrics,
-		addToPool:              addToPool,
-		notifyOfTransition:     onStateTransition,
-		onReadyForDispatch:     onReadyForDispatch,
-		onCleanup:              onCleanup,
+	txn := &CoordinatorTransaction{
+		originator:                 originator,
+		originatorNode:             originatorNode,
+		pt:                         pt,
+		transportWriter:            transportWriter,
+		clock:                      clock,
+		queueEventForCoordinator:   queueEventForCoordinator,
+		engineIntegration:          engineIntegration,
+		syncPoints:                 syncPoints,
+		domainSigningIdentity:      domainSigningIdentity,
+		dynamicSigningIdentity:     true, // Assume no nonce protection for dispatch ordering until we determine otherwise
+		requestTimeout:             requestTimeout,
+		assembleTimeout:            assembleTimeout,
+		finalizingGracePeriod:      finalizingGracePeriod,
+		dependencies:               &pldapi.TransactionDependencies{},
+		grapher:                    grapher,
+		metrics:                    metrics,
+		chainedTxAlreadyDispatched: hasChainedTransaction,
 	}
-	txn.InitializeStateMachine(State_Initial)
+	txn.initializeStateMachine(State_Initial)
 	grapher.Add(context.Background(), txn)
 	return txn, nil
 }
 
-func (t *Transaction) cleanup(ctx context.Context) error {
-	// Call any cleanup function passed in by the sequencer
-	t.onCleanup(ctx)
-
-	// Then clean ourselves up
-	return t.grapher.Forget(t.ID)
+// This function is external but doesn't not need a lock as ints are atomic
+func (t *CoordinatorTransaction) GetCurrentState() State {
+	t.RLock()
+	defer t.RUnlock()
+	return t.stateMachine.GetCurrentState()
 }
 
-func (t *Transaction) GetSignerAddress() *pldtypes.EthAddress {
+// These functions are all called externally and return data that can change so always take
+// a read lock. A consumer could also take a read lock if they wanted to be certain that a group of
+// read functions are atomic
+
+func (t *CoordinatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
+	t.RLock()
+	defer t.RUnlock()
 	return t.signerAddress
 }
 
-func (t *Transaction) GetNonce() *uint64 {
+func (t *CoordinatorTransaction) GetNonce() *uint64 {
+	t.RLock()
+	defer t.RUnlock()
 	return t.nonce
 }
 
-func (t *Transaction) GetState() State {
-	return t.stateMachine.currentState
-}
-
-func (t *Transaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+func (t *CoordinatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+	t.RLock()
+	defer t.RUnlock()
 	return t.latestSubmissionHash
 }
 
-func (t *Transaction) GetRevertReason() pldtypes.HexBytes {
+func (t *CoordinatorTransaction) GetRevertReason() pldtypes.HexBytes {
+	t.RLock()
+	defer t.RUnlock()
 	return t.revertReason
 }
 
-// Hash method of Transaction
-func (t *Transaction) Hash(ctx context.Context) (*pldtypes.Bytes32, error) {
-	if t.PrivateTransaction == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
-	}
-	if t.PostAssembly == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PostAssembly")
-	}
-
-	// MRW TODO - MUST DO - this was relying on only signatures being present, but Pente contracts reject transactions that have both signatures and endorsements.
-	// if len(t.PostAssembly.Signatures) == 0 {
-	// 	return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without at least one Signature")
-	// }
-
-	hash := sha3.NewLegacyKeccak256()
-
-	if len(t.PostAssembly.Signatures) != 0 {
-		for _, signature := range t.PostAssembly.Signatures {
-			hash.Write(signature.Payload)
-		}
-	}
-
-	var h32 pldtypes.Bytes32
-	_ = hash.Sum(h32[0:0])
-	return &h32, nil
-
-}
-
-// SignatureAttestationName is a method of Transaction that returns the name of the attestation in the attestation plan that is a signature
-func (t *Transaction) SignatureAttestationName() (string, error) {
-	for _, attRequest := range t.PostAssembly.AttestationPlan {
-		if attRequest.AttestationType == prototk.AttestationType_SIGN {
-			return attRequest.Name, nil
-		}
-	}
-	return "", nil
-}
-
-func (t *Transaction) SetChainedTxInProgress() {
-	t.chainedTxAlreadyDispatched = true
-}
-
-func (t *Transaction) Originator() string {
+func (t *CoordinatorTransaction) Originator() string {
+	t.RLock()
+	defer t.RUnlock()
 	return t.originator
 }
 
-func (t *Transaction) OriginatorNode() string {
-	return t.originatorNode
+func (t *CoordinatorTransaction) GetErrorCount() int {
+	t.RLock()
+	defer t.RUnlock()
+	return t.errorCount
 }
 
-func (t *Transaction) OriginatorIdentity() string {
-	return t.originatorIdentity
+// GetPrivateTransaction returns the private transaction for code where we really cannot do without the whole struct.
+// Where possible, consumers should use the getters for individual values which then become immutable outside of this struct as
+// returning the pointer to the whole struct opens to the door to the possibility of modifications outside of the state machine.
+// TODO: Ideally there would be an interface around *components.PrivateTransaction to allow consumers more complete read only
+// access.
+func (t *CoordinatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt
 }
 
-func (d *Transaction) OutputStateIDs(_ context.Context) []string {
+func (t *CoordinatorTransaction) GetID() uuid.UUID {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.ID
+}
 
-	//We use the output states here not the OutputStatesPotential because it is not possible for another transaction
+func (t *CoordinatorTransaction) GetDomain() string {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.Domain
+}
+
+func (t *CoordinatorTransaction) GetContractAddress() pldtypes.EthAddress {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.Address
+}
+
+func (t *CoordinatorTransaction) GetTransactionSpecification() *prototk.TransactionSpecification {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.PreAssembly.TransactionSpecification
+}
+
+func (t *CoordinatorTransaction) GetOriginalSender() string {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.PreAssembly.TransactionSpecification.From
+}
+
+func (t *CoordinatorTransaction) GetOutputStateIDs() []pldtypes.HexBytes {
+	t.RLock()
+	defer t.RUnlock()
+	// We use the output states here not the OutputStatesPotential because it is not possible for another transaction
 	// to spend a state unless it has been written to the state store and at that point we have the state ID
-	outputStateIDs := make([]string, len(d.PostAssembly.OutputStates))
-	for i, outputState := range d.PostAssembly.OutputStates {
-		outputStateIDs[i] = outputState.ID.String()
+	outputStateIDs := make([]pldtypes.HexBytes, len(t.pt.PostAssembly.OutputStates))
+	for i, outputState := range t.pt.PostAssembly.OutputStates {
+		outputStateIDs[i] = outputState.ID
 	}
 	return outputStateIDs
 }
 
-func (d *Transaction) InputStateIDs(_ context.Context) []string {
-
-	inputStateIDs := make([]string, len(d.PostAssembly.InputStates))
-	for i, inputState := range d.PostAssembly.InputStates {
-		inputStateIDs[i] = inputState.ID.String()
-	}
-	return inputStateIDs
+func (t *CoordinatorTransaction) HasPreparedPrivateTransaction() bool {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.PreparedPrivateTransaction != nil
 }
 
-func (d *Transaction) Txn() *components.PrivateTransaction {
-	return d.PrivateTransaction
+func (t *CoordinatorTransaction) HasPreparedPublicTransaction() bool {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.PreparedPublicTransaction != nil
 }
 
-//TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
-// We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
-
-func (t *Transaction) GetCurrentState() State {
-	return t.stateMachine.currentState
-}
-
-func (t *Transaction) GetErrorCount() int {
-	return t.errorCount
+func (t *CoordinatorTransaction) GetSigner() string {
+	t.RLock()
+	defer t.RUnlock()
+	return t.pt.Signer
 }

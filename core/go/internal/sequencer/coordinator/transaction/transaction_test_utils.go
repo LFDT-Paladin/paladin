@@ -225,7 +225,7 @@ type TransactionBuilderForTesting struct {
 	fakeEngineIntegration              *common.FakeEngineIntegrationForTesting
 	syncPoints                         syncpoints.SyncPoints
 	grapher                            Grapher
-	txn                                *Transaction
+	txn                                *CoordinatorTransaction
 	requestTimeout                     int
 	assembleTimeout                    int
 	heartbeatIntervalsSinceStateChange int
@@ -265,6 +265,10 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		builder.latestSubmissionHash = &latestSubmissionHash
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
+	case State_SubmissionPrepared:
+		// Emulates having received CollectedEvent; signerAddress is required when processing SubmittedEvent (which sends to originator)
+		builder.signerAddress = pldtypes.RandAddress()
+		fallthrough
 	case State_Blocked:
 		fallthrough
 	case State_Confirming_Dispatchable:
@@ -330,6 +334,12 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
+// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Submitted/State_Dispatched). Overrides any default.
+func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
+	b.latestSubmissionHash = &hash
+	return b
+}
+
 func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }
@@ -357,7 +367,7 @@ type transactionDependencyFakes struct {
 	SyncPoints          syncpoints.SyncPoints
 }
 
-func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *transactionDependencyFakes) {
+func (b *TransactionBuilderForTesting) BuildWithMocks() (*CoordinatorTransaction, *transactionDependencyFakes) {
 	mocks := &transactionDependencyFakes{
 		SentMessageRecorder: b.sentMessageRecorder,
 		Clock:               b.fakeClock,
@@ -367,7 +377,7 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *transact
 	return b.Build(), mocks
 }
 
-func (b *TransactionBuilderForTesting) Build() *Transaction {
+func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 	ctx := context.Background()
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
@@ -380,10 +390,11 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		ctx,
 		b.originator.identityLocator,
 		privateTransaction,
+		false, // hasChainedTransaction
 		b.sentMessageRecorder,
 		b.fakeClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
+		func(ctx context.Context, event common.Event) {
+			// No-op event handler for tests
 		},
 		b.fakeEngineIntegration,
 		b.syncPoints,
@@ -394,10 +405,6 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))
@@ -427,7 +434,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	//enter the current state
 	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
 	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn)
+		err := onTransitionFunction(ctx, b.txn, nil)
 		if err != nil {
 			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
 		}
@@ -436,7 +443,7 @@ func (b *TransactionBuilderForTesting) Build() *Transaction {
 	b.txn.signerAddress = b.signerAddress
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
-	b.txn.stateMachine.currentState = b.state
+	b.txn.stateMachine.CurrentState = b.state
 	b.txn.dynamicSigningIdentity = false
 	return b.txn
 
@@ -446,7 +453,7 @@ func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *En
 
 	return &EndorsedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.GetID(),
 		},
 		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
 		Endorsement: b.privateTransactionBuilder.BuildEndorsement(endorserIndex),
@@ -459,7 +466,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 	attReqName := fmt.Sprintf("endorse-%d", endorserIndex)
 	return &EndorsedRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.GetID(),
 		},
 		RevertReason:           "some reason for rejection",
 		AttestationRequestName: attReqName,

@@ -21,21 +21,31 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
+func action_UpdateSigningIdentity(_ context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+	txn.updateSigningIdentity()
+	return nil
+}
+
+func guard_HasDynamicSigningIdentity(_ context.Context, txn *CoordinatorTransaction) bool {
+	return txn.dynamicSigningIdentity
+}
+
 // The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
-func (t *Transaction) updateSigningIdentity() {
-	if t.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
-		for _, endorsement := range t.PostAssembly.Endorsements {
+func (t *CoordinatorTransaction) updateSigningIdentity() {
+	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
+		for _, endorsement := range t.pt.PostAssembly.Endorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
-					t.Signer = endorsement.Verifier.Lookup
+					t.pt.Signer = endorsement.Verifier.Lookup
 					t.dynamicSigningIdentity = false
-					log.L(context.Background()).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.ID.String(), t.Signer)
+					log.L(context.Background()).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.pt.ID.String(), t.pt.Signer)
 					return
 				}
 			}
@@ -43,7 +53,7 @@ func (t *Transaction) updateSigningIdentity() {
 	}
 }
 
-func (t *Transaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
+func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
 	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
 
 	// Whether or not we can safely dispatch this transaction's dependents is partly based on if the base-ledger is providing any ordering protection.
@@ -51,45 +61,40 @@ func (t *Transaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
 	// (or later) states we can let the dependent transactions proceed. For dynamic signing keys there is no such base-ledger ordering guarantee so we
 	// must wait for the TX to get all the way to confirmed state.
 	if !dynamicSigningIdentity {
-		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.ID.String())
+		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
-		notReady := t.GetState() != State_Confirmed &&
-			t.GetState() != State_Submitted &&
-			t.GetState() != State_Dispatched &&
-			t.GetState() != State_Ready_For_Dispatch
+		notReady := t.stateMachine.CurrentState != State_Confirmed &&
+			t.stateMachine.CurrentState != State_Submitted &&
+			t.stateMachine.CurrentState != State_Dispatched &&
+			t.stateMachine.CurrentState != State_Ready_For_Dispatch
 		if notReady {
-			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.ID.String())
+			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
 		}
 		return notReady
 	}
 
-	log.L(context.Background()).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.ID.String())
+	log.L(context.Background()).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.pt.ID.String())
 	// Dynamic signing address - we must want for the dependency to be confirmed before we can dispatch
-	notReady := t.GetState() != State_Confirmed
+	notReady := t.stateMachine.CurrentState != State_Confirmed
 	if notReady {
-		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.ID.String())
+		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.pt.ID.String())
 	}
 	return notReady
 }
 
+func guard_HasDependenciesNotReady(ctx context.Context, txn *CoordinatorTransaction) bool {
+	return txn.hasDependenciesNotReady(ctx)
+}
+
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
-func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
-
-	if t.dynamicSigningIdentity {
-		// Update the signing identity based on the latest endorsement. As soon as we know we have a fixed signing identity we can stop checking
-		t.updateSigningIdentity()
-	}
-
+func (t *CoordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bool {
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	if t.previousTransaction != nil && t.previousTransaction.dependentsMustWait(t.dynamicSigningIdentity) {
-		return true
-	}
 
 	dependencies := t.dependencies.DependsOn
-	if t.PreAssembly != nil && t.PreAssembly.Dependencies != nil && t.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies = append(dependencies, t.PreAssembly.Dependencies.DependsOn...)
+	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
+		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
 	}
 
 	for _, dependencyID := range dependencies {
@@ -107,26 +112,22 @@ func (t *Transaction) hasDependenciesNotReady(ctx context.Context) bool {
 	return false
 }
 
-func (t *Transaction) traceDispatch(ctx context.Context) {
+func (t *CoordinatorTransaction) traceDispatch(ctx context.Context) {
 	// Log transaction signatures
-	for _, signature := range t.PostAssembly.Signatures {
-		log.L(ctx).Tracef("Transaction %s has signature %+v", t.ID.String(), signature)
+	for _, signature := range t.pt.PostAssembly.Signatures {
+		log.L(ctx).Tracef("Transaction %s has signature %+v", t.pt.ID.String(), signature)
 	}
 
 	// Log transaction endorsements
-	for _, endorsement := range t.PostAssembly.Endorsements {
-		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.ID.String(), endorsement)
+	for _, endorsement := range t.pt.PostAssembly.Endorsements {
+		log.L(ctx).Tracef("Transaction %s has endorsement %+v", t.pt.ID.String(), endorsement)
 	}
 }
 
-func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context.Context) error {
-
+func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context) error {
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}
-
-	// Nudge the sequencer to process this TX
-	t.onReadyForDispatch(ctx, t)
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
@@ -137,12 +138,12 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.ID,
+					TransactionID: dependent.pt.ID,
 				},
 			})
 
 			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
 				return err
 			}
 		}
@@ -150,71 +151,39 @@ func (t *Transaction) notifyDependentsOfReadinessAndQueueForDispatch(ctx context
 	return nil
 }
 
-func (t *Transaction) notifyDependentsOfConfirmationAndQueueForDispatch(ctx context.Context) error {
-
-	if log.IsTraceEnabled() {
-		t.traceDispatch(ctx)
-	}
-
-	// this function is called when the transaction enters the confirmed state
-	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range t.dependencies.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		} else {
-			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.ID,
-				},
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.ID, t.ID, err)
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (t *Transaction) allocateSigningIdentity(ctx context.Context) {
+func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
 
 	// Generate a dynamic signing identity unless Paladin config asserts something specific to use
 	if t.domainSigningIdentity != "" {
-		log.L(ctx).Debugf("Domain has a fixed signing identity for TX %s - using that", t.ID.String())
-		t.Signer = t.domainSigningIdentity
+		log.L(ctx).Debugf("Domain has a fixed signing identity for TX %s - using that", t.pt.ID.String())
+		t.pt.Signer = t.domainSigningIdentity
 		t.dynamicSigningIdentity = false
 		return
 	}
 
-	log.L(ctx).Debugf("No fixed or endorsement-specific signing identity for TX %s - allocating a dynamic signing identity", t.ID.String())
-	t.Signer = fmt.Sprintf("domains.%s.submit.%s", t.Address.String(), uuid.New())
+	log.L(ctx).Debugf("No fixed or endorsement-specific signing identity for TX %s - allocating a dynamic signing identity", t.pt.ID.String())
+	t.pt.Signer = fmt.Sprintf("domains.%s.submit.%s", t.pt.Address.String(), uuid.New())
 }
 
-func action_NotifyDependentsOfReadiness(ctx context.Context, txn *Transaction) error {
+func action_NotifyDependentsOfReadiness(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	// Make sure we have a signer identity allocated if no endorsement constraint has defined one
-	if txn.Signer == "" {
+	if txn.pt.Signer == "" {
 		txn.allocateSigningIdentity(ctx)
 	}
 
-	return txn.notifyDependentsOfReadinessAndQueueForDispatch(ctx)
+	return txn.notifyDependentsOfReadiness(ctx)
 }
 
 // Function HasDependenciesNotIn checks if the transaction has any that are not in the provided ignoreList array.
-func (t *Transaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*Transaction) bool {
+func (t *CoordinatorTransaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*CoordinatorTransaction) bool {
 
-	var ignore = func(t *Transaction) bool {
+	var ignore = func(t *CoordinatorTransaction) bool {
 		for _, ignoreTxn := range ignoreList {
-			if ignoreTxn.ID == t.ID {
+			if ignoreTxn.pt.ID == t.pt.ID {
 				return true
 			}
 		}
 		return false
-	}
-
-	// Dependencies as per the order provided when the transaction was delegated
-	if t.previousTransaction != nil && !ignore(t.previousTransaction) {
-		return true
 	}
 
 	// Dependencies calculated at the time of assembly based on the state(s) being spent
@@ -222,8 +191,8 @@ func (t *Transaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*Tr
 
 	//augment with the dependencies explicitly declared in the pre-assembly
 
-	if t.PreAssembly.Dependencies != nil && t.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies.DependsOn = append(dependencies.DependsOn, t.PreAssembly.Dependencies.DependsOn...)
+	if t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
+		dependencies.DependsOn = append(dependencies.DependsOn, t.pt.PreAssembly.Dependencies.DependsOn...)
 	}
 
 	for _, dependencyID := range dependencies.DependsOn {

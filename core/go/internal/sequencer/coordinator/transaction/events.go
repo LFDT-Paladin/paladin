@@ -37,19 +37,19 @@ func (e *BaseCoordinatorEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
-// TransactionReceivedEvent is "emitted" when the coordinator receives a transaction.
+// TransactionDelegatedEvent is "emitted" when the coordinator receives a transaction.
 // Feels slightly artificial to model this as an event because it happens every time we create a transaction object
 // but rather than bury the logic in NewTransaction func, modeling this event allows us to define the initial state transition rules in the same declarative stateDefinitions structure as all other state transitions
-type ReceivedEvent struct {
+type DelegatedEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*ReceivedEvent) Type() EventType {
-	return Event_Received
+func (*DelegatedEvent) Type() EventType {
+	return Event_Delegated
 }
 
-func (*ReceivedEvent) TypeString() string {
-	return "Event_Received"
+func (*DelegatedEvent) TypeString() string {
+	return "Event_Delegated"
 }
 
 // TransactionSelectedEvent
@@ -228,7 +228,7 @@ func (*SubmittedEvent) TypeString() string {
 // ConfirmedEvent
 type ConfirmedEvent struct {
 	BaseCoordinatorEvent
-	Nonce        uint64
+	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
 }

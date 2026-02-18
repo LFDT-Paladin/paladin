@@ -16,21 +16,23 @@ package transaction
 
 import (
 	"context"
+
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_ResendAssembleSuccessResponse(ctx context.Context, txn *Transaction) error {
-	return action_SendAssembleSuccessResponse(ctx, txn)
+func action_ResendAssembleSuccessResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+	return action_SendAssembleSuccessResponse(ctx, txn, nil)
 }
 
-func action_ResendAssembleRevertResponse(ctx context.Context, txn *Transaction) error {
-	return action_SendAssembleRevertResponse(ctx, txn)
+func action_ResendAssembleRevertResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+	return action_SendAssembleRevertResponse(ctx, txn, nil)
 }
 
-func action_ResendAssembleParkResponse(ctx context.Context, txn *Transaction) error {
-	return action_SendAssembleParkResponse(ctx, txn)
+func action_ResendAssembleParkResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+	return action_SendAssembleParkResponse(ctx, txn, nil)
 }
 
 // True if the most recent assemble request has the same idempotency key as the most recent fulfilled assemble request
-func guard_AssembleRequestMatchesPreviousResponse(ctx context.Context, txn *Transaction) bool {
+func guard_AssembleRequestMatchesPreviousResponse(ctx context.Context, txn *OriginatorTransaction) bool {
 	return txn.latestAssembleRequest.requestID == txn.latestFulfilledAssembleRequestID
 }

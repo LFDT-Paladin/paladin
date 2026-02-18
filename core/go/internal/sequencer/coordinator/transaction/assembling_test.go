@@ -42,17 +42,17 @@ func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	revertReason := "test revert reason"
-	txn.Domain = "test-domain"
+	txn.pt.Domain = "test-domain"
 
 	// Create a mock sync points that accepts the call with mock.Anything for callbacks
 	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
 	// Use mock.Anything for function callbacks to allow any function
 	mockSyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.Domain,
+		txn.pt.Domain,
 		pldtypes.EthAddress{},
 		txn.originator,
-		txn.ID,
+		txn.pt.ID,
 		revertReason,
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
@@ -116,11 +116,41 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 	txn.syncPoints = mockSyncPoints
-	txn.Domain = "test-domain"
+	txn.pt.Domain = "test-domain"
 
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
 	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
+	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+}
+
+func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	revertReason := "assembler reverted"
+	postAssembly := &components.TransactionPostAssembly{
+		AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+		RevertReason:   &revertReason,
+	}
+	requestID := uuid.New()
+
+	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return()
+	txn.syncPoints = mockSyncPoints
+	txn.pt.Domain = "test-domain"
+
+	event := &AssembleRevertResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		PostAssembly:         postAssembly,
+		RequestID:            requestID,
+	}
+
+	err := action_AssembleRevertResponse(ctx, txn, event)
+	require.NoError(t, err)
+
+	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
+	mockSyncPoints.AssertExpectations(t)
 }
 
 func Test_applyPostAssembly_ParkResult(t *testing.T) {
@@ -133,11 +163,10 @@ func Test_applyPostAssembly_ParkResult(t *testing.T) {
 
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
 	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
+	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
 }
 
 func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
-	t.Skip("Skipping - mock expectation issue needs investigation")
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	postAssembly := &components.TransactionPostAssembly{
@@ -151,53 +180,28 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 	txn.syncPoints = mockSyncPoints
-	txn.Domain = "test-domain"
+	txn.pt.Domain = "test-domain"
 
 	// Mock event handler to track revert event
-	revertEventReceived := false
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
-		if _, ok := event.(*AssembleRevertResponseEvent); ok {
-			revertEventReceived = true
-		}
-		return nil
+	var capturedEvent common.Event
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
+		capturedEvent = event
 	}
 
-	// Mock engine integration to return error using EXPECT for exact matching
-	// The error should be returned by applyPostAssembly
-	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.PrivateTransaction).Return(errors.New("write lock error"))
+	// Mock engine integration to return error so we hit the writeLockStates error path
+	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(errors.New("write lock error"))
 
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
-	// The function should return the error even though it also calls revertTransactionFailedAssembly
-	assert.Error(t, err, "applyPostAssembly should return error when WriteLockStatesForTransaction fails")
-	assert.True(t, revertEventReceived, "revert event should have been sent to handler")
-}
 
-func Test_applyPostAssembly_Success_WriteLockStatesError_EventHandlerError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	postAssembly := &components.TransactionPostAssembly{
-		AssemblyResult: prototk.AssembleTransactionResponse_OK,
-	}
-	requestID := uuid.New()
-
-	// Mock engine integration to return error
-	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.PrivateTransaction).Return(errors.New("write lock error"))
-
-	// Mock sync points for revertTransactionFailedAssembly
-	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
-	mockSyncPoints.On("QueueTransactionFinalize",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return()
-	txn.syncPoints = mockSyncPoints
-	txn.Domain = "test-domain"
-
-	// Mock event handler to return error
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
-		return errors.New("handler error")
-	}
-
-	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "write lock error")
+	// Assert state: revert event was queued so state machine can transition
+	require.NotNil(t, capturedEvent)
+	revertEv, ok := capturedEvent.(*AssembleRevertResponseEvent)
+	require.True(t, ok)
+	assert.Equal(t, requestID, revertEv.RequestID)
+	assert.Equal(t, txn.pt.ID, revertEv.TransactionID)
+	mockSyncPoints.AssertExpectations(t)
 }
 
 func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
@@ -268,14 +272,14 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
 	assert.NoError(t, err)
-	assert.Equal(t, postAssembly, txn.PostAssembly)
+	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
 }
 
 func Test_sendAssembleRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Mock engine integration
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
@@ -283,13 +287,11 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 
 	// Mock transport writer - use mock.Anything for idempotency key since it's generated dynamically
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	// Mock event handler
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
-		return nil
-	}
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {}
 
 	err := txn.sendAssembleRequest(ctx)
 	assert.NoError(t, err)
@@ -302,7 +304,7 @@ func Test_sendAssembleRequest_GetStateLocksError(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Mock engine integration to return error
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return(nil, errors.New("state locks error"))
@@ -315,7 +317,7 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Mock engine integration
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
@@ -329,7 +331,7 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Mock engine integration
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
@@ -337,7 +339,7 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 
 	// Mock transport writer to return error - use mock.Anything for idempotency key
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(errors.New("send error"))
 
 	err := txn.sendAssembleRequest(ctx)
@@ -357,13 +359,13 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request first
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -373,7 +375,7 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err = txn.nudgeAssembleRequest(ctx)
@@ -393,13 +395,13 @@ func Test_assembleTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request but don't send it (so FirstRequestTime is nil)
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(errors.New("send error")) // Error prevents FirstRequestTime from being set
 
 	_ = txn.sendAssembleRequest(ctx)
@@ -412,13 +414,13 @@ func Test_assembleTimeoutExceeded_NotExpired(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request and send it successfully
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -433,13 +435,13 @@ func Test_assembleTimeoutExceeded_Expired(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request and send it successfully
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -463,7 +465,7 @@ func Test_isNotAssembled_NotAssembledStates(t *testing.T) {
 	}
 
 	for _, state := range states {
-		txn.stateMachine.currentState = state
+		txn.stateMachine.CurrentState = state
 		assert.True(t, txn.isNotAssembled(), "state %s should be not assembled", state)
 	}
 }
@@ -481,15 +483,14 @@ func Test_isNotAssembled_AssembledStates(t *testing.T) {
 	}
 
 	for _, state := range states {
-		txn.stateMachine.currentState = state
+		txn.stateMachine.CurrentState = state
 		assert.False(t, txn.isNotAssembled(), "state %s should be assembled", state)
 	}
 }
 
-func Test_notifyDependentsOfAssembled_NoNextTransaction_NoDependents(t *testing.T) {
+func Test_notifyDependentsOfAssembled_NoDependents(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.nextTransaction = nil
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
@@ -498,59 +499,14 @@ func Test_notifyDependentsOfAssembled_NoNextTransaction_NoDependents(t *testing.
 	assert.NoError(t, err)
 }
 
-func Test_notifyDependentsOfAssembled_WithNextTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.nextTransaction = txn2
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-
-	err := txn1.notifyDependentsOfAssembled(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfAssembled_WithNextTransaction_HandleEventError(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.nextTransaction = txn2
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-
-	// Initialize metrics for txn2 to avoid nil pointer when HandleEvent transitions states
-	if txn2.metrics == nil {
-		txn2.metrics = metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	}
-
-	// Mock HandleEvent by setting up txn2 to fail when processing DependencyAssembledEvent
-	// When DependencyAssembledEvent is processed in State_PreAssembly_Blocked, it transitions to State_Pooled
-	// which calls action_initializeDependencies. We can make that fail by removing PreAssembly.
-	txn2.stateMachine.currentState = State_PreAssembly_Blocked
-	txn2.PreAssembly = nil // This will cause action_initializeDependencies to fail
-
-	// Call notifyDependentsOfAssembled - it should return the error from HandleEvent
-	err := txn1.notifyDependentsOfAssembled(ctx)
-	assert.Error(t, err)
-	// Verify the error is returned (the error will be from action_initializeDependencies failing)
-	assert.NotNil(t, err)
-}
-
 func Test_notifyDependentsOfAssembled_WithDependent_HandleEventError(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 
-	txn1.nextTransaction = nil
 	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.ID},
+		PrereqOf: []uuid.UUID{txn2.pt.ID},
 	}
 	// Ensure txn2 has dependencies initialized
 	if txn2.dependencies == nil {
@@ -565,8 +521,8 @@ func Test_notifyDependentsOfAssembled_WithDependent_HandleEventError(t *testing.
 	// Mock HandleEvent by setting up txn2 to fail when processing DependencyAssembledEvent
 	// When DependencyAssembledEvent is processed in State_PreAssembly_Blocked, it transitions to State_Pooled
 	// which calls action_initializeDependencies. We can make that fail by removing PreAssembly.
-	txn2.stateMachine.currentState = State_PreAssembly_Blocked
-	txn2.PreAssembly = nil // This will cause action_initializeDependencies to fail
+	txn2.stateMachine.CurrentState = State_PreAssembly_Blocked
+	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail
 
 	// Call notifyDependentsOfAssembled - it should return the error from HandleEvent
 	err := txn1.notifyDependentsOfAssembled(ctx)
@@ -581,9 +537,8 @@ func Test_notifyDependentsOfAssembled_WithDependents(t *testing.T) {
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 
-	txn1.nextTransaction = txn2
 	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.ID},
+		PrereqOf: []uuid.UUID{txn2.pt.ID},
 	}
 	// Ensure txn2 has dependencies initialized
 	if txn2.dependencies == nil {
@@ -600,7 +555,6 @@ func Test_notifyDependentsOfAssembled_DependentNotFound(t *testing.T) {
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	missingID := uuid.New()
 
-	txn1.nextTransaction = nil
 	txn1.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{missingID},
 	}
@@ -615,7 +569,7 @@ func Test_notifyDependentsOfRevert_NoDependents(t *testing.T) {
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	err := txn.notifyDependentsOfRevert(ctx)
 	assert.NoError(t, err)
@@ -630,9 +584,9 @@ func Test_notifyDependentsOfRevert_WithDependenciesFromPreAssembly(t *testing.T)
 	txn1.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
-	txn1.PreAssembly = &components.TransactionPreAssembly{
+	txn1.pt.PreAssembly = &components.TransactionPreAssembly{
 		Dependencies: &pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txn2.ID},
+			PrereqOf: []uuid.UUID{txn2.pt.ID},
 		},
 	}
 
@@ -649,7 +603,7 @@ func Test_notifyDependentsOfRevert_DependentNotFound(t *testing.T) {
 	txn1.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{missingID},
 	}
-	txn1.PreAssembly = &components.TransactionPreAssembly{}
+	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	err := txn1.notifyDependentsOfRevert(ctx)
 	assert.Error(t, err)
@@ -662,16 +616,16 @@ func Test_notifyDependentsOfRevert_WithDependent_HandleEventError(t *testing.T) 
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 
 	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.ID},
+		PrereqOf: []uuid.UUID{txn2.pt.ID},
 	}
-	txn1.PreAssembly = &components.TransactionPreAssembly{}
+	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	if txn2.metrics == nil {
 		txn2.metrics = metrics.InitMetrics(ctx, prometheus.NewRegistry())
 	}
 
-	txn2.stateMachine.currentState = State_Blocked
-	txn2.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
+	txn2.stateMachine.CurrentState = State_Blocked
+	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
 
 	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
 	err := txn1.notifyDependentsOfRevert(ctx)
@@ -683,7 +637,7 @@ func Test_notifyDependentsOfRevert_WithDependent_HandleEventError(t *testing.T) 
 func Test_calculatePostAssembleDependencies_NilPostAssembly(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.PostAssembly = nil
+	txn.pt.PostAssembly = nil
 
 	err := txn.calculatePostAssembleDependencies(ctx)
 	assert.Error(t, err)
@@ -693,7 +647,7 @@ func Test_calculatePostAssembleDependencies_NoInputOrReadStates(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 	txn, _ := newTransactionForUnitTesting(t, grapher)
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		InputStates: []*components.FullState{},
 		ReadStates:  []*components.FullState{},
 	}
@@ -708,7 +662,7 @@ func Test_calculatePostAssembleDependencies_StateWithNoMinter(t *testing.T) {
 	grapher := NewGrapher(ctx)
 	txn, _ := newTransactionForUnitTesting(t, grapher)
 	stateID := pldtypes.HexBytes(uuid.New().String())
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		InputStates: []*components.FullState{
 			{ID: stateID},
 		},
@@ -734,7 +688,7 @@ func Test_calculatePostAssembleDependencies_StateWithMinter(t *testing.T) {
 
 	// Create dependent transaction
 	txn, _ := newTransactionForUnitTesting(t, grapher)
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		InputStates: []*components.FullState{
 			{ID: stateID},
 		},
@@ -744,8 +698,8 @@ func Test_calculatePostAssembleDependencies_StateWithMinter(t *testing.T) {
 
 	err = txn.calculatePostAssembleDependencies(ctx)
 	assert.NoError(t, err)
-	assert.Contains(t, txn.dependencies.DependsOn, minterTxn.ID)
-	assert.Contains(t, minterTxn.dependencies.PrereqOf, txn.ID)
+	assert.Contains(t, txn.dependencies.DependsOn, minterTxn.pt.ID)
+	assert.Contains(t, minterTxn.dependencies.PrereqOf, txn.pt.ID)
 }
 
 func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
@@ -755,7 +709,7 @@ func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.grapher = mockGrapher
 	stateID := pldtypes.HexBytes(uuid.New().String())
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		InputStates: []*components.FullState{
 			{ID: stateID},
 		},
@@ -786,7 +740,7 @@ func Test_calculatePostAssembleDependencies_DuplicateDependency(t *testing.T) {
 
 	// Create dependent transaction with both states
 	txn, _ := newTransactionForUnitTesting(t, grapher)
-	txn.PostAssembly = &components.TransactionPostAssembly{
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
 		InputStates: []*components.FullState{
 			{ID: stateID1},
 			{ID: stateID2},
@@ -799,14 +753,14 @@ func Test_calculatePostAssembleDependencies_DuplicateDependency(t *testing.T) {
 	assert.NoError(t, err)
 	// Should only have one dependency entry
 	assert.Len(t, txn.dependencies.DependsOn, 1)
-	assert.Equal(t, minterTxn.ID, txn.dependencies.DependsOn[0])
+	assert.Equal(t, minterTxn.pt.ID, txn.dependencies.DependsOn[0])
 }
 
 func Test_writeLockStates_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
-	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.PrivateTransaction).Return(nil)
+	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(nil)
 
 	err := txn.writeLockStates(ctx)
 	assert.NoError(t, err)
@@ -816,7 +770,7 @@ func Test_writeLockStates_Error(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
-	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.PrivateTransaction).Return(errors.New("write error"))
+	mocks.engineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(errors.New("write error"))
 
 	err := txn.writeLockStates(ctx)
 	assert.Error(t, err)
@@ -835,13 +789,13 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -861,13 +815,13 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -900,13 +854,13 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Ma
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -937,29 +891,34 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
-	err := action_SendAssembleRequest(ctx, txn)
+	err := action_SendAssembleRequest(ctx, txn, nil)
 	assert.NoError(t, err)
+	// Assert state: pending request and timer schedules were set
+	assert.NotNil(t, txn.pendingAssembleRequest)
+	assert.NotNil(t, txn.cancelAssembleTimeoutSchedule)
+	assert.NotNil(t, txn.cancelAssembleRequestTimeoutSchedule)
+	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request first
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -969,23 +928,24 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
-	err = action_NudgeAssembleRequest(ctx, txn)
+	err = action_NudgeAssembleRequest(ctx, txn, nil)
 	assert.NoError(t, err)
 }
 
 func Test_action_NotifyDependentsOfAssembled_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.nextTransaction = nil
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
 
-	err := action_NotifyDependentsOfAssembled(ctx, txn)
+	err := action_NotifyDependentsOfAssembled(ctx, txn, nil)
 	assert.NoError(t, err)
+	// State: no dependents, so no HandleEvent calls; dependencies unchanged
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
@@ -994,10 +954,12 @@ func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
-	err := action_NotifyDependentsOfRevert(ctx, txn)
+	err := action_NotifyDependentsOfRevert(ctx, txn, nil)
 	assert.NoError(t, err)
+	// State: no dependents, so no HandleEvent calls; dependencies unchanged
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_NotifyOfConfirmation_Success(t *testing.T) {
@@ -1007,10 +969,12 @@ func Test_action_NotifyOfConfirmation_Success(t *testing.T) {
 		PrereqOf: []uuid.UUID{},
 	}
 
-	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.ID).Return()
+	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 
-	err := action_NotifyOfConfirmation(ctx, txn)
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
 	assert.NoError(t, err)
+	mocks.engineIntegration.AssertExpectations(t)
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
 func Test_action_IncrementAssembleErrors_Success(t *testing.T) {
@@ -1018,7 +982,7 @@ func Test_action_IncrementAssembleErrors_Success(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	initialCount := txn.errorCount
 
-	err := action_IncrementAssembleErrors(ctx, txn)
+	err := action_IncrementAssembleErrors(ctx, txn, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, initialCount+1, txn.errorCount)
 }
@@ -1027,13 +991,13 @@ func Test_guard_AssembleTimeoutExceeded_NotExceeded(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -1047,13 +1011,13 @@ func Test_guard_AssembleTimeoutExceeded_Exceeded(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	// Create a pending request
 	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	err := txn.sendAssembleRequest(ctx)
@@ -1070,16 +1034,16 @@ func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	revertReason := "test revert reason"
-	txn.Domain = "test-domain"
+	txn.pt.Domain = "test-domain"
 
 	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
 	onCommitCalled := false
 	mockSyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.Domain,
+		txn.pt.Domain,
 		pldtypes.EthAddress{},
 		txn.originator,
-		txn.ID,
+		txn.pt.ID,
 		revertReason,
 		mock.Anything,
 		mock.Anything,
@@ -1100,17 +1064,17 @@ func Test_revertTransactionFailedAssembly_OnRollbackRetry(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	revertReason := "test revert reason"
-	txn.Domain = "test-domain"
+	txn.pt.Domain = "test-domain"
 
 	mockSyncPoints := syncpoints.NewMockSyncPoints(t)
 	callCount := 0
 	maxCalls := 2
 	mockSyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.Domain,
+		txn.pt.Domain,
 		pldtypes.EthAddress{},
 		txn.originator,
-		txn.ID,
+		txn.pt.ID,
 		revertReason,
 		mock.Anything,
 		mock.Anything,
@@ -1145,11 +1109,10 @@ func Test_sendAssembleRequest_RequestTimeoutCallback(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		mockTransportWriter,
 		realClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		mockEngineIntegration,
 		mockSyncPoints,
 		realClock.Duration(1), // Very short timeout for testing
@@ -1159,30 +1122,25 @@ func Test_sendAssembleRequest_RequestTimeoutCallback(t *testing.T) {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {},
-		func(context.Context, *Transaction) {},
-		func(ctx context.Context, txn *Transaction, from, to State) {},
-		func(context.Context) {},
 	)
 	require.NoError(t, err)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	mockEngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mockEngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mockTransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	timeoutEventReceived := false
 	var mu sync.Mutex
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
 		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
 			mu.Lock()
 			timeoutEventReceived = true
 			mu.Unlock()
 		}
-		return nil
 	}
 
 	err = txn.sendAssembleRequest(ctx)
@@ -1209,11 +1167,10 @@ func Test_sendAssembleRequest_RequestTimeoutCallback_Error(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		mockTransportWriter,
 		realClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		mockEngineIntegration,
 		mockSyncPoints,
 		realClock.Duration(1), // Very short timeout for testing
@@ -1223,29 +1180,22 @@ func Test_sendAssembleRequest_RequestTimeoutCallback_Error(t *testing.T) {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {},
-		func(context.Context, *Transaction) {},
-		func(ctx context.Context, txn *Transaction, from, to State) {},
-		func(context.Context) {},
 	)
 	require.NoError(t, err)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	mockEngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mockEngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mockTransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
-	handlerError := errors.New("handler error")
 	errorLogged := false
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
 		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
 			errorLogged = true
-			return handlerError
 		}
-		return nil
 	}
 
 	err = txn.sendAssembleRequest(ctx)
@@ -1270,11 +1220,10 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		mockTransportWriter,
 		realClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		mockEngineIntegration,
 		mockSyncPoints,
 		realClock.Duration(1000),
@@ -1284,30 +1233,25 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {},
-		func(context.Context, *Transaction) {},
-		func(ctx context.Context, txn *Transaction, from, to State) {},
-		func(context.Context) {},
 	)
 	require.NoError(t, err)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	mockEngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mockEngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mockTransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
 	timeoutEventReceived := false
 	var mu sync.Mutex
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
 		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
 			mu.Lock()
 			timeoutEventReceived = true
 			mu.Unlock()
 		}
-		return nil
 	}
 
 	err = txn.sendAssembleRequest(ctx)
@@ -1334,11 +1278,10 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		mockTransportWriter,
 		realClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
+		func(ctx context.Context, event common.Event) {},
 		mockEngineIntegration,
 		mockSyncPoints,
 		realClock.Duration(1000),
@@ -1348,29 +1291,22 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
 		nil,
-		func(context.Context, *Transaction) {},
-		func(context.Context, *Transaction) {},
-		func(ctx context.Context, txn *Transaction, from, to State) {},
-		func(context.Context) {},
 	)
 	require.NoError(t, err)
 	txn.originatorNode = "node1"
-	txn.PreAssembly = &components.TransactionPreAssembly{}
+	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	mockEngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
 	mockEngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
 	mockTransportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.ID, mock.Anything, txn.PreAssembly, []byte("{}"), int64(100),
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
 
-	handlerError := errors.New("handler error")
 	errorLogged := false
-	txn.eventHandler = func(ctx context.Context, event common.Event) error {
+	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
 		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
 			errorLogged = true
-			return handlerError
 		}
-		return nil
 	}
 
 	err = txn.sendAssembleRequest(ctx)

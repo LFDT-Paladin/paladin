@@ -40,12 +40,12 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		&components.PrivateTransaction{
 			ID: uuid.New(),
 		},
+		false,
 		transportWriter,
 		clock,
-		func(ctx context.Context, event common.Event) error {
+		func(ctx context.Context, event common.Event) {
 			//don't expect any events during initialize
 			assert.Failf(t, "unexpected event", "%T", event)
-			return nil
 		},
 		engineIntegration,
 		syncPoints,
@@ -56,13 +56,53 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		NewGrapher(ctx),
 		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, txn)
 
-	assert.Equal(t, State_Initial, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, State_Initial, txn.stateMachine.CurrentState, "current state is %s", txn.stateMachine.CurrentState.String())
+}
+
+func Test_State_String_AllStates(t *testing.T) {
+	tests := []struct {
+		state  State
+		expect string
+	}{
+		{State_Initial, "State_Initial"},
+		{State_Pooled, "State_Pooled"},
+		{State_PreAssembly_Blocked, "State_PreAssembly_Blocked"},
+		{State_Assembling, "State_Assembling"},
+		{State_Reverted, "State_Reverted"},
+		{State_Endorsement_Gathering, "State_Endorsement_Gathering"},
+		{State_Blocked, "State_Blocked"},
+		{State_Confirming_Dispatchable, "State_Confirming_Dispatchable"},
+		{State_Ready_For_Dispatch, "State_Ready_For_Dispatch"},
+		{State_Dispatched, "State_Dispatched"},
+		{State_SubmissionPrepared, "State_SubmissionPrepared"},
+		{State_Submitted, "State_Submitted"},
+		{State_Confirmed, "State_Confirmed"},
+		{State_Final, "State_Final"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expect, func(t *testing.T) {
+			assert.Equal(t, tt.expect, tt.state.String())
+		})
+	}
+}
+
+func Test_State_String_Unknown(t *testing.T) {
+	// State value beyond defined constants
+	s := State(99)
+	assert.Contains(t, s.String(), "Unknown")
+	assert.Contains(t, s.String(), "99")
+}
+
+func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.heartbeatIntervalsSinceStateChange = 2
+
+	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, txn, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, txn.heartbeatIntervalsSinceStateChange)
 }

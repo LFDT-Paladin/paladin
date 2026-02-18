@@ -139,7 +139,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	assembleRequestEvent := &originatorTransaction.AssembleRequestReceivedEvent{}
 	assembleRequestEvent.TransactionID = uuid.MustParse(assembleRequest.TransactionId)
 	assembleRequestEvent.RequestID = uuid.MustParse(assembleRequest.AssembleRequestId)
-	assembleRequestEvent.Coordinator = seq.GetCoordinator().GetActiveCoordinatorNode(ctx, true)
+	assembleRequestEvent.Coordinator = message.FromNode
 	assembleRequestEvent.CoordinatorsBlockHeight = assembleRequest.BlockHeight
 	assembleRequestEvent.StateLocksJSON = assembleRequest.StateLocks
 	assembleRequestEvent.PreAssembly = assembleRequest.PreAssembly
@@ -424,13 +424,11 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	}
 
 	transactionDelegatedEvent := &coordinator.TransactionsDelegatedEvent{}
+	transactionDelegatedEvent.FromNode = message.FromNode
 	transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
 	transactionDelegatedEvent.Transactions = append(transactionDelegatedEvent.Transactions, privateTransaction)
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.BlockHeight)
 	transactionDelegatedEvent.EventTime = time.Now()
-
-	// Anyone who delegates a transaction to us is a candidate originator and should be sent heartbeats for TX confirmation processing
-	seq.GetCoordinator().UpdateOriginatorNodePool(ctx, message.FromNode)
 
 	seq.GetCoordinator().QueueEvent(ctx, transactionDelegatedEvent)
 }

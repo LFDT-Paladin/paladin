@@ -42,27 +42,30 @@ func (e *FinalizeEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
-func (e *FinalizeEvent) ApplyToTransaction(ctx context.Context, t *Transaction) error {
-	// No internal state changes needed - this event just triggers the transition to State_Final
+func action_NonceAssigned(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+	e := event.(*NonceAssignedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
 	return nil
 }
 
-// action_QueueFinalizeEvent queues a FinalizeEvent to trigger cleanup.
-// This is called when entering State_Confirmed or State_Reverted.
-func action_QueueFinalizeEvent(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.ID.String())
-	event := &FinalizeEvent{
-		TransactionID: txn.ID,
-	}
-	return txn.eventHandler(ctx, event)
+func action_Submitted(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+	e := event.(*SubmittedEvent)
+	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
+
+	t.nonce = &e.Nonce
+	t.latestSubmissionHash = &e.LatestSubmissionHash
+	return nil
 }
 
-// action_Cleanup removes the transaction from memory.
-// This is called when entering State_Final.
-func action_Cleanup(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_Cleanup - cleaning up originator transaction %s", txn.ID.String())
-	if txn.onCleanup != nil {
-		txn.onCleanup(ctx)
+// action_QueueFinalizeEvent queues a FinalizeEvent to the originator; the originator routes it back to this transaction.
+// This is called when entering State_Confirmed or State_Reverted.
+func action_QueueFinalizeEvent(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.pt.ID.String())
+	event := &FinalizeEvent{
+		TransactionID: txn.pt.ID,
 	}
+	txn.queueEventForOriginator(ctx, event)
 	return nil
 }

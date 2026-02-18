@@ -17,18 +17,34 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_SendPreDispatchResponse(ctx context.Context, txn *Transaction) error {
+func action_Delegated(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+	e := event.(*DelegatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
+	}
+	t.currentDelegate = e.Coordinator
+	t.updateLastDelegatedTime()
+	return nil
+}
+
+func (t *OriginatorTransaction) updateLastDelegatedTime() {
+	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
+}
+
+func action_SendPreDispatchResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
 	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
 	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
-	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.PreAssembly.TransactionSpecification)
+	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
 }
 
 // Validate that the assemble request matches the current delegate
-func validator_AssembleRequestMatches(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_AssembleRequestMatches(ctx context.Context, txn *OriginatorTransaction, event common.Event) (bool, error) {
 	assembleRequestEvent, ok := event.(*AssembleRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *AssembleRequestReceivedEvent, got %T", event)
@@ -40,27 +56,25 @@ func validator_AssembleRequestMatches(ctx context.Context, txn *Transaction, eve
 
 }
 
-func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context, txn *OriginatorTransaction, event common.Event) (bool, error) {
 	preDispatchRequestEvent, ok := event.(*PreDispatchRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *PreDispatchRequestReceivedEvent, got %T", event)
 		return false, nil
 	}
-	txnHash, err := txn.Hash(ctx)
+	txnHash, err := txn.hashInternal(ctx)
 	if err != nil {
 		log.L(ctx).Errorf("error hashing transaction: %s", err)
 		return false, err
 	}
 	if preDispatchRequestEvent.Coordinator != txn.currentDelegate {
-		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Expected coordinator %s, got %s", txn.ID.String(), txn.currentDelegate, preDispatchRequestEvent.Coordinator)
+		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Expected coordinator %s, got %s", txn.pt.ID.String(), txn.currentDelegate, preDispatchRequestEvent.Coordinator)
 		return false, nil
 	}
 	if !txnHash.Equals(preDispatchRequestEvent.PostAssemblyHash) {
-		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Transaction hash does not match.", txn.ID.String())
+		log.L(ctx).Debugf("DispatchConfirmationRequest invalid for transaction %s.  Transaction hash does not match.", txn.pt.ID.String())
 		return false, nil
 	}
 
-	// If validation passed, store the request ID to use in the response
-	txn.latestPreDispatchRequestID = preDispatchRequestEvent.RequestID
 	return true, nil
 }

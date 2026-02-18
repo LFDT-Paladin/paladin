@@ -16,7 +16,6 @@ package transaction
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -26,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -38,7 +37,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing
 	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -50,7 +49,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) 
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -62,7 +61,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testi
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -74,7 +73,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T
 	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
+func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -86,62 +85,7 @@ func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *te
 	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestAction_Cleanup_Success(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-
-	// Add transaction to grapher so we can verify it's removed
-	grapher.Add(ctx, txn)
-
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
-
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
-	require.NoError(t, err)
-
-	// Verify onCleanup was called
-	assert.True(t, cleanupCalled, "onCleanup should have been called")
-
-	// Verify transaction was removed from grapher
-	assert.Nil(t, grapher.TransactionByID(ctx, txn.ID), "Transaction should be removed from grapher")
-}
-
-func TestAction_Cleanup_ForgetError(t *testing.T) {
-	ctx := context.Background()
-	// Create a transaction first to get its ID
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Create a mock grapher that returns an error
-	mockGrapher := NewMockGrapher(t)
-	expectedError := errors.New("forget error")
-	mockGrapher.EXPECT().Forget(txn.ID).Return(expectedError)
-
-	// Set the mock grapher on the transaction
-	txn.grapher = mockGrapher
-
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
-
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
-
-	// Verify error is returned
-	assert.Error(t, err)
-	assert.Equal(t, expectedError, err)
-
-	// Verify onCleanup was still called (cleanup should call onCleanup before grapher.Forget)
-	assert.True(t, cleanupCalled, "onCleanup should have been called even if Forget returns error")
-}
-
-func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
@@ -149,24 +93,24 @@ func TestAction_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *t
 	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
 	mockSyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.Domain,
+		txn.pt.Domain,
 		pldtypes.EthAddress{},
 		txn.originator,
-		txn.ID,
+		txn.pt.ID,
 		"originator reported transaction as unknown",
 		mock.Anything, // onSuccess callback
 		mock.Anything, // onError callback
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify QueueTransactionFinalize was called
 	mockSyncPoints.AssertExpectations(t)
 }
 
-func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
@@ -183,9 +127,65 @@ func TestAction_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t 
 	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn)
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify the cancel function was called
 	assert.True(t, cancelCalled, "cancelAssembleTimeoutSchedule should have been called")
+}
+
+func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	var onSuccessCalled bool
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		txn.pt.Domain,
+		pldtypes.EthAddress{},
+		txn.originator,
+		txn.pt.ID,
+		"originator reported transaction as unknown",
+		mock.Anything,
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		onSuccess := args.Get(6).(func(context.Context))
+		onSuccess(ctx)
+		onSuccessCalled = true
+	}).Return(nil)
+
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, onSuccessCalled)
+	mockSyncPoints.AssertExpectations(t)
+}
+
+func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	callCount := 0
+	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
+	mockSyncPoints.On("QueueTransactionFinalize",
+		ctx,
+		txn.pt.Domain,
+		pldtypes.EthAddress{},
+		txn.originator,
+		txn.pt.ID,
+		"originator reported transaction as unknown",
+		mock.Anything,
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		callCount++
+		if callCount == 1 {
+			onError := args.Get(7).(func(context.Context, error))
+			onError(ctx, assert.AnError)
+		}
+	}).Return(nil)
+
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, callCount, 1)
+	mockSyncPoints.AssertExpectations(t)
 }

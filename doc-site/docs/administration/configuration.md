@@ -787,11 +787,14 @@
 | blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |
 | closingGracePeriod | Grace period for closing operations | `int` | `4` |
+| coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
+| coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `10` |
 | delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | heartbeatThreshold | Heartbeat threshold | `int` | - |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
+| originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |

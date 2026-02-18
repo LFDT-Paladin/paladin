@@ -22,14 +22,18 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
+func action_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*TransactionConfirmedEvent)
+	return o.confirmTransaction(ctx, e.Hash, e.RevertReason)
+}
+
 func (o *originator) confirmTransaction(
 	ctx context.Context,
-	From *pldtypes.EthAddress,
-	nonce uint64,
 	hash pldtypes.Bytes32,
 	revertReason pldtypes.HexBytes,
 ) error {
@@ -71,23 +75,23 @@ func (o *originator) confirmTransaction(
 	if revertReason.String() == "" {
 		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed success event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	} else {
 		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 			RevertReason: revertReason,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed revert event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling confirmed revert event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
@@ -97,8 +101,9 @@ func (o *originator) confirmTransaction(
 	return nil
 
 }
+
 func guard_HasUnconfirmedTransactions(ctx context.Context, o *originator) bool {
 	return len(
-		o.getTransactionsNotInStates(ctx, []transaction.State{transaction.State_Confirmed}),
+		o.getTransactionsNotInStates([]transaction.State{transaction.State_Confirmed}),
 	) > 0
 }

@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAction_RecordRevert(t *testing.T) {
+func Test_action_recordRevert_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -34,7 +34,7 @@ func TestAction_RecordRevert(t *testing.T) {
 	assert.Nil(t, txn.revertTime)
 
 	// Call action_recordRevert
-	err := action_recordRevert(ctx, txn)
+	err := action_recordRevert(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify revertTime is set
@@ -42,7 +42,7 @@ func TestAction_RecordRevert(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), txn.revertTime.Time(), 1*time.Second)
 }
 
-func TestAction_InitializeDependencies(t *testing.T) {
+func Test_action_initializeDependencies_Success(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -50,7 +50,7 @@ func TestAction_InitializeDependencies(t *testing.T) {
 	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher)
 	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.ID
+	dependencyID := dependencyTxn.pt.ID
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
 	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
@@ -59,33 +59,33 @@ func TestAction_InitializeDependencies(t *testing.T) {
 	txn := txnBuilder.Build()
 
 	// Verify PreAssembly exists
-	require.NotNil(t, txn.PreAssembly)
-	require.NotNil(t, txn.PreAssembly.Dependencies)
-	require.Len(t, txn.PreAssembly.Dependencies.DependsOn, 1)
-	require.Equal(t, dependencyID, txn.PreAssembly.Dependencies.DependsOn[0])
+	require.NotNil(t, txn.pt.PreAssembly)
+	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
+	require.Len(t, txn.pt.PreAssembly.Dependencies.DependsOn, 1)
+	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
 
 	// Call action_initializeDependencies
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify that the dependency transaction has been updated with this transaction as a dependent
-	require.NotNil(t, dependencyTxn.PreAssembly.Dependencies)
-	require.Contains(t, dependencyTxn.PreAssembly.Dependencies.PrereqOf, txn.ID)
+	require.NotNil(t, dependencyTxn.pt.PreAssembly.Dependencies)
+	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
 }
 
-func TestAction_InitializeDependencies_NoPreAssembly(t *testing.T) {
+func Test_action_initializeDependencies_NoPreAssembly(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
 	// Remove PreAssembly to test error case
-	txn.PreAssembly = nil
+	txn.pt.PreAssembly = nil
 
 	// Call action_initializeDependencies - should return error
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	assert.Error(t, err)
 }
 
-func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
+func Test_action_initializeDependencies_MissingDependency(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -97,11 +97,11 @@ func TestAction_InitializeDependencies_MissingDependency(t *testing.T) {
 	txn := txnBuilder.Build()
 
 	// Call action_initializeDependencies - should not error, just log
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	require.NoError(t, err)
 }
 
-func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.T) {
+func Test_action_initializeDependencies_DependencyWithNilDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -110,10 +110,10 @@ func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.
 	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher)
 	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.ID
+	dependencyID := dependencyTxn.pt.ID
 
 	// Explicitly set PreAssembly.Dependencies to nil to test the nil check path
-	dependencyTxn.PreAssembly.Dependencies = nil
+	dependencyTxn.pt.PreAssembly.Dependencies = nil
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
 	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
@@ -122,208 +122,89 @@ func TestAction_InitializeDependencies_DependencyWithNilDependencies(t *testing.
 	txn := txnBuilder.Build()
 
 	// Verify PreAssembly exists
-	require.NotNil(t, txn.PreAssembly)
-	require.NotNil(t, txn.PreAssembly.Dependencies)
-	require.Len(t, txn.PreAssembly.Dependencies.DependsOn, 1)
-	require.Equal(t, dependencyID, txn.PreAssembly.Dependencies.DependsOn[0])
+	require.NotNil(t, txn.pt.PreAssembly)
+	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
+	require.Len(t, txn.pt.PreAssembly.Dependencies.DependsOn, 1)
+	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
 
 	// Verify dependency has nil Dependencies
-	require.Nil(t, dependencyTxn.PreAssembly.Dependencies)
+	require.Nil(t, dependencyTxn.pt.PreAssembly.Dependencies)
 
 	// Call action_initializeDependencies
-	err := action_initializeDependencies(ctx, txn)
+	err := action_initializeDependencies(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Verify that the dependency transaction now has Dependencies initialized
-	require.NotNil(t, dependencyTxn.PreAssembly.Dependencies)
-	require.Contains(t, dependencyTxn.PreAssembly.Dependencies.PrereqOf, txn.ID)
+	require.NotNil(t, dependencyTxn.pt.PreAssembly.Dependencies)
+	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
 }
 
-func TestGuard_HasUnassembledDependencies(t *testing.T) {
+func Test_guard_HasUnassembledDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Test 1: No dependencies - should return false
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	// Ensure PreAssembly exists (it should be set by newTransactionForUnitTesting)
-	if txn1.PreAssembly == nil {
-		txn1.PreAssembly = &components.TransactionPreAssembly{}
+	if txn1.pt.PreAssembly == nil {
+		txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
 	}
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn1))
 
-	// Test 2: Has unassembled previous transaction
-	prevTxnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher)
-	prevTxn := prevTxnBuilder.Build()
-
-	txn2Builder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher)
-	txn2 := txn2Builder.Build()
-	txn2.SetPreviousTransaction(ctx, prevTxn)
-
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn2))
-
-	// Test 3: Has assembled previous transaction
-	prevTxn3Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher)
-	prevTxn3 := prevTxn3Builder.Build()
-
-	txn3Builder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher)
-	txn3 := txn3Builder.Build()
-	txn3.SetPreviousTransaction(ctx, prevTxn3)
-
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn3))
-
-	// Test 4: Has unassembled dependency in PreAssembly
+	// Test 2: Has unassembled dependency in PreAssembly
 	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher)
 	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.ID
+	dependencyID := dependencyTxn.pt.ID
 
-	txn4Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn2Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
 		PredefinedDependencies(dependencyID)
-	txn4 := txn4Builder.Build()
+	txn2 := txn2Builder.Build()
 
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn4))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn2))
 
-	// Test 5: Has assembled dependency in PreAssembly
-	dependency5Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	// Test 3: Has assembled dependency in PreAssembly
+	dependency3Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher)
-	dependency5Txn := dependency5Builder.Build()
-	dependency5ID := dependency5Txn.ID
+	dependency3Txn := dependency3Builder.Build()
+	dependency3ID := dependency3Txn.pt.ID
 
-	txn5Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn3Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(dependency5ID)
-	txn5 := txn5Builder.Build()
+		PredefinedDependencies(dependency3ID)
+	txn3 := txn3Builder.Build()
 
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn5))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn3))
 
-	// Test 6: Has missing dependency in PreAssembly (dependency not in grapher)
+	// Test 4: Has missing dependency in PreAssembly (dependency not in grapher)
 	missingDependencyID := uuid.New()
-	txn6Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn4Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
 		PredefinedDependencies(missingDependencyID)
-	txn6 := txn6Builder.Build()
+	txn4 := txn4Builder.Build()
 
 	// The missing dependency should not cause hasDependenciesNotAssembled to return true
 	// because the code assumes it's been confirmed and continues to the next dependency
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn6))
+	assert.False(t, guard_HasUnassembledDependencies(ctx, txn4))
 
-	// Test 7: Has both missing and unassembled dependencies in PreAssembly
+	// Test 5: Has both missing and unassembled dependencies in PreAssembly
 	unassembledDependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher)
 	unassembledDependencyTxn := unassembledDependencyBuilder.Build()
-	unassembledDependencyID := unassembledDependencyTxn.ID
+	unassembledDependencyID := unassembledDependencyTxn.pt.ID
 
 	// Create transaction with both missing and unassembled dependencies
-	txn7Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn5Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
 		PredefinedDependencies(missingDependencyID, unassembledDependencyID)
-	txn7 := txn7Builder.Build()
+	txn5 := txn5Builder.Build()
 
 	// Should return true because one dependency is unassembled (missing one is skipped)
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn7))
+	assert.True(t, guard_HasUnassembledDependencies(ctx, txn5))
 }
 
-func TestSetPreviousTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	// Create a transaction
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-
-	// Initially previousTransaction should be nil
-	// We can verify this indirectly by checking hasDependenciesNotAssembled behavior
-	if txn.PreAssembly == nil {
-		txn.PreAssembly = &components.TransactionPreAssembly{}
-	}
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
-
-	// Create a previous transaction
-	prevTxnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher)
-	prevTxn := prevTxnBuilder.Build()
-
-	// Set the previous transaction (tests line 31)
-	txn.SetPreviousTransaction(ctx, prevTxn)
-
-	// Verify the previous transaction was set by checking behavior
-	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
-
-	// Test setting to nil
-	txn.SetPreviousTransaction(ctx, nil)
-	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
-}
-
-func TestSetNextTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	// Create a transaction
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-
-	// Initially nextTransaction should be nil
-	// We verify this by assembling the transaction - it should not notify any next transaction
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher)
-	txnToAssemble := txnBuilder.Build()
-
-	// Assemble without setting nextTransaction - should not error
-	err := txnToAssemble.HandleEvent(ctx, &AssembleSuccessEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txnToAssemble.ID,
-		},
-		PostAssembly: txnBuilder.BuildPostAssembly(),
-		PreAssembly:  txnBuilder.BuildPreAssembly(),
-		RequestID:    txnToAssemble.pendingAssembleRequest.IdempotencyKey(),
-	})
-	require.NoError(t, err)
-
-	// Create a next transaction
-	nextTxnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher)
-	nextTxn := nextTxnBuilder.Build()
-
-	// Set the next transaction (tests line 37)
-	txn.SetNextTransaction(ctx, nextTxn)
-
-	// Verify the setter works by assembling a transaction with nextTransaction set
-	// This should notify the next transaction without error
-	txnToAssemble2 := txnBuilder.Build()
-	txnToAssemble2.SetNextTransaction(ctx, nextTxn)
-
-	err = txnToAssemble2.HandleEvent(ctx, &AssembleSuccessEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txnToAssemble2.ID,
-		},
-		PostAssembly: txnBuilder.BuildPostAssembly(),
-		PreAssembly:  txnBuilder.BuildPreAssembly(),
-		RequestID:    txnToAssemble2.pendingAssembleRequest.IdempotencyKey(),
-	})
-	require.NoError(t, err)
-
-	// Test setting to nil
-	txn.SetNextTransaction(ctx, nil)
-
-	// Verify setting to nil works - assembling should not error
-	txnToAssemble3 := txnBuilder.Build()
-	txnToAssemble3.SetNextTransaction(ctx, nil)
-
-	err = txnToAssemble3.HandleEvent(ctx, &AssembleSuccessEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txnToAssemble3.ID,
-		},
-		PostAssembly: txnBuilder.BuildPostAssembly(),
-		PreAssembly:  txnBuilder.BuildPreAssembly(),
-		RequestID:    txnToAssemble3.pendingAssembleRequest.IdempotencyKey(),
-	})
-	require.NoError(t, err)
-}
-
-func TestGuard_HasUnknownDependencies(t *testing.T) {
+func Test_guard_HasUnknownDependencies(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -344,7 +225,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 	knownDependencyBuilder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher)
 	knownDependencyTxn := knownDependencyBuilder.Build()
-	knownDependencyID := knownDependencyTxn.ID
+	knownDependencyID := knownDependencyTxn.pt.ID
 
 	txn3Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
@@ -367,7 +248,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 	knownTxn1Builder := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher)
 	knownTxn1 := knownTxn1Builder.Build()
-	knownID1 = knownTxn1.ID
+	knownID1 = knownTxn1.pt.ID
 
 	unknownID2 := uuid.New()
 
@@ -383,7 +264,7 @@ func TestGuard_HasUnknownDependencies(t *testing.T) {
 	assert.True(t, guard_HasUnknownDependencies(ctx, txn5))
 }
 
-func TestGuard_HasDependenciesNotReady(t *testing.T) {
+func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -401,12 +282,12 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 
 	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		InputStateIDs(dep1.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep1.pt.PostAssembly.OutputStates[0].ID)
 	txn2 := txn2Builder.Build()
 
 	err := txn2.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn2.ID,
+			TransactionID: txn2.pt.ID,
 		},
 		PostAssembly: txn2Builder.BuildPostAssembly(),
 		PreAssembly:  txn2Builder.BuildPreAssembly(),
@@ -427,12 +308,12 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 
 	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		InputStateIDs(dep3.PostAssembly.OutputStates[0].ID)
+		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
 	txn3 := txn3Builder.Build()
 
 	err = txn3.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn3.ID,
+			TransactionID: txn3.pt.ID,
 		},
 		PostAssembly: txn3Builder.BuildPostAssembly(),
 		PreAssembly:  txn3Builder.BuildPreAssembly(),
@@ -443,21 +324,20 @@ func TestGuard_HasDependenciesNotReady(t *testing.T) {
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
-func TestGuard_HasChainedTxInProgress(t *testing.T) {
+func Test_guard_HasChainedTxInProgress(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
-	// Test 1: Initially false
+	// Test 1: Initially false (hasChainedTransaction=false passed to NewTransaction via test utils)
 	assert.False(t, guard_HasChainedTxInProgress(ctx, txn))
 	assert.False(t, txn.chainedTxAlreadyDispatched)
 
-	// Test 2: After setting chained transaction in progress
-	txn.SetChainedTxInProgress()
+	// Test 2: When chainedTxAlreadyDispatched is true
+	txn.chainedTxAlreadyDispatched = true
 	assert.True(t, guard_HasChainedTxInProgress(ctx, txn))
-	assert.True(t, txn.chainedTxAlreadyDispatched)
 }
 
-func TestRePoolDependents_EmptyPrereqOf(t *testing.T) {
+func Test_rePoolDependents_EmptyPrereqOf(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 	txn, _ := newTransactionForUnitTesting(t, grapher)
@@ -471,20 +351,20 @@ func TestRePoolDependents_EmptyPrereqOf(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRePoolDependents_WithDependents_Success(t *testing.T) {
+func Test_rePoolDependents_WithDependents_Success(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Create the main transaction that will have dependents
 	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
-	mainTxn.InitializeStateMachine(State_Initial)
+	mainTxn.initializeStateMachine(State_Initial)
 
 	// Create a dependent transaction that can handle DependencyRevertedEvent
 	// It needs to be in State_Submitted to handle DependencyRevertedEvent
 	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
 		Grapher(grapher)
 	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.ID
+	dependentID := dependentTxn.pt.ID
 
 	// Set up the main transaction to have the dependent as a PrereqOf
 	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
@@ -494,10 +374,10 @@ func TestRePoolDependents_WithDependents_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the dependent transaction received the event by checking it transitioned to State_Pooled
-	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.currentState)
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
 
-func TestRePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
+func Test_rePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -513,13 +393,13 @@ func TestRePoolDependents_WithDependents_MissingInGrapher(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
+func Test_rePoolDependents_WithMultipleDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Create the main transaction
 	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
-	mainTxn.InitializeStateMachine(State_Initial)
+	mainTxn.initializeStateMachine(State_Initial)
 
 	// Create multiple dependent transactions
 	dependent1Builder := NewTransactionBuilderForTesting(t, State_Submitted).
@@ -535,8 +415,8 @@ func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
 
 	// Set up the main transaction to have multiple dependents
 	mainTxn.dependencies.PrereqOf = []uuid.UUID{
-		dependent1.ID,
-		dependent2.ID,
+		dependent1.pt.ID,
+		dependent2.pt.ID,
 		missingDependentID,
 	}
 
@@ -545,23 +425,23 @@ func TestRePoolDependents_WithMultipleDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify both existing dependents received the event
-	assert.Equal(t, State_Pooled, dependent1.stateMachine.currentState)
-	assert.Equal(t, State_Pooled, dependent2.stateMachine.currentState)
+	assert.Equal(t, State_Pooled, dependent1.stateMachine.CurrentState)
+	assert.Equal(t, State_Pooled, dependent2.stateMachine.CurrentState)
 }
 
-func TestAction_RecordRevert_WithDependents(t *testing.T) {
+func Test_action_recordRevert_WithDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Create the main transaction
 	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
-	mainTxn.InitializeStateMachine(State_Initial)
+	mainTxn.initializeStateMachine(State_Initial)
 
 	// Create a dependent transaction
 	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
 		Grapher(grapher)
 	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.ID
+	dependentID := dependentTxn.pt.ID
 
 	// Set up the main transaction to have the dependent as a PrereqOf
 	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
@@ -570,7 +450,7 @@ func TestAction_RecordRevert_WithDependents(t *testing.T) {
 	assert.Nil(t, mainTxn.revertTime)
 
 	// Call action_recordRevert - should re-pool dependents and set revertTime
-	err := action_recordRevert(ctx, mainTxn)
+	err := action_recordRevert(ctx, mainTxn, nil)
 	require.NoError(t, err)
 
 	// Verify revertTime is set
@@ -578,16 +458,16 @@ func TestAction_RecordRevert_WithDependents(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), mainTxn.revertTime.Time(), 1*time.Second)
 
 	// Verify the dependent transaction received the event
-	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.currentState)
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
 
-func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
+func Test_action_recordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Create the main transaction
 	mainTxn, _ := newTransactionForUnitTesting(t, grapher)
-	mainTxn.InitializeStateMachine(State_Initial)
+	mainTxn.initializeStateMachine(State_Initial)
 
 	// Create a dependent transaction that will fail when handling DependencyRevertedEvent
 	// This happens when transitioning to State_Pooled triggers action_initializeDependencies
@@ -595,11 +475,11 @@ func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
 		Grapher(grapher)
 	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.ID
+	dependentID := dependentTxn.pt.ID
 
 	// Remove PreAssembly to cause action_initializeDependencies to fail
 	// when the transaction transitions to State_Pooled
-	dependentTxn.PreAssembly = nil
+	dependentTxn.pt.PreAssembly = nil
 
 	// Set up the main transaction to have the dependent as a PrereqOf
 	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
@@ -608,7 +488,7 @@ func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	assert.Nil(t, mainTxn.revertTime)
 
 	// Call action_recordRevert - should log error but continue and set revertTime
-	err := action_recordRevert(ctx, mainTxn)
+	err := action_recordRevert(ctx, mainTxn, nil)
 	require.NoError(t, err) // action_recordRevert always returns nil, even if rePoolDependents fails
 
 	// Verify revertTime is set despite the error
@@ -618,5 +498,5 @@ func TestAction_RecordRevert_WithDependents_ErrorHandling(t *testing.T) {
 	// Verify the dependent transaction transitioned to State_Pooled before the error occurred
 	// The state is changed before OnTransitionTo is called, so even though action_initializeDependencies
 	// failed, the state was already changed to State_Pooled
-	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.currentState)
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
