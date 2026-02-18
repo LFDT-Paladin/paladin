@@ -129,6 +129,125 @@ func TestFinalizeTransactionsInsertFail(t *testing.T) {
 
 }
 
+func TestFinalizeTransactionsRedactFailureOverSuccessInBatch(t *testing.T) {
+
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			/* no failed query here confirms we redacted the failure */
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{
+				"transaction", "success",
+			}).AddRow(txID, false))
+			mc.db.ExpectExec("DELETE.*transaction_receipts").WillReturnResult(driver.ResultNoRows)
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectCommit()
+		})
+	defer done()
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{TransactionID: txID, ReceiptType: components.RT_FailedWithMessage,
+				FailureMessage: "something went wrong before"},
+			{TransactionID: txID, ReceiptType: components.RT_Success /* this wins */},
+			{TransactionID: txID, ReceiptType: components.RT_FailedWithMessage,
+				FailureMessage: "something went wrong after"},
+		})
+	})
+	assert.NoError(t, err)
+
+}
+
+func TestFinalizeTransactionsDoNotOverrideSuccessWithFailure(t *testing.T) {
+
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			/* no failed query here confirms we redacted the failure */
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{
+				"transaction", "success",
+			}).AddRow(txID, true /* do not override */))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectCommit()
+		})
+	defer done()
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{TransactionID: txID, ReceiptType: components.RT_FailedWithMessage,
+				FailureMessage: "something went wrong"},
+		})
+	})
+	assert.NoError(t, err)
+
+}
+
+func TestFinalizeTransactionsRedactFailureOverSuccessPersistedDoesNotSkip(t *testing.T) {
+
+	txID1 := uuid.New()
+	txID2 := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(txID1))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectCommit()
+		})
+	defer done()
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{TransactionID: txID1, ReceiptType: components.RT_FailedWithMessage,
+				FailureMessage: "something went wrong"},
+			{TransactionID: txID2, ReceiptType: components.RT_FailedWithMessage,
+				FailureMessage: "this is skipped"},
+		})
+	})
+	assert.NoError(t, err)
+
+}
+
+func TestFinalizeTransactionsChainedLookupFail(t *testing.T) {
+
+	txID := uuid.New()
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(txID))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnError(fmt.Errorf("pop"))
+		})
+	defer done()
+
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID:  txID,
+				Domain:         "domain1",
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "something went wrong",
+			},
+		})
+	})
+	assert.Regexp(t, "pop", err)
+
+}
+
 func mockKeyResolver(t *testing.T, mc *mockComponents) *componentsmocks.KeyResolver {
 	kr := componentsmocks.NewKeyResolver(t)
 	mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(kr)

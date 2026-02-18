@@ -101,6 +101,7 @@ var (
 	MsgRPCClientResultParseFailed        = pde("PD020504", "Failed to parse result (expected=%T): %s")
 	MsgRPCClientInvalidParam             = pde("PD020505", "Invalid parameter at position %d for method %s: %s")
 	MsgRPCClientSubscribeResponseInvalid = pde("PD020506", "Subscription response invalid")
+	MsgRPCClientRequestTimeout           = pde("PD020507", "RPC request timed out waiting for response")
 
 	// HTTPServer PD0108XX
 	MsgHTTPServerStartFailed        = pde("PD020600", "Failed to start server on '%s'")
