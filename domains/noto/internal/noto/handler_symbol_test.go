@@ -34,6 +34,7 @@ func TestSymbolValidateParams(t *testing.T) {
 }
 
 func TestSymbolInitCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}
@@ -55,6 +56,7 @@ func TestSymbolInitCall(t *testing.T) {
 }
 
 func TestSymbolExecCall(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks: mockCallbacks,
 	}

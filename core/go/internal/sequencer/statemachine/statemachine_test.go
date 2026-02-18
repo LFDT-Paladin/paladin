@@ -1432,6 +1432,44 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 	sel.Stop()
 }
 
+// TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull verifies QueueEvent
+// returns when context is cancelled while the main queue buffer is full.
+func TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:   State_Idle,
+		Definitions:    definitions,
+		Entity:         entity,
+		EventQueueSize: 1,
+		Name:           "queue-event-cancelled-full-buffer-test",
+	})
+
+	// Do not start the loop: fill the single-slot queue so the next QueueEvent would block.
+	require.True(t, sel.TryQueueEvent(context.Background(), newTestEvent(Event_Start)))
+	require.Len(t, sel.events, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// this will never return if it is waiting to queue the event
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+
+	// Queue remains full with the original event; cancelled enqueue was dropped.
+	assert.Len(t, sel.events, 1)
+}
+
 // TestStateMachineEventLoop_Stop_WhenAlreadyStopped verifies Stop returns immediately when loop is already stopped.
 func TestStateMachineEventLoop_Stop_WhenAlreadyStopped(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{

@@ -183,7 +183,7 @@ var (
 	TransactionReceiptFiltersType                           = pdm("TransactionReceiptFilters.type", "Only deliver receipts for one transaction type (public/private)")
 	TransactionReceiptFiltersDomain                         = pdm("TransactionReceiptFilters.domain", "Only deliver receipts for an individual domain (only valid with type=private)")
 	TransactionReceiptOptionsDomainReceipts                 = pdm("TransactionReceiptOptions.domainReceipts", "When true, a full domain receipt will be generated for each event with complete state data")
-	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "When set to 'block_contract', if a transaction with incomplete state data is detected then delivery of all receipts on that individual smart contract address will pause until the missing state arrives. Receipts for other contract addresses continue to be delivered")
+	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "Controls delivery behavior when receipt state data is incomplete. 'block_contract' pauses delivery for each individual smart contract address when incomplete states are detected. 'process' delivers all receipts immediately, regardless of what private state data is available. 'complete_only' delivers receipts whenever the domain confirms all expected states are complete, without regard for strict ordering")
 	BlockchainEventListenerName                             = pdm("BlockchainEventListener.name", "Unique name for the blockchain event listener")
 	BlockchainEventListenerCreated                          = pdm("BlockchainEventListener.created", "Time the listener was created")
 	BlockchainEventListenerStarted                          = pdm("BlockchainEventListener.started", "If the listener is started - can be set to false to disable delivery server-side")
@@ -654,6 +654,7 @@ var (
 	WSClientConfigReadBufferSize         = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
 	WSClientConfigWriteBufferSize        = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
 	WSClientConfigHeartbeatInterval      = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
+	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
 
 	// StateStoreConfig field descriptions
 	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")

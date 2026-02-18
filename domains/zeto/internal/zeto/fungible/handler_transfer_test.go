@@ -610,6 +610,8 @@ type testDomainCallbacks struct {
 	returnFunc func() (*pb.FindAvailableStatesResponse, error)
 }
 
+var _ plugintk.DomainCallbacks = &testDomainCallbacks{}
+
 func (dc *testDomainCallbacks) FindAvailableStates(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 	return dc.returnFunc()
 }
@@ -617,6 +619,7 @@ func (dc *testDomainCallbacks) FindAvailableStates(ctx context.Context, req *pb.
 func (dc *testDomainCallbacks) EncodeData(ctx context.Context, req *pb.EncodeDataRequest) (*pb.EncodeDataResponse, error) {
 	return nil, nil
 }
+
 func (dc *testDomainCallbacks) RecoverSigner(ctx context.Context, req *pb.RecoverSignerRequest) (*pb.RecoverSignerResponse, error) {
 	return nil, nil
 }
@@ -624,13 +627,23 @@ func (dc *testDomainCallbacks) RecoverSigner(ctx context.Context, req *pb.Recove
 func (dc *testDomainCallbacks) DecodeData(context.Context, *pb.DecodeDataRequest) (*pb.DecodeDataResponse, error) {
 	return nil, nil
 }
+
 func (dc *testDomainCallbacks) GetStatesByID(ctx context.Context, req *pb.GetStatesByIDRequest) (*pb.GetStatesByIDResponse, error) {
 	return nil, nil
 }
+
 func (dc *testDomainCallbacks) LocalNodeName(context.Context, *pb.LocalNodeNameRequest) (*pb.LocalNodeNameResponse, error) {
 	return nil, nil
 }
 
 func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendTransactionRequest) (*pb.SendTransactionResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
 	return nil, nil
 }

@@ -17,6 +17,8 @@ syntax = "proto3";
 
 package io.kaleido.paladin.toolkit;
 
+import "to_domain.proto";
+
 option java_multiple_files = true;
 
 message FindAvailableStatesRequest {
@@ -96,6 +98,35 @@ message GetStatesByIDRequest {
 
 message GetStatesByIDResponse {
   repeated StoredState states = 1;
+}
+
+message ReverseKeyLookupRequest {
+  repeated ReverseKeyLookup lookups = 1;
+}
+
+message ReverseKeyLookup {
+  string algorithm = 1;
+  string verifier_type = 2;
+  string verifier = 3;
+}
+
+message ReverseKeyLookupResponse {
+  repeated ReverseKeyLookupResult results = 1;
+}
+
+message ReverseKeyLookupResult {
+  string verifier = 1;
+  bool found = 2;
+  optional string key_identifier = 3;
+}
+
+message ValidateStatesRequest {
+  string state_query_context = 1; // Must hold a valid state query context to perform a submit
+  repeated NewState states = 2;
+}
+
+message ValidateStatesResponse {
+  repeated EndorsableState states = 1;
 }
 
 message StoredState {

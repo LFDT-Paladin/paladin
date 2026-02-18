@@ -525,7 +525,11 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 // QueueEvent asynchronously queues an event for processing.
 func (sel *StateMachineEventLoop[S, E]) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("%s | %s | queueing event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
-	sel.events <- event
+	select {
+	case sel.events <- event:
+	case <-ctx.Done():
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	}
 }
 
 // TryQueueEvent attempts to queue an event without blocking.

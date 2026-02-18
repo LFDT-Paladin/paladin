@@ -233,6 +233,64 @@ func TestPrivateConfirmMatchPrivateFailures(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestPrivateConfirmMatchPrivateSuccessOverridesFailure(t *testing.T) {
+
+	testABI := abi.ABI{
+		{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{}},
+		{Type: abi.Error, Name: "ErrorNum", Inputs: abi.ParameterArray{{Type: "uint256"}}},
+	}
+	revertData, err := testABI.Errors()["ErrorNum"].EncodeCallDataJSON([]byte(`[12345]`))
+	require.NoError(t, err)
+
+	txiOk1 := newTestConfirm() // one succeeded
+	txID1 := uuid.New()
+	txiFail2 := newTestConfirm(revertData) // one failed
+	txID2 := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.publicTxMgr.On("MatchUpdateConfirmedTransactions", mock.Anything, mock.Anything,
+				[]*blockindexer.IndexedTransactionNotify{txiOk1, txiFail2}).
+				Return([]*components.PublicTxMatch{
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID1,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiOk1,
+					},
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID2,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiFail2,
+					},
+				}, nil)
+
+			mc.db.ExpectBegin()
+			mc.db.ExpectCommit()
+			mc.sequencerMgr.On("HandleTransactionFailed", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+				return len(matches) == 1 &&
+					matches[0].TransactionID == txID2
+			})).Return(nil)
+
+			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+				return len(matches) == 2 &&
+					matches[0].TransactionID == txID1 &&
+					matches[1].TransactionID == txID2
+			}))
+		})
+	defer done()
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		return txm.blockIndexerPreCommit(ctx, dbTX, []*pldapi.IndexedBlock{},
+			[]*blockindexer.IndexedTransactionNotify{txiOk1, txiFail2})
+	})
+	require.NoError(t, err)
+}
+
 func TestNoConfirmMatch(t *testing.T) {
 
 	txi := newTestConfirm()

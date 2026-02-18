@@ -439,6 +439,7 @@ func (tm *txManager) HasChainedTransaction(ctx context.Context, txID uuid.UUID) 
 	var chainingRecords []*persistedChainedPrivateTxn
 	err := tm.p.NOTX().DB().
 		Where(`"transaction" = ?`, txID).
+		Limit(1).
 		Find(&chainingRecords).
 		Error
 	return len(chainingRecords) > 0, err

@@ -174,6 +174,18 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, distributionList []
 	}, nil
 }
 
+func (n *Noto) makeNewManifestInfoState(manifest *types.NotoManifest, distributionList []string) (*prototk.NewState, error) {
+	infoJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	return &prototk.NewState{
+		SchemaId:         n.manifestSchema.Id,
+		StateDataJson:    string(infoJSON),
+		DistributionList: distributionList,
+	}, nil
+}
+
 func (n *Noto) makeNewLockState(lock *types.NotoLockInfo_V1, distributionList []string) (*prototk.NewState, error) {
 	lockJSON, err := json.Marshal(lock)
 	if err != nil {
@@ -199,16 +211,55 @@ type preparedLockedInputs struct {
 }
 
 type preparedOutputs struct {
-	coins  []*types.NotoCoin
-	states []*prototk.NewState
+	distributions []identityList
+	coins         []*types.NotoCoin
+	states        []*prototk.NewState
 }
 
 type preparedLockedOutputs struct {
-	coins  []*types.NotoLockedCoin
-	states []*prototk.NewState
+	distributions []identityList
+	coins         []*types.NotoLockedCoin
+	states        []*prototk.NewState
 }
 
-func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *pldtypes.EthAddress, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
+type identityPair struct {
+	identifier string
+	address    *pldtypes.EthAddress
+}
+
+type identityList []*identityPair
+
+// gets the paladin identities, with de-duplication
+func (idl identityList) identities() []string {
+	al := make([]string, 0, len(idl))
+skipDuplicate:
+	for _, id := range idl {
+		for _, existing := range al {
+			if existing == id.identifier {
+				continue skipDuplicate
+			}
+		}
+		al = append(al, id.identifier)
+	}
+	return al
+}
+
+// gets the ethereum addresses, with de-duplication
+func (idl identityList) addresses() []*pldtypes.EthAddress {
+	al := make([]*pldtypes.EthAddress, 0, len(idl))
+skipDuplicate:
+	for _, id := range idl {
+		for _, existing := range al {
+			if existing.Equals(id.address) {
+				continue skipDuplicate
+			}
+		}
+		al = append(al, id.address)
+	}
+	return al
+}
+
+func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owner *identityPair, amount *pldtypes.HexUint256) (inputs *preparedInputs, revert bool, err error) {
 	var lastStateTimestamp int64
 	total := big.NewInt(0)
 	stateRefs := []*prototk.StateRef{}
@@ -218,7 +269,7 @@ func (n *Noto) prepareInputs(ctx context.Context, stateQueryContext string, owne
 		queryBuilder := query.NewQueryBuilder().
 			Limit(10).
 			Sort(".created").
-			Equal("owner", owner.String())
+			Equal("owner", owner.address.String())
 
 		if lastStateTimestamp > 0 {
 			queryBuilder.GreaterThan(".created", lastStateTimestamp)
@@ -306,40 +357,42 @@ func (n *Noto) prepareLockedInputs(ctx context.Context, stateQueryContext string
 	}
 }
 
-func (n *Noto) prepareOutputs(ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedOutputs, error) {
+func (n *Noto) prepareOutputs(owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedOutputs, error) {
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
 	newCoin := &types.NotoCoin{
 		Salt:   pldtypes.RandBytes32(),
-		Owner:  ownerAddress,
+		Owner:  owner.address,
 		Amount: amount,
 	}
-	newState, err := n.makeNewCoinState(newCoin, distributionList)
+	newState, err := n.makeNewCoinState(newCoin, distributionList.identities())
 	return &preparedOutputs{
-		coins:  []*types.NotoCoin{newCoin},
-		states: []*prototk.NewState{newState},
+		distributions: []identityList{distributionList},
+		coins:         []*types.NotoCoin{newCoin},
+		states:        []*prototk.NewState{newState},
 	}, err
 }
 
-func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.EthAddress, amount *pldtypes.HexUint256, distributionList []string) (*preparedLockedOutputs, error) {
+func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, owner *identityPair, amount *pldtypes.HexUint256, distributionList identityList) (*preparedLockedOutputs, error) {
 	// Always produce a single coin for the entire output amount
 	// TODO: make this configurable
 	newCoin := &types.NotoLockedCoin{
 		Salt:   pldtypes.RandBytes32(),
 		LockID: id,
-		Owner:  ownerAddress,
+		Owner:  owner.address,
 		Amount: amount,
 	}
-	newState, err := n.makeNewLockedCoinState(newCoin, distributionList)
+	newState, err := n.makeNewLockedCoinState(newCoin, distributionList.identities())
 	return &preparedLockedOutputs{
-		coins:  []*types.NotoLockedCoin{newCoin},
-		states: []*prototk.NewState{newState},
+		distributions: []identityList{distributionList},
+		coins:         []*types.NotoLockedCoin{newCoin},
+		states:        []*prototk.NewState{newState},
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareDataInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, distributionList []string) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
-		Salt:    pldtypes.RandHex(32),
+		Salt:    pldtypes.RandBytes32(),
 		Data:    data,
 		Variant: variant,
 	}
@@ -347,7 +400,7 @@ func (n *Noto) prepareInfo(data pldtypes.HexBytes, variant pldtypes.HexUint64, d
 	return []*prototk.NewState{newState}, err
 }
 
-func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, unlockTxId *pldtypes.Bytes32, distributionList []string) (*prototk.NewState, error) {
+func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtypes.EthAddress, unlockTxId *pldtypes.Bytes32, distributionList identityList) (*prototk.NewState, error) {
 	if delegate == nil {
 		delegate = &pldtypes.EthAddress{}
 	}
@@ -360,7 +413,7 @@ func (n *Noto) prepareLockInfo(lockID pldtypes.Bytes32, owner, delegate *pldtype
 	if unlockTxId != nil {
 		newData.UnlockTxId = *unlockTxId
 	}
-	return n.makeNewLockState(newData, distributionList)
+	return n.makeNewLockState(newData, distributionList.identities())
 }
 
 func (n *Noto) filterSchema(states []*prototk.EndorsableState, schemas []string) (filtered []*prototk.EndorsableState) {

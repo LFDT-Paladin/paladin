@@ -873,7 +873,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 	}
 
 	if len(completions) > 0 {
-		// We have some completions to persis - in the same order as the confirmations that came in
+		// We have some completions to persist - in the same order as the confirmations that came in
 		log.L(ctx).Tracef("MatchUpdateConfirmedTransactions: Writing %d completions to 'public_completions'", len(completions))
 		err := dbTX.DB().
 			Table("public_completions").
