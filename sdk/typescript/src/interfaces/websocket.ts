@@ -29,7 +29,7 @@ export interface WebSocketClientOptions<TMessageTypes extends string> {
   // Initial delay (ms) before first reconnect. With reconnectMaxDelay, doubles each attempt up to the max.
   reconnectDelay?: number;
   // If set, use exponential backoff up to a maximum delay.
-  reconnectMaxDelay?: number;
+  reconnectBackoffMaxDelay?: number;
   afterConnect?: WebSocketConnectCallback;
   socketOptions?: WebSocket.ClientOptions | http.ClientRequestArgs;
 }

@@ -175,8 +175,8 @@ abstract class PaladinWebSocketClientBase<
         this.socket.removeAllListeners();
         try {
           this.socket.close();
-        } catch {
-          // ignore
+        } catch (e: any) {
+          this.logger.warn(`Failed to close websocket: ${e.message}`);
         }
         this.socket = undefined;
       }
@@ -185,7 +185,7 @@ abstract class PaladinWebSocketClientBase<
 
     // Compute reconnect delay
     const baseDelay = this.options.reconnectDelay ?? 2000;
-    const maxDelay = this.options.reconnectMaxDelay;
+    const maxDelay = this.options.reconnectBackoffMaxDelay;
     const delay =
       maxDelay !== undefined
         ? Math.min(baseDelay * Math.pow(2, this.reconnectAttempts), maxDelay)
