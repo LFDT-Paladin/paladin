@@ -96,6 +96,7 @@ type BlockchainEventReceiver interface {
 }
 
 type ReceiverCloser interface {
+	SetActive()
 	Close()
 }
 

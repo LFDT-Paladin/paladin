@@ -77,12 +77,12 @@ type ethSubscription struct {
 	params    []pldtypes.RawJSON
 }
 
-func (es *EthSubscribe) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse) {
+func (es *EthSubscribe) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse, func()) {
 	es.subLock.Lock()
 	defer es.subLock.Unlock()
 
 	if len(req.Params) < 1 {
-		return nil, rpcclient.NewRPCErrorResponse(fmt.Errorf("eth_subscribe requires a type parameter"), req.ID, rpcclient.RPCCodeInvalidRequest)
+		return nil, rpcclient.NewRPCErrorResponse(fmt.Errorf("eth_subscribe requires a type parameter"), req.ID, rpcclient.RPCCodeInvalidRequest), nil
 	}
 	eventType := req.Params[0].StringValue() // additional validation recommended here
 	subMap := es.subsByEventType[eventType]
@@ -101,7 +101,7 @@ func (es *EthSubscribe) HandleStart(ctx context.Context, req *rpcclient.RPCReque
 		JSONRpc: "2.0",
 		ID:      req.ID,
 		Result:  pldtypes.JSONString(ctrl.ID()),
-	}
+	}, nil
 }
 
 func (es *EthSubscribe) popSubForUnsubscribe(subID string) *ethSubscription {

@@ -45,7 +45,7 @@ type RPCAsyncInstance interface {
 type RPCAsyncHandler interface {
 	StartMethod() string
 	LifecycleMethods() []string
-	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse)
+	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (sub RPCAsyncInstance, res *rpcclient.RPCResponse, afterSend func())
 	HandleLifecycle(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse
 }
 
