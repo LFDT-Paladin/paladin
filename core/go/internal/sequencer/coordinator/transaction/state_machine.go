@@ -107,7 +107,19 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_PreAssembly_Blocked: {
 		Events: map[EventType]EventHandler{
+			// TODO: when we have best effort FIFO ordering for first assemble within an originator, these transitions become relevant.
+			// they are currently unreachable as transactions only currently gain dependencies once they have been assembled.
+			// In both case it should only be the "previous" transaction that queues this event to us. The guard is likely wrong
+			// as we know that this event means we must sever the next/previous dependency link as we are now past first assembly.
+			// The guard comes from a time when it was possible for predefined explicit dependencies to be passed in, meaning there
+			// could be multiple dependencies blocking assembly, but explicit dependencies are now handled in the transaction manager.
 			Event_DependencyAssembled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+					If: statemachine.Not(guard_HasUnassembledDependencies),
+				}},
+			},
+			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 					If: statemachine.Not(guard_HasUnassembledDependencies),
@@ -124,6 +136,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Assembling,
 					}},
 			},
+
 			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_PreAssembly_Blocked,
@@ -235,11 +248,6 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
 			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
@@ -258,11 +266,6 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Confirming_Dispatchable,
 					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
-				}},
-			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
 				}},
 			},
 			Event_DependencyRepooled: {
@@ -305,7 +308,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -321,7 +324,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Dispatched,
 					}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -337,7 +340,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_SubmissionPrepared,
 					}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -356,7 +359,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_NonceAllocated: {
 				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -379,7 +382,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -387,7 +390,9 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		OnTransitionTo: action_NotifyDependentsOfRevert,
+		// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyRevert will
+		// need to be sent to the "next" transaction from that originator as a signal that it may now assemble. The dependency
+		// can be severed at this point as we have passed first assemble.
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},

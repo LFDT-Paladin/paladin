@@ -137,6 +137,9 @@ func (t *CoordinatorTransaction) isNotAssembled() bool {
 func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	//this function is called when the transaction is successfully assembled
 	// and we have a duty to inform all the transactions that depend on us
+	// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyAssembled will
+	// only need to be sent to the "next" transaction from that originator as a signal that it may now assemble.
+	// The link between the transactions may be severed at this point as we have passed first assemble.
 	for _, dependentId := range t.dependencies.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
@@ -154,39 +157,6 @@ func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context
 			return err
 		}
 	}
-	return nil
-}
-
-func (t *CoordinatorTransaction) notifyDependentsOfRevert(ctx context.Context) error {
-	//this function is called when the transaction enters the reverted state on a revert response from assemble
-	// NOTE: at this point, we have not been assembled and therefore are not the minter of any state the only transactions that could possibly be dependent on us are those in the pool from the same originator
-
-	dependents := t.dependencies.PrereqOf
-	if t.pt.PreAssembly.Dependencies != nil {
-		dependents = append(dependents, t.pt.PreAssembly.Dependencies.PrereqOf...)
-	}
-
-	for _, dependentID := range dependents {
-		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
-		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyRevertedEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependentID,
-				},
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependentID, t.pt.ID, err)
-				return err
-			}
-		} else {
-			//TODO can we Assume that the dependent is no longer in memory and doesn't need to know about this event?  Point to (write) the architecture doc that explains why this is safe
-
-			msg := fmt.Sprintf("notifyDependentsOfRevert: Dependent transaction %s not found in memory", dependentID)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	}
-
 	return nil
 }
 
@@ -276,10 +246,6 @@ func action_NudgeAssembleRequest(ctx context.Context, txn *CoordinatorTransactio
 
 func action_NotifyDependentsOfAssembled(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.notifyDependentsOfAssembled(ctx)
-}
-
-func action_NotifyDependentsOfRevert(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	return txn.notifyDependentsOfRevert(ctx)
 }
 
 func action_IncrementAssembleErrors(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {

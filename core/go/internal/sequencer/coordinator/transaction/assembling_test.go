@@ -538,77 +538,6 @@ func Test_notifyDependentsOfAssembled_DependentNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func Test_notifyDependentsOfRevert_NoDependents(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := txn.notifyDependentsOfRevert(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfRevert_WithDependenciesFromPreAssembly(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txn2.pt.ID},
-		},
-	}
-
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfRevert_DependentNotFound(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	missingID := uuid.New()
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{missingID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.Error(t, err)
-}
-
-func Test_notifyDependentsOfRevert_WithDependent_HandleEventError(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	if txn2.metrics == nil {
-		txn2.metrics = metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	}
-
-	txn2.stateMachine.CurrentState = State_Blocked
-	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
-
-	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.Error(t, err)
-	// Verify the error is returned (the error will be from action_initializeDependencies failing)
-	assert.NotNil(t, err)
-}
-
 func Test_calculatePostAssembleDependencies_NilPostAssembly(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
@@ -918,20 +847,6 @@ func Test_action_NotifyDependentsOfAssembled_Success(t *testing.T) {
 	}
 
 	err := action_NotifyDependentsOfAssembled(ctx, txn, nil)
-	assert.NoError(t, err)
-	// State: no dependents, so no HandleEvent calls; dependencies unchanged
-	assert.Len(t, txn.dependencies.PrereqOf, 0)
-}
-
-func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := action_NotifyDependentsOfRevert(ctx, txn, nil)
 	assert.NoError(t, err)
 	// State: no dependents, so no HandleEvent calls; dependencies unchanged
 	assert.Len(t, txn.dependencies.PrereqOf, 0)

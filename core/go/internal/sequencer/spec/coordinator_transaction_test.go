@@ -218,39 +218,6 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleRevertResponse
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Pooled_ToPreAssemblyBlocked_OnDependencyReverted(t *testing.T) {
-	ctx := context.Background()
-
-	//we need 2 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
-
-	//transaction2 depends on transaction 1 and transaction 1 gets reverted
-	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
-		Grapher(grapher).
-		Reverts("some revert reason")
-	txn1, mocks1 := builder1.BuildWithMocks()
-
-	mocks1.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
-		Grapher(grapher).
-		Originator(builder1.GetOriginator()).
-		PredefinedDependencies(txn1.GetID())
-	txn2 := builder2.Build()
-
-	err := txn1.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.GetID(),
-		},
-		PostAssembly: builder1.BuildPostAssembly(),
-		RequestID:    mocks1.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
-
-}
-
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests(t *testing.T) {
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
