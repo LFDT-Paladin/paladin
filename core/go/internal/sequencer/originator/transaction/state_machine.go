@@ -116,6 +116,34 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 			},
+			// Heartbeat updates can jump directly to sequenced/submitted/confirmed.
+			// We do not require observing each intermediate state.
+			Event_NonceAssigned: {
+				Actions: []ActionRule{{Action: action_NonceAssigned}},
+				Transitions: []Transition{
+					{
+						To: State_Sequenced,
+					},
+				},
+			},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+					},
+				},
+			},
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Transitions: []Transition{{
+					To: State_Delegated, // trust coordinator to retry
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Validator: validator_AssembleRequestMatches,
 				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
@@ -144,6 +172,40 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Assembling: {
 		OnTransitionTo: action_AssembleAndSign,
 		Events: map[EventType]EventHandler{
+			Event_Dispatched: {
+				Actions: []ActionRule{{Action: action_Dispatched}},
+				Transitions: []Transition{
+					{
+						To: State_Dispatched,
+					},
+				},
+			},
+			Event_NonceAssigned: {
+				Actions: []ActionRule{{Action: action_NonceAssigned}},
+				Transitions: []Transition{
+					{
+						To: State_Sequenced,
+					},
+				},
+			},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+					},
+				},
+			},
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Transitions: []Transition{{
+					To: State_Delegated, // trust coordinator to retry
+				}},
+			},
 			Event_AssembleAndSignSuccess: {
 				Actions: []ActionRule{{Action: action_AssembleAndSignSuccess}},
 				Transitions: []Transition{
@@ -202,6 +264,40 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Endorsement_Gathering: {
 		Events: map[EventType]EventHandler{
+			Event_Dispatched: {
+				Actions: []ActionRule{{Action: action_Dispatched}},
+				Transitions: []Transition{
+					{
+						To: State_Dispatched,
+					},
+				},
+			},
+			Event_NonceAssigned: {
+				Actions: []ActionRule{{Action: action_NonceAssigned}},
+				Transitions: []Transition{
+					{
+						To: State_Sequenced,
+					},
+				},
+			},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+					},
+				},
+			},
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Transitions: []Transition{{
+					To: State_Delegated, // trust coordinator to retry
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Validator: validator_AssembleRequestMatches,
 				Actions: []ActionRule{
@@ -251,6 +347,32 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Dispatched,
 					},
 				},
+			},
+			Event_NonceAssigned: {
+				Actions: []ActionRule{{Action: action_NonceAssigned}},
+				Transitions: []Transition{
+					{
+						To: State_Sequenced,
+					},
+				},
+			},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
+				Transitions: []Transition{
+					{
+						To: State_Submitted,
+					},
+				},
+			},
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
+			Event_ConfirmedReverted: {
+				Transitions: []Transition{{
+					To: State_Delegated, // trust coordinator to retry
+				}},
 			},
 			Event_PreDispatchRequestReceived: {
 				Validator: validator_PreDispatchRequestMatchesAssembledDelegation,

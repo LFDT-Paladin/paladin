@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,4 +101,77 @@ func Test_initializeStateMachine_InvokesTransitionCallback(t *testing.T) {
 	require.Len(t, events, 1)
 	_, ok := events[0].(*common.TransactionStateTransitionEvent[State])
 	require.True(t, ok)
+}
+
+func Test_HandleEvent_DelegatedAcceptsSubmittedFastForward(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Delegated)
+	txn, _ := builder.BuildWithMocks()
+	signer := builder.GetSignerAddress()
+	nonce := builder.GetNonce()
+	hash := builder.GetLatestSubmissionHash()
+
+	err := txn.HandleEvent(ctx, &SubmittedEvent{
+		BaseEvent: BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		SignerAddress:        signer,
+		Nonce:                nonce,
+		LatestSubmissionHash: hash,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Submitted, txn.GetCurrentState())
+	require.NotNil(t, txn.GetNonce())
+	assert.Equal(t, nonce, *txn.GetNonce())
+	require.NotNil(t, txn.GetLatestSubmissionHash())
+	assert.Equal(t, hash, *txn.GetLatestSubmissionHash())
+}
+
+func Test_HandleEvent_AssemblingAcceptsSubmittedFastForward(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+	signer := builder.GetSignerAddress()
+	nonce := builder.GetNonce()
+	hash := builder.GetLatestSubmissionHash()
+
+	err := txn.HandleEvent(ctx, &SubmittedEvent{
+		BaseEvent: BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		SignerAddress:        signer,
+		Nonce:                nonce,
+		LatestSubmissionHash: hash,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Submitted, txn.GetCurrentState())
+}
+
+func Test_HandleEvent_EndorsementGatheringAcceptsConfirmedSuccessFastForward(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, _ := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
+		BaseEvent: BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+}
+
+func Test_HandleEvent_PreparedAcceptsConfirmedRevertedFastForward(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Prepared)
+	txn, _ := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &ConfirmedRevertedEvent{
+		BaseEvent: BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		RevertReason: pldtypes.HexBytes("0x1234"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Delegated, txn.GetCurrentState())
 }
