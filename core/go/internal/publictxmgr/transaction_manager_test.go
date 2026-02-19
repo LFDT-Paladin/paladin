@@ -825,13 +825,17 @@ func TestSuspendTransactionNoOrchestrator(t *testing.T) {
 		Nonce:     &testNonce,
 		Suspended: false,
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Call SuspendTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
@@ -863,13 +867,17 @@ func TestResumeTransactionNoOrchestrator(t *testing.T) {
 		Nonce:     &testNonce,
 		Suspended: true,
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Call ResumeTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
@@ -928,13 +936,17 @@ func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
 		Suspended: false,
 		Completed: nil, // No completion record
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Retrieve the transaction to get the actual PublicTxnID
@@ -971,13 +983,17 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 		},
 		Dispatcher: "dispatcher-node",
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Retrieve the transaction to get the actual PublicTxnID
@@ -1355,6 +1371,16 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	txID := uuid.New()
 
+	// Orchestrator may poll and allocate a nonce for this transaction in parallel
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
+		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
+	// Mock ChainID which is needed for transaction building
+	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
+	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
+	// Mock gas estimate for UpdateTransaction
+	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
+		Return(ethclient.EstimateGasResult{GasLimit: pldtypes.HexUint64(30000)}, nil).Once()
+
 	// Create a transaction
 	var pubTxnID uint64
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -1375,18 +1401,6 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
-
-	// Mock ChainID which is needed for transaction building
-	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
-	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
-
-	// Mock GetTransactionCount which may be needed for nonce allocation
-	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
-		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
-
-	// Mock CheckTransactionCompleted to return an error by corrupting the DB connection
-	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
-		Return(ethclient.EstimateGasResult{GasLimit: pldtypes.HexUint64(30000)}, nil).Once()
 
 	err = ptm.UpdateTransaction(ctx, txID, pubTxnID, testAddress, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
@@ -1553,6 +1567,13 @@ func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	txID := uuid.New()
 
+	// Orchestrator may poll and allocate a nonce for this transaction in parallel
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
+		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
+	// Mock EstimateGasNoResolve to return a non-rejected error (not MapSubmissionRejected)
+	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
+		Return(ethclient.EstimateGasResult{}, fmt.Errorf("network error")).Once()
+
 	// Create a transaction
 	var pubTxnID uint64
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -1573,14 +1594,6 @@ func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
 		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
-
-	// Orchestrator may poll and allocate a nonce for this transaction in parallel
-	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
-		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
-
-	// Mock EstimateGasNoResolve to return a non-rejected error (not MapSubmissionRejected)
-	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
-		Return(ethclient.EstimateGasResult{}, fmt.Errorf("network error")).Once()
 
 	err = ptm.UpdateTransaction(ctx, txID, pubTxnID, testAddress, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
@@ -1598,6 +1611,14 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	txID := uuid.New()
 
+	// Orchestrator may poll and allocate a nonce for this transaction in parallel
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
+		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
+	// Mock EstimateGasNoResolve to return a rejected error (execution reverted) but with empty RevertData
+	// MapSubmissionRejected returns true for "execution reverted" errors
+	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
+		Return(ethclient.EstimateGasResult{RevertData: nil}, fmt.Errorf("execution reverted")).Once()
+
 	// Create a transaction
 	var pubTxnID uint64
 	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
@@ -1618,12 +1639,6 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
-
-	// Mock EstimateGasNoResolve to return a rejected error (execution reverted) but with empty RevertData
-	// MapSubmissionRejected returns true for "execution reverted" errors
-	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
-		Return(ethclient.EstimateGasResult{RevertData: nil}, fmt.Errorf("execution reverted")).Once()
-	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(mock.Anything, nil).Maybe()
 
 	err = ptm.UpdateTransaction(ctx, txID, pubTxnID, testAddress, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
