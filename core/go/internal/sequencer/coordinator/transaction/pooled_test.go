@@ -350,7 +350,7 @@ func Test_action_onTransitionToPooled_WithDependents(t *testing.T) {
 	mainMocks.engineIntegration.EXPECT().ResetTransactions(ctx, mainTxn.pt.ID).Return()
 
 	// Create a dependent transaction
-	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
+	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher)
 	dependentTxn := dependentTxnBuilder.Build()
 	dependentID := dependentTxn.pt.ID
@@ -377,44 +377,6 @@ func Test_action_onTransitionToPooled_InitialTransitionHasNoDependents(t *testin
 	require.Empty(t, txn.dependencies.PrereqOf)
 	err := action_onTransitionToPooled(ctx, txn, nil)
 	require.NoError(t, err)
-}
-
-func Test_action_onTransitionToPooled_WithDependents_ErrorHandling(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	// Create the main transaction
-	mainTxn, mainMocks := newTransactionForUnitTesting(t, grapher)
-	mainTxn.initializeStateMachine(State_Initial)
-	mainTxn.pt.PreAssembly = &components.TransactionPreAssembly{}
-	_ = mainMocks
-
-	// Create a dependent transaction that will fail when handling DependencyRevertedEvent
-	// This happens when transitioning to State_Pooled triggers action_onTransitionToPooled
-	// which fails if PreAssembly is nil
-	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Submitted).
-		Grapher(grapher)
-	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.pt.ID
-
-	// Remove PreAssembly to cause action_onTransitionToPooled to fail
-	// when the transaction transitions to State_Pooled
-	dependentTxn.pt.PreAssembly = nil
-
-	// Set up the main transaction to have the dependent as a PrereqOf
-	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
-
-	// Initially revertTime should be nil
-	assert.Nil(t, mainTxn.revertTime)
-
-	// Call action_onTransitionToPooled - should return dependency notification error
-	err := action_onTransitionToPooled(ctx, mainTxn, nil)
-	require.Error(t, err)
-
-	// Verify the dependent transaction transitioned to State_Pooled before the error occurred
-	// The state is changed before OnTransitionTo is called, so even though action_onTransitionToPooled
-	// failed, the state was already changed to State_Pooled
-	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
 }
 
 func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
@@ -460,7 +422,7 @@ func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
 	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
 
 	err := txn1.notifyDependentsOfRepool(ctx)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func Test_notifyDependentsOfRepool_WithDependent_HandleEventError(t *testing.T) {

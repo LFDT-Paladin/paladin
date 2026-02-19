@@ -129,11 +129,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_PreAssembly_Blocked,
 				}},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_PreAssembly_Blocked,
-				}},
-			},
 		},
 	},
 	State_Assembling: {
@@ -315,11 +310,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
 		},
 	},
 	State_Ready_For_Dispatch: {
@@ -336,11 +326,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
 		},
 	},
 	State_Dispatched: {
@@ -353,11 +338,6 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 			},
 			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
-			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -381,11 +361,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
 		},
 	},
 	State_Submitted: {
@@ -405,11 +380,6 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
-			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -453,6 +423,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *CoordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
+			t.stateEntryTime = t.clock.Now()
 
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))
@@ -468,6 +439,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 			}
 		}),
 	)
+	t.stateEntryTime = t.clock.Now()
 }
 
 func (t *CoordinatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {

@@ -68,10 +68,12 @@ func (t *CoordinatorTransaction) stateTimeoutExceeded(ctx context.Context, pendi
 		return false
 	}
 	log.L(ctx).Debugf("checking state timeout exceeded for %s on transaction %s request idempotency key %s", stateDescription, t.pt.ID.String(), pendingRequest.IdempotencyKey())
-	if pendingRequest.FirstRequestTime() == nil {
+	startTime := t.stateEntryTime
+	if startTime == nil {
+		log.L(ctx).Warnf("stateTimeoutExceeded called for %s on transaction %s with no start time", stateDescription, t.pt.ID)
 		return false
 	}
-	timedOut := t.clock.HasExpired(pendingRequest.FirstRequestTime(), t.stateTimeout)
+	timedOut := t.clock.HasExpired(startTime, t.stateTimeout)
 	if timedOut {
 		log.L(ctx).Debugf("%s of TX %s timed out", stateDescription, t.pt.ID)
 	}

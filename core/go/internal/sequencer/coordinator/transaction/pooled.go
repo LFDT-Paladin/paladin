@@ -115,7 +115,7 @@ func action_recordRevert(ctx context.Context, txn *CoordinatorTransaction, _ com
 }
 
 func action_onTransitionToPooled(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	// We emit DependencyRevertedEvent whenever we transition to pooled. For the initial transition
+	// We emit a DependencyRepooledEvent whenever we transition to pooled. For the initial transition
 	// from State_Initial to State_Pooled and the transition from State_Assembling to State_Pooled
 	// we do not expect any dependents yet, so this is a no-op.
 	if err := txn.notifyDependentsOfRepool(ctx); err != nil {
@@ -150,11 +150,9 @@ func (t *CoordinatorTransaction) notifyDependentsOfRepool(ctx context.Context) e
 				return err
 			}
 		} else {
-			//TODO can we Assume that the dependent is no longer in memory and doesn't need to know about this event?  Point to (write) the architecture doc that explains why this is safe
-
-			msg := fmt.Sprintf("notifyDependentsOfRepool: Dependent transaction %s not found in memory", dependentID)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+			// The only condition under which this branch should be reachable is if the dependent has failed on
+			// assembly, which is a final state, and has been cleaned up from memory
+			log.L(ctx).Warnf("notifyDependentsOfRepool: Dependent transaction %s not found in memory", dependentID)
 		}
 	}
 

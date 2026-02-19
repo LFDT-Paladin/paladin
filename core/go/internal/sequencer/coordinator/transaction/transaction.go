@@ -53,6 +53,7 @@ type CoordinatorTransaction struct {
 
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange               int
+	stateEntryTime                                   common.Time
 	pendingAssembleRequest                           *common.IdempotentRequest
 	cancelRequestTimeoutSchedule                     func()                                           // Short timeout for retry e.g. network blip
 	cancelStateTimeoutSchedule                       func()                                           // Timeout for state completion before repooling

@@ -377,6 +377,12 @@ func Test_assembleStateTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
 
 	result := txn.assembleStateTimeoutExceeded(ctx)
 	assert.False(t, result)
+
+	// Advance clock past timeout; even without FirstRequestTime we should time out
+	// using state entry time as fallback.
+	mocks.clock.Advance(6000) // stateTimeout is 5000ms
+	result = txn.assembleStateTimeoutExceeded(ctx)
+	assert.True(t, result)
 }
 
 func Test_assembleStateTimeoutExceeded_NotExpired(t *testing.T) {

@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -322,6 +323,26 @@ func Test_endorsementStateTimeoutExceeded_WithPendingRequest_Expired(t *testing.
 	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
 		"att1": {"party1": req},
 	}
+
+	mocks.clock.Advance(6000) // greater than default state timeout (5000)
+	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.True(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_endorsementStateTimeoutExceeded_WithPendingRequest_NilFirstRequestTime_UsesStateEntryTime(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return errors.New("send failed")
+	})
+	_ = req.Nudge(ctx) // Keep FirstRequestTime nil
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"att1": {"party1": req},
+	}
+
+	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
 
 	mocks.clock.Advance(6000) // greater than default state timeout (5000)
 	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
