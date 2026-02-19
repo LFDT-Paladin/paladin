@@ -99,9 +99,9 @@ func getEndorsementSet(ctx context.Context, localNode string, transaction *compo
 		// the right coordinator to use without speculative assembly of the transaction
 		candidateParties = append(candidateParties, transaction.PreAssembly.EndorsementSet...)
 	} else if transaction.PostAssembly != nil {
-		// This code path is left in from before we added the endorsement_set from InitTransaction().
-		// The V1 stream will clean this up as we fully implement and test move away from hash-based election,
-		// to fully dynamic election.
+		// This code path is left in from before we added the endorsement_set to the InitTransaction() return.
+		// The V1 stream will clean this up as we fully implement and test the move away from hash-based election,
+		// to fully dynamic election of the coordinator.
 		// For now this code path in V0 is left as a safety net.
 		for _, attestationPlan := range transaction.PostAssembly.AttestationPlan {
 			if attestationPlan.AttestationType == prototk.AttestationType_ENDORSE {
@@ -162,6 +162,7 @@ func (s *endorsementSetHashSelection) SelectCoordinatorNode(ctx context.Context,
 		}
 		// Use that as an index into the chosen node set
 		s.chosenNode = uniqueNodes[int(h.Sum32())%len(uniqueNodes)]
+		log.L(ctx).Infof("SelectCoordinatorNode: Chosen node %s for transaction %s", s.chosenNode, transaction.ID)
 	}
 
 	return blockHeight, s.chosenNode, nil
