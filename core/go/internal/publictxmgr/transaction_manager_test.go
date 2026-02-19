@@ -825,13 +825,17 @@ func TestSuspendTransactionNoOrchestrator(t *testing.T) {
 		Nonce:     &testNonce,
 		Suspended: false,
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Call SuspendTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
@@ -863,13 +867,17 @@ func TestResumeTransactionNoOrchestrator(t *testing.T) {
 		Nonce:     &testNonce,
 		Suspended: true,
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Call ResumeTransaction - this should trigger persistSuspendedFlag since no orchestrator is in flight
@@ -928,13 +936,17 @@ func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
 		Suspended: false,
 		Completed: nil, // No completion record
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Retrieve the transaction to get the actual PublicTxnID
@@ -971,13 +983,17 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 		},
 		Dispatcher: "dispatcher-node",
 	}
-	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
-	require.NoError(t, err)
-	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
-		PublicTxnID:     dbPublicTx.PublicTxnID,
-		Transaction:     testTxID,
-		TransactionType: pldapi.TransactionTypePrivate.Enum(),
-	}).Error
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbPublicTx).Error
+		if err != nil {
+			return err
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+			PublicTxnID:     dbPublicTx.PublicTxnID,
+			Transaction:     testTxID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}).Error
+	})
 	require.NoError(t, err)
 
 	// Retrieve the transaction to get the actual PublicTxnID
