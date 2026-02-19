@@ -61,17 +61,26 @@ const (
 	pscValid
 )
 
-func (d *domain) initSmartContract(ctx context.Context, def *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
+func (d *domain) initSmartContract(ctx context.Context, dbTX persistence.DBTX, def *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
 	dc := &domainContract{
 		dm:   d.dm,
 		d:    d,
 		api:  d.api,
 		info: def,
 	}
+	var privacyGroup *prototk.PrivacyGroup
+	pg, err := d.dm.groupManager.QueryGroups(ctx, dbTX, query.NewQueryBuilder().Equal("domain", d.name).Equal("contractAddress", &def.Address).Limit(1).Query())
+	if err != nil {
+		return pscInitError, nil, err
+	}
+	if len(pg) > 0 {
+		privacyGroup = mapPrivacyGroupToProto(pg[0].ID, pg[0].GenesisStateData())
+	}
 
 	res, err := d.api.InitContract(ctx, &prototk.InitContractRequest{
 		ContractAddress: def.Address.String(),
 		ContractConfig:  def.ConfigBytes,
+		PrivacyGroup:    privacyGroup,
 	})
 	if err != nil {
 		log.L(ctx).Errorf("Error initializing smart contract address: %s with config %s :  %s", def.Address, def.ConfigBytes.HexString(), err.Error())

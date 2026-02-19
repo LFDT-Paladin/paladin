@@ -509,10 +509,12 @@ func TestRPCQuerySmartContracts_SuccessWithResults(t *testing.T) {
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
 			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
 	)
+	mc.db.ExpectCommit()
 
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",
@@ -581,9 +583,11 @@ func TestRPCQuerySmartContracts_SuccessWithEmptyResults(t *testing.T) {
 		Limit: &limit,
 	}
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
 	)
+	mc.db.ExpectCommit()
 
 	req := &rpcclient.RPCRequest{
 		JSONRpc: "2.0",

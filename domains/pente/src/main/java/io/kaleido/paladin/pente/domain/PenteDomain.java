@@ -181,14 +181,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
              var onChainConfig = PenteConfiguration.decodeConfig(request.getContractConfig().toByteArray());
 
              var contractConfigObj = new PenteConfiguration.ContractConfig(onChainConfig.evmVersion());
-             var contractConfig = ContractConfig.newBuilder().
+            var contractConfig = ContractConfig.newBuilder().
                      setContractConfigJson(new ObjectMapper().writeValueAsString(contractConfigObj)).
                      setCoordinatorSelection(ContractConfig.CoordinatorSelection.COORDINATOR_ENDORSER).
-                     setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR).
-                     build();
+                    setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR);
+            if (request.hasPrivacyGroup()) {
+                var privacyGroup = request.getPrivacyGroup();
+                var members = privacyGroup.getMembersList().toArray(new String[0]);
+                if (members.length > 0) {
+                    var lookups = PenteTransaction.buildGroupScopeIdentityLookups(new JsonHex.Bytes32(privacyGroup.getGenesisSalt()), members);
+                    contractConfig.addAllCoordinatorEndorserCandidates(lookups);
+                }
+            }
              return CompletableFuture.completedFuture(InitContractResponse.newBuilder().
                      setValid(true).
-                     setContractConfig(contractConfig).
+                    setContractConfig(contractConfig.build()).
                      build());
 
          } catch (Exception e) {

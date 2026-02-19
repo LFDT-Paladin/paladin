@@ -95,6 +95,7 @@ type domainManager struct {
 	domainSigner     *domainSigner
 	rpcModule        *rpcserver.RPCModule
 	publicTxManager  components.PublicTxManager
+	groupManager     components.GroupManager
 
 	domainsByName    map[string]*domain
 	domainsByAddress map[pldtypes.EthAddress]*domain
@@ -127,6 +128,7 @@ func (dm *domainManager) PostInit(c components.AllComponents) error {
 	dm.keyManager = c.KeyManager()
 	dm.transportMgr = c.TransportManager()
 	dm.publicTxManager = c.PublicTxManager()
+	dm.groupManager = c.GroupManager()
 
 	for name, d := range dm.conf.Domains {
 		if _, err := pldtypes.ParseEthAddress(d.RegistryAddress); err != nil {
@@ -343,28 +345,35 @@ func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContra
 }
 
 func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
-	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
-		P:           dm.persistence,
-		Table:       "private_smart_contracts",
-		DefaultSort: "domainAddress",
-		Filters:     smartContractFilters,
-		Query:       jq,
-		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
-			_, dc, err := dm.enrichContractWithDomain(ctx, pt)
-			if err == nil {
-				result = &pldapi.DomainSmartContract{
-					DomainAddress: &pt.RegistryAddress,
-					Address:       pt.Address,
+	var results []*pldapi.DomainSmartContract
+	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
+			P:           dm.persistence,
+			Table:       "private_smart_contracts",
+			DefaultSort: "domainAddress",
+			Filters:     smartContractFilters,
+			Query:       jq,
+			MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
+				_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
+				if err == nil {
+					result = &pldapi.DomainSmartContract{
+						DomainAddress: &pt.RegistryAddress,
+						Address:       pt.Address,
+					}
+					if dc != nil {
+						result.DomainName = dc.Domain().Name()
+						dm.populateContractConfig(result, dc.config)
+					}
 				}
-				if dc != nil {
-					result.DomainName = dc.Domain().Name()
-					dm.populateContractConfig(result, dc.config)
-				}
-			}
-			return result, err
-		},
-	}
-	return qw.Run(ctx, nil)
+				return result, err
+
+			},
+		}
+		var err error
+		results, err = qw.Run(ctx, dbTX)
+		return err
+	})
+	return results, err
 }
 
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {
@@ -382,7 +391,7 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 
 	// At this point it's possible we have a matching smart contract in our DB, for which we
 	// no longer recognize the domain registry (as it's not one that is configured any longer)
-	loadResult, dc, err := dm.enrichContractWithDomain(ctx, contracts[0])
+	loadResult, dc, err := dm.enrichContractWithDomain(ctx, dbTX, contracts[0])
 	if err != nil {
 		return loadResult, nil, err
 	}
@@ -392,7 +401,7 @@ func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistenc
 	return loadResult, dc, nil
 }
 
-func (dm *domainManager) enrichContractWithDomain(ctx context.Context, contract *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
+func (dm *domainManager) enrichContractWithDomain(ctx context.Context, dbTX persistence.DBTX, contract *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
 
 	// Get the domain by address
 	d := dm.getDomainByAddressOrNil(&contract.RegistryAddress)
@@ -400,7 +409,7 @@ func (dm *domainManager) enrichContractWithDomain(ctx context.Context, contract 
 		return pscDomainNotFound, nil, nil
 	}
 
-	return d.initSmartContract(ctx, contract)
+	return d.initSmartContract(ctx, dbTX, contract)
 }
 
 // If an embedded ABI is broken, we don't even run the tests / start the runtime

@@ -78,14 +78,15 @@ func goodPSC(t *testing.T, td *testDomainContext) *domainContract {
 		return &prototk.InitContractResponse{
 			Valid: true,
 			ContractConfig: &prototk.ContractConfig{
-				ContractConfigJson:   `{}`,
-				CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-				SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+				ContractConfigJson:            `{}`,
+				CoordinatorSelection:          prototk.ContractConfig_COORDINATOR_ENDORSER,
+				CoordinatorEndorserCandidates: []string{"endorser1@node1"},
+				SubmitterSelection:            prototk.ContractConfig_SUBMITTER_SENDER,
 			},
 		}, nil
 	}
 
-	loadResult, psc, err := d.initSmartContract(d.ctx, &PrivateSmartContract{
+	loadResult, psc, err := d.initSmartContract(d.ctx, d.dm.persistence.NOTX(), &PrivateSmartContract{
 		DeployTX:        uuid.New(),
 		RegistryAddress: *d.RegistryAddress(),
 		Address:         pldtypes.EthAddress(pldtypes.RandBytes(20)),
