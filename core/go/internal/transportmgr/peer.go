@@ -56,6 +56,7 @@ type peer struct {
 	lastFullScan          time.Time
 	lastDrainHWM          *uint64
 	persistentMsgsDrained bool
+	consecutiveSendErrors int
 
 	senderStarted atomic.Bool
 	senderDone    chan struct{}
@@ -248,6 +249,9 @@ func (p *peer) startSender() (string, error) {
 	}
 
 	log.L(p.ctx).Debugf("connected to peer '%s'", p.Name)
+
+	// Reset the completion channel before each sender start.
+	p.senderDone = make(chan struct{})
 	p.senderStarted.Store(true)
 	go p.sender()
 	return p.transport.name, nil
@@ -264,22 +268,29 @@ func (p *peer) send(msg *prototk.PaladinMsg, reliableSeq *uint64) error {
 	err := p.tm.sendShortRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
 		return true, p.transport.send(p.ctx, p.Name, msg)
 	})
-	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
-	if err == nil {
-		now := pldtypes.TimestampNow()
-		p.statsLock.Lock()
-		defer p.statsLock.Unlock()
-		p.Stats.LastSend = &now
-		p.Stats.SentMsgs++
-		p.Stats.SentBytes += uint64(len(msg.Payload))
-		if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
-			p.Stats.ReliableHighestSent = *reliableSeq
-		}
-		if p.lastDrainHWM != nil {
-			p.Stats.ReliableAckBase = *p.lastDrainHWM
-		}
+	if err != nil {
+		p.consecutiveSendErrors++
+		return err
 	}
-	return err
+	p.consecutiveSendErrors = 0
+	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
+	now := pldtypes.TimestampNow()
+	p.statsLock.Lock()
+	defer p.statsLock.Unlock()
+	p.Stats.LastSend = &now
+	p.Stats.SentMsgs++
+	p.Stats.SentBytes += uint64(len(msg.Payload))
+	if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
+		p.Stats.ReliableHighestSent = *reliableSeq
+	}
+	if p.lastDrainHWM != nil {
+		p.Stats.ReliableAckBase = *p.lastDrainHWM
+	}
+	return nil
+}
+
+func (p *peer) sendFailureThresholdExceeded() bool {
+	return p.consecutiveSendErrors >= p.tm.sendFailureResetThreshold
 }
 
 func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
@@ -444,6 +455,7 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 }
 
 func (p *peer) sender() {
+	defer p.senderStarted.Store(false)
 	defer close(p.senderDone)
 
 	log.L(p.ctx).Infof("peer %s active", p.Name)
@@ -453,9 +465,20 @@ func (p *peer) sender() {
 
 		// We send/resend any reliable messages queued up first
 		err := p.tm.reliableScanRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
-			return true, p.reliableMessageScan(checkNew)
+			err = p.reliableMessageScan(checkNew)
+			if err != nil && p.sendFailureThresholdExceeded() {
+				return false, err
+			}
+			return true, err
 		})
 		if err != nil {
+			if p.sendFailureThresholdExceeded() {
+				log.L(p.ctx).Warnf(
+					"peer '%s' send loop restarting after %d consecutive send errors",
+					p.Name,
+					p.consecutiveSendErrors,
+				)
+			}
 			return // context closed
 		}
 		checkNew = false
@@ -483,6 +506,16 @@ func (p *peer) sender() {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
 					if msg.errorHandler != nil {
 						msg.errorHandler(p.ctx, err)
+					}
+					// Reset this sender loop after repeated send errors so
+					// the next send path re-runs peer activation.
+					if p.sendFailureThresholdExceeded() {
+						log.L(p.ctx).Warnf(
+							"peer '%s' send loop restarting after %d consecutive send errors",
+							p.Name,
+							p.consecutiveSendErrors,
+						)
+						return
 					}
 				}
 			}
