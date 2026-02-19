@@ -208,7 +208,7 @@ paladin:
     app: paladin
   baseNodePort: 31548
   logPersistence:
-    enabled: true # TODO put back to false
+    enabled: false
     path: /app/logs/paladin.log
     pvcTemplate:
       resources:
