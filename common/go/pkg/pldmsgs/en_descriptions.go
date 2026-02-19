@@ -721,6 +721,7 @@ var (
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
 	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
 	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
+	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
