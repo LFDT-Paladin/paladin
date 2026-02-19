@@ -325,7 +325,7 @@
                              build());
                  }
                  if (lastOp == DynamicLoadWorldState.LastOpType.UPDATED) {
-                     LOGGER.info("Writing new state for account {} (existing={})", loadedAccount, inputState);
+                     LOGGER.trace("Writing new state for account {}", loadedAccount);
                      var updatedAccount = evm.getWorld().get(loadedAccount);
                      outputStates.add(NewState.newBuilder().
                              setSchemaId(latestAccountSchemaId).
@@ -335,11 +335,11 @@
                              addAllDistributionList(lookups).
                              build());
                  } else {
-                     LOGGER.info("Deleting account {} (existing={})", loadedAccount, inputState);
+                     LOGGER.info("Deleting account {}", loadedAccount);
                  }
              } else if (loadedAccount != null) {
                  // Note a read of an account with no state at this block is not tracked on-chain
-                 LOGGER.info("Read of state for account {} (existing={})", loadedAccount, inputState);
+                 LOGGER.info("Read of state for account {}", loadedAccount);
                  readStates.add(StateRef.newBuilder().
                          setSchemaId(inputState.getSchemaId()).
                          setId(inputState.getId()).

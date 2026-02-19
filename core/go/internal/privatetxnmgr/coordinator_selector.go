@@ -139,8 +139,8 @@ type endorsementSetHashSelection struct {
 	chosenNode string
 }
 
-func (s *staticCoordinatorSelectorPolicy) SelectCoordinatorNode(ctx context.Context, _ *components.PrivateTransaction, environment ptmgrtypes.SequencerEnvironment) (int64, string, error) {
-	log.L(ctx).Debugf("SelectCoordinatorNode: Selecting coordinator node %s", s.nodeName)
+func (s *staticCoordinatorSelectorPolicy) SelectCoordinatorNode(ctx context.Context, transaction *components.PrivateTransaction, environment ptmgrtypes.SequencerEnvironment) (int64, string, error) {
+	log.L(ctx).Debugf("SelectCoordinatorNode: Selecting coordinator node %s for transaction %s", s.nodeName, transaction.ID)
 	return environment.GetBlockHeight(), s.nodeName, nil
 }
 
@@ -162,7 +162,7 @@ func (s *endorsementSetHashSelection) SelectCoordinatorNode(ctx context.Context,
 		}
 		// Use that as an index into the chosen node set
 		s.chosenNode = uniqueNodes[int(h.Sum32())%len(uniqueNodes)]
-		log.L(ctx).Infof("SelectCoordinatorNode: Chosen node %s for transaction %s", s.chosenNode, transaction.ID)
+		log.L(ctx).Debugf("SelectCoordinatorNode: Selecting coordinator node %s for transaction %s", s.chosenNode, transaction.ID)
 	}
 
 	return blockHeight, s.chosenNode, nil
