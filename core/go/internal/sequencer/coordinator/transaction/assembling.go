@@ -44,21 +44,10 @@ func (t *CoordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize()
 }
 
-func (t *CoordinatorTransaction) cancelAssembleTimeoutSchedules() {
-	if t.cancelAssembleTimeoutSchedule != nil {
-		t.cancelAssembleTimeoutSchedule()
-		t.cancelAssembleTimeoutSchedule = nil
-	}
-	if t.cancelAssembleRequestTimeoutSchedule != nil {
-		t.cancelAssembleRequestTimeoutSchedule()
-		t.cancelAssembleRequestTimeoutSchedule = nil
-	}
-}
-
 func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
 	t.pt.PostAssembly = postAssembly
 
-	t.cancelAssembleTimeoutSchedules()
+	t.clearTimeoutSchedules()
 
 	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
 		t.revertTransactionFailedAssembly(ctx, *postAssembly.RevertReason)
@@ -94,14 +83,14 @@ func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 }
 
 func (t *CoordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
-	//assemble requests have a short and long timeout
+	// assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
 	// the action for the long timeout is to return the transaction to the mempool and let another transaction be selected
 
-	//When we first send the request, we start a ticker to emit a requestTimeout event for each tick
-	// we and nudge the request every requestTimeout event implement the short retry.
-	// the state machine will deal with the long timeout via the guard assembleTimeoutExpired
+	// When we first send the request, we start a ticker to emit a requestTimeout event for each tick
+	// and nudge the request every requestTimeout event to implement the short retry.
+	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		stateLocks, err := t.engineIntegration.GetStateLocks(ctx)
 		if err != nil {
@@ -117,23 +106,8 @@ func (t *CoordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, stateLocks, blockHeight)
 	})
 
-	// Schedule a short retry timeout for e.g. network blip
-	t.cancelAssembleTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-		t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.pt.ID,
-			},
-		})
-	})
-
-	// Schedule a longer retry timeout for assembly to complete. If this timeout fires we start assembly from scratch after other transactions have had a turn to be assembled.
-	t.cancelAssembleRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.assembleTimeout, func() {
-		t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: t.pt.ID,
-			},
-		})
-	})
+	t.scheduleRequestTimeout(ctx)
+	t.scheduleStateTimeout(ctx)
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
@@ -144,25 +118,8 @@ func (t *CoordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *CoordinatorTransaction) assembleTimeoutExceeded(ctx context.Context) bool {
-	if t.pendingAssembleRequest == nil {
-		//strange situation to be in if we get to the point of this being nil, should immediately leave the state where we ever ask this question
-		// however we go here, the answer to the question is "false" because there is no pending request to timeout but log this as it is a strange situation
-		// and might be an indicator of another issue
-		log.L(ctx).Warnf("assembleTimeoutExceeded called on transaction %s with no pending assemble request", t.pt.ID)
-		return false
-	}
-	log.L(ctx).Debugf("checking assemble timeout exceeded for transaction %s request idempotency key %s", t.pt.ID.String(), t.pendingAssembleRequest.IdempotencyKey())
-	if t.pendingAssembleRequest.FirstRequestTime() == nil {
-		// No request has ever been sent so nothing to measure expiry against
-		return false
-	}
-	assembleTimedOut := t.clock.HasExpired(t.pendingAssembleRequest.FirstRequestTime(), t.assembleTimeout)
-	if assembleTimedOut {
-		log.L(ctx).Debugf("assembly of TX %s timed out. Moving back to pooled.", t.pt.ID)
-	}
-	return assembleTimedOut
-
+func (t *CoordinatorTransaction) assembleStateTimeoutExceeded(ctx context.Context) bool {
+	return t.stateTimeoutExceeded(ctx, t.pendingAssembleRequest, "assembly")
 }
 
 func (t *CoordinatorTransaction) isNotAssembled() bool {
@@ -330,6 +287,6 @@ func action_IncrementAssembleErrors(ctx context.Context, txn *CoordinatorTransac
 	return txn.incrementAssembleErrors()
 }
 
-func guard_AssembleTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.assembleTimeoutExceeded(ctx)
+func guard_AssembleStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
+	return txn.assembleStateTimeoutExceeded(ctx)
 }

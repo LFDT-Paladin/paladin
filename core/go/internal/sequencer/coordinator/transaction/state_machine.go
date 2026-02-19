@@ -57,6 +57,7 @@ const (
 	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
 	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
 	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DependencyRepooled                                                                   // another transaction, for which this transaction has a dependency on, has been put back in the pool
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
 	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
 	Event_Dispatched                                                                           // dispatched to the public TX manager
@@ -115,7 +116,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Pooled: {
-		OnTransitionTo: action_initializeDependencies,
+		OnTransitionTo: action_onTransitionToPooled,
 		Events: map[EventType]EventHandler{
 			Event_Selected: {
 				Transitions: []Transition{
@@ -124,6 +125,11 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 			},
 			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_PreAssembly_Blocked,
+				}},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_PreAssembly_Blocked,
 				}},
@@ -158,11 +164,11 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeAssembleRequest,
-					If:     statemachine.Not(guard_AssembleTimeoutExceeded),
+					If:     statemachine.Not(guard_AssembleStateTimeoutExceeded),
 				}},
 				Transitions: []Transition{{
 					To:     State_Pooled,
-					If:     guard_AssembleTimeoutExceeded,
+					If:     guard_AssembleStateTimeoutExceeded,
 					Action: action_IncrementAssembleErrors,
 				}},
 			},
@@ -194,6 +200,10 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_Endorsed,
 					},
 					{
+						Action: action_ResetEndorsementRequests,
+						If:     guard_AttestationPlanFulfilled,
+					},
+					{
 						Action: action_UpdateSigningIdentity,
 						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
 					}},
@@ -220,9 +230,22 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeEndorsementRequests,
+					If:     statemachine.Not(guard_EndorsementStateTimeoutExceeded),
 				}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						If:     guard_EndorsementStateTimeoutExceeded,
+						Action: action_IncrementAssembleErrors,
+					},
+				},
 			},
 			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -247,6 +270,11 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
+			Event_DependencyRepooled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Confirming_Dispatchable: {
@@ -260,12 +288,34 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Ready_For_Dispatch,
 					}},
 			},
+			Event_DispatchRequestRejected: {
+				Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						Action: action_IncrementAssembleErrors,
+					},
+				},
+			},
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgePreDispatchRequest,
+					If:     statemachine.Not(guard_DispatchConfirmationStateTimeoutExceeded),
 				}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						If:     guard_DispatchConfirmationStateTimeoutExceeded,
+						Action: action_DispatchRequestRejected,
+					},
+				},
 			},
 			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -286,6 +336,11 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
+			Event_DependencyRepooled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Dispatched: {
@@ -298,6 +353,11 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 			},
 			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -321,6 +381,11 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
+			Event_DependencyRepooled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
 		},
 	},
 	State_Submitted: {
@@ -340,6 +405,11 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyReverted: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},

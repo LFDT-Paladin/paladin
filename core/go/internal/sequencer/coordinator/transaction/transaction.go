@@ -54,10 +54,8 @@ type CoordinatorTransaction struct {
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange               int
 	pendingAssembleRequest                           *common.IdempotentRequest
-	cancelAssembleTimeoutSchedule                    func()                                          // Longer timeout for assembly to complete, before giving up and trying to assemble the next TX
-	cancelAssembleRequestTimeoutSchedule             func()                                          // Short timeout for retry e.g. network blip
-	cancelEndorsementRequestTimeoutSchedule          func()                                          // Short timeout for retry e.g. network blip
-	cancelDispatchConfirmationRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
+	cancelRequestTimeoutSchedule                     func()                                           // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule                       func()                                           // Timeout for state completion before repooling
 	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex                         sync.Mutex
 	pendingPreDispatchRequest                        *common.IdempotentRequest
@@ -67,7 +65,7 @@ type CoordinatorTransaction struct {
 
 	//Configuration
 	requestTimeout        common.Duration
-	assembleTimeout       common.Duration
+	stateTimeout          common.Duration
 	errorCount            int
 	finalizingGracePeriod int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 
@@ -92,7 +90,7 @@ func NewTransaction(
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	requestTimeout,
-	assembleTimeout common.Duration,
+	stateTimeout common.Duration,
 	finalizingGracePeriod int,
 	domainSigningIdentity string,
 	submitterSelection prototk.ContractConfig_SubmitterSelection,
@@ -116,7 +114,7 @@ func NewTransaction(
 		domainSigningIdentity:      domainSigningIdentity,
 		dynamicSigningIdentity:     true, // Assume no nonce protection for dispatch ordering until we determine otherwise
 		requestTimeout:             requestTimeout,
-		assembleTimeout:            assembleTimeout,
+		stateTimeout:               stateTimeout,
 		finalizingGracePeriod:      finalizingGracePeriod,
 		dependencies:               &pldapi.TransactionDependencies{},
 		grapher:                    grapher,

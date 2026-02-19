@@ -21,7 +21,7 @@ import (
 )
 
 type SequencerConfig struct {
-	AssembleTimeout                   *string           `json:"assembleTimeout"`
+	StateTimeout                      *string           `json:"stateTimeout"`
 	RequestTimeout                    *string           `json:"requestTimeout"`
 	BlockHeightTolerance              *uint64           `json:"blockHeightTolerance"`
 	BlockRange                        *uint64           `json:"blockRange"`
@@ -41,7 +41,7 @@ type SequencerConfig struct {
 }
 
 type SequencerMinimumConfig struct {
-	AssembleTimeout                   time.Duration
+	StateTimeout                      time.Duration
 	RequestTimeout                    time.Duration
 	BlockHeightTolerance              uint64
 	BlockRange                        uint64
@@ -64,7 +64,7 @@ var SequencerDefaults = SequencerConfig{
 		BatchTimeout: confutil.P("25ms"),
 		BatchMaxSize: confutil.P(100),
 	},
-	AssembleTimeout:                   confutil.P("10s"), // Time before giving up on assembly of the in progress transaction and re-pooling it
+	StateTimeout:                      confutil.P("10s"), // Time before giving up on request-driven transaction state progress and re-pooling
 	RequestTimeout:                    confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc.
 	BlockHeightTolerance:              confutil.P(uint64(5)),
 	BlockRange:                        confutil.P(uint64(100)),
@@ -82,7 +82,7 @@ var SequencerDefaults = SequencerConfig{
 }
 
 var SequencerMinimum = SequencerMinimumConfig{
-	AssembleTimeout:                   1 * time.Second,
+	StateTimeout:                      1 * time.Second,
 	RequestTimeout:                    1 * time.Second,
 	BlockHeightTolerance:              1,
 	BlockRange:                        10,

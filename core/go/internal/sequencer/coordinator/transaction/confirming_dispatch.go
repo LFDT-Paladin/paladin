@@ -26,8 +26,9 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-func (t *CoordinatorTransaction) applyDispatchConfirmation(_ context.Context, requestID uuid.UUID) error {
+func (t *CoordinatorTransaction) completePreDispatchRequest(_ context.Context) error {
 	t.pendingPreDispatchRequest = nil
+	t.clearTimeoutSchedules()
 	return nil
 }
 
@@ -48,13 +49,8 @@ func (t *CoordinatorTransaction) sendPreDispatchRequest(ctx context.Context) err
 				hash,
 			)
 		})
-		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-			t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: t.pt.ID,
-				},
-			})
-		})
+		t.scheduleRequestTimeout(ctx)
+		t.scheduleStateTimeout(ctx)
 	}
 
 	sendErr := t.pendingPreDispatchRequest.Nudge(ctx)
@@ -107,9 +103,12 @@ func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Coordi
 	return false, nil
 }
 
-func action_DispatchRequestApproved(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
-	e := event.(*DispatchRequestApprovedEvent)
-	return t.applyDispatchConfirmation(ctx, e.RequestID)
+func action_DispatchRequestApproved(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+	return t.completePreDispatchRequest(ctx)
+}
+
+func action_DispatchRequestRejected(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+	return t.completePreDispatchRequest(ctx)
 }
 
 func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
@@ -118,4 +117,12 @@ func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransact
 
 func action_NudgePreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
+}
+
+func (t *CoordinatorTransaction) dispatchConfirmationStateTimeoutExceeded(ctx context.Context) bool {
+	return t.stateTimeoutExceeded(ctx, t.pendingPreDispatchRequest, "dispatch confirmation")
+}
+
+func guard_DispatchConfirmationStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
+	return txn.dispatchConfirmationStateTimeoutExceeded(ctx)
 }
