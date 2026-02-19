@@ -95,6 +95,22 @@ paladinNodes:
       #   capacity:
       #     storage: 10Gi
 
+    # ======== Log Persistence ========
+    # Enable this block to persist Paladin logs to a dedicated PVC.
+    # logPersistence:
+    #   enabled: true
+    #   path: /app/logs/paladin.log
+    #   pvcTemplate:
+    #     resources:
+    #       requests:
+    #         storage: 1Gi
+    #   # Optional file-rotation overrides (defaults are used when omitted)
+    #   # file:
+    #   #   maxSize: 100Mb
+    #   #   maxBackups: 2
+    #   #   maxAge: 24h
+    #   #   compress: true
+
     # ======== Secret Backed Signers ========
     secretBackedSigners:
 

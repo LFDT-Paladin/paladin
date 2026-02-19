@@ -26,6 +26,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"strings"
 	"text/template"
 	"time"
 
@@ -60,6 +62,11 @@ import (
 
 //go:embed check-psql.sh
 var checkPsqlScript string
+
+const (
+	defaultPaladinLogPath = "/app/logs/paladin.log"
+	logsPVCNameSuffix     = "logs"
+)
 
 // PaladinReconciler reconciles a Paladin object
 type PaladinReconciler struct {
@@ -246,6 +253,12 @@ func (r *PaladinReconciler) createStatefulSet(ctx context.Context, node *corev1a
 			return nil, err
 		}
 	}
+	if node.Spec.LogPersistence != nil && node.Spec.LogPersistence.Enabled {
+		if err := r.createLogsPVC(ctx, node, name); err != nil {
+			setCondition(&node.Status.Conditions, corev1alpha1.ConditionPVC, metav1.ConditionTrue, corev1alpha1.ReasonPVCCreationFailed, err.Error())
+			return nil, err
+		}
+	}
 
 	paladinContainer := r.getPaladinContainer(statefulSet)
 	// Used by Postgres sidecar, but also custom DB creation - a DB secret needs wiring up to env vars for DSNParams
@@ -258,6 +271,7 @@ func (r *PaladinReconciler) createStatefulSet(ctx context.Context, node *corev1a
 	r.addKeystoreSecretMounts(statefulSet, paladinContainer, node.Spec.SecretBackedSigners)
 
 	r.addTLSSecretMounts(statefulSet, paladinContainer, tlsSecrets)
+	r.addLogPersistenceMounts(statefulSet, paladinContainer, name, node.Spec.LogPersistence)
 
 	// Mount RPC auth secret if configured
 	if node.Spec.RPCAuth != nil && node.Spec.RPCAuth.SecretName != "" {
@@ -581,6 +595,41 @@ func (r *PaladinReconciler) createPostgresPVC(ctx context.Context, node *corev1a
 	return nil
 }
 
+func (r *PaladinReconciler) createLogsPVC(ctx context.Context, node *corev1alpha1.Paladin, name string) error {
+	pvc := corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", name, logsPVCNameSuffix),
+			Namespace: node.Namespace,
+			Labels:    r.getLabels(node),
+		},
+		Spec: node.Spec.LogPersistence.PVCTemplate,
+	}
+	pvc.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{
+		corev1.ReadWriteOnce,
+	}
+	if pvc.Spec.Resources.Requests == nil {
+		pvc.Spec.Resources.Requests = corev1.ResourceList{}
+	}
+	if _, resourceSet := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; !resourceSet {
+		pvc.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("1Gi")
+	}
+	if err := controllerutil.SetControllerReference(node, &pvc, r.Scheme); err != nil {
+		return err
+	}
+
+	var foundPVC corev1.PersistentVolumeClaim
+	if err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &foundPVC); err != nil && errors.IsNotFound(err) {
+		err = r.Create(ctx, &pvc)
+		if err != nil {
+			return err
+		}
+		setCondition(&node.Status.Conditions, corev1alpha1.ConditionPVC, metav1.ConditionTrue, corev1alpha1.ReasonPVCCreated, fmt.Sprintf("Name: %s", pvc.Name))
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *PaladinReconciler) getPaladinContainer(sts *appsv1.StatefulSet) *corev1.Container {
 	var paladinContainer *corev1.Container
 	for i, c := range sts.Spec.Template.Spec.Containers {
@@ -590,6 +639,31 @@ func (r *PaladinReconciler) getPaladinContainer(sts *appsv1.StatefulSet) *corev1
 		}
 	}
 	return paladinContainer
+}
+
+func (r *PaladinReconciler) addLogPersistenceMounts(ss *appsv1.StatefulSet, ct *corev1.Container, name string, config *corev1alpha1.LogPersistence) {
+	if config == nil || !config.Enabled {
+		return
+	}
+	logPath := normalizeLogPath(config)
+	logDir := path.Dir(logPath)
+	if logDir == "." {
+		logDir = "/app/logs"
+	}
+	volumeName := logsPVCNameSuffix
+	claimName := fmt.Sprintf("%s-%s", name, logsPVCNameSuffix)
+	ct.VolumeMounts = append(ct.VolumeMounts, corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: logDir,
+	})
+	ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: volumeName,
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: claimName,
+			},
+		},
+	})
 }
 
 func (r *PaladinReconciler) addKeystoreSecretMounts(ss *appsv1.StatefulSet, ct *corev1.Container, signers []corev1alpha1.SecretBackedSigner) {
@@ -833,9 +907,42 @@ func (r *PaladinReconciler) generatePaladinConfig(ctx context.Context, node *cor
 	if err != nil {
 		return "", nil, err
 	}
+	r.applyLogPersistenceConfig(&pldConf, node.Spec.LogPersistence)
 
 	b, err := yaml.Marshal(&pldConf)
 	return string(b), tlsSecrets, err
+}
+
+func normalizeLogPath(config *corev1alpha1.LogPersistence) string {
+	if config == nil || config.Path == "" {
+		return defaultPaladinLogPath
+	}
+	if strings.HasPrefix(config.Path, "/") {
+		return config.Path
+	}
+	return path.Join("/app/logs", config.Path)
+}
+
+func (r *PaladinReconciler) applyLogPersistenceConfig(pldConf *pldconf.PaladinConfig, config *corev1alpha1.LogPersistence) {
+	if config == nil || !config.Enabled {
+		return
+	}
+	logOutput := "file"
+	logPath := normalizeLogPath(config)
+	pldConf.Log.Output = &logOutput
+	pldConf.Log.File.Filename = &logPath
+	if config.File.MaxSize != nil {
+		pldConf.Log.File.MaxSize = config.File.MaxSize
+	}
+	if config.File.MaxBackups != nil {
+		pldConf.Log.File.MaxBackups = config.File.MaxBackups
+	}
+	if config.File.MaxAge != nil {
+		pldConf.Log.File.MaxAge = config.File.MaxAge
+	}
+	if config.File.Compress != nil {
+		pldConf.Log.File.Compress = config.File.Compress
+	}
 }
 func (r *PaladinReconciler) generatePaladinBlockchainConfig(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) error {
 	if node.Spec.BaseLedgerEndpoint == nil {
