@@ -352,7 +352,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.AssembleTimeout = confutil.P("60s") // In this test we don't want to hit this
+	sequencerConfig.StateTimeout = confutil.P("60s") // In this test we don't want to hit this
 	sequencerConfig.RequestTimeout = confutil.P("10s")  // Extend this enough to give the bob node enough time to restart
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
@@ -435,7 +435,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	// is restarted the transaction should proceed to completion.
 
 	// This test is identical to TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission but
-	// intentionally waits longer than RequestTimeout before restarting the node. This exercises AssembleTimeout
+	// intentionally waits longer than RequestTimeout before restarting the node. This exercises StateTimeout
 	// separately.
 	ctx := t.Context()
 	domainRegistryAddress := deployDomainRegistry(t, "alice")
@@ -445,7 +445,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 
 	sequencerConfig := pldconf.SequencerDefaults
 	sequencerConfig.RequestTimeout = confutil.P("1s")   // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
-	sequencerConfig.AssembleTimeout = confutil.P("10s") // In this test we want to ensure assemble timeout causes the transaction to be re-pooled and re-assembled
+	sequencerConfig.StateTimeout = confutil.P("10s") // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
@@ -1614,7 +1614,7 @@ func TestTransactionWithExplicitPrereqSuccessfulAfterRestart(t *testing.T) {
 	carol := testutils.NewPartyForTesting(t, "carol", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.AssembleTimeout = confutil.P("10s")
+	sequencerConfig.StateTimeout = confutil.P("10s")
 	sequencerConfig.RequestTimeout = confutil.P("3s")
 	sequencerConfig.TransactionResumePollInterval = confutil.P("5s") // We're relying on sequencer TX resume to get TX2 through to completion
 	alice.OverrideSequencerConfig(&sequencerConfig)

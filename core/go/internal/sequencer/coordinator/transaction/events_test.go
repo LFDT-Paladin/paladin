@@ -596,6 +596,41 @@ func TestDependencyRevertedEvent_Fields(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
+func TestDependencyRepooledEvent_Type(t *testing.T) {
+	event := &DependencyRepooledEvent{}
+	assert.Equal(t, Event_DependencyRepooled, event.Type())
+}
+
+func TestDependencyRepooledEvent_TypeString(t *testing.T) {
+	event := &DependencyRepooledEvent{}
+	assert.Equal(t, "Event_DependencyRepooled", event.TypeString())
+}
+
+func TestDependencyRepooledEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &DependencyRepooledEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestDependencyRepooledEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+
+	event := &DependencyRepooledEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
 func TestDependencyReadyEvent_Type(t *testing.T) {
 	event := &DependencyReadyEvent{}
 	assert.Equal(t, Event_DependencyReady, event.Type())
@@ -771,7 +806,7 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&DependencyRevertedEvent{
+		&DependencyRepooledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

@@ -110,13 +110,13 @@ func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *
 	mockSyncPoints.AssertExpectations(t)
 }
 
-func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
 	// Set up a cancel function to track if it's called
 	cancelCalled := false
-	txn.cancelAssembleTimeoutSchedule = func() { cancelCalled = true }
+	txn.cancelRequestTimeoutSchedule = func() { cancelCalled = true }
 
 	// Set up the mock
 	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
@@ -131,7 +131,7 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t
 	require.NoError(t, err)
 
 	// Verify the cancel function was called
-	assert.True(t, cancelCalled, "cancelAssembleTimeoutSchedule should have been called")
+	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
 
 func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {

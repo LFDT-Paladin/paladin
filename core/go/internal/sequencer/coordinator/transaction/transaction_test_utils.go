@@ -227,7 +227,7 @@ type TransactionBuilderForTesting struct {
 	grapher                            Grapher
 	txn                                *CoordinatorTransaction
 	requestTimeout                     int
-	assembleTimeout                    int
+	stateTimeout                       int
 	heartbeatIntervalsSinceStateChange int
 }
 
@@ -250,7 +250,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		sentMessageRecorder:       NewSentMessageRecorder(),
 		fakeClock:                 &common.FakeClockForTesting{},
 		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
-		assembleTimeout:           5000,
+		stateTimeout:              5000,
 		requestTimeout:            100,
 		syncPoints:                &syncpoints.MockSyncPoints{},
 		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
@@ -344,8 +344,8 @@ func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }
 
-func (b *TransactionBuilderForTesting) GetAssembleTimeout() int {
-	return b.assembleTimeout
+func (b *TransactionBuilderForTesting) GetStateTimeout() int {
+	return b.stateTimeout
 }
 
 func (b *TransactionBuilderForTesting) GetRequestTimeout() int {
@@ -399,7 +399,7 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.fakeEngineIntegration,
 		b.syncPoints,
 		b.fakeClock.Duration(b.requestTimeout),
-		b.fakeClock.Duration(b.assembleTimeout),
+		b.fakeClock.Duration(b.stateTimeout),
 		5,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,

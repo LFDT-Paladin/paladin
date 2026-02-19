@@ -38,7 +38,7 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *CoordinatorT
 }
 
 func (t *CoordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
-	t.cancelAssembleTimeoutSchedules()
+	t.clearTimeoutSchedules()
 
 	var tryFinalize func()
 	tryFinalize = func() {

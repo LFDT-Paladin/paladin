@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -122,6 +123,64 @@ func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse
 	matched, err := validator_MatchesPendingPreDispatchRequest(ctx, txn, event)
 	require.NoError(t, err)
 	assert.False(t, matched)
+}
+
+func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+	txn.cancelRequestTimeoutSchedule = func() {}
+	txn.cancelStateTimeoutSchedule = func() {}
+
+	err := action_DispatchRequestRejected(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.Nil(t, txn.pendingPreDispatchRequest)
+	assert.Nil(t, txn.cancelRequestTimeoutSchedule)
+	assert.Nil(t, txn.cancelStateTimeoutSchedule)
+}
+
+func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable)
+	txn, mocks := builder.BuildWithMocks()
+	require.NotNil(t, txn.pendingPreDispatchRequest)
+
+	mocks.Clock.Advance(builder.GetStateTimeout() + 1)
+	err := txn.HandleEvent(ctx, &RequestTimeoutIntervalEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Pooled, txn.GetCurrentState())
+	assert.Nil(t, txn.pendingPreDispatchRequest)
+}
+
+func Test_dispatchConfirmationStateTimeoutExceeded_NilPendingRequest_ReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pendingPreDispatchRequest = nil
+
+	assert.False(t, txn.dispatchConfirmationStateTimeoutExceeded(ctx))
+	assert.False(t, guard_DispatchConfirmationStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_dispatchConfirmationStateTimeoutExceeded_NilFirstRequestTime_UsesStateEntryTime(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return errors.New("send failed")
+	})
+	_ = txn.pendingPreDispatchRequest.Nudge(ctx) // Keep FirstRequestTime nil
+
+	assert.False(t, txn.dispatchConfirmationStateTimeoutExceeded(ctx))
+	assert.False(t, guard_DispatchConfirmationStateTimeoutExceeded(ctx, txn))
+
+	mocks.clock.Advance(6000) // greater than default state timeout (5000)
+	assert.True(t, txn.dispatchConfirmationStateTimeoutExceeded(ctx))
+	assert.True(t, guard_DispatchConfirmationStateTimeoutExceeded(ctx, txn))
 }
 
 func Test_hash_NilPrivateTransaction_ReturnsError(t *testing.T) {

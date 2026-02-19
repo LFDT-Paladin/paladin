@@ -57,6 +57,7 @@ const (
 	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
 	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
 	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DependencyRepooled                                                                   // another transaction, for which this transaction has a dependency on, has been put back in the pool
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
 	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
 	Event_Dispatched                                                                           // dispatched to the public TX manager
@@ -106,7 +107,19 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_PreAssembly_Blocked: {
 		Events: map[EventType]EventHandler{
+			// TODO: when we have best effort FIFO ordering for first assemble within an originator, these transitions become relevant.
+			// they are currently unreachable as transactions only currently gain dependencies once they have been assembled.
+			// In both case it should only be the "previous" transaction that queues this event to us. The guard is likely wrong
+			// as we know that this event means we must sever the next/previous dependency link as we are now past first assembly.
+			// The guard comes from a time when it was possible for predefined explicit dependencies to be passed in, meaning there
+			// could be multiple dependencies blocking assembly, but explicit dependencies are now handled in the transaction manager.
 			Event_DependencyAssembled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+					If: statemachine.Not(guard_HasUnassembledDependencies),
+				}},
+			},
+			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 					If: statemachine.Not(guard_HasUnassembledDependencies),
@@ -115,7 +128,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Pooled: {
-		OnTransitionTo: action_initializeDependencies,
+		OnTransitionTo: action_onTransitionToPooled,
 		Events: map[EventType]EventHandler{
 			Event_Selected: {
 				Transitions: []Transition{
@@ -123,6 +136,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Assembling,
 					}},
 			},
+
 			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_PreAssembly_Blocked,
@@ -158,11 +172,11 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeAssembleRequest,
-					If:     statemachine.Not(guard_AssembleTimeoutExceeded),
+					If:     statemachine.Not(guard_AssembleStateTimeoutExceeded),
 				}},
 				Transitions: []Transition{{
 					To:     State_Pooled,
-					If:     guard_AssembleTimeoutExceeded,
+					If:     guard_AssembleStateTimeoutExceeded,
 					Action: action_IncrementAssembleErrors,
 				}},
 			},
@@ -194,6 +208,10 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_Endorsed,
 					},
 					{
+						Action: action_ResetEndorsementRequests,
+						If:     guard_AttestationPlanFulfilled,
+					},
+					{
 						Action: action_UpdateSigningIdentity,
 						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
 					}},
@@ -220,9 +238,17 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeEndorsementRequests,
+					If:     statemachine.Not(guard_EndorsementStateTimeoutExceeded),
 				}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						If:     guard_EndorsementStateTimeoutExceeded,
+						Action: action_IncrementAssembleErrors,
+					},
+				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -242,7 +268,7 @@ var stateDefinitionsMap = StateDefinitions{
 					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
 				}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -260,12 +286,29 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Ready_For_Dispatch,
 					}},
 			},
+			Event_DispatchRequestRejected: {
+				Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						Action: action_IncrementAssembleErrors,
+					},
+				},
+			},
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgePreDispatchRequest,
+					If:     statemachine.Not(guard_DispatchConfirmationStateTimeoutExceeded),
 				}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						If:     guard_DispatchConfirmationStateTimeoutExceeded,
+						Action: action_DispatchRequestRejected,
+					},
+				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -281,7 +324,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Dispatched,
 					}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -297,7 +340,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_SubmissionPrepared,
 					}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -316,7 +359,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_NonceAllocated: {
 				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -339,7 +382,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -347,7 +390,9 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		OnTransitionTo: action_NotifyDependentsOfRevert,
+		// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyRevert will
+		// need to be sent to the "next" transaction from that originator as a signal that it may now assemble. The dependency
+		// can be severed at this point as we have passed first assemble.
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
@@ -383,6 +428,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *CoordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
+			t.stateEntryTime = t.clock.Now()
 
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))
@@ -398,6 +444,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 			}
 		}),
 	)
+	t.stateEntryTime = t.clock.Now()
 }
 
 func (t *CoordinatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {

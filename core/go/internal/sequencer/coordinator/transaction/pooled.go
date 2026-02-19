@@ -101,50 +101,26 @@ func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) e
 	t.pt.PostAssembly = nil
 	t.dependencies = &pldapi.TransactionDependencies{}
 	t.grapher.ForgetMints(t.pt.ID)
-	t.cancelAssembleTimeoutSchedules()
+	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
+	t.engineIntegration.ResetTransactions(ctx, t.pt.ID)
 
 	return nil
 }
 
-func (t *CoordinatorTransaction) rePoolDependents(ctx context.Context) error {
-	var rePoolError error
-	// Raise a DependencyRevertedEvent for every TX that has this one as a pre-req. This will re-pool them
-	for _, dependentTXID := range t.dependencies.PrereqOf {
-		dependentTxn := t.grapher.TransactionByID(ctx, dependentTXID)
-		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyRevertedEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependentTXID,
-				},
-			})
-			if err != nil {
-				errMsg := i18n.WrapError(ctx, err, msgs.MsgSequencerErrorNotifyingDependent, dependentTXID, t.pt.ID)
-				log.L(ctx).Error(errMsg)
-				// Return the first error
-				if rePoolError == nil {
-					rePoolError = err
-				}
-			}
-		}
-	}
-
-	return rePoolError
-}
-
 func action_recordRevert(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	err := txn.rePoolDependents(ctx)
-	if err != nil {
-		// log error but continue
-		errMsg := i18n.NewError(ctx, msgs.MsgSequencerErrorRepoolingTX, txn.pt.ID)
-		log.L(ctx).Error(errMsg)
-	}
 	now := pldtypes.TimestampNow()
 	txn.revertTime = &now
 	return nil
 }
 
-func action_initializeDependencies(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_onTransitionToPooled(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
+	// We emit a DependencyRepooledEvent whenever we transition to pooled. For the initial transition
+	// from State_Initial to State_Pooled and the transition from State_Assembling to State_Pooled
+	// we do not expect any dependents yet, so this is a no-op.
+	if err := txn.notifyDependentsOfRepool(ctx); err != nil {
+		return err
+	}
 	return txn.initializeForNewAssemply(ctx)
 }
 
@@ -158,4 +134,27 @@ func guard_HasUnknownDependencies(ctx context.Context, txn *CoordinatorTransacti
 
 func guard_HasChainedTxInProgress(ctx context.Context, txn *CoordinatorTransaction) bool {
 	return txn.chainedTxAlreadyDispatched
+}
+
+func (t *CoordinatorTransaction) notifyDependentsOfRepool(ctx context.Context) error {
+	for _, dependentID := range t.dependencies.PrereqOf {
+		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
+		if dependentTxn != nil {
+			err := dependentTxn.HandleEvent(ctx, &DependencyRepooledEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependentID,
+				},
+			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of repool of transaction %s: %s", dependentID, t.pt.ID, err)
+				return err
+			}
+		} else {
+			// The only condition under which this branch should be reachable is if the dependent has failed on
+			// assembly, which is a final state, and has been cleaned up from memory
+			log.L(ctx).Warnf("notifyDependentsOfRepool: Dependent transaction %s not found in memory", dependentID)
+		}
+	}
+
+	return nil
 }

@@ -141,12 +141,12 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleResponse_IfRes
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout_IfNotAssembleTimeoutExpired(t *testing.T) {
+func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout_IfNotStateTimeoutExpired(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 	txn, mocks := txnBuilder.BuildWithMocks()
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() - 1)
+	mocks.Clock.Advance(txnBuilder.GetStateTimeout() - 1)
 
 	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentAssembleRequests())
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
@@ -160,12 +160,12 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout_IfNotAs
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Assembling_ToPooled_OnRequestTimeout_IfAssembleTimeoutExpired(t *testing.T) {
+func TestCoordinatorTransaction_Assembling_ToPooled_OnRequestTimeout_IfStateTimeoutExpired(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
 	txn, mocks := txnBuilder.BuildWithMocks()
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() + 1)
+	mocks.Clock.Advance(txnBuilder.GetStateTimeout() + 1)
 
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -216,39 +216,6 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleRevertResponse
 	assert.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-}
-
-func TestCoordinatorTransaction_Pooled_ToPreAssemblyBlocked_OnDependencyReverted(t *testing.T) {
-	ctx := context.Background()
-
-	//we need 2 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
-
-	//transaction2 depends on transaction 1 and transaction 1 gets reverted
-	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
-		Grapher(grapher).
-		Reverts("some revert reason")
-	txn1, mocks1 := builder1.BuildWithMocks()
-
-	mocks1.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
-		Grapher(grapher).
-		Originator(builder1.GetOriginator()).
-		PredefinedDependencies(txn1.GetID())
-	txn2 := builder2.Build()
-
-	err := txn1.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.GetID(),
-		},
-		PostAssembly: builder1.BuildPostAssembly(),
-		RequestID:    mocks1.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
-
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests(t *testing.T) {
@@ -426,6 +393,20 @@ func TestCoordinatorTransaction_ConfirmingDispatch_NoTransition_OnDispatchConfir
 	assert.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_ConfirmingDispatch_ToPooled_OnDispatchRejected(t *testing.T) {
+	ctx := context.Background()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+
+	err := txn.HandleEvent(ctx, &transaction.DispatchRequestRejectedEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.GetID(),
+		},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, 1, txn.GetErrorCount())
 }
 
 func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_IfNotHasDependenciesNotReady(t *testing.T) {

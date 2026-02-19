@@ -714,7 +714,7 @@ var (
 	DistributerConfigReceivedObjectWriter  = pdm("DistributerConfig.receivedStateWriter", "Received state writer configuration")
 
 	// SequencerConfig field descriptions
-	SequencerConfigAssembleTimeout                   = pdm("SequencerConfig.assembleTimeout", "Timeout for transaction assembly")
+	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
 	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
 	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
 	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")

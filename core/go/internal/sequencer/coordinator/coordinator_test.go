@@ -61,7 +61,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 
 	config := &pldconf.SequencerConfig{
 		HeartbeatInterval:        confutil.P("10s"),
-		AssembleTimeout:          confutil.P("5s"),
+		StateTimeout:             confutil.P("5s"),
 		RequestTimeout:           confutil.P("1s"),
 		BlockRange:               confutil.P(uint64(100)),
 		BlockHeightTolerance:     confutil.P(uint64(5)),
