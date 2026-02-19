@@ -498,7 +498,7 @@ func Test_applyHeartbeatReceived_ContinuesWhenConfirmedEventNotApplicable(t *tes
 	require.NoError(t, err)
 }
 
-func Test_applyDispatchedSnapshot_NoEventReturnsNil(t *testing.T) {
+func Test_applyDispatchedSnapshot_NoEvent(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -510,17 +510,16 @@ func Test_applyDispatchedSnapshot_NoEventReturnsNil(t *testing.T) {
 	o, _ := builder.Build(ctx)
 	defer o.Stop()
 
-	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+	o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
 		Transaction: common.Transaction{
 			ID:         tx.GetID(),
 			Originator: originatorLocator,
 		},
 	})
-	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Delegated, tx.GetCurrentState())
 }
 
-func Test_applyDispatchedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
+func Test_applyDispatchedSnapshot_TxnNotFound(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -530,13 +529,12 @@ func Test_applyDispatchedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
 	o, _ := builder.Build(ctx)
 	defer o.Stop()
 
-	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+	o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
 		Transaction: common.Transaction{
 			ID:         uuid.New(),
 			Originator: originatorLocator,
 		},
 	})
-	require.NoError(t, err)
 }
 
 func Test_applyDispatchedSnapshot_HashAndNonceSucceeds(t *testing.T) {
@@ -553,7 +551,7 @@ func Test_applyDispatchedSnapshot_HashAndNonceSucceeds(t *testing.T) {
 
 	nonce := uint64(7)
 	submissionHash := pldtypes.RandBytes32()
-	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+	o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
 		Transaction: common.Transaction{
 			ID:         tx.GetID(),
 			Originator: originatorLocator,
@@ -561,7 +559,6 @@ func Test_applyDispatchedSnapshot_HashAndNonceSucceeds(t *testing.T) {
 		LatestSubmissionHash: &submissionHash,
 		Nonce:                &nonce,
 	})
-	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Submitted, tx.GetCurrentState())
 	txID, found := o.submittedTransactionsByHash[submissionHash]
 	require.True(t, found)
@@ -581,38 +578,14 @@ func Test_applyDispatchedSnapshot_NonceOnlySucceeds(t *testing.T) {
 	defer o.Stop()
 
 	nonce := uint64(7)
-	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+	o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
 		Transaction: common.Transaction{
 			ID:         tx.GetID(),
 			Originator: originatorLocator,
 		},
 		Nonce: &nonce,
 	})
-	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Sequenced, tx.GetCurrentState())
-}
-
-func Test_applyDispatchedSnapshot_IgnoresUnhandledEvent(t *testing.T) {
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	builder := NewOriginatorBuilderForTesting(State_Observing).
-		NodeName(originatorLocator).
-		CommitteeMembers(originatorLocator, coordinatorLocator).
-		Transactions(tx)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
-
-	submissionHash := pldtypes.RandBytes32()
-	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
-		Transaction: common.Transaction{
-			ID:         tx.GetID(),
-			Originator: originatorLocator,
-		},
-		LatestSubmissionHash: &submissionHash,
-	})
-	require.NoError(t, err)
 }
 
 func Test_applyConfirmedSnapshot_OriginatorMismatchIgnored(t *testing.T) {
@@ -625,7 +598,7 @@ func Test_applyConfirmedSnapshot_OriginatorMismatchIgnored(t *testing.T) {
 	o, _ := builder.Build(ctx)
 	defer o.Stop()
 
-	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+	o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
 		DispatchedTransaction: common.DispatchedTransaction{
 			Transaction: common.Transaction{
 				ID:         uuid.New(),
@@ -633,10 +606,9 @@ func Test_applyConfirmedSnapshot_OriginatorMismatchIgnored(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
 }
 
-func Test_applyConfirmedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
+func Test_applyConfirmedSnapshot_TxnNotFound(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -646,7 +618,7 @@ func Test_applyConfirmedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
 	o, _ := builder.Build(ctx)
 	defer o.Stop()
 
-	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+	o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
 		DispatchedTransaction: common.DispatchedTransaction{
 			Transaction: common.Transaction{
 				ID:         uuid.New(),
@@ -654,7 +626,6 @@ func Test_applyConfirmedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
 }
 
 func Test_applyConfirmedSnapshot_SuccessDeletesHashAndTransitions(t *testing.T) {
@@ -671,7 +642,7 @@ func Test_applyConfirmedSnapshot_SuccessDeletesHashAndTransitions(t *testing.T) 
 
 	submissionHash := tx.GetLatestSubmissionHash()
 	require.NotNil(t, submissionHash)
-	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+	o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
 		DispatchedTransaction: common.DispatchedTransaction{
 			Transaction: common.Transaction{
 				ID:         tx.GetID(),
@@ -680,7 +651,6 @@ func Test_applyConfirmedSnapshot_SuccessDeletesHashAndTransitions(t *testing.T) 
 			LatestSubmissionHash: submissionHash,
 		},
 	})
-	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Confirmed, tx.GetCurrentState())
 	_, found := o.submittedTransactionsByHash[*submissionHash]
 	assert.False(t, found)
@@ -698,7 +668,7 @@ func Test_applyConfirmedSnapshot_RevertedTransitions(t *testing.T) {
 	o, _ := builder.Build(ctx)
 	defer o.Stop()
 
-	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+	o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
 		DispatchedTransaction: common.DispatchedTransaction{
 			Transaction: common.Transaction{
 				ID:         tx.GetID(),
@@ -707,29 +677,5 @@ func Test_applyConfirmedSnapshot_RevertedTransitions(t *testing.T) {
 		},
 		RevertReason: pldtypes.HexBytes("0x1234"),
 	})
-	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Delegated, tx.GetCurrentState())
-}
-
-func Test_applyConfirmedSnapshot_IgnoresUnhandledEvent(t *testing.T) {
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	builder := NewOriginatorBuilderForTesting(State_Observing).
-		NodeName(originatorLocator).
-		CommitteeMembers(originatorLocator, coordinatorLocator).
-		Transactions(tx)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
-
-	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
-		DispatchedTransaction: common.DispatchedTransaction{
-			Transaction: common.Transaction{
-				ID:         tx.GetID(),
-				Originator: originatorLocator,
-			},
-		},
-	})
-	require.NoError(t, err)
 }

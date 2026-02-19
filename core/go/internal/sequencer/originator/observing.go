@@ -46,16 +46,16 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 	return nil
 }
 
-func (o *originator) applyDispatchedSnapshot(ctx context.Context, dispatchedTransaction *common.DispatchedTransaction) error {
+func (o *originator) applyDispatchedSnapshot(ctx context.Context, dispatchedTransaction *common.DispatchedTransaction) {
 	//if any of the dispatched transactions were sent by this originator, ensure that we have an up to date view of its state
 	if dispatchedTransaction.Originator != o.nodeName {
-		return nil
+		return
 	}
 	txn := o.transactionsByID[dispatchedTransaction.ID]
 	if txn == nil {
 		//unexpected situation to be in.  We trust our memory of transactions over the coordinator's, so we ignore this transaction
 		log.L(ctx).Warnf("received heartbeat from %s with dispatched transaction %s but no transaction found in memory", o.activeCoordinatorNode, dispatchedTransaction.ID)
-		return nil
+		return
 	}
 
 	if dispatchedTransaction.LatestSubmissionHash != nil {
@@ -69,7 +69,6 @@ func (o *originator) applyDispatchedSnapshot(ctx context.Context, dispatchedTran
 		// be logged by the common state machine code.
 		_ = txn.HandleEvent(ctx, event)
 	}
-	return nil
 }
 
 func (o *originator) buildDispatchedSnapshotEvent(dispatchedTransaction *common.DispatchedTransaction) transaction.Event {
@@ -102,15 +101,15 @@ func (o *originator) buildDispatchedSnapshotEvent(dispatchedTransaction *common.
 	return nil
 }
 
-func (o *originator) applyConfirmedSnapshot(ctx context.Context, confirmedTransaction *common.ConfirmedTransaction) error {
+func (o *originator) applyConfirmedSnapshot(ctx context.Context, confirmedTransaction *common.ConfirmedTransaction) {
 	if confirmedTransaction.Originator != o.nodeName {
-		return nil
+		return
 	}
 	txn := o.transactionsByID[confirmedTransaction.ID]
 	if txn == nil {
 		// we expect this to happen since we remove the transaction from memory as soon as it reaches a final state but the
 		// coordinator will include it for a number of heartbeats after it reaches a final state.
-		return nil
+		return
 	}
 
 	if confirmedTransaction.LatestSubmissionHash != nil {
@@ -122,7 +121,6 @@ func (o *originator) applyConfirmedSnapshot(ctx context.Context, confirmedTransa
 	// no recovery action we can take when applying a heartbeat. If errors do occur they will
 	// be logged by the common state machine code.
 	_ = txn.HandleEvent(ctx, event)
-	return nil
 }
 
 func buildConfirmedSnapshotEvent(confirmedTransaction *common.ConfirmedTransaction) transaction.Event {
