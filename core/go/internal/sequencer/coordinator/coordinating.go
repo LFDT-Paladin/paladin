@@ -70,7 +70,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			hasChainedTransaction,
 			c.transportWriter,
 			c.clock,
-			c.QueueEvent,
+			c.queueEventInternal,
 			c.engineIntegration,
 			c.syncPoints,
 			c.requestTimeout,

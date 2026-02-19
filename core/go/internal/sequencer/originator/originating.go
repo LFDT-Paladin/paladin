@@ -37,7 +37,7 @@ func (o *originator) createTransaction(ctx context.Context, txn *components.Priv
 	newTxn, err := transaction.NewTransaction(ctx,
 		txn,
 		o.transportWriter,
-		o.QueueEvent,
+		o.queueEventInternal,
 		o.engineIntegration,
 		o.metrics)
 	if err != nil {
@@ -156,7 +156,7 @@ func action_OriginatorTransactionStateTransition(ctx context.Context, o *origina
 	case transaction.State_Final:
 		o.removeTransaction(ctx, e.TransactionID)
 	case transaction.State_Confirmed, transaction.State_Reverted:
-		o.QueueEvent(ctx, &transaction.FinalizeEvent{
+		o.queueEventInternal(ctx, &transaction.FinalizeEvent{
 			BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
 			TransactionID: e.TransactionID,
 		})
