@@ -67,9 +67,9 @@ func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persi
 	return nil
 }
 
-func (tm *txManager) BlockedByDependencies(ctx context.Context, tx *components.ValidatedTransaction) (bool, error) {
+func (tm *txManager) BlockedByDependencies(ctx context.Context, dbTX persistence.DBTX, tx *components.ValidatedTransaction) (bool, error) {
 	for _, dep := range tx.DependsOn {
-		depTXReceipt, err := tm.GetTransactionReceiptByID(ctx, dep)
+		depTXReceipt, err := tm.getTransactionReceiptByIDWithTX(ctx, dbTX, dep)
 		if err != nil {
 			// Fail safe - if we can't check the status of a dependency we should assume we're waiting for it.
 			return true, err

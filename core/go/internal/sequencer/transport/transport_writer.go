@@ -680,7 +680,7 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 
 // Run the loopback transport in a goroutine to avoid blocking the event loop. This is important for the
 // channel-based event queue to ensure the queue consumer is not blocked when we happen to be sending
-// to ourselves. We have a queue of 1 to ensure FIFO order within a node for local fire and forget messages.
+// to ourselves.
 func (tw *transportWriter) loopbackSender(ctx context.Context) {
 	defer close(tw.loopbackSenderStopped)
 	for {

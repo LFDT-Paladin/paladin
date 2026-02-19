@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
+	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -1194,6 +1195,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
                 "to": "wallets.org1.aaaaaa",
                 "amount": "99"
             }`)).
+		DependsOn([]uuid.UUID{*tx1.ID()}).
 		Send()
 	require.NoError(t, tx2.Error())
 
@@ -1210,6 +1212,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
                 "to": "wallets.org1.bbbbbb",
                 "amount": "98"
             }`)).
+		DependsOn([]uuid.UUID{*tx2.ID()}).
 		Send()
 	require.NoError(t, tx3.Error())
 
