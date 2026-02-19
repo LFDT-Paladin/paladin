@@ -474,15 +474,16 @@ var (
 	PluginConfigClass   = pdm("PluginConfig.class", "Plugin class name")
 
 	// TransportManagerInlineConfig field descriptions
-	TransportManagerInlineConfigNodeName              = pdm("TransportManagerInlineConfig.nodeName", "Node name for transport identification")
-	TransportManagerInlineConfigSendQueueLen          = pdm("TransportManagerInlineConfig.sendQueueLen", "Maximum length of send queue")
-	TransportManagerInlineConfigPeerInactivityTimeout = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
-	TransportManagerInlineConfigPeerReaperInterval    = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
-	TransportManagerInlineConfigSendRetry             = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
-	TransportManagerInlineConfigReliableScanRetry     = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
-	TransportManagerInlineConfigReliableMessageResend = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")
-	TransportManagerInlineConfigReliableMessageWriter = pdm("TransportManagerInlineConfig.reliableMessageWriter", "Reliable message writer configuration")
-	TransportManagerInlineConfigTransports            = pdm("TransportManagerInlineConfig.transports", "Map of transport configurations")
+	TransportManagerInlineConfigNodeName                  = pdm("TransportManagerInlineConfig.nodeName", "Node name for transport identification")
+	TransportManagerInlineConfigSendQueueLen              = pdm("TransportManagerInlineConfig.sendQueueLen", "Maximum length of send queue")
+	TransportManagerInlineConfigPeerInactivityTimeout     = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
+	TransportManagerInlineConfigPeerReaperInterval        = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
+	TransportManagerInlineConfigSendFailureResetThreshold = pdm("TransportManagerInlineConfig.sendFailureResetThreshold", "Consecutive send failure threshold before resetting a peer sender loop")
+	TransportManagerInlineConfigSendRetry                 = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
+	TransportManagerInlineConfigReliableScanRetry         = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
+	TransportManagerInlineConfigReliableMessageResend     = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")
+	TransportManagerInlineConfigReliableMessageWriter     = pdm("TransportManagerInlineConfig.reliableMessageWriter", "Reliable message writer configuration")
+	TransportManagerInlineConfigTransports                = pdm("TransportManagerInlineConfig.transports", "Map of transport configurations")
 
 	// RegistryManagerInlineConfig field descriptions
 	RegistryManagerInlineConfigRegistries      = pdm("RegistryManagerInlineConfig.registries", "Map of registry configurations")
