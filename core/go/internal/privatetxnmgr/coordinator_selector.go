@@ -92,6 +92,44 @@ func NewCoordinatorSelector(ctx context.Context, nodeName string, contractConfig
 	return nil, i18n.NewError(ctx, msgs.MsgDomainInvalidCoordinatorSelection, contractConfig.GetCoordinatorSelection())
 }
 
+func getEndorsementSet(ctx context.Context, localNode string, transaction *components.PrivateTransaction) (identities, uniqueNodes []string, err error) {
+	var candidateParties []string
+	if len(transaction.PreAssembly.EndorsementSet) > 0 {
+		// During InitTransaction() the domain should return an endorsement set, as otherwise we wouldn't know
+		// the right coordinator to use without speculative assembly of the transaction
+		candidateParties = append(candidateParties, transaction.PreAssembly.EndorsementSet...)
+	} else if transaction.PostAssembly != nil {
+		// This code path is left in from before we added the endorsement_set from InitTransaction().
+		// The V1 stream will clean this up as we fully implement and test move away from hash-based election,
+		// to fully dynamic election.
+		// For now this code path in V0 is left as a safety net.
+		for _, attestationPlan := range transaction.PostAssembly.AttestationPlan {
+			if attestationPlan.AttestationType == prototk.AttestationType_ENDORSE {
+				candidateParties = append(candidateParties, attestationPlan.Parties...)
+			}
+		}
+	}
+	candidateNodesMap := make(map[string]struct{})
+	for _, party := range candidateParties {
+		identity, node, err := pldtypes.PrivateIdentityLocator(party).Validate(ctx, localNode, false)
+		if err != nil {
+			log.L(ctx).Errorf("SelectCoordinatorNode: Error resolving node for party %s: %s", party, err)
+			return nil, nil, i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, err)
+		}
+		candidateNodesMap[node] = struct{}{}
+		identities = append(identities, fmt.Sprintf("%s@%s", identity, node))
+	}
+
+	uniqueNodes = make([]string, 0, len(candidateNodesMap))
+	for candidateNode := range candidateNodesMap {
+		uniqueNodes = append(uniqueNodes, candidateNode)
+	}
+	slices.Sort(uniqueNodes)
+	slices.Sort(identities)
+
+	return
+}
+
 type staticCoordinatorSelectorPolicy struct {
 	nodeName string
 }
@@ -109,36 +147,12 @@ func (s *staticCoordinatorSelectorPolicy) SelectCoordinatorNode(ctx context.Cont
 func (s *endorsementSetHashSelection) SelectCoordinatorNode(ctx context.Context, transaction *components.PrivateTransaction, environment ptmgrtypes.SequencerEnvironment) (int64, string, error) {
 	blockHeight := environment.GetBlockHeight()
 	if s.chosenNode == "" {
-		if transaction.PostAssembly == nil {
-			//if we don't know the candidate nodes, and the transaction hasn't been assembled yet, then we can't select a coordinator so just assume we are the coordinator
-			// until we get the transaction assembled and then re-evaluate
-			log.L(ctx).Debug("SelectCoordinatorNode: Assembly not yet completed - using local node for assembly")
-			return blockHeight, s.localNode, nil
+		identities, uniqueNodes, err := getEndorsementSet(ctx, s.localNode, transaction)
+		if err != nil {
+			return -1, "", err
 		}
-		//use a map to dedupe as we go
-		candidateNodesMap := make(map[string]struct{})
-		identities := make([]string, 0, len(transaction.PostAssembly.AttestationPlan))
-		for _, attestationPlan := range transaction.PostAssembly.AttestationPlan {
-			if attestationPlan.AttestationType == prototk.AttestationType_ENDORSE {
-				for _, party := range attestationPlan.Parties {
-					identity, node, err := pldtypes.PrivateIdentityLocator(party).Validate(ctx, s.localNode, false)
-					if err != nil {
-						log.L(ctx).Errorf("SelectCoordinatorNode: Error resolving node for party %s: %s", party, err)
-						return -1, "", i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, err)
-					}
-					candidateNodesMap[node] = struct{}{}
-					identities = append(identities, fmt.Sprintf("%s@%s", identity, node))
-				}
-			}
-		}
-		candidateNodes := make([]string, 0, len(candidateNodesMap))
-		for candidateNode := range candidateNodesMap {
-			candidateNodes = append(candidateNodes, candidateNode)
-		}
-		slices.Sort(candidateNodes)
-		slices.Sort(identities)
-		if len(candidateNodes) == 0 {
-			log.L(ctx).Warn("SelectCoordinatorNode: No candidate nodes, assuming local node is the coordinator")
+		if len(uniqueNodes) == 0 {
+			log.L(ctx).Warnf("SelectCoordinatorNode: No candidate nodes, assuming local node is the coordinator for %s", transaction.ID)
 			return blockHeight, s.localNode, nil
 		}
 		// Take a simple numeric hash of the identities string
@@ -147,7 +161,7 @@ func (s *endorsementSetHashSelection) SelectCoordinatorNode(ctx context.Context,
 			h.Write([]byte(identity))
 		}
 		// Use that as an index into the chosen node set
-		s.chosenNode = candidateNodes[int(h.Sum32())%len(candidateNodes)]
+		s.chosenNode = uniqueNodes[int(h.Sum32())%len(uniqueNodes)]
 	}
 
 	return blockHeight, s.chosenNode, nil
@@ -155,46 +169,17 @@ func (s *endorsementSetHashSelection) SelectCoordinatorNode(ctx context.Context,
 }
 
 type roundRobinCoordinatorSelectorPolicy struct {
-	localNode      string
-	candidateNodes []string
-	rangeSize      int
+	localNode string
+	rangeSize int
 }
 
 func (s *roundRobinCoordinatorSelectorPolicy) SelectCoordinatorNode(ctx context.Context, transaction *components.PrivateTransaction, environment ptmgrtypes.SequencerEnvironment) (int64, string, error) {
 	blockHeight := environment.GetBlockHeight()
-
-	if len(s.candidateNodes) == 0 {
-		if transaction.PostAssembly == nil {
-			//if we don't know the candidate nodes, and the transaction hasn't been assembled yet, then we can't select a coordinator so just assume we are the coordinator
-			// until we get the transaction assembled and then re-evaluate
-			log.L(ctx).Debug("SelectCoordinatorNode: No candidate nodes, assuming local node is the coordinator")
-			return blockHeight, s.localNode, nil
-		} else {
-			//use a map to dedupe as we go
-			candidateNodesMap := make(map[string]struct{})
-			for _, attestationPlan := range transaction.PostAssembly.AttestationPlan {
-				if attestationPlan.AttestationType == prototk.AttestationType_ENDORSE {
-					for _, party := range attestationPlan.Parties {
-						node, err := pldtypes.PrivateIdentityLocator(party).Node(ctx, true)
-						if err != nil {
-							log.L(ctx).Errorf("SelectCoordinatorNode: Error resolving node for party %s: %s", party, err)
-							return -1, "", i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, err)
-						}
-						if node == "" {
-							node = s.localNode
-						}
-						candidateNodesMap[node] = struct{}{}
-					}
-				}
-			}
-			for candidateNode := range candidateNodesMap {
-				s.candidateNodes = append(s.candidateNodes, candidateNode)
-			}
-			slices.Sort(s.candidateNodes)
-		}
+	_, uniqueNodes, err := getEndorsementSet(ctx, s.localNode, transaction)
+	if err != nil {
+		return -1, "", err
 	}
-
-	if len(s.candidateNodes) == 0 {
+	if len(uniqueNodes) == 0 {
 		//if we still don't have any candidate nodes, then we can't select a coordinator so just assume we are the coordinator
 		log.L(ctx).Debug("SelectCoordinatorNode: No candidate nodes, assuming local node is the coordinator")
 		return blockHeight, s.localNode, nil
@@ -202,8 +187,8 @@ func (s *roundRobinCoordinatorSelectorPolicy) SelectCoordinatorNode(ctx context.
 
 	rangeIndex := blockHeight / int64(s.rangeSize)
 
-	coordinatorIndex := int(rangeIndex) % len(s.candidateNodes)
-	coordinatorNode := s.candidateNodes[coordinatorIndex]
+	coordinatorIndex := int(rangeIndex) % len(uniqueNodes)
+	coordinatorNode := uniqueNodes[coordinatorIndex]
 	log.L(ctx).Debugf("SelectCoordinatorNode: selected coordinator node %s using round robin algorithm for blockHeight: %d and rangeSize %d ", coordinatorNode, blockHeight, s.rangeSize)
 
 	return blockHeight, coordinatorNode, nil

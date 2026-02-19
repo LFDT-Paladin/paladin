@@ -40,6 +40,7 @@ type TransactionPreAssembly struct {
 	RequiredVerifiers        []*prototk.ResolveVerifierRequest `json:"required_verifiers"`
 	Verifiers                []*prototk.ResolvedVerifier       `json:"verifiers"`
 	PublicTxOptions          pldapi.PublicTxOptions            `json:"public_tx_options"`
+	EndorsementSet           []string                          `json:"endorsement_set"`
 }
 
 type FullState struct {
