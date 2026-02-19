@@ -17,11 +17,8 @@ package originator
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 )
@@ -36,17 +33,11 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 	o.activeCoordinatorNode = event.From
 	o.latestCoordinatorSnapshot = &event.CoordinatorSnapshot
 	for _, dispatchedTransaction := range event.DispatchedTransactions {
-		err := o.applyDispatchedSnapshot(ctx, dispatchedTransaction)
-		if err != nil {
-			return err
-		}
+		o.applyDispatchedSnapshot(ctx, dispatchedTransaction)
 	}
 
 	for _, confirmedTransaction := range event.ConfirmedTransactions {
-		err := o.applyConfirmedSnapshot(ctx, confirmedTransaction)
-		if err != nil {
-			return err
-		}
+		o.applyConfirmedSnapshot(ctx, confirmedTransaction)
 	}
 
 	// Note: sending dropped transaction re-delegations (i.e. those we are tracking but which the heartbeat doesn't mention)
@@ -66,37 +57,45 @@ func (o *originator) applyDispatchedSnapshot(ctx context.Context, dispatchedTran
 		log.L(ctx).Warnf("received heartbeat from %s with dispatched transaction %s but no transaction found in memory", o.activeCoordinatorNode, dispatchedTransaction.ID)
 		return nil
 	}
+
+	if dispatchedTransaction.LatestSubmissionHash != nil {
+		o.submittedTransactionsByHash[*dispatchedTransaction.LatestSubmissionHash] = &dispatchedTransaction.ID
+	}
+
+	event := o.buildDispatchedSnapshotEvent(dispatchedTransaction)
+	if event != nil {
+		// the events we can be handling here never return errors, but even if they did there's
+		// no recovery action we can take when applying a heartbeat. If errors do occur they will
+		// be logged by the common state machine code.
+		_ = txn.HandleEvent(ctx, event)
+	}
+	return nil
+}
+
+func (o *originator) buildDispatchedSnapshotEvent(dispatchedTransaction *common.DispatchedTransaction) transaction.Event {
 	if dispatchedTransaction.LatestSubmissionHash != nil {
 		//if the dispatched transaction has a hash, then we can update our view of the transaction
-		txnSubmittedEvent := &transaction.SubmittedEvent{}
-		txnSubmittedEvent.TransactionID = dispatchedTransaction.ID
-		txnSubmittedEvent.SignerAddress = dispatchedTransaction.Signer
-		txnSubmittedEvent.LatestSubmissionHash = *dispatchedTransaction.LatestSubmissionHash
+		txnSubmittedEvent := &transaction.SubmittedEvent{
+			BaseEvent: transaction.BaseEvent{
+				TransactionID: dispatchedTransaction.ID,
+			},
+			SignerAddress:        dispatchedTransaction.Signer,
+			LatestSubmissionHash: *dispatchedTransaction.LatestSubmissionHash,
+		}
 		if dispatchedTransaction.Nonce != nil {
 			txnSubmittedEvent.Nonce = *dispatchedTransaction.Nonce
 		}
+		return txnSubmittedEvent
+	}
 
-		err := txn.HandleEvent(ctx, txnSubmittedEvent)
-		if err != nil {
-			msg := fmt.Sprintf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-		o.submittedTransactionsByHash[*dispatchedTransaction.LatestSubmissionHash] = &dispatchedTransaction.ID
-	} else if dispatchedTransaction.Nonce != nil {
+	if dispatchedTransaction.Nonce != nil {
 		//if the dispatched transaction has a nonce but no hash, then it is sequenced
-		err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
+		return &transaction.NonceAssignedEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: dispatchedTransaction.ID,
 			},
 			SignerAddress: dispatchedTransaction.Signer,
 			Nonce:         *dispatchedTransaction.Nonce,
-		})
-
-		if err != nil {
-			msg := fmt.Sprintf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	}
 
@@ -109,59 +108,38 @@ func (o *originator) applyConfirmedSnapshot(ctx context.Context, confirmedTransa
 	}
 	txn := o.transactionsByID[confirmedTransaction.ID]
 	if txn == nil {
-		log.L(ctx).Warnf("received heartbeat from %s with confirmed transaction %s but no transaction found in memory", o.activeCoordinatorNode, confirmedTransaction.ID)
+		// we expect this to happen since we remove the transaction from memory as soon as it reaches a final state but the
+		// coordinator will include it for a number of heartbeats after it reaches a final state.
 		return nil
-	}
-
-	// To converge from dropped transport messages, first apply the best available dispatched/submitted metadata.
-	dispatchedSnapshot := &common.DispatchedTransaction{
-		Transaction: common.Transaction{
-			ID:         confirmedTransaction.ID,
-			Originator: confirmedTransaction.Originator,
-		},
-		Signer:               confirmedTransaction.Signer,
-		LatestSubmissionHash: confirmedTransaction.LatestSubmissionHash,
-		Nonce:                confirmedTransaction.Nonce,
-	}
-	if err := o.applyDispatchedSnapshot(ctx, dispatchedSnapshot); err != nil {
-		return err
-	}
-
-	currentState := txn.GetCurrentState()
-	if currentState == transaction.State_Confirmed || currentState == transaction.State_Reverted || currentState == transaction.State_Final {
-		return nil
-	}
-
-	if len(confirmedTransaction.RevertReason) == 0 {
-		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
-			BaseEvent: transaction.BaseEvent{
-				TransactionID: confirmedTransaction.ID,
-			},
-		})
-		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed success event for transaction %s from heartbeat: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	} else {
-		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
-			BaseEvent: transaction.BaseEvent{
-				TransactionID: confirmedTransaction.ID,
-			},
-			RevertReason: confirmedTransaction.RevertReason,
-		})
-		if err != nil {
-			msg := fmt.Sprintf("error handling confirmed reverted event for transaction %s from heartbeat: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
 	}
 
 	if confirmedTransaction.LatestSubmissionHash != nil {
 		delete(o.submittedTransactionsByHash, *confirmedTransaction.LatestSubmissionHash)
 	}
 
+	event := buildConfirmedSnapshotEvent(confirmedTransaction)
+	// the events we can be handling here never return errors, but even if they did there's
+	// no recovery action we can take when applying a heartbeat. If errors do occur they will
+	// be logged by the common state machine code.
+	_ = txn.HandleEvent(ctx, event)
 	return nil
+}
+
+func buildConfirmedSnapshotEvent(confirmedTransaction *common.ConfirmedTransaction) transaction.Event {
+	if len(confirmedTransaction.RevertReason) == 0 {
+		return &transaction.ConfirmedSuccessEvent{
+			BaseEvent: transaction.BaseEvent{
+				TransactionID: confirmedTransaction.ID,
+			},
+		}
+	}
+
+	return &transaction.ConfirmedRevertedEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: confirmedTransaction.ID,
+		},
+		RevertReason: confirmedTransaction.RevertReason,
+	}
 }
 
 func guard_HeartbeatThresholdExceeded(ctx context.Context, o *originator) bool {

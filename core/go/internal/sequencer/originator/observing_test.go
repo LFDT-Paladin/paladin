@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -431,4 +432,304 @@ func Test_guard_HeartbeatThresholdExceeded_ThresholdNotExpiredReturnsFalse(t *te
 
 	result := guard_HeartbeatThresholdExceeded(ctx, o)
 	assert.False(t, result, "Should return false when threshold has not expired")
+}
+
+func Test_applyHeartbeatReceived_ContinuesWhenDispatchedEventNotApplicable(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	submissionHash := pldtypes.RandBytes32()
+	err := o.applyHeartbeatReceived(ctx, &HeartbeatReceivedEvent{
+		CoordinatorHeartbeatNotification: transport.CoordinatorHeartbeatNotification{
+			From: coordinatorLocator,
+			CoordinatorSnapshot: common.CoordinatorSnapshot{
+				DispatchedTransactions: []*common.DispatchedTransaction{
+					{
+						Transaction: common.Transaction{
+							ID:         tx.GetID(),
+							Originator: originatorLocator,
+						},
+						LatestSubmissionHash: &submissionHash,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyHeartbeatReceived_ContinuesWhenConfirmedEventNotApplicable(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyHeartbeatReceived(ctx, &HeartbeatReceivedEvent{
+		CoordinatorHeartbeatNotification: transport.CoordinatorHeartbeatNotification{
+			From: coordinatorLocator,
+			CoordinatorSnapshot: common.CoordinatorSnapshot{
+				ConfirmedTransactions: []*common.ConfirmedTransaction{
+					{
+						DispatchedTransaction: common.DispatchedTransaction{
+							Transaction: common.Transaction{
+								ID:         tx.GetID(),
+								Originator: originatorLocator,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyDispatchedSnapshot_NoEventReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+		Transaction: common.Transaction{
+			ID:         tx.GetID(),
+			Originator: originatorLocator,
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Delegated, tx.GetCurrentState())
+}
+
+func Test_applyDispatchedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+		Transaction: common.Transaction{
+			ID:         uuid.New(),
+			Originator: originatorLocator,
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyDispatchedSnapshot_HashAndNonceSucceeds(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	nonce := uint64(7)
+	submissionHash := pldtypes.RandBytes32()
+	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+		Transaction: common.Transaction{
+			ID:         tx.GetID(),
+			Originator: originatorLocator,
+		},
+		LatestSubmissionHash: &submissionHash,
+		Nonce:                &nonce,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Submitted, tx.GetCurrentState())
+	txID, found := o.submittedTransactionsByHash[submissionHash]
+	require.True(t, found)
+	assert.Equal(t, tx.GetID(), *txID)
+}
+
+func Test_applyDispatchedSnapshot_NonceOnlySucceeds(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	nonce := uint64(7)
+	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+		Transaction: common.Transaction{
+			ID:         tx.GetID(),
+			Originator: originatorLocator,
+		},
+		Nonce: &nonce,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Sequenced, tx.GetCurrentState())
+}
+
+func Test_applyDispatchedSnapshot_IgnoresUnhandledEvent(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	submissionHash := pldtypes.RandBytes32()
+	err := o.applyDispatchedSnapshot(ctx, &common.DispatchedTransaction{
+		Transaction: common.Transaction{
+			ID:         tx.GetID(),
+			Originator: originatorLocator,
+		},
+		LatestSubmissionHash: &submissionHash,
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyConfirmedSnapshot_OriginatorMismatchIgnored(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+		DispatchedTransaction: common.DispatchedTransaction{
+			Transaction: common.Transaction{
+				ID:         uuid.New(),
+				Originator: "other@node",
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyConfirmedSnapshot_TxnNotFoundReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+		DispatchedTransaction: common.DispatchedTransaction{
+			Transaction: common.Transaction{
+				ID:         uuid.New(),
+				Originator: originatorLocator,
+			},
+		},
+	})
+	require.NoError(t, err)
+}
+
+func Test_applyConfirmedSnapshot_SuccessDeletesHashAndTransitions(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	submissionHash := tx.GetLatestSubmissionHash()
+	require.NotNil(t, submissionHash)
+	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+		DispatchedTransaction: common.DispatchedTransaction{
+			Transaction: common.Transaction{
+				ID:         tx.GetID(),
+				Originator: originatorLocator,
+			},
+			LatestSubmissionHash: submissionHash,
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Confirmed, tx.GetCurrentState())
+	_, found := o.submittedTransactionsByHash[*submissionHash]
+	assert.False(t, found)
+}
+
+func Test_applyConfirmedSnapshot_RevertedTransitions(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+		DispatchedTransaction: common.DispatchedTransaction{
+			Transaction: common.Transaction{
+				ID:         tx.GetID(),
+				Originator: originatorLocator,
+			},
+		},
+		RevertReason: pldtypes.HexBytes("0x1234"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Delegated, tx.GetCurrentState())
+}
+
+func Test_applyConfirmedSnapshot_IgnoresUnhandledEvent(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	err := o.applyConfirmedSnapshot(ctx, &common.ConfirmedTransaction{
+		DispatchedTransaction: common.DispatchedTransaction{
+			Transaction: common.Transaction{
+				ID:         tx.GetID(),
+				Originator: originatorLocator,
+			},
+		},
+	})
+	require.NoError(t, err)
 }
