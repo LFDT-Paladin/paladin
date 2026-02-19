@@ -51,7 +51,7 @@ type logStateSpendRecords []*pldapi.StateSpendRecord
 func (lr logStateSpendRecords) String() string {
 	summary := make([]string, len(lr))
 	for i, ssr := range lr {
-		summary[i] = fmt.Sprintf("domain=%s,state=%s,tx=%s", ssr.DomainName, ssr.State, ssr.Transaction)
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
 	}
 	return strings.Join(summary, ",")
 }
@@ -61,7 +61,7 @@ type logStateReadRecords []*pldapi.StateReadRecord
 func (lr logStateReadRecords) String() string {
 	summary := make([]string, len(lr))
 	for i, ssr := range lr {
-		summary[i] = fmt.Sprintf("domain=%s,state=%s,tx=%s", ssr.DomainName, ssr.State, ssr.Transaction)
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
 	}
 	return strings.Join(summary, ",")
 }
@@ -71,7 +71,7 @@ type logStateConfirmRecords []*pldapi.StateConfirmRecord
 func (lr logStateConfirmRecords) String() string {
 	summary := make([]string, len(lr))
 	for i, ssr := range lr {
-		summary[i] = fmt.Sprintf("domain=%s,state=%s,tx=%s", ssr.DomainName, ssr.State, ssr.Transaction)
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
 	}
 	return strings.Join(summary, ",")
 }
@@ -81,7 +81,7 @@ type logStateInfoRecords []*pldapi.StateInfoRecord
 func (lr logStateInfoRecords) String() string {
 	summary := make([]string, len(lr))
 	for i, ssr := range lr {
-		summary[i] = fmt.Sprintf("domain=%s,state=%s,tx=%s", ssr.DomainName, ssr.State, ssr.Transaction)
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
 	}
 	return strings.Join(summary, ",")
 }
