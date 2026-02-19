@@ -6,8 +6,9 @@
 
 {{- $paladinCount := include "paladin-operator.paladinNodeCount" . | int }}
 {{- $besuCount := include "paladin-operator.besuNodeCount" . | int }}
+{{- $root := . }}
 
-{{- range $i, $ := until $paladinCount }}
+{{- range $i, $_ := until $paladinCount }}
 {{- $name := printf "%s%d" $prefix (add $i 1) }}
 {{- $besuName := printf "%s%d" $besuPrefix 1 }}
 {{- if ne $besuCount 1 }}
@@ -31,6 +32,19 @@ spec:
   database:
     mode: sidecarPostgres
     migrationMode: auto
+  {{- if $root.Values.paladin.logPersistence.enabled }}
+  logPersistence:
+    enabled: true
+    path: {{ $root.Values.paladin.logPersistence.path | default "/app/logs/paladin.log" | quote }}
+    {{- with $root.Values.paladin.logPersistence.pvcTemplate }}
+    pvcTemplate:
+{{ toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with $root.Values.paladin.logPersistence.file }}
+    file:
+{{ toYaml . | nindent 6 }}
+    {{- end }}
+  {{- end }}
   baseLedgerEndpoint:
     type: local
     local:

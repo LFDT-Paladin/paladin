@@ -387,6 +387,87 @@ tests:
         documentIndex: 0
         template: customnodes/paladin.yaml
 
+  - it: customnet with log persistence
+    templates:
+      - customnodes/paladin.yaml
+    set:
+      mode: customnet
+      paladinNodes:
+        - name: "log-node"
+          baseLedgerEndpoint:
+            type: endpoint
+            endpoint:
+              jsonrpc: "https://chain.rpc"
+              ws: "wss://chain.ws"
+              auth:
+                enabled: false
+          domains:
+            - noto
+          registries:
+            - evm-registry
+          transports:
+            - name: grpc
+              plugin:
+                type: c-shared
+                library: /app/transports/libgrpc.so
+              config:
+                port: 9000
+                address: 0.0.0.0
+              ports:
+                transportGrpc:
+                  port: 9000
+                  targetPort: 9000
+              tls:
+                secretName: paladin-mtls
+                certName: paladin-mtls
+          service:
+            type: NodePort
+            ports:
+              rpcHttp:
+                port: 8548
+                nodePort: 31748
+              rpcWs:
+                port: 8549
+                nodePort: 31749
+          database:
+            mode: sidecarPostgres
+            migrationMode: auto
+          logPersistence:
+            enabled: true
+            path: /app/logs/paladin.log
+            pvcTemplate:
+              resources:
+                requests:
+                  storage: 5Gi
+          secretBackedSigners:
+            - name: signer-auto-wallet
+              secret: log-node.keys
+              type: autoHDWallet
+              keySelector: ".*"
+          paladinRegistration:
+            registryAdminNode: log-node
+            registryAdminKey: registry.operator
+            registry: evm-registry
+          config: |
+            log:
+              level: debug
+    asserts:
+      - equal:
+          path: 'spec.logPersistence.enabled'
+          value: true
+        documentIndex: 0
+        template: customnodes/paladin.yaml
+      - equal:
+          path: 'spec.logPersistence.path'
+          value: '/app/logs/paladin.log'
+        documentIndex: 0
+        template: customnodes/paladin.yaml
+      - equal:
+          path: 'spec.logPersistence.pvcTemplate.resources.requests.storage'
+          value: '5Gi'
+        documentIndex: 0
+        template: customnodes/paladin.yaml
+
   # Test with multiple nodes
   - it: customnet with multiple nodes
     templates:

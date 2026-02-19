@@ -388,6 +388,33 @@ tests:
           value: 'auto'
         documentIndex: 0
 
+  - it: paladin log persistence configuration
+    templates:
+      - nodes/paladin.yaml
+    set:
+      nodeCount: 1
+      paladin:
+        logPersistence:
+          enabled: true
+          path: /app/logs/paladin.log
+          pvcTemplate:
+            resources:
+              requests:
+                storage: 7Gi
+    asserts:
+      - equal:
+          path: 'spec.logPersistence.enabled'
+          value: true
+        documentIndex: 0
+      - equal:
+          path: 'spec.logPersistence.path'
+          value: '/app/logs/paladin.log'
+        documentIndex: 0
+      - equal:
+          path: 'spec.logPersistence.pvcTemplate.resources.requests.storage'
+          value: '7Gi'
+        documentIndex: 0
+
   - it: paladin domains configuration
     templates:
       - nodes/paladin.yaml

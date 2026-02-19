@@ -30,6 +30,9 @@ type PaladinSpec struct {
 	// with auto-generation/auto-edit of the DB related config sections
 	Database Database `json:"database,omitempty"`
 
+	// LogPersistence configures optional persistent file logging.
+	LogPersistence *LogPersistence `json:"logPersistence,omitempty"`
+
 	// Adds signing modules that load their key materials from a k8s secret
 	SecretBackedSigners []SecretBackedSigner `json:"secretBackedSigners,omitempty"`
 
@@ -179,6 +182,26 @@ type Database struct {
 	// If set then {{.username}} and {{.password}} variables will be available in your DSN
 	PasswordSecret *string                          `json:"passwordSecret,omitempty"`
 	PVCTemplate    corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
+}
+
+// LogPersistence configures persistent file logging for a Paladin node.
+type LogPersistence struct {
+	// Enables persistent log file output to a mounted PVC.
+	Enabled bool `json:"enabled,omitempty"`
+	// Path to the log file inside the container.
+	Path string `json:"path,omitempty"`
+	// PVC template used to create the logs persistent volume claim.
+	PVCTemplate corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
+	// Optional file rotation overrides.
+	File LogFileConfig `json:"file,omitempty"`
+}
+
+// LogFileConfig contains optional file rotation settings.
+type LogFileConfig struct {
+	MaxSize    *string `json:"maxSize,omitempty"`
+	MaxBackups *int    `json:"maxBackups,omitempty"`
+	MaxAge     *string `json:"maxAge,omitempty"`
+	Compress   *bool   `json:"compress,omitempty"`
 }
 
 const SignerType_AutoHDWallet = "autoHDWallet"
