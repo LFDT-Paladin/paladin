@@ -191,3 +191,36 @@ func TestStateMachine_Sending_DoDelegateTransactions_OnHeartbeatReceived_IfHasDr
 	o.QueueEvent(ctx, heartbeatEvent)
 	assert.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Delegation request should be sent after heartbeat")
 }
+
+func TestStateMachine_Sending_ToObserving_OnHeartbeatReceived_ConfirmedFastForwardFromAssembling(t *testing.T) {
+	ctx := context.Background()
+
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	o, _ := originator.NewOriginatorBuilderForTesting(originator.State_Sending).
+		Transactions(tx).
+		Build(ctx)
+	defer o.Stop()
+
+	heartbeatEvent := &originator.HeartbeatReceivedEvent{}
+	heartbeatEvent.From = "coordinator@node1"
+	heartbeatEvent.CoordinatorSnapshot = common.CoordinatorSnapshot{
+		ConfirmedTransactions: []*common.ConfirmedTransaction{
+			{
+				DispatchedTransaction: common.DispatchedTransaction{
+					Transaction: common.Transaction{
+						ID:         tx.GetID(),
+						Originator: "member1@node1",
+					},
+				},
+			},
+		},
+	}
+	o.QueueEvent(ctx, heartbeatEvent)
+
+	assert.Eventually(t, func() bool {
+		return o.GetCurrentState() == originator.State_Observing
+	}, 100*time.Millisecond, 1*time.Millisecond, "current state is %s", o.GetCurrentState().String())
+	assert.Eventually(t, func() bool {
+		return tx.GetCurrentState() == transaction.State_Confirmed || tx.GetCurrentState() == transaction.State_Final
+	}, 100*time.Millisecond, 1*time.Millisecond, "transaction state is %s", tx.GetCurrentState().String())
+}

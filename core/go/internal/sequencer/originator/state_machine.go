@@ -120,6 +120,9 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_HeartbeatReceived},
 					{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest},
 				},
+				Transitions: []Transition{
+					{To: State_Observing, If: statemachine.Not(guard_HasUnconfirmedTransactions)},
+				},
 			},
 			Event_Base_Ledger_Transaction_Reverted: {
 				Actions: []ActionRule{{Action: action_SendDelegationRequest}},

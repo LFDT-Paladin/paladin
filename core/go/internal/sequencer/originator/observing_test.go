@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -287,6 +288,96 @@ func Test_applyHeartbeatReceived_DispatchedTransactionNonceOnlySucceeds(t *testi
 	// This should succeed with a real transaction
 	err = o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	assert.NoError(t, err)
+}
+
+func Test_applyHeartbeatReceived_ConfirmedTransactionSuccessConvergesFromHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	signerAddress := tx.GetSignerAddress()
+	require.NotNil(t, signerAddress)
+	submissionHash := tx.GetLatestSubmissionHash()
+	require.NotNil(t, submissionHash)
+	nonce := tx.GetNonce()
+	require.NotNil(t, nonce)
+
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	heartbeatEvent.CoordinatorSnapshot = common.CoordinatorSnapshot{
+		ConfirmedTransactions: []*common.ConfirmedTransaction{
+			{
+				DispatchedTransaction: common.DispatchedTransaction{
+					Transaction: common.Transaction{
+						ID:         tx.GetID(),
+						Originator: originatorLocator,
+					},
+					Signer:               *signerAddress,
+					LatestSubmissionHash: submissionHash,
+					Nonce:                nonce,
+				},
+			},
+		},
+	}
+
+	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Confirmed, tx.GetCurrentState())
+	_, found := o.submittedTransactionsByHash[*submissionHash]
+	assert.False(t, found, "confirmed transaction hash should be removed from submitted map")
+}
+
+func Test_applyHeartbeatReceived_ConfirmedTransactionRevertedConvergesFromHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	builder := NewOriginatorBuilderForTesting(State_Observing).
+		NodeName(originatorLocator).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		Transactions(tx)
+	o, _ := builder.Build(ctx)
+	defer o.Stop()
+
+	signerAddress := tx.GetSignerAddress()
+	require.NotNil(t, signerAddress)
+	submissionHash := tx.GetLatestSubmissionHash()
+	require.NotNil(t, submissionHash)
+	nonce := tx.GetNonce()
+	require.NotNil(t, nonce)
+	revertReason := pldtypes.HexBytes("0x1234")
+
+	heartbeatEvent := &HeartbeatReceivedEvent{}
+	heartbeatEvent.From = coordinatorLocator
+	heartbeatEvent.CoordinatorSnapshot = common.CoordinatorSnapshot{
+		ConfirmedTransactions: []*common.ConfirmedTransaction{
+			{
+				DispatchedTransaction: common.DispatchedTransaction{
+					Transaction: common.Transaction{
+						ID:         tx.GetID(),
+						Originator: originatorLocator,
+					},
+					Signer:               *signerAddress,
+					LatestSubmissionHash: submissionHash,
+					Nonce:                nonce,
+				},
+				RevertReason: revertReason,
+			},
+		},
+	}
+
+	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Delegated, tx.GetCurrentState())
+	_, found := o.submittedTransactionsByHash[*submissionHash]
+	assert.False(t, found, "reverted transaction hash should be removed from submitted map")
 }
 
 func Test_guard_HeartbeatThresholdExceeded_NilTimeReturnsTrue(t *testing.T) {
