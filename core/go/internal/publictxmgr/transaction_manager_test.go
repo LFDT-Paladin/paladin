@@ -816,13 +816,21 @@ func TestSuspendTransactionNoOrchestrator(t *testing.T) {
 	// Create a test address and nonce
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	testNonce := uint64(12345)
+	testTxID := uuid.New()
 
 	// First, insert a test transaction into the database (omit PublicTxnID - it's auto-generated)
 	dbTX := ptm.p.DB().WithContext(ctx)
-	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: false,
+	}
+	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
+	require.NoError(t, err)
+	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		PublicTxnID:     dbPublicTx.PublicTxnID,
+		Transaction:     testTxID,
+		TransactionType: pldapi.TransactionTypePrivate.Enum(),
 	}).Error
 	require.NoError(t, err)
 
@@ -846,13 +854,21 @@ func TestResumeTransactionNoOrchestrator(t *testing.T) {
 	// Create a test address and nonce
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	testNonce := uint64(12346)
+	testTxID := uuid.New()
 
 	// First, insert a test transaction into the database (suspended) (omit PublicTxnID - it's auto-generated)
 	dbTX := ptm.p.DB().WithContext(ctx)
-	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: true,
+	}
+	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
+	require.NoError(t, err)
+	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		PublicTxnID:     dbPublicTx.PublicTxnID,
+		Transaction:     testTxID,
+		TransactionType: pldapi.TransactionTypePrivate.Enum(),
 	}).Error
 	require.NoError(t, err)
 
@@ -902,14 +918,22 @@ func TestCheckTransactionCompletedNotCompleted(t *testing.T) {
 	// Create a test transaction that is not completed
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	testNonce := uint64(12347)
+	testTxID := uuid.New()
 
 	// Insert a transaction without completion (omit PublicTxnID - it's auto-generated)
 	dbTX := ptm.p.DB().WithContext(ctx)
-	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: false,
 		Completed: nil, // No completion record
+	}
+	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
+	require.NoError(t, err)
+	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		PublicTxnID:     dbPublicTx.PublicTxnID,
+		Transaction:     testTxID,
+		TransactionType: pldapi.TransactionTypePrivate.Enum(),
 	}).Error
 	require.NoError(t, err)
 
@@ -934,10 +958,11 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	testNonce := uint64(12348)
 	testTxHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
 
 	// Insert a transaction with completion (omit PublicTxnID - it's auto-generated)
 	dbTX := ptm.p.DB().WithContext(ctx)
-	err := dbTX.Table("public_txns").Create(&DBPublicTxn{
+	dbPublicTx := &DBPublicTxn{
 		From:      *testAddress,
 		Nonce:     &testNonce,
 		Suspended: false,
@@ -945,6 +970,13 @@ func TestCheckTransactionCompletedWithCompletion(t *testing.T) {
 			TransactionHash: testTxHash,
 		},
 		Dispatcher: "dispatcher-node",
+	}
+	err := dbTX.Table("public_txns").Create(dbPublicTx).Error
+	require.NoError(t, err)
+	err = dbTX.Table("public_txn_bindings").Create(&DBPublicTxnBinding{
+		PublicTxnID:     dbPublicTx.PublicTxnID,
+		Transaction:     testTxID,
+		TransactionType: pldapi.TransactionTypePrivate.Enum(),
 	}).Error
 	require.NoError(t, err)
 
@@ -1271,10 +1303,16 @@ func TestUpdateTransactionAlreadyCompleted(t *testing.T) {
 			},
 		}
 		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
-		if err == nil {
-			pubTxnID = dbTx.PublicTxnID
+		if err != nil {
+			return err
 		}
-		return err
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     txID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -1325,10 +1363,16 @@ func TestUpdateTransactionCheckCompletedError(t *testing.T) {
 			Gas:  21000,
 		}
 		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
-		if err == nil {
-			pubTxnID = dbTx.PublicTxnID
+		if err != nil {
+			return err
 		}
-		return err
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     txID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 
@@ -1517,12 +1561,22 @@ func TestUpdateTransactionGasEstimateNonRejectedError(t *testing.T) {
 			Gas:  21000,
 		}
 		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
-		if err == nil {
-			pubTxnID = dbTx.PublicTxnID
+		if err != nil {
+			return err
 		}
-		return err
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     txID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
+
+	// Orchestrator may poll and allocate a nonce for this transaction in parallel
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).
+		Return(confutil.P(pldtypes.HexUint64(0)), nil).Maybe()
 
 	// Mock EstimateGasNoResolve to return a non-rejected error (not MapSubmissionRejected)
 	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
@@ -1552,10 +1606,16 @@ func TestUpdateTransactionGasEstimateRejectedNoRevertData(t *testing.T) {
 			Gas:  21000,
 		}
 		err := dbTX.DB().WithContext(ctx).Table("public_txns").Create(dbTx).Error
-		if err == nil {
-			pubTxnID = dbTx.PublicTxnID
+		if err != nil {
+			return err
 		}
-		return err
+		pubTxnID = dbTx.PublicTxnID
+		binding := &DBPublicTxnBinding{
+			PublicTxnID:     pubTxnID,
+			Transaction:     txID,
+			TransactionType: pldapi.TransactionTypePrivate.Enum(),
+		}
+		return dbTX.DB().WithContext(ctx).Table("public_txn_bindings").Create(binding).Error
 	})
 	require.NoError(t, err)
 

@@ -459,6 +459,10 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 
 		log.L(ctx).Debugf("Orchestrator poll and process: polled %d items, space: %d", len(additional), spaces)
 		for _, ptx := range additional {
+			if ptx.Binding == nil {
+				log.L(ctx).Warnf("Orchestrator poll and process: transaction %d has no binding", ptx.PublicTxnID)
+				continue
+			}
 			queueUpdated = true
 			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
