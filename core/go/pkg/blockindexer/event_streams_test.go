@@ -698,6 +698,11 @@ func TestStartStopEventStream(t *testing.T) {
 	err = bi.StartEventStream(ctx, esID)
 	require.ErrorContains(t, err, "pop")
 
+	// Declare expected DB queries that the detector/dispatcher may run.
+	// These must be in place before StartEventStream, as startup is async.
+	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
+	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
+
 	// second StartEventStream succeeds
 	err = bi.StartEventStream(ctx, esID)
 	require.NoError(t, err)
@@ -706,10 +711,6 @@ func TestStartStopEventStream(t *testing.T) {
 	assert.NotNil(t, eventStream.dispatcherDone)
 	assert.NotNil(t, eventStream.detectorStarted)
 	assert.NotNil(t, eventStream.dispatcherStarted)
-
-	// Declare expected DB queries that the detector/dispatcher may run
-	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
-	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
 
 	// Wait for goroutines to start
 	<-eventStream.detectorStarted
