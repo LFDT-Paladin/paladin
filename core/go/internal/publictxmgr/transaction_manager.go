@@ -411,6 +411,10 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	err = dbTX.DB().
 		WithContext(ctx).
 		Table("public_txns").
+		Clauses(clause.OnConflict{
+			// Coordinator delivery is at-least-once, so duplicates must be idempotent.
+			DoNothing: true,
+		}).
 		Create(persistedTransactions).
 		Error
 	if err != nil {

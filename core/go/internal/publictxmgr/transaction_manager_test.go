@@ -1173,6 +1173,12 @@ func TestWriteReceivedPublicTransactionSubmissions(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
+	// Write the same submission a second time. This should do nothing instead of failing.
+	err = ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return ptm.WriteReceivedPublicTransactionSubmissions(ctx, dbTX, txns)
+	})
+	assert.NoError(t, err)
+
 	// Verify the transaction was written
 	var dbTx DBPublicTxn
 	err = ptm.p.DB().WithContext(ctx).
