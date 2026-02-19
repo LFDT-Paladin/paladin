@@ -325,7 +325,7 @@
                              build());
                  }
                  if (lastOp == DynamicLoadWorldState.LastOpType.UPDATED) {
-                     LOGGER.trace("Writing new state for account {}", loadedAccount);
+                     LOGGER.debug("Writing new state for account {}", loadedAccount);
                      var updatedAccount = evm.getWorld().get(loadedAccount);
                      outputStates.add(NewState.newBuilder().
                              setSchemaId(latestAccountSchemaId).
