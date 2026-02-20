@@ -437,6 +437,8 @@ var (
 	MsgTxMgrVerifierNotEthAddress                 = pde("PD012253", "Verifier '%s' is not an Ethereum address")
 	MsgTxMgrDependencyLookupFailed                = pde("PD012254", "Failed to lookup dependency transaction %s: %s")
 	MsgTxMgrResumeTXFailed                        = pde("PD012255", "Failed to resume transaction %s: %s")
+	MsgTxMgrDependencyFailed                      = pde("PD012256", "Dependency transaction %s failed")
+	MsgTxMgrFailDependentTXFailed                 = pde("PD012257", "Failed to propagate dependency failure to transaction %s: %s")
 
 	// FlushWriter module PD0123XX
 	MsgFlushWriterQuiescing      = pde("PD012300", "Writer shutting down")

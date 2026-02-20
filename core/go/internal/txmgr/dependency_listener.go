@@ -23,13 +23,13 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/google/uuid"
 )
 
 func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persistence.DBTX, receipts []*transactionReceipt) error {
-	log := log.L(tm.bgCtx)
 	dependentFailureReceipts := make([]*components.ReceiptInput, 0)
 	for _, receipt := range receipts {
-		deps, err := tm.getTransactionDependenciesWithinTX(tm.bgCtx, receipt.TransactionID, dbTX)
+		deps, err := tm.getTransactionDependenciesWithinTX(ctx, receipt.TransactionID, dbTX)
 		if err != nil {
 			return err
 		}
@@ -39,23 +39,30 @@ func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persi
 				if err != nil {
 					return err
 				}
-				// Add the necessary post-commits to tap the sequencer manager once the DB is updated
 				dbTX.AddPostCommit(func(ctx context.Context) {
-					log.Debugf("Dependency %s successful, resuming TX %s", dep, receipt.TransactionID)
-					err = tm.sequencerMgr.HandleTxResume(ctx, &components.ValidatedTransaction{
+					log.L(ctx).Debugf("Dependency %s successful, resuming TX %s", receipt.TransactionID, dep)
+					if resumeErr := tm.sequencerMgr.HandleTxResume(ctx, &components.ValidatedTransaction{
 						ResolvedTransaction: *resolvedTx,
-					})
-					if err != nil {
-						// Log and continue
-						log.Error(i18n.WrapError(ctx, err, msgs.MsgTxMgrResumeTXFailed, resolvedTx.Transaction.ID))
+					}); resumeErr != nil {
+						log.L(ctx).Error(i18n.WrapError(ctx, resumeErr, msgs.MsgTxMgrResumeTXFailed, resolvedTx.Transaction.ID))
 					}
 				})
 			} else {
-				log.Debugf("TX %s failed, inserting failure receipt for dependent TX %s", receipt.TransactionID, dep)
+				// Check if the dependent already has a receipt to prevent unbounded recursion with circular dependencies
+				existingReceipt, err := tm.GetTransactionReceiptByID(ctx, dep)
+				if err != nil {
+					log.L(ctx).Errorf("Failed to check existing receipt for dependent TX %s: %s", dep, err)
+					continue
+				}
+				if existingReceipt != nil {
+					log.L(ctx).Debugf("Dependent TX %s already has a receipt, skipping failure propagation", dep)
+					continue
+				}
+				log.L(ctx).Debugf("TX %s failed, inserting failure receipt for dependent TX %s", receipt.TransactionID, dep)
 				dependentFailureReceipts = append(dependentFailureReceipts, &components.ReceiptInput{
 					TransactionID:  dep,
 					ReceiptType:    components.RT_FailedWithMessage,
-					FailureMessage: "Transaction dependency failed",
+					FailureMessage: i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgTxMgrDependencyFailed), receipt.TransactionID),
 				})
 			}
 		}
@@ -71,14 +78,31 @@ func (tm *txManager) BlockedByDependencies(ctx context.Context, tx *components.V
 	for _, dep := range tx.DependsOn {
 		depTXReceipt, err := tm.GetTransactionReceiptByID(ctx, dep)
 		if err != nil {
-			// Fail safe - if we can't check the status of a dependency we should assume we're waiting for it.
 			return true, err
 		}
-		if depTXReceipt == nil || !depTXReceipt.Success {
-			// Dependency TX receipt isn't present or it failed. Either way the caller must not progress the TX in question
+		if depTXReceipt == nil {
 			log.L(ctx).Debugf("Transaction %s has outstanding dependency %s", tx.Transaction.ID, dep)
+			return true, nil
+		}
+		if !depTXReceipt.Success {
+			log.L(ctx).Infof("Transaction %s dependency %s has failed - propagating failure", tx.Transaction.ID, dep)
+			if finalizeErr := tm.failDependentTransaction(ctx, tx, dep); finalizeErr != nil {
+				log.L(ctx).Errorf(i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgTxMgrFailDependentTXFailed), tx.Transaction.ID, finalizeErr))
+			}
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (tm *txManager) failDependentTransaction(ctx context.Context, tx *components.ValidatedTransaction, failedDep uuid.UUID) error {
+	return tm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return tm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID:  *tx.Transaction.ID,
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgTxMgrDependencyFailed), failedDep),
+			},
+		})
+	})
 }
