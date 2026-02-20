@@ -67,7 +67,7 @@ func (t *CoordinatorTransaction) hasUnknownDependencies(ctx context.Context) boo
 }
 
 // Initializes (or re-initializes) the transaction as it arrives in the pool
-func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) error {
+func (t *CoordinatorTransaction) initializeForNewAssembly(ctx context.Context) error {
 	if t.pt.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.pt.ID)
 		log.L(ctx).Error(msg)
@@ -145,7 +145,7 @@ func action_recordRevert(ctx context.Context, txn *CoordinatorTransaction, _ com
 }
 
 func action_initializeDependencies(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	return txn.initializeForNewAssemply(ctx)
+	return txn.initializeForNewAssembly(ctx)
 }
 
 func guard_HasUnassembledDependencies(ctx context.Context, txn *CoordinatorTransaction) bool {

@@ -59,7 +59,7 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(context.Background())
 
 	assert.Empty(t, txn.pt.Signer)
 	assert.True(t, txn.dynamicSigningIdentity)
@@ -74,7 +74,7 @@ func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(context.Background())
 
 	assert.Empty(t, txn.pt.Signer)
 	assert.True(t, txn.dynamicSigningIdentity)
@@ -99,7 +99,7 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(context.Background())
 
 	assert.Equal(t, verifierLookup, txn.pt.Signer)
 	assert.False(t, txn.dynamicSigningIdentity)
@@ -121,7 +121,7 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(context.Background())
 
 	assert.Empty(t, txn.pt.Signer)
 	assert.True(t, txn.dynamicSigningIdentity)
@@ -146,7 +146,7 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 	txn.pt.Signer = ""
 	txn.dynamicSigningIdentity = true
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(context.Background())
 
 	assert.Empty(t, txn.pt.Signer)
 	assert.True(t, txn.dynamicSigningIdentity)
@@ -156,49 +156,49 @@ func Test_dependentsMustWait_FixedSigningIdentity_Confirmed(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Confirmed
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait(context.Background(), false))
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_Submitted(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Submitted
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait(context.Background(), false))
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_Dispatched(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Dispatched
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait(context.Background(), false))
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait(context.Background(), false))
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_NotReady(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Assembling
 
-	assert.True(t, txn.dependentsMustWait(false))
+	assert.True(t, txn.dependentsMustWait(context.Background(), false))
 }
 
 func Test_dependentsMustWait_DynamicSigningIdentity_Confirmed(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Confirmed
 
-	assert.False(t, txn.dependentsMustWait(true))
+	assert.False(t, txn.dependentsMustWait(context.Background(), true))
 }
 
 func Test_dependentsMustWait_DynamicSigningIdentity_NotReady(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
 
-	assert.True(t, txn.dependentsMustWait(true))
+	assert.True(t, txn.dependentsMustWait(context.Background(), true))
 }
 
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
