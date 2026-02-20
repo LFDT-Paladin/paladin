@@ -602,9 +602,9 @@ func (l *receiptListener) readHeadPage() ([]*transactionReceipt, error) {
 		db := l.tm.p.DB()
 		q, err := l.tm.buildListenerDBQuery(l.ctx, l.spec, db)
 		if err == nil {
-			// Only return non-blocked sequences
-			q = q.Joins(`Gap`, db.Where(&persistedReceiptGap{Listener: l.spec.Name})).
-				Where(`"Gap"."transaction" IS NULL`)
+			// For gaps there are zero/one per listener+source combination (primary key constraint)
+			q = q.Joins(`LEFT JOIN receipt_listener_gap "Gap" ON "Gap"."listener" = ? AND "Gap"."source" = "transaction_receipts"."source"`, l.spec.Name).
+				Where(`"Gap"."transaction" IS NULL`) // cannot have a gap on this source if we're blocking
 			if l.checkpoint != nil {
 				q = q.Where(`"transaction_receipts"."sequence" > ?`, *l.checkpoint)
 			}
