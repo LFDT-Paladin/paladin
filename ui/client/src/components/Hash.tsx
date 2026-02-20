@@ -16,7 +16,7 @@
 
 import { Button } from "@mui/material";
 import { useState } from "react";
-import { HashDialog } from "../dialogs/Hash";
+import { SmartContractDetails } from "../dialogs/SmartContractDetails";
 
 const MAX_LENGTH_WITHOUT_COLLAPSE = 16;
 
@@ -26,9 +26,13 @@ type Props = {
   hideTitle?: boolean
   hash: string
   secondary?: boolean
+  domain?: string
+  config?: {
+      [key: string]: string;
+  }
 }
 
-export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary }) => {
+export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary, config, domain }) => {
 
   const [hashDialogOpen, setHashDialogOpen] = useState(false);
 
@@ -54,7 +58,7 @@ export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary 
         size="small">
         {content}
       </Button>
-      <HashDialog dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={title} hash={hash} />
+      <SmartContractDetails dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={title} hash={hash} config={config} domain={domain} />
     </>
   );
 

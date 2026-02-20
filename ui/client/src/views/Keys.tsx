@@ -117,7 +117,7 @@ export const Keys: React.FC = () => {
   }, [parent]);
 
   useEffect(() => {
-    let value: any = {};
+    const value: any = {};
     if (parent !== '') {
       value.path = parent;
     }
@@ -160,10 +160,10 @@ export const Keys: React.FC = () => {
     setRefEntries([]);
   };
 
-  let breadcrumbContent: JSX.Element[] = [];
+  const breadcrumbContent: JSX.Element[] = [];
   if (parent !== '') {
     const segments = parent.split('.');
-    let segmentStack: string[] = [];
+    const segmentStack: string[] = [];
     for (const segment of segments) {
       segmentStack.push(segment);
       const target = segmentStack.join('.');

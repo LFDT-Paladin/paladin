@@ -54,7 +54,7 @@ export const ABIUploadDialog: React.FC<Props> = ({
   const [abiUploadCount, setAbiUploadCount] = useState(0);
 
   const { mutate, data, reset, error } = useMutation({
-    mutationFn: (value: Object) => uploadABI(value)
+    mutationFn: (value: object) => uploadABI(value)
   });
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export const ABIUploadDialog: React.FC<Props> = ({
     setErrorMessage(undefined);
     reset();
     let valueToParse: string;
-    let parsedValue: Object;
+    let parsedValue: object;
     if (radioSelection === 'file' && fileSelected !== null) {
       valueToParse = await fileSelected.text();
     } else {

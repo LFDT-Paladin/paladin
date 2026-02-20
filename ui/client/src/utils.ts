@@ -26,10 +26,10 @@ export const formatJSONWhenApplicable = (value: any) => {
 };
 
 export const translateFilters = (filters: IFilter[]) => {
-  let result: any = {};
+  const result: any = {};
 
   for (const filter of filters) {
-    let entry: any = {
+    const entry: any = {
       field: filter.field.name,
       value: filter.value,
     };
@@ -70,7 +70,7 @@ export const translateFilters = (filters: IFilter[]) => {
         break;
     }
 
-    let group = result[operator] ?? [];
+    const group = result[operator] ?? [];
     group.push(entry);
     result[operator] = group;
   }

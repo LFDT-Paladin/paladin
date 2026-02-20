@@ -26,7 +26,7 @@ import JSONPretty from 'react-json-pretty';
 
 type Props = {
   title: string
-  details: Object
+  details: object
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
 }

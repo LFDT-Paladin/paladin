@@ -42,6 +42,7 @@ export const Domains: React.FC = () => {
   } = useQuery({
     queryKey: ['domains'],
     queryFn: () => listDomains(),
+    refetchOnWindowFocus: false,
   });
 
   const { data: domain } = useQuery({

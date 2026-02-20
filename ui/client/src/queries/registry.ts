@@ -43,12 +43,12 @@ export const fetchRegistryEntries = async (
   pageParam?: IRegistryEntry
 ): Promise<IRegistryEntry[]> => {
 
-  let translatedFilters = translateFilters(filters);
+  const translatedFilters = translateFilters(filters);
 
 
   
 
-  let requestPayload: any = {
+  const requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
     method: RpcMethods.reg_QueryEntriesWithProps,
