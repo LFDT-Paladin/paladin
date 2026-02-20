@@ -140,6 +140,7 @@ func doDomainInitTransactionOK(t *testing.T, td *testDomainContext, resFn ...fun
 					VerifierType: verifiers.ETH_ADDRESS,
 				},
 			},
+			EndorsementSet: []string{"id@node1"},
 		}
 		for _, fn := range resFn {
 			fn(res)
@@ -155,6 +156,7 @@ func doDomainInitTransactionOK(t *testing.T, td *testDomainContext, resFn ...fun
 	err := psc.InitTransaction(td.ctx, ptx, localTx)
 	require.NoError(t, err)
 	assert.Len(t, ptx.PreAssembly.RequiredVerifiers, 1)
+	assert.Equal(t, []string{"id@node1"}, ptx.PreAssembly.EndorsementSet)
 	return psc, ptx, localTx
 }
 

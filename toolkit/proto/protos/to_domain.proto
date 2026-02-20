@@ -75,13 +75,14 @@ message InitContractResponse {
   ContractConfig contract_config = 2; // The parse contract contract configuration
 }
 
-// **INIT** step for a business transaction happens in-line with the tranaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
+// **INIT** step for a business transaction happens in-line with the transaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
 message InitTransactionRequest {
   TransactionSpecification transaction = 1; // The transaction to plan
 }
 
 message InitTransactionResponse {
   repeated ResolveVerifierRequest required_verifiers = 1; // the list of verifiers that need to be resolved in order to prepare the transaction (such as issuers/notaries that have privledge in the smart contract)
+  repeated string endorsement_set = 2; // required when COORDINATOR_ENDORSER is was returned in the ContractConfig
 }
 
 // **ASSEMBLE** step happens after plan, once any verifiers specified as needing pre-emptive resolution by the owning Paladin nodes have been resolved successfully. At this step the state store should be queried to determine if sufficient states exist to execute

@@ -206,11 +206,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          try {
              var tx = new PenteTransaction(this, request.getTransaction());
              var response = InitTransactionResponse.newBuilder();
-             response.addRequiredVerifiers(ResolveVerifierRequest.newBuilder().
-                     setAlgorithm(Algorithms.ECDSA_SECP256K1).
-                     setVerifierType(Verifiers.ETH_ADDRESS).
-                     setLookup(tx.getFrom()).
-                     build()
+             response.
+                     addAllEndorsementSet(List.of(tx.getValues().group().members())).
+                     addRequiredVerifiers(ResolveVerifierRequest.newBuilder().
+                         setAlgorithm(Algorithms.ECDSA_SECP256K1).
+                         setVerifierType(Verifiers.ETH_ADDRESS).
+                         setLookup(tx.getFrom()).
+                         build()
              );
              return CompletableFuture.completedFuture(response.build());
          } catch (Exception e) {
