@@ -2,29 +2,21 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title INotoErrors
+ * @title INotoErrors_V0
  * @dev Definitions for common errors used in Noto implementations.
  */
-interface INotoErrors {
+interface INotoErrors_V0 {
     error NotoInvalidInput(bytes32 id);
 
     error NotoInvalidOutput(bytes32 id);
 
     error NotoNotNotary(address sender);
 
-    error NotoDuplicateLock(bytes32 lockId);
+    error NotoInvalidDelegate(bytes32 txhash, address delegate, address sender); // V0 only
 
     error NotoInvalidUnlockHash(bytes32 expected, bytes32 actual);
 
-    error NotoInvalidUnlockInputs(uint256 expected, uint256 actual);
-
-    error NotoDelegationConditionsNotSet(bytes32 lockId);
+    error NotoAlreadyPrepared(bytes32 lockId);
 
     error NotoDuplicateTransaction(bytes32 txId);
-
-    error NotoDuplicateSpendTransaction(bytes32 txId);
-
-    error NotoInvalidOptions(bytes options);
-
-    error NotoInvalidTransaction(bytes32 txId);
 }

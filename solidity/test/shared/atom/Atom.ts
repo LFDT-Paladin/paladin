@@ -6,12 +6,14 @@ import {
   createLockOptions,
   deployNotoInstance,
   doLock,
+  encodeCreateLockParams,
   encodeDelegateLockParams,
-  encodeLockParams,
+  encodeUpdateLockParams,
   encodeUnlockParams,
   fakeTXO,
   newUnlockHash,
-  NotoLockOperation,
+  NotoCreateLockOperation,
+  NotoUpdateLockOperation,
   randomBytes32,
 } from "../../domains/noto/util";
 
@@ -48,10 +50,10 @@ describe("Atom", function () {
       txId: txId1,
       inputs: [],
       outputs: [],
-      lockedOutputs: [f1txo1, f1txo2],
+      contents: [f1txo1, f1txo2],
       proof: "0x",
       options: "0x",
-    } as NotoLockOperation;
+    } as NotoCreateLockOperation;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
     const lockId = await doLock(notary1, noto, params, unpreparedLockParams, "0x");
     await erc20.mint(notary2, 1000);
@@ -124,11 +126,11 @@ describe("Atom", function () {
       txId: txId2,
       inputs: [],
       outputs: [],
-      lockedOutputs: [],
+      contents: [],
       proof: "0x",
       options: "0x",
-    } as NotoLockOperation;
-    await noto.connect(notary1).updateLock(lockId, encodeLockParams(updateParams), lockUpdate, "0x");
+    } as NotoUpdateLockOperation;
+    await noto.connect(notary1).updateLock(lockId, encodeUpdateLockParams(updateParams), lockUpdate, "0x");
     // Encode DelegateLockParams with txId and data
     const delegateTxId = randomBytes32();
     const delegateLockParams = {
@@ -180,7 +182,7 @@ describe("Atom", function () {
       txId: unlockTxId,
       inputs: [f1txo1, f1txo2],
       outputs: [f1txo3, f1txo4],
-      lockedOutputs: [],
+      contents: [],
       data: f1TxData,
     };
     const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
@@ -190,7 +192,7 @@ describe("Atom", function () {
           unlockParams.txId,
           unlockParams.inputs,
           unlockParams.outputs,
-          unlockParams.lockedOutputs,
+          unlockParams.contents,
           unlockParams.data,
         ],
       ]

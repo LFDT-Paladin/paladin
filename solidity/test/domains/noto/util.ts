@@ -4,11 +4,18 @@ import { BytesLike, Signer, TypedDataEncoder } from "ethers";
 import hre, { ethers } from "hardhat";
 import { ILockableCapability, Noto, NotoFactory } from "../../../typechain-types";
 
-export interface NotoLockOperation {
+export interface NotoCreateLockOperation {
   txId: BytesLike;
   inputs: BytesLike[];
   outputs: BytesLike[];
-  lockedOutputs: BytesLike[];
+  contents: BytesLike[];
+  proof: BytesLike;
+}
+
+export interface NotoUpdateLockOperation {
+  txId: BytesLike;
+  inputs: BytesLike[];
+  outputs: BytesLike[];
   proof: BytesLike;
 }
 
@@ -144,14 +151,26 @@ export async function doMint(
   }
 }
 
-export function encodeLockParams(lockOp: NotoLockOperation): BytesLike {
+export function encodeCreateLockParams(lockOp: NotoCreateLockOperation): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"], [
     [
       lockOp.txId,
       lockOp.inputs,
       lockOp.outputs,
-      lockOp.lockedOutputs,
+      lockOp.contents,
+      lockOp.proof,
+    ],
+  ]);
+}
+
+export function encodeUpdateLockParams(lockOp: NotoUpdateLockOperation): BytesLike {
+  return ethers.AbiCoder.defaultAbiCoder().encode(
+    ["tuple(bytes32,bytes32[],bytes32[],bytes)"], [
+    [
+      lockOp.txId,
+      lockOp.inputs,
+      lockOp.outputs,
       lockOp.proof,
     ],
   ]);
@@ -185,14 +204,14 @@ export function encodeDelegateLockParams(delegateOp: NotoDelegateLockOperation):
 export async function doLock(
   notary: Signer,
   noto: Noto,
-  lockOp: NotoLockOperation,
+  lockOp: NotoCreateLockOperation,
   params: ILockableCapability.LockParamsStruct,
   data: string
 ) {
   const notaryAddr = await notary.getAddress();
 
   // NotoLockOperation
-  const encodedParams = encodeLockParams(lockOp);
+  const encodedParams = encodeCreateLockParams(lockOp);
 
   const tx = await noto.connect(notary).createLock(encodedParams, params, data);
   const results = await tx.wait();
@@ -207,7 +226,7 @@ export async function doLock(
   expect(event0?.name).to.equal("LockUpdated");
   expect(event0?.args.lockId).to.equal(lockId);
   expect(event0?.args.lock["owner"]).to.equal(notaryAddr);
-  expect(event0?.args.lock["content"]).to.equal(ethers.AbiCoder.defaultAbiCoder().encode(["bytes32[]"],[lockOp.lockedOutputs]));
+  expect(event0?.args.lock["content"]).to.equal(ethers.AbiCoder.defaultAbiCoder().encode(["bytes32[]"],[lockOp.contents]));
   expect(event0?.args.lock["spender"]).to.equal(notaryAddr);
   expect(event0?.args.lock["spendHash"]).to.equal(params.spendHash);
   expect(event0?.args.lock["cancelHash"]).to.equal(params.cancelHash);
@@ -220,7 +239,7 @@ export async function doLock(
   expect(event1?.name).to.equal("NotoLockCreated");
   expect(event1?.args.inputs).to.deep.equal(lockOp.inputs);
   expect(event1?.args.outputs).to.deep.equal(lockOp.outputs);
-  expect(event1?.args.lockedOutputs).to.deep.equal(lockOp.lockedOutputs);
+  expect(event1?.args.contents).to.deep.equal(lockOp.contents);
   expect(event1?.args.proof).to.deep.equal(lockOp.proof);
   expect(event1?.args.data).to.equal(data);
 
@@ -230,7 +249,7 @@ export async function doLock(
   for (const output of lockOp.outputs) {
     expect(await noto.isUnspent(output)).to.equal(true);
   }
-  for (const output of lockOp.lockedOutputs) {
+  for (const output of lockOp.contents) {
     expect(await noto.getLockId(output)).to.equal(lockId);
     expect(await noto.isUnspent(output)).to.equal(false);
   }
@@ -302,11 +321,10 @@ export async function doPrepareUnlock(
 ) {
   const notaryAddr = await notary.getAddress();
 
-  const encodedParams = encodeLockParams({
+  const encodedParams = encodeUpdateLockParams({
     txId,
     inputs: [],
     outputs: [],
-    lockedOutputs: [],
     proof: '0x',
   });
 

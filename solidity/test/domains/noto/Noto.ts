@@ -12,7 +12,8 @@ import {
   doUnlock,
   fakeTXO,
   newUnlockHash,
-  NotoLockOperation,
+  NotoCreateLockOperation,
+  NotoUpdateLockOperation,
   randomBytes32,
 } from "./util";
 import { ZeroHash } from "ethers";
@@ -51,12 +52,12 @@ describe("Noto", function () {
     // Check for double-mint protection
     await expect(
       doTransfer(randomBytes32(), notary, noto, [], [txo1], randomBytes32())
-    ).rejectedWith("NotoInvalidOutput");
+    ).revertedWithCustomError(noto, "NotoInvalidOutput");
 
     // Check for spend unknown protection
     await expect(
       doTransfer(randomBytes32(), notary, noto, [txo3], [], randomBytes32())
-    ).rejectedWith("NotoInvalidInput");
+    ).revertedWithCustomError(noto, "NotoInvalidInput");
 
     // Spend one
     await doTransfer(
@@ -71,7 +72,7 @@ describe("Noto", function () {
     // Check for double-spend protection
     await expect(
       doTransfer(randomBytes32(), notary, noto, [txo1], [txo3], randomBytes32())
-    ).rejectedWith("NotoInvalidInput");
+    ).revertedWithCustomError(noto, "NotoInvalidInput");
 
     // Spend another
     await doTransfer(
@@ -128,10 +129,10 @@ describe("Noto", function () {
       txId: randomBytes32(),
       inputs: [txo1, txo2],
       outputs: [txo3],
-      lockedOutputs: [locked1],
+      contents: [locked1],
       proof: "0x",
       options: "0x",
-    } as NotoLockOperation;
+    } as NotoCreateLockOperation;
     const lockId = await doLock(notary, noto, params1, unpreparedLockParams, "0x");
 
     // Check that the same state cannot be locked again with a different lock
@@ -139,18 +140,18 @@ describe("Noto", function () {
       txId: randomBytes32(),
       inputs: [],
       outputs: [],
-      lockedOutputs: [locked1],
+      contents: [locked1],
       proof: "0x",
       options: "0x",
     };
     await expect(
       doLock(notary, noto, params2, unpreparedLockParams, "0x")
-    ).to.be.rejectedWith("NotoInvalidOutput");
+    ).to.be.revertedWithCustomError(noto, "NotoInvalidOutput");
 
     // Check that locked value cannot be spent
     await expect(
       doTransfer(randomBytes32(), notary, noto, [locked1], [], randomBytes32())
-    ).to.be.rejectedWith("NotoInvalidInput");
+    ).to.be.revertedWithCustomError(noto, "NotoInvalidInput");
 
     // Prepare unlock operations (both spend and cancel) before unlocking
     const unlockTxId = randomBytes32();
@@ -195,7 +196,7 @@ describe("Noto", function () {
         [txo4],
         unlockData
       ) // mismatched input states - hash won't match
-    ).to.be.rejectedWith("NotoInvalidUnlockHash");
+    ).to.be.revertedWithCustomError(noto, "NotoInvalidUnlockHash");
 
     // Try to unlock with wrong outputs
     await expect(
@@ -208,7 +209,7 @@ describe("Noto", function () {
         [fakeTXO()], // different output than prepared
         unlockData
       ) // wrong outputs - hash won't match
-    ).to.be.rejectedWith("NotoInvalidUnlockHash");
+    ).to.be.revertedWithCustomError(noto, "NotoInvalidUnlockHash");
 
     // Try to unlock with wrong delegate
     await expect(
@@ -221,7 +222,7 @@ describe("Noto", function () {
         [txo4],
         unlockData
       ) // wrong delegate
-    ).to.be.rejectedWith("LockUnauthorized");
+    ).to.be.revertedWithCustomError(noto, "LockUnauthorized");
 
     // Perform the prepared unlock
     await doUnlock(
@@ -245,7 +246,7 @@ describe("Noto", function () {
         [],
         randomBytes32()
       )
-    ).to.be.rejectedWith("LockNotActive");
+    ).to.be.revertedWithCustomError(noto, "LockNotActive");
   });
 
   it("Duplicate TXID reverts transfer", async function () {
@@ -263,7 +264,7 @@ describe("Noto", function () {
     // Make two more UTXOs with the same TX ID - should fail
     await expect(
       doTransfer(txId1, notary, noto, [], [txo3, txo4], randomBytes32())
-    ).rejectedWith("NotoDuplicateTransaction");
+    ).revertedWithCustomError(noto, "NotoDuplicateTransaction");
   });
 
   it("Duplicate TXID reverts lock, unlock, prepare unlock, and delegate lock", async function () {
@@ -295,13 +296,13 @@ describe("Noto", function () {
       txId: txId1,
       inputs: [txo1, txo2],
       outputs: [txo3],
-      lockedOutputs: [locked1],
+      contents: [locked1],
       proof: "0x",
       options: "0x",
-    } as NotoLockOperation;
+    } as NotoCreateLockOperation;
     await expect(
       doLock(notary, noto, params1, unpreparedLockParams, "0x")
-    ).to.be.rejectedWith("NotoDuplicateTransaction");
+    ).to.be.revertedWithCustomError(noto, "NotoDuplicateTransaction");
 
     // Lock both of them using a new TX ID - should succeed
     const txId2 = randomBytes32();
@@ -309,7 +310,7 @@ describe("Noto", function () {
       txId: txId2,
       inputs: [txo1, txo2],
       outputs: [txo3],
-      lockedOutputs: [locked1],
+      contents: [locked1],
       proof: "0x",
       options: "0x",
     };
@@ -337,7 +338,7 @@ describe("Noto", function () {
         cancelHash,
         unlockData,
       )
-    ).to.be.rejectedWith("NotoDuplicateTransaction");
+    ).to.be.revertedWithCustomError(noto, "NotoDuplicateTransaction");
   });
 
   it("Duplicate TXID reverts mint", async function () {
@@ -355,6 +356,6 @@ describe("Noto", function () {
     // Make two more UTXOs using the same TX ID - should fail
     await expect(
       doMint(txId1, notary, noto, [txo3, txo4], randomBytes32())
-    ).rejectedWith("NotoDuplicateTransaction");
+    ).revertedWithCustomError(noto, "NotoDuplicateTransaction");
   });
 });
