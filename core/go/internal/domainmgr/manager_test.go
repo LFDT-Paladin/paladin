@@ -478,7 +478,10 @@ func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	jq := &query.QueryJSON{}
 	mc.db.ExpectBegin()
 	mc.db.ExpectRollback()
-	_, err := dm.querySmartContracts(ctx, jq)
+	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "PD010721", err)
 }
 
@@ -495,7 +498,10 @@ func TestQuerySmartContractsDBError(t *testing.T) {
 	limit := 50
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(assert.AnError)
-	_, err := dm.querySmartContracts(ctx, &query.QueryJSON{Limit: &limit})
+	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, &query.QueryJSON{Limit: &limit})
+		return err
+	})
 	assert.Error(t, err)
 }
 
@@ -524,7 +530,11 @@ func TestQuerySmartContractsWithDomainNotConfigured(t *testing.T) {
 	mc.db.ExpectCommit()
 
 	// Query smart contracts - should return the contract but without domain info
-	results, err := dm.querySmartContracts(ctx, &query.QueryJSON{Limit: &limit})
+	var results []*pldapi.DomainSmartContract
+	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		results, err = dm.querySmartContracts(ctx, dbTX, &query.QueryJSON{Limit: &limit})
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "", results[0].DomainName)
