@@ -152,6 +152,29 @@ entries:
     - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-1.0.0-rc.0/paladin-operator-1.0.0-rc.0.tgz
     version: 1.0.0-rc.0
   - apiVersion: v2
+    appVersion: v0.16.0-rc.0
+    created: "2026-02-23T14:00:29.319608753Z"
+    dependencies:
+    - condition: installCRDs
+      name: paladin-operator-crd
+      repository: file://../paladin-operator-crd/
+      version: 0.16.0-rc.0
+    - condition: prometheus.enabled
+      name: prometheus-namespace
+      repository: file://../prometheus-namespace/
+      version: 0.0.0
+    - condition: prometheus.enabled
+      name: prometheus
+      repository: https://prometheus-community.github.io/helm-charts
+      version: 15.8.0
+    description: A Helm chart for Kubernetes
+    digest: 44e77960ca3fb615e4d3abcc824d72425dc3105e371f73b24df7728bd69e9c85
+    name: paladin-operator
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-0.16.0-rc.0/paladin-operator-0.16.0-rc.0.tgz
+    version: 0.16.0-rc.0
+  - apiVersion: v2
     appVersion: v0.15.0
     created: "2026-01-27T10:47:43.064635579Z"
     dependencies:
@@ -1509,6 +1532,16 @@ entries:
     - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-crd-1.0.0-rc.0/paladin-operator-crd-1.0.0-rc.0.tgz
     version: 1.0.0-rc.0
   - apiVersion: v2
+    appVersion: v0.16.0-rc.0
+    created: "2026-02-23T14:00:29.590982426Z"
+    description: A Helm chart for Kubernetes
+    digest: 8ebbfa1927682336cf04bfaf3353f8feb348f7a2e87a58a3648020c69b9fd064
+    name: paladin-operator-crd
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-crd-0.16.0-rc.0/paladin-operator-crd-0.16.0-rc.0.tgz
+    version: 0.16.0-rc.0
+  - apiVersion: v2
     appVersion: v0.15.0
     created: "2026-01-27T10:47:43.326628871Z"
     description: A Helm chart for Kubernetes
@@ -1950,4 +1983,4 @@ entries:
     urls:
     - https://github.com/LF-Decentralized-Trust-labs/paladin/releases/download/prometheus-namespace-0.0.0/prometheus-namespace-0.0.0.tgz
     version: 0.0.0
-generated: "2026-01-27T10:47:43.327321928Z"
+generated: "2026-02-23T14:00:29.591437537Z"
