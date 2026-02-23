@@ -64,16 +64,16 @@ func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, 
 		if len(c.originatorNodePool) == 0 {
 			log.L(ctx).Warnf("no pool to select a coordinator from yet")
 			return "", nil
-		} else {
-			// Round block number down to the nearest block range (e.g. block 1012, 1013, 1014 etc. all become 1000 for hashing)
-			effectiveBlockNumber := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
-
-			// Take a numeric hash of the identities using the current block range
-			h := fnv.New32a()
-			h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
-			coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
-			log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
 		}
+
+		// Round block number down to the nearest block range (e.g. block 1012, 1013, 1014 etc. all become 1000 for hashing)
+		effectiveBlockNumber := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
+
+		// Take a numeric hash of the identities using the current block range
+		h := fnv.New32a()
+		h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
+		coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
+		log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
 	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_SENDER {
 		// E.g. Zeto
 		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in originator coordinator mode", c.nodeName)

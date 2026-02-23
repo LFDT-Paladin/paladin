@@ -68,6 +68,7 @@ message PrepareDeployResponse {
 message InitContractRequest {
   string contract_address = 1; // The address of the smart contract on-chain
   bytes contract_config = 2; // Binary config emitted by the constructor event of the contract that is persisted by Paladin and provided back each time the smart contract is loaded into memory
+  optional PrivacyGroup privacy_group = 3; // Optional privacy group context for domains that derive runtime config from group membership
 }
 
 message InitContractResponse {    
@@ -300,6 +301,7 @@ message ContractConfig {
   }
   CoordinatorSelection coordinator_selection = 20;
   optional string static_coordinator = 21; // only applicable with coordinator_mode=STATIC
+  repeated string coordinator_endorser_candidates = 22; // fully qualified identity locators eligible as coordinators in COORDINATOR_ENDORSER mode
   
   enum SubmitterSelection {
       SUBMITTER_COORDINATOR = 0; // The coordinator submits the transaction

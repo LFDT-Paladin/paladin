@@ -587,12 +587,13 @@ func (ptm *pubTxManager) runTransactionQuery(ctx context.Context, dbTX persisten
 
 func mapPersistedTransaction(ptx *DBPublicTxn) *pldapi.PublicTx {
 	tx := &pldapi.PublicTx{
-		LocalID: &ptx.PublicTxnID,
-		From:    ptx.From,
-		Created: ptx.Created,
-		To:      ptx.To,
-		Nonce:   (*pldtypes.HexUint64)(ptx.Nonce),
-		Data:    ptx.Data,
+		LocalID:    &ptx.PublicTxnID,
+		From:       ptx.From,
+		Created:    ptx.Created,
+		To:         ptx.To,
+		Nonce:      (*pldtypes.HexUint64)(ptx.Nonce),
+		Data:       ptx.Data,
+		Dispatcher: ptx.Dispatcher,
 		PublicTxOptions: pldapi.PublicTxOptions{
 			Gas:                (*pldtypes.HexUint64)(&ptx.Gas),
 			Value:              ptx.Value,
