@@ -52,17 +52,17 @@ type CoordinatorTransaction struct {
 	revertTime             *pldtypes.Timestamp
 
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
-	heartbeatIntervalsSinceStateChange               int
-	stateEntryTime                                   common.Time
-	pendingAssembleRequest                           *common.IdempotentRequest
-	cancelRequestTimeoutSchedule                     func()                                           // Short timeout for retry e.g. network blip
-	cancelStateTimeoutSchedule                       func()                                           // Timeout for state completion before repooling
-	pendingEndorsementRequests                       map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	pendingEndorsementsMutex                         sync.Mutex
-	pendingPreDispatchRequest                        *common.IdempotentRequest
-	chainedTxAlreadyDispatched                       bool
-	latestError                                      string
-	dependencies                                     *pldapi.TransactionDependencies
+	heartbeatIntervalsSinceStateChange int
+	stateEntryTime                     common.Time
+	pendingAssembleRequest             *common.IdempotentRequest
+	cancelRequestTimeoutSchedule       func()                                          // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule         func()                                          // Timeout for state completion before repooling
+	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
+	pendingEndorsementsMutex           sync.Mutex
+	pendingPreDispatchRequest          *common.IdempotentRequest
+	chainedTxAlreadyDispatched         bool
+	latestError                        string
+	dependencies                       *pldapi.TransactionDependencies
 
 	//Configuration
 	requestTimeout        common.Duration
@@ -103,6 +103,13 @@ func NewTransaction(
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
 		return nil, err
 	}
+	// Assume no nonce protection for dispatch ordering until we determine otherwise; however, if the domain
+	// has been configured with a fixed signing identity, we can assume nonce protection is provided by the
+	// fixed signing identity.
+	dynamicSigningIdentity := true
+	if domainSigningIdentity != "" {
+		dynamicSigningIdentity = false
+	}
 	txn := &CoordinatorTransaction{
 		originator:                 originator,
 		originatorNode:             originatorNode,
@@ -113,7 +120,7 @@ func NewTransaction(
 		engineIntegration:          engineIntegration,
 		syncPoints:                 syncPoints,
 		domainSigningIdentity:      domainSigningIdentity,
-		dynamicSigningIdentity:     true, // Assume no nonce protection for dispatch ordering until we determine otherwise
+		dynamicSigningIdentity:     dynamicSigningIdentity,
 		requestTimeout:             requestTimeout,
 		stateTimeout:               stateTimeout,
 		finalizingGracePeriod:      finalizingGracePeriod,

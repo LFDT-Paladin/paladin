@@ -260,6 +260,24 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
 }
 
+func Test_hasDependenciesNotReady_FixedDomainSigner_DependencyReadyForDispatch(t *testing.T) {
+	ctx := context.Background()
+
+	grapher := NewGrapher(ctx)
+	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
+
+	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		DomainSigningIdentity("fixed-signer").
+		Build()
+	txn2.dependencies = &pldapi.TransactionDependencies{
+		DependsOn: []uuid.UUID{txn1.pt.ID},
+	}
+	txn2.pt.PreAssembly = nil
+
+	assert.False(t, txn2.hasDependenciesNotReady(ctx))
+}
+
 func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
 	ctx := context.Background()
 

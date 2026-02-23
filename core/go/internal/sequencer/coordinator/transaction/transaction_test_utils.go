@@ -215,6 +215,7 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 type TransactionBuilderForTesting struct {
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
 	originator                         *identityForTesting
+	domainSigningIdentity              string
 	dispatchConfirmed                  bool
 	signerAddress                      *pldtypes.EthAddress
 	latestSubmissionHash               *pldtypes.Bytes32
@@ -243,6 +244,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 			verifier:        pldtypes.RandAddress().String(),
 			keyHandle:       originatorName + "_KeyHandle",
 		},
+		domainSigningIdentity:    "",
 		dispatchConfirmed:         false,
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
@@ -334,6 +336,11 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
+func (b *TransactionBuilderForTesting) DomainSigningIdentity(domainSigningIdentity string) *TransactionBuilderForTesting {
+	b.domainSigningIdentity = domainSigningIdentity
+	return b
+}
+
 // SubmissionHash sets the transaction's latest submission hash (e.g. for State_Submitted/State_Dispatched). Overrides any default.
 func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
 	b.latestSubmissionHash = &hash
@@ -401,7 +408,7 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.fakeClock.Duration(b.requestTimeout),
 		b.fakeClock.Duration(b.stateTimeout),
 		5,
-		"",
+		b.domainSigningIdentity,
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
@@ -444,7 +451,9 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.CurrentState = b.state
-	b.txn.dynamicSigningIdentity = false
+	if b.domainSigningIdentity == "" {
+		b.txn.dynamicSigningIdentity = false
+	}
 	return b.txn
 
 }
