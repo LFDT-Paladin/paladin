@@ -129,7 +129,6 @@ func (t *CoordinatorTransaction) isNotAssembled() bool {
 		t.stateMachine.GetCurrentState() != State_Confirming_Dispatchable &&
 		t.stateMachine.GetCurrentState() != State_Ready_For_Dispatch &&
 		t.stateMachine.GetCurrentState() != State_Dispatched &&
-		t.stateMachine.GetCurrentState() != State_Submitted &&
 		t.stateMachine.GetCurrentState() != State_Confirmed
 }
 

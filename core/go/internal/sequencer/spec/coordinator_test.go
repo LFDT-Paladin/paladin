@@ -293,8 +293,8 @@ func TestCoordinator_Active_ToIdle_NoTransactionsInFlight(t *testing.T) {
 func TestCoordinator_ActiveNoTransition_OnTransactionConfirmed_IfNotTransactionsEmpty(t *testing.T) {
 	ctx := context.Background()
 
-	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Active).
 		Transactions(delegation1, delegation2).
@@ -319,8 +319,8 @@ func TestCoordinator_ActiveNoTransition_OnTransactionConfirmed_IfNotTransactions
 func TestCoordinator_Active_ToFlush_OnHandoverRequest(t *testing.T) {
 	ctx := context.Background()
 
-	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Active).
 		Transactions(delegation1, delegation2).
@@ -342,7 +342,7 @@ func TestCoordinator_Flush_ToClosing_OnTransactionConfirmed_IfFlushComplete(t *t
 
 	//We have 2 transactions in flight but only one of them has passed the point of no return so we
 	// should consider the flush complete when that one is confirmed
-	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Flush).
@@ -370,8 +370,8 @@ func TestCoordinator_FlushNoTransition_OnTransactionConfirmed_IfNotFlushComplete
 	//We have 2 transactions in flight and passed the point of no return but only one of them will be confirmed so we should not
 	// consider the flush complete
 
-	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	delegation1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	delegation2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	c, _ := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Flush).
 		Transactions(delegation1, delegation2).
@@ -397,7 +397,7 @@ func TestCoordinator_FlushNoTransition_OnTransactionConfirmed_IfNotFlushComplete
 func TestCoordinator_Closing_ToIdle_OnHeartbeatInterval_IfClosingGracePeriodExpired(t *testing.T) {
 	ctx := context.Background()
 
-	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
 		HeartbeatsUntilClosingGracePeriodExpires(1).
@@ -420,7 +420,7 @@ func TestCoordinator_Closing_ToIdle_OnHeartbeatInterval_IfClosingGracePeriodExpi
 func TestCoordinator_ClosingNoTransition_OnHeartbeatInterval_IfNotClosingGracePeriodExpired(t *testing.T) {
 	ctx := context.Background()
 
-	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	d := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	builder := coordinator.NewCoordinatorBuilderForTesting(t, coordinator.State_Closing).
 		HeartbeatsUntilClosingGracePeriodExpires(2).

@@ -57,7 +57,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_HandleEventSucceeds(t *
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
 	txn := txBuilder.Build()
 	c.transactionsByID[txn.GetID()] = txn
 
@@ -77,7 +77,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_NilSubmissionHash_Handl
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -96,10 +96,10 @@ func Test_action_TransactionConfirmed_TransactionTracked_MatchingHash_HandleEven
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	submissionHash := txn.GetLatestSubmissionHash()
-	require.NotNil(t, submissionHash, "builder sets submission hash for State_Submitted")
+	require.NotNil(t, submissionHash, "builder sets submission hash for State_Dispatched")
 
 	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
 		TxID: txn.GetID(),
@@ -116,7 +116,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_DifferentHash_HandleEve
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 
@@ -155,9 +155,9 @@ func Test_action_TransactionConfirmed_MultipleTransactions_EachHandleEventSuccee
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
 
-	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
 	txn1 := txBuilder1.Build()
-	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
 	txn2 := txBuilder2.Build()
 	c.transactionsByID[txn1.GetID()] = txn1
 	c.transactionsByID[txn2.GetID()] = txn2
@@ -248,7 +248,7 @@ func Test_addToDelegatedTransactions_WithChainedTransaction_AddsTransactionInSub
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
 	coordinatedTxn := c.transactionsByID[txn.ID]
 	require.NotNil(t, coordinatedTxn, "transaction should exist in transactionsByID")
-	assert.Equal(t, transaction.State_Submitted, coordinatedTxn.GetCurrentState(), "transaction should be in State_Submitted when chained transaction is found")
+	assert.Equal(t, transaction.State_Dispatched, coordinatedTxn.GetCurrentState(), "transaction should be in State_Dispatched when chained transaction is found")
 }
 
 func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionInPooledState(t *testing.T) {
@@ -277,7 +277,7 @@ func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionIn
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
 	coordinatedTxn := c.transactionsByID[txn.ID]
 	require.NotNil(t, coordinatedTxn, "transaction should exist in transactionsByID")
-	assert.NotEqual(t, transaction.State_Submitted, coordinatedTxn.GetCurrentState(), "transaction should NOT be in State_Submitted when chained transaction is not found")
+	assert.NotEqual(t, transaction.State_Dispatched, coordinatedTxn.GetCurrentState(), "transaction should NOT be in State_Dispatched when chained transaction is not found")
 	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked, transaction.State_Assembling}, coordinatedTxn.GetCurrentState(), "transaction should be in Pooled, PreAssembly_Blocked, or Assembling state when chained transaction is not found")
 }
 

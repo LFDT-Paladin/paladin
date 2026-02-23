@@ -64,7 +64,6 @@ func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool)
 		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
 		notReady := t.stateMachine.CurrentState != State_Confirmed &&
-			t.stateMachine.CurrentState != State_Submitted &&
 			t.stateMachine.CurrentState != State_Dispatched &&
 			t.stateMachine.CurrentState != State_Ready_For_Dispatch
 		if notReady {

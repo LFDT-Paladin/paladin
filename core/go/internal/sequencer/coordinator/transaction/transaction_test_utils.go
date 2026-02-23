@@ -244,7 +244,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 			verifier:        pldtypes.RandAddress().String(),
 			keyHandle:       originatorName + "_KeyHandle",
 		},
-		domainSigningIdentity:    "",
+		domainSigningIdentity:     "",
 		dispatchConfirmed:         false,
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
@@ -259,25 +259,20 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 	}
 
 	switch state {
-	case State_Submitted:
+	case State_Dispatched:
 		nonce := rand.Uint64()
 		builder.nonce = &nonce
 		builder.signerAddress = pldtypes.RandAddress()
 		latestSubmissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 		builder.latestSubmissionHash = &latestSubmissionHash
+		builder.privateTransactionBuilder.EndorsementComplete()
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
-	case State_SubmissionPrepared:
-		// Emulates having received CollectedEvent; signerAddress is required when processing SubmittedEvent (which sends to originator)
-		builder.signerAddress = pldtypes.RandAddress()
-		fallthrough
 	case State_Blocked:
 		fallthrough
 	case State_Confirming_Dispatchable:
 		fallthrough
 	case State_Ready_For_Dispatch:
-		fallthrough
-	case State_Dispatched:
 		fallthrough
 	case State_Confirmed:
 		//we are emulating a transaction that has been passed State_Endorsement_Gathering so default to complete attestation plan
@@ -341,7 +336,7 @@ func (b *TransactionBuilderForTesting) DomainSigningIdentity(domainSigningIdenti
 	return b
 }
 
-// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Submitted/State_Dispatched). Overrides any default.
+// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Dispatched). Overrides any default.
 func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
 	b.latestSubmissionHash = &hash
 	return b

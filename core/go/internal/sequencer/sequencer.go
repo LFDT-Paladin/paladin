@@ -538,7 +538,9 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 			SignerAddress: *pldtypes.MustEthAddress(signerAddress),
 		}
 
-		sequencer.GetCoordinator().QueueEvent(ctx, collectedEvent)
+		// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+		// orchestrator polling so it is critical we do not block here waiting on a full event queue.
+		sequencer.GetCoordinator().TryQueueEvent(ctx, collectedEvent)
 	}
 
 	return nil
@@ -563,8 +565,9 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 			},
 			Nonce: nonce,
 		}
-
-		sequencer.GetCoordinator().QueueEvent(ctx, coordinatorNonceAllocatedEvent)
+		// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+		// orchestrator polling so it is critical we do not block here waiting on a full event queue.
+		sequencer.GetCoordinator().TryQueueEvent(ctx, coordinatorNonceAllocatedEvent)
 	}
 
 	return nil
@@ -590,7 +593,9 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				},
 				SubmissionHash: *tx.TransactionHash,
 			}
-			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
+			// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+			// the public tx manager submission writer so it is critical we do not block here waiting on a full event queue.
+			sequencer.GetCoordinator().TryQueueEvent(ctx, coordinatorSubmittedEvent)
 			// The coordinator transaction state machine sends TransactionSubmitted to the originator when it processes this event
 		}
 
@@ -651,7 +656,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedDirect(ctx context.Conte
 			From:         from, // The base ledger signing address
 			Hash:         confirmedTxn.OnChain.TransactionHash,
 			RevertReason: confirmedTxn.RevertData,
-			Nonce: nonce, // nil when nonce is not available
+			Nonce:        nonce, // nil when nonce is not available
 		}
 
 		sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)

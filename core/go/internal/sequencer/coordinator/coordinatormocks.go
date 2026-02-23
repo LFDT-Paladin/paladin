@@ -162,6 +162,63 @@ func (_c *MockCoordinator_Stop_Call) RunAndReturn(run func()) *MockCoordinator_S
 	return _c
 }
 
+// TryQueueEvent provides a mock function for the type MockCoordinator
+func (_mock *MockCoordinator) TryQueueEvent(ctx context.Context, event common.Event) bool {
+	ret := _mock.Called(ctx, event)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TryQueueEvent")
+	}
+
+	var r0 bool
+	if returnFunc, ok := ret.Get(0).(func(context.Context, common.Event) bool); ok {
+		r0 = returnFunc(ctx, event)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	return r0
+}
+
+// MockCoordinator_TryQueueEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TryQueueEvent'
+type MockCoordinator_TryQueueEvent_Call struct {
+	*mock.Call
+}
+
+// TryQueueEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - event common.Event
+func (_e *MockCoordinator_Expecter) TryQueueEvent(ctx interface{}, event interface{}) *MockCoordinator_TryQueueEvent_Call {
+	return &MockCoordinator_TryQueueEvent_Call{Call: _e.mock.On("TryQueueEvent", ctx, event)}
+}
+
+func (_c *MockCoordinator_TryQueueEvent_Call) Run(run func(ctx context.Context, event common.Event)) *MockCoordinator_TryQueueEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 common.Event
+		if args[1] != nil {
+			arg1 = args[1].(common.Event)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockCoordinator_TryQueueEvent_Call) Return(b bool) *MockCoordinator_TryQueueEvent_Call {
+	_c.Call.Return(b)
+	return _c
+}
+
+func (_c *MockCoordinator_TryQueueEvent_Call) RunAndReturn(run func(ctx context.Context, event common.Event) bool) *MockCoordinator_TryQueueEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockEvent creates a new instance of MockEvent. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockEvent(t interface {
