@@ -344,36 +344,30 @@ func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContra
 	}
 }
 
-func (dm *domainManager) querySmartContracts(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
-	var results []*pldapi.DomainSmartContract
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
-			P:           dm.persistence,
-			Table:       "private_smart_contracts",
-			DefaultSort: "domainAddress",
-			Filters:     smartContractFilters,
-			Query:       jq,
-			MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
-				_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
-				if err == nil {
-					result = &pldapi.DomainSmartContract{
-						DomainAddress: &pt.RegistryAddress,
-						Address:       pt.Address,
-					}
-					if dc != nil {
-						result.DomainName = dc.Domain().Name()
-						dm.populateContractConfig(result, dc.config)
-					}
+func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
+	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
+		P:           dm.persistence,
+		Table:       "private_smart_contracts",
+		DefaultSort: "domainAddress",
+		Filters:     smartContractFilters,
+		Query:       jq,
+		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
+			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
+			if err == nil {
+				result = &pldapi.DomainSmartContract{
+					DomainAddress: &pt.RegistryAddress,
+					Address:       pt.Address,
 				}
-				return result, err
+				if dc != nil {
+					result.DomainName = dc.Domain().Name()
+					dm.populateContractConfig(result, dc.config)
+				}
+			}
+			return result, err
 
-			},
-		}
-		var err error
-		results, err = qw.Run(ctx, dbTX)
-		return err
-	})
-	return results, err
+		},
+	}
+	return qw.Run(ctx, dbTX)
 }
 
 func (dm *domainManager) dbGetSmartContract(ctx context.Context, dbTX persistence.DBTX, setWhere func(db *gorm.DB) *gorm.DB) (pscLoadResult, *domainContract, error) {

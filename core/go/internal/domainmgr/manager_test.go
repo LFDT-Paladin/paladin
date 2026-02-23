@@ -396,7 +396,11 @@ func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	jq := &query.QueryJSON{}
 	mc.db.ExpectBegin()
 	mc.db.ExpectRollback()
-	_, err := dm.querySmartContracts(ctx, jq)
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "PD010721", err)
 }
 
@@ -419,7 +423,11 @@ func TestQuerySmartContractsDatabaseError(t *testing.T) {
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(fmt.Errorf("database error"))
 	mc.db.ExpectRollback()
 
-	_, err := dm.querySmartContracts(ctx, jq)
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "database error", err)
 }
 
@@ -444,7 +452,12 @@ func TestQuerySmartContractsEmptyResults(t *testing.T) {
 	)
 	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -475,7 +488,12 @@ func TestQuerySmartContractsDomainNotFound(t *testing.T) {
 	)
 	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, *contractAddr, results[0].Address)
@@ -538,7 +556,12 @@ func TestQuerySmartContractsDomainFound(t *testing.T) {
 	)
 	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, *contractAddr, results[0].Address)
@@ -603,7 +626,12 @@ func TestQuerySmartContractsMultipleResults(t *testing.T) {
 	)
 	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
@@ -665,6 +693,10 @@ func TestQuerySmartContractsEnrichError(t *testing.T) {
 	)
 	mc.db.ExpectRollback()
 
-	_, err := dm.querySmartContracts(ctx, jq)
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "init contract error", err)
 }

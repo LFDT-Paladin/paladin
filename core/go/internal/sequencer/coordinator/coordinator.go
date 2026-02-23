@@ -244,7 +244,7 @@ func (c *coordinator) initializeOriginatorNodePoolFromContractConfig(ctx context
 	}
 	candidates := contractConfig.GetCoordinatorEndorserCandidates()
 	if len(candidates) == 0 {
-		log.L(ctx).Debugf("endorser coordinator mode for contract %s has no configured candidates; runtime originator updates will populate the pool", c.contractAddress.String())
+		log.L(ctx).Warnf("endorser coordinator mode for contract %s has no configured candidates; runtime originator updates will populate the pool", c.contractAddress.String())
 		return nil
 	}
 
