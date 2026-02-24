@@ -428,19 +428,24 @@ func (s *notoTestSuite) testNotoLock(version string) {
 	assert.Equal(t, recipient2Key, coins[0].Data.Owner.String())
 
 	log.L(ctx).Infof("Prepare unlock that will send all 50 to recipient2")
+	prepareTxData := pldtypes.RandBytes(16)
+	unlockTxData := pldtypes.RandBytes(16)
 	rpcerr = paladinClient.CallRPC(ctx, nil, "testbed_invoke", &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			From:     recipient1Name,
 			To:       noto.Address,
 			Function: "prepareUnlock",
-			Data: toJSON(t, &types.UnlockParams{
-				LockID: lockReceipt.LockInfo.LockID,
-				From:   recipient1Name,
-				Recipients: []*types.UnlockRecipient{{
-					To:     recipient2Name,
-					Amount: pldtypes.Int64ToInt256(50),
-				}},
-				Data: pldtypes.HexBytes{}, // TODO: if this is non-empty we don't have a way to propagate it
+			Data: toJSON(t, &types.PrepareUnlockParams{
+				UnlockParams: types.UnlockParams{
+					LockID: lockReceipt.LockInfo.LockID,
+					From:   recipient1Name,
+					Recipients: []*types.UnlockRecipient{{
+						To:     recipient2Name,
+						Amount: pldtypes.Int64ToInt256(50),
+					}},
+					Data: prepareTxData,
+				},
+				UnlockData: unlockTxData,
 			}),
 		},
 		ABI: types.NotoABI,

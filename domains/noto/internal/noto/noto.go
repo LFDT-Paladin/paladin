@@ -809,17 +809,8 @@ func validateTransactionCommon[T comparable](
 	}
 
 	// Get the expected ABI for validation
-	var abi *abi.Entry
-	if functionABI.Name == "delegateLock" {
-		// delegateLock has different signatures in V0 and V1
-		if domainConfig.IsV0() {
-			abi = types.NotoV0ABI.Functions()[functionABI.Name]
-		} else {
-			abi = types.NotoABI.Functions()[functionABI.Name]
-		}
-	} else {
-		abi = types.NotoABI.Functions()[functionABI.Name]
-	}
+	suppliedFunctionSignature, _ := functionABI.SignatureCtx(ctx)
+	abi := types.NotoABIFunctionsBySignature[suppliedFunctionSignature]
 
 	var unsetT T
 	handler := getHandler(functionABI.Name)

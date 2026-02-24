@@ -18,6 +18,7 @@ package helpers
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -141,8 +142,8 @@ func (n *NotoHelper) Unlock(ctx context.Context, params *types.UnlockParams) *Do
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }
 
-func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.UnlockParams) *DomainTransactionHelper {
-	fn := types.NotoABI.Functions()["prepareUnlock"]
+func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.PrepareUnlockParams) *DomainTransactionHelper {
+	fn := getFunctionBySignature(types.NotoABI, "prepareUnlock(bytes32,string,(string,uint256)[],bytes,bytes)")
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }
 
@@ -154,4 +155,14 @@ func (n *NotoHelper) DelegateLock(ctx context.Context, params *types.DelegateLoc
 func (n *NotoHelper) BalanceOf(ctx context.Context, params *types.BalanceOfParam) *DomainTransactionHelper {
 	fn := types.NotoABI.Functions()["balanceOf"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
+}
+
+func getFunctionBySignature(a abi.ABI, signature string) *abi.Entry {
+	for _, entry := range a {
+		sig, _ := entry.Signature()
+		if entry.Type == abi.Function && sig == signature {
+			return entry
+		}
+	}
+	panic(fmt.Sprintf("ABI entry with signature not found: %s", signature))
 }

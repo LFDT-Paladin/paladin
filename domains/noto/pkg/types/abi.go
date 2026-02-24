@@ -33,6 +33,8 @@ var notoV0PrivateJSON []byte
 var NotoABI = solutils.MustParseBuildABI(notoPrivateJSON)
 var NotoV0ABI = solutils.MustParseBuildABI(notoV0PrivateJSON)
 
+var NotoABIFunctionsBySignature = abiFunctionsBySignature(NotoV0ABI, NotoABI)
+
 type ConstructorParams struct {
 	Name           string      `json:"name,omitempty"`           // Name of the token
 	Symbol         string      `json:"symbol,omitempty"`         // Symbol of the token
@@ -48,6 +50,19 @@ const (
 	NotaryModeBasic NotaryMode = "basic"
 	NotaryModeHooks NotaryMode = "hooks"
 )
+
+func abiFunctionsBySignature(abis ...abi.ABI) map[string]*abi.Entry {
+	bySignature := make(map[string]*abi.Entry)
+	for _, a := range abis {
+		for _, entry := range a {
+			if entry.Type == abi.Function {
+				signature, _ := entry.Signature()
+				bySignature[signature] = entry
+			}
+		}
+	}
+	return bySignature
+}
 
 func (tt NotaryMode) Enum() pldtypes.Enum[NotaryMode] {
 	return pldtypes.Enum[NotaryMode](tt)

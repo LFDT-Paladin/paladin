@@ -234,6 +234,7 @@ When used in combination with `delegateLock`, this can allow any base ledger add
             {"name": "to", "type": "string"},
             {"name": "amount", "type": "uint256"}
         ]},
+        {"name": "unlockData", "type": "bytes"}
         {"name": "data", "type": "bytes"}
     ]
 }
@@ -244,6 +245,7 @@ Inputs:
 * **lockId** - the lock ID assigned when the value was locked (available from the domain receipt)
 * **from** - the lookup string for the owner of the locked value
 * **recipients** - array of recipients to receive some of the value (the sum of the amounts must be less than or equal to the total locked amount)
+* **unlockData** - user/application data to include with the unlock spend/cancel transaction when performed
 * **data** - user/application data to include with the transaction (will be accessible from an "info" state in the state receipt)
 
 ### delegateLock

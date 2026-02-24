@@ -189,13 +189,16 @@ func (s *pvpTestSuite) pvpNotoNoto(withHooks bool) {
 
 	time.Sleep(1 * time.Second) // TODO: remove
 
-	goldPrepareUnlock := notoGold.PrepareUnlock(ctx, &nototypes.UnlockParams{
-		LockID: goldLockReceipt.LockInfo.LockID,
-		From:   alice,
-		Recipients: []*nototypes.UnlockRecipient{{
-			To:     bob,
-			Amount: pldtypes.Int64ToInt256(1),
-		}},
+	goldPrepareUnlock := notoGold.PrepareUnlock(ctx, &nototypes.PrepareUnlockParams{
+		UnlockParams: nototypes.UnlockParams{
+			LockID: goldLockReceipt.LockInfo.LockID,
+			From:   alice,
+			Recipients: []*nototypes.UnlockRecipient{{
+				To:     bob,
+				Amount: pldtypes.Int64ToInt256(1),
+			}},
+		},
+		UnlockData: pldtypes.MustParseHexBytes("0x9999"),
 	}).SignAndSend(alice).Wait()
 	require.NotNil(t, goldPrepareUnlock)
 	goldPrepareUnlockResult := decodeTransactionResult(t, goldPrepareUnlock)
@@ -204,13 +207,16 @@ func (s *pvpTestSuite) pvpNotoNoto(withHooks bool) {
 	err = json.Unmarshal(goldPrepareUnlockResult.DomainReceipt, &goldUnlockReceipt)
 	require.NoError(t, err)
 
-	silverPrepareUnlock := notoSilver.PrepareUnlock(ctx, &nototypes.UnlockParams{
-		LockID: silverLockReceipt.LockInfo.LockID,
-		From:   bob,
-		Recipients: []*nototypes.UnlockRecipient{{
-			To:     alice,
-			Amount: pldtypes.Int64ToInt256(10),
-		}},
+	silverPrepareUnlock := notoSilver.PrepareUnlock(ctx, &nototypes.PrepareUnlockParams{
+		UnlockParams: nototypes.UnlockParams{
+			LockID: silverLockReceipt.LockInfo.LockID,
+			From:   bob,
+			Recipients: []*nototypes.UnlockRecipient{{
+				To:     alice,
+				Amount: pldtypes.Int64ToInt256(10),
+			}},
+		},
+		UnlockData: pldtypes.MustParseHexBytes("0xfeedbeef"),
 	}).SignAndSend(bob).Wait()
 	require.NotNil(t, silverPrepareUnlock)
 	silverPrepareUnlockResult := decodeTransactionResult(t, silverPrepareUnlock)
@@ -367,13 +373,15 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 	require.NotEmpty(t, notoLockReceipt.LockInfo.LockID)
 
 	time.Sleep(1 * time.Second) // TODO: remove
-	notoPrepareUnlock := noto.PrepareUnlock(ctx, &nototypes.UnlockParams{
-		LockID: notoLockReceipt.LockInfo.LockID,
-		From:   alice,
-		Recipients: []*nototypes.UnlockRecipient{{
-			To:     bob,
-			Amount: pldtypes.Int64ToInt256(1),
-		}},
+	notoPrepareUnlock := noto.PrepareUnlock(ctx, &nototypes.PrepareUnlockParams{
+		UnlockParams: nototypes.UnlockParams{
+			LockID: notoLockReceipt.LockInfo.LockID,
+			From:   alice,
+			Recipients: []*nototypes.UnlockRecipient{{
+				To:     bob,
+				Amount: pldtypes.Int64ToInt256(1),
+			}},
+		},
 	}).SignAndSend(alice).Wait()
 	require.NotNil(t, notoPrepareUnlock)
 	prepareUnlockResult := decodeTransactionResult(t, notoPrepareUnlock)

@@ -33,8 +33,10 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 
 	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id})
 	var variant pldtypes.HexUint64
-	if len(infoStates) == 1 {
-		info, err := n.unmarshalInfo(infoStates[0].StateDataJson)
+	if len(infoStates) > 0 {
+		// For prepareUnlock we have two data states - one for the unlockData, and one for the prepareUnlock data.
+		// So we take the last one in the list
+		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +267,7 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 			lockInfo.UnlockParams = map[string]any{
 				"lockId":      lockInfo.LockID,
 				"spendInputs": pldtypes.HexBytes(notoUnlockOpEncoded),
-				"data":        pldtypes.HexBytes{}, // the inner data is what matters here
+				"data":        lt.newLockInfo.SpendData,
 			}
 		}
 		if err == nil {
@@ -284,7 +286,7 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 				TxId:    lt.newLockInfo.SpendTxId.String(),
 				Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
 				Outputs: stringIDs(lt.newLockInfo.CancelOutputs),
-				Data:    lt.newLockInfo.SpendData,
+				Data:    lt.newLockInfo.CancelData,
 				Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
 			})
 		}
@@ -293,7 +295,7 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 			lockInfo.CancelParams = map[string]any{
 				"lockId":       lockInfo.LockID,
 				"cancelInputs": pldtypes.HexBytes(notoCancelOpEncoded),
-				"data":         pldtypes.HexBytes{}, // the inner data is what matters here
+				"data":         lt.newLockInfo.CancelData,
 			}
 		}
 		if err == nil {
