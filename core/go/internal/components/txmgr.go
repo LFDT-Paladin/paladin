@@ -147,5 +147,5 @@ type TXManager interface {
 	ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ChainedPrivateTransaction) error
 	WritePreparedTransactions(ctx context.Context, dbTX persistence.DBTX, prepared []*PreparedTransactionWithRefs) error
 	HasChainedTransaction(ctx context.Context, txID uuid.UUID) (bool, error)
-	BlockedByDependencies(ctx context.Context, tx *ValidatedTransaction) (bool, error)
+	BlockedByDependencies(ctx context.Context, dbTX persistence.DBTX, tx *ValidatedTransaction) (bool, error)
 }

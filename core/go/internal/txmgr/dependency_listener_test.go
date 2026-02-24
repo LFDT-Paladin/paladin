@@ -45,7 +45,7 @@ func TestBlockedByDependencies_NoDependencies_ReturnsFalse(t *testing.T) {
 		},
 	}
 
-	blocked, err := txm.BlockedByDependencies(ctx, tx)
+	blocked, err := txm.BlockedByDependencies(ctx, nil, tx)
 	require.NoError(t, err)
 	assert.False(t, blocked)
 }
@@ -66,7 +66,7 @@ func TestBlockedByDependencies_DependencyWithNoReceipt_ReturnsTrue(t *testing.T)
 		},
 	}
 
-	blocked, err := txm.BlockedByDependencies(ctx, tx)
+	blocked, err := txm.BlockedByDependencies(ctx, nil, tx)
 	require.NoError(t, err)
 	assert.True(t, blocked)
 }
@@ -90,7 +90,7 @@ func TestBlockedByDependencies_DependencyWithFailedReceipt_ReturnsTrue(t *testin
 		},
 	}
 
-	blocked, err := txm.BlockedByDependencies(ctx, tx)
+	blocked, err := txm.BlockedByDependencies(ctx, nil, tx)
 	require.NoError(t, err)
 	assert.True(t, blocked)
 }
@@ -111,7 +111,7 @@ func TestBlockedByDependencies_DependencyWithError_ReturnsTrueAndError(t *testin
 		},
 	}
 
-	blocked, err := txm.BlockedByDependencies(ctx, tx)
+	blocked, err := txm.BlockedByDependencies(ctx, nil, tx)
 	assert.True(t, blocked)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "db error")
@@ -136,7 +136,7 @@ func TestBlockedByDependencies_AllDependenciesSatisfied_ReturnsFalse(t *testing.
 		},
 	}
 
-	blocked, err := txm.BlockedByDependencies(ctx, tx)
+	blocked, err := txm.BlockedByDependencies(ctx, nil, tx)
 	require.NoError(t, err)
 	assert.False(t, blocked)
 }
