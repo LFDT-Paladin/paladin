@@ -36,6 +36,8 @@ import (
 
 // Originator is the interface that consumers use to interact with the originator.
 type Originator interface {
+	// Asynchronously update the state machine by queueing an event to be processed
+	// This the only interface by which consumers should update the state of the originator
 	QueueEvent(ctx context.Context, event common.Event)
 
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
@@ -107,7 +109,8 @@ func NewOriginator(
 		delegateLoopStopped:         make(chan struct{}),
 	}
 	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
-	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize)
+	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
+	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
 	go o.stateMachineEventLoop.Start(ctx)
 	go o.delegateLoop(ctx)
@@ -139,6 +142,12 @@ func (o *originator) QueueEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("Pushing originator event onto event queue: %s", event.TypeString())
 	o.stateMachineEventLoop.QueueEvent(ctx, event)
 	log.L(ctx).Tracef("Pushed originator event onto event queue: %s", event.TypeString())
+}
+
+func (o *originator) queueEventInternal(ctx context.Context, event common.Event) {
+	log.L(ctx).Tracef("Pushing internal originator event onto priority queue: %s", event.TypeString())
+	o.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
+	log.L(ctx).Tracef("Pushed internal originator event onto priority queue: %s", event.TypeString())
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {

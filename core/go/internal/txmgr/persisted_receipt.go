@@ -433,7 +433,7 @@ func (tm *txManager) DecodeEvent(ctx context.Context, dbTX persistence.DBTX, top
 	return de, err
 }
 
-func (tm *txManager) QueryTransactionReceipts(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.TransactionReceipt, error) {
+func (tm *txManager) queryTransactionReceiptsWithTX(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.TransactionReceipt, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	qw := &filters.QueryWrapper[transactionReceipt, pldapi.TransactionReceipt]{
 		P:           tm.p,
@@ -448,14 +448,18 @@ func (tm *txManager) QueryTransactionReceipts(ctx context.Context, jq *query.Que
 			}, nil
 		},
 	}
-	return qw.Run(ctx, nil)
+	return qw.Run(ctx, dbTX)
 }
 
-func (tm *txManager) GetTransactionReceiptByID(ctx context.Context, id uuid.UUID) (*pldapi.TransactionReceipt, error) {
+func (tm *txManager) QueryTransactionReceipts(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.TransactionReceipt, error) {
+	return tm.queryTransactionReceiptsWithTX(ctx, nil, jq)
+}
+
+func (tm *txManager) getTransactionReceiptByIDWithTX(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.TransactionReceipt, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	// Log the query details
 	log.L(ctx).Debugf("Querying transaction receipt by ID: %s", id)
-	prs, err := tm.QueryTransactionReceipts(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
+	prs, err := tm.queryTransactionReceiptsWithTX(ctx, dbTX, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
 	if len(prs) == 0 || err != nil {
 		return nil, err
 	}
@@ -473,6 +477,10 @@ func (tm *txManager) addDomainReceipt(ctx context.Context, d components.Domain, 
 	if err != nil {
 		receipt.DomainReceiptError = err.Error()
 	}
+}
+
+func (tm *txManager) GetTransactionReceiptByID(ctx context.Context, id uuid.UUID) (*pldapi.TransactionReceipt, error) {
+	return tm.getTransactionReceiptByIDWithTX(ctx, nil, id)
 }
 
 func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.TransactionReceipt, domainReceipt bool) (fullReceipt *pldapi.TransactionReceiptFull, err error) {
