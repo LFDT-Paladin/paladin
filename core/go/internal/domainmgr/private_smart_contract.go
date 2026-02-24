@@ -160,7 +160,6 @@ func (dc *domainContract) InitTransaction(ctx context.Context, tx *components.Pr
 		TransactionSpecification: txSpec,
 		RequiredVerifiers:        res.RequiredVerifiers,
 		PublicTxOptions:          localTx.Transaction.PublicTxOptions,
-		EndorsementSet:           res.EndorsementSet,
 	}
 	tx.PreAssembly = preAssembly
 	return nil

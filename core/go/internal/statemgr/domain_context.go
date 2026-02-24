@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -58,16 +57,6 @@ type domainContext struct {
 	// These are held only in memory, and used during DB queries to create a view on top of the database
 	// that can make both additional states available, and remove visibility to states.
 	txLocks []*pldapi.StateLock
-}
-
-type logStateSummary []*pldapi.State
-
-func (lr logStateSummary) String() string {
-	summary := make([]string, len(lr))
-	for i, s := range lr {
-		summary[i] = fmt.Sprintf("schema=%s/id=%s", s.Schema, s.ID)
-	}
-	return strings.Join(summary, ",")
 }
 
 // Very important that callers Close domain contexts they open
@@ -296,7 +285,7 @@ func (dc *domainContext) GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.
 }
 
 func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates %s", query) // log the query at debug level
+	log.L(dc.Context).Debug("domainContext:FindAvailableStates")
 	// Build a list of spending states
 	spending, _, _, err := dc.getUnFlushedSpends()
 	if err != nil {
@@ -311,12 +300,11 @@ func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pld
 	if err != nil {
 		return nil, nil, err
 	}
-	// At debug log the schemas/IDs of the states
-	log.L(dc.Context).Tracef("domainContext:FindAvailableStates read %d states from DB", len(states))
+	log.L(dc.Context).Debugf("domainContext:FindAvailableStates read %d states from DB", len(states))
 
 	// Merge in un-flushed states to results
 	states, err = dc.mergeUnFlushedApplyLocks(schema, states, query, true /* exclude spent states */, false)
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates read+merged %d states: %s", len(states), logStateSummary(states))
+	log.L(dc.Context).Debugf("domainContext:FindAvailableStates mergeUnFlushedApplyLocks %d", len(states))
 
 	return schema, states, err
 }

@@ -573,7 +573,6 @@ func SimpleStorageDomain(t *testing.T, ctx context.Context) plugintk.PluginBase 
 
 				return &prototk.InitTransactionResponse{
 					RequiredVerifiers: requiredVerifiers,
-					EndorsementSet:    config.EndorsementSet,
 				}, nil
 			},
 

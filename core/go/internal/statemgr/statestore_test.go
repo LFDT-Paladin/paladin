@@ -24,7 +24,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -53,7 +52,6 @@ func newMockComponents(t *testing.T) *mockComponents {
 
 func newDBTestStateManager(t *testing.T) (context.Context, *stateManager, *mockComponents, func()) {
 	ctx := context.Background()
-	log.SetLevel("debug")
 	p, pDone, err := persistence.NewUnitTestPersistence(ctx, "statemgr")
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p)
