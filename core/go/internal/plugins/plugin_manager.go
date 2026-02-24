@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -162,6 +163,17 @@ func (pm *pluginManager) PostInit(c components.AllComponents) error {
 func (pm *pluginManager) Start() (err error) {
 	ctx := pm.bgCtx
 	log.L(ctx).Infof("server starting on %s:%s", pm.network, pm.address)
+	if stat, statErr := os.Lstat(pm.address); statErr == nil {
+		if !stat.IsDir() {
+			if err := os.Remove(pm.address); err != nil && !os.IsNotExist(err) {
+				log.L(ctx).Error("failed to remove stale listener path: ", err)
+				return err
+			}
+		}
+	} else if !os.IsNotExist(statErr) {
+		log.L(ctx).Error("failed to inspect listener path: ", statErr)
+		return statErr
+	}
 	pm.listener, err = net.Listen(pm.network, pm.address)
 	if err != nil {
 		log.L(ctx).Error("failed to listen: ", err)

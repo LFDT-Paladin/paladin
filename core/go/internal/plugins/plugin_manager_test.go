@@ -162,6 +162,24 @@ func TestInitPluginManagerBadSocket(t *testing.T) {
 	assert.Regexp(t, "bind", err)
 }
 
+func TestInitPluginManagerStaleSocketFile(t *testing.T) {
+	udsString := tempUDS(t)
+	udsPath := strings.TrimPrefix(udsString, "unix:")
+	err := os.WriteFile(udsPath, []byte("stale"), 0o600)
+	require.NoError(t, err)
+
+	pc := NewPluginManager(context.Background(),
+		udsString,
+		uuid.New(), &pldconf.PluginManagerInlineConfig{},
+	)
+	err = pc.PostInit((&testManagers{}).componentsmocks(t))
+	require.NoError(t, err)
+
+	err = pc.Start()
+	require.NoError(t, err)
+	pc.Stop()
+}
+
 func TestInitPluginManagerUDSTooLong(t *testing.T) {
 	longerThanUDSSafelySupportsCrossPlatform := make([]rune, 187)
 	for i := 0; i < len(longerThanUDSSafelySupportsCrossPlatform); i++ {
