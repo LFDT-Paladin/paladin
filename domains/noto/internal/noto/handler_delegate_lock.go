@@ -130,8 +130,8 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
-	// This approval may leak the requesting signature on-chain, as all the inputs are visible on-chain
-	// TODO: need to include the spend of the UTXO state for the lock in this as that masks the delegate
+	// This approval may leak the requesting signing identity on-chain, if the data is empty/static.
+	// As apart from the 'data' (which is held off-chain in an info-state) all other parameters are written directly.
 	encodedApproval, err := h.noto.encodeDelegateLock(ctx, tx.ContractAddress, params.LockID, params.Delegate, params.Data)
 	if err != nil {
 		return nil, err
