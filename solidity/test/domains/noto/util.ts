@@ -29,6 +29,7 @@ export interface NotoUnlockOperation {
 
 export interface NotoDelegateLockOperation {
   txId: BytesLike;
+  lockStateId: BytesLike;
   inputs: BytesLike[];
   outputs: BytesLike[];
   proof: BytesLike;
@@ -192,9 +193,10 @@ export function encodeUnlockParams(unlockOp: NotoUnlockOperation): BytesLike {
 
 export function encodeDelegateLockParams(delegateOp: NotoDelegateLockOperation): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
-    ["tuple(bytes32,bytes32[],bytes32[],bytes)"], [
+    ["tuple(bytes32,bytes32,bytes32[],bytes32[],bytes)"], [
     [
       delegateOp.txId,
+      delegateOp.lockStateId,
       delegateOp.inputs,
       delegateOp.outputs,
       delegateOp.proof,
@@ -368,13 +370,15 @@ export async function doDelegateLock(
   notary: Signer,
   noto: Noto,
   lockId: string,
+  lockStateId: string,
   delegate: string,
   data: string,
 ) {
   const delegateLockParams = {
     txId: txId,
+    lockStateId,
     inputs: [],
-    outputs: [],
+    outputs: [lockStateId],
     proof: '0x',
   };
   // NotoDelegateOperation

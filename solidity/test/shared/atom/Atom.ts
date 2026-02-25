@@ -30,10 +30,12 @@ describe("Atom", function () {
     const ERC20Simple = await ethers.getContractFactory("ERC20Simple");
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const lockStateId1 = randomBytes32();
+    const options1 = createLockOptions(ZeroHash, lockStateId1);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
-      options: "0x",
+      options: options1,
     } as ILockableCapability.LockInfoStruct;
 
     // Deploy two contracts
@@ -52,7 +54,6 @@ describe("Atom", function () {
       outputs: [],
       contents: [f1txo1, f1txo2],
       proof: "0x",
-      options: "0x",
     } as NotoCreateLockOperation;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
     const lockId = await doLock(notary1, noto, params, unpreparedLockParams, "0x");
@@ -115,18 +116,18 @@ describe("Atom", function () {
     const atomAddr = createAtomEvent?.args.addr;
 
     // Do the delegation/approval transactions
-    const lockStateId = randomBytes32();
-    const options = createLockOptions(unlockTxId, lockStateId);
+    const lockStateId2 = randomBytes32();
+    const options2 = createLockOptions(unlockTxId, lockStateId2);
     const txId2 = randomBytes32();
     const lockUpdate = {
       spendHash,
       cancelHash,
-      options: options,
+      options: options2,
     } as ILockableCapability.LockParamsStruct;
     const updateParams = {
       txId: txId2,
       inputs: [],
-      outputs: [lockStateId],
+      outputs: [lockStateId2],
       contents: [],
       proof: "0x",
       options: "0x",
@@ -134,10 +135,12 @@ describe("Atom", function () {
     await noto.connect(notary1).updateLock(lockId, encodeUpdateLockParams(updateParams), lockUpdate, "0x");
     // Encode DelegateLockParams with txId and data
     const delegateTxId = randomBytes32();
+    const lockStateId3 = randomBytes32();
     const delegateLockParams = {
       txId: delegateTxId,
+      lockStateId: lockStateId3,
       inputs: [],
-      outputs: [],
+      outputs: [lockStateId3],
       proof: "0x",
     };
     const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);

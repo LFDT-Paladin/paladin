@@ -279,6 +279,19 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
+	var lt *lockTransition // v1 only
+	if !tx.DomainConfig.IsV0() {
+		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+
+		lt, err = h.noto.validateV1LockTransition(ctx, LOCK_CREATE, senderID, nil, req.InputStates, req.OutputStates)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var interfaceABI abi.ABI
 	var functionName string
 	var paramsJSON []byte
@@ -294,13 +307,21 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 			Contents: endorsableStateIDs(lockedOutputs),
 			Proof:    lockSignature.Payload,
 		})
+		var encodedOptions pldtypes.HexBytes
+		if err == nil {
+			encodedOptions, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+				LockStateId: lt.newLockStateID,
+			})
+		}
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 			functionName = "createLock"
 			params := &CreateLockParams{
 				CreateInputs: notoLockOpEncoded,
-				Params:       LockParams{},
-				Data:         data,
+				Params: LockParams{
+					Options: encodedOptions,
+				},
+				Data: data,
 			}
 			paramsJSON, err = json.Marshal(params)
 		}

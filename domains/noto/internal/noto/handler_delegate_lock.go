@@ -234,6 +234,19 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 		return nil, err
 	}
 
+	var lt *lockTransition // v1 only
+	if !tx.DomainConfig.IsV0() {
+		senderID, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+		if err != nil {
+			return nil, err
+		}
+
+		lt, err = h.noto.validateV1LockTransition(ctx, LOCK_UPDATE, senderID, &inParams.LockID, req.InputStates, req.OutputStates)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var interfaceABI abi.ABI
 	var functionName string
 	var paramsJSON []byte
@@ -244,10 +257,11 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 
 		var delegateInputsEncoded pldtypes.HexBytes
 		delegateInputsEncoded, err = h.noto.encodeNotoDelegateOperation(ctx, &types.NotoDelegateOperation{
-			TxId:    req.Transaction.TransactionId,
-			Inputs:  endorsableStateIDs(req.InputStates),
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   signature.Payload,
+			TxId:        req.Transaction.TransactionId,
+			LockStateID: lt.newLockStateID,
+			Inputs:      endorsableStateIDs(req.InputStates),
+			Outputs:     endorsableStateIDs(req.OutputStates),
+			Proof:       signature.Payload,
 		})
 		if err == nil {
 			params := &DelegateLockParams{

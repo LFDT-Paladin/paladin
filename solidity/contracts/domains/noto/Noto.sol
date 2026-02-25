@@ -434,9 +434,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         lock.spendHash = params.spendHash;
         lock.cancelHash = params.cancelHash;
 
-        if (params.options.length > 0) {
-            _setLockOptions(lockId, lock, params.options);
-        }
+        _setLockOptions(lockId, lock, params.options);
 
         emit LockUpdated(
             lockId,
@@ -474,15 +472,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             lock.cancelHash = params.cancelHash;
         }
     
-        // In Noto the options are only updatable until delegation, as the only option
-        // currently defined is the spendTxId that must be fixed after delegation.
-        // This could be made more flexible in the future as additional options are introduced.
-        if (params.options.length > 0) {
-            if (lock.owner != lock.spender) {
-                revert NotoAlreadyDelegated(lockId, lock.owner, lock.spender);
-            }
-            _setLockOptions(lockId, lock, params.options);
-        }
+        // The options must always change in Noto, to reflect the new lock state
+        _setLockOptions(lockId, lock, params.options);
 
         emit LockUpdated(
             lockId,
@@ -492,23 +483,40 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         );
     }
 
+    // Modifies the lock.options only by setting the lockStateId, leaving all other fields unchanged
+    function _setLockStateIdOnly(
+        LockInfo storage lock,
+        bytes32 lockStateId
+    ) internal virtual {
+        NotoLockOptions memory options = abi.decode(lock.options, (NotoLockOptions));
+        options.lockStateId = lockStateId;
+        bytes memory encodedOptions = abi.encode(options);
+        lock.options = encodedOptions;
+    }
+
     function _setLockOptions(
         bytes32 lockId,
         LockInfo storage lock,
         bytes memory encodedOptions
     ) internal virtual {
+        NotoLockOptions memory oldOptions;
+        if (lock.options.length > 0) {
+            oldOptions = abi.decode(lock.options, (NotoLockOptions));
+        }
         NotoLockOptions memory lockOptions = abi.decode(encodedOptions, (NotoLockOptions));
-        if (lockOptions.spendTxId == 0) {
-            revert NotoInvalidOptions(encodedOptions);
-        }
-        if (_txIds[lockOptions.spendTxId]) {
-            revert NotoDuplicateTransaction(lockOptions.spendTxId);
-        }
-        if (_lockTxIds[lockOptions.spendTxId] != 0 && _lockTxIds[lockOptions.spendTxId] != lockId) {
-            revert NotoDuplicateSpendTransaction(lockOptions.spendTxId);
+        if (lockOptions.spendTxId != 0 && oldOptions.spendTxId != lockOptions.spendTxId) {
+            if (lock.owner != lock.spender) {
+                revert NotoAlreadyDelegated(lockId, lock.owner, lock.spender);
+            }
+            if (_txIds[lockOptions.spendTxId]) {
+                revert NotoDuplicateTransaction(lockOptions.spendTxId);
+            }
+            if (_lockTxIds[lockOptions.spendTxId] != 0 && _lockTxIds[lockOptions.spendTxId] != lockId) {
+                revert NotoDuplicateSpendTransaction(lockOptions.spendTxId);
+            }
+            _lockTxIds[lockOptions.spendTxId] = lockId;
         }
         lock.options = encodedOptions;
-        _lockTxIds[lockOptions.spendTxId] = lockId;
     }
 
     /**
@@ -542,7 +550,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             unlockOp.data,
             unlockOp.proof,
             data
-        );        
+        );
     }
 
     /**
@@ -663,6 +671,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
         address previousSpender = lock.spender;
         lock.spender = newSpender;
+
+        _setLockStateIdOnly(lock, delegateOp.lockStateId); // the rest of the options do not change
 
         _processInputs(delegateOp.inputs);
         _processOutputs(delegateOp.outputs);

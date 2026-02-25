@@ -225,10 +225,11 @@ type NotoUnlockOperation struct {
 
 // Encoded params for Noto implementation of ILockableCapability.delegateLock()
 type NotoDelegateOperation struct {
-	TxId    string            `json:"txId"`
-	Inputs  []string          `json:"inputs"`
-	Outputs []string          `json:"outputs"`
-	Proof   pldtypes.HexBytes `json:"proof"`
+	TxId        string            `json:"txId"`
+	LockStateID pldtypes.Bytes32  `json:"lockStateId"`
+	Inputs      []string          `json:"inputs"`
+	Outputs     []string          `json:"outputs"`
+	Proof       pldtypes.HexBytes `json:"proof"`
 }
 
 var NotoCreateLockOperationABI = abi.ParameterArray{
@@ -264,6 +265,7 @@ var NotoDelegateOperationABI = abi.ParameterArray{
 		InternalType: "struct NotoDelegateOperation",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
+			{Name: "lockStateId", Type: "bytes32"},
 			{Name: "inputs", Type: "bytes32[]"},
 			{Name: "outputs", Type: "bytes32[]"},
 			{Name: "proof", Type: "bytes"},
@@ -296,6 +298,7 @@ var NotoLockOptionsABI = abi.ParameterArray{
 		InternalType: "struct NotoLockOptions",
 		Components: abi.ParameterArray{
 			{Name: "spendTxId", Type: "bytes32"},
+			{Name: "lockStateId", Type: "bytes32"},
 		},
 	},
 }

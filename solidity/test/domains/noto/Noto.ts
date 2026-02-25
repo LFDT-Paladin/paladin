@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { ILockableCapability, Noto } from "../../../typechain-types";
 import {
+  createLockOptions,
   deployNotoInstance,
   doDelegateLock,
   doLock,
@@ -13,7 +14,6 @@ import {
   fakeTXO,
   newUnlockHash,
   NotoCreateLockOperation,
-  NotoUpdateLockOperation,
   randomBytes32,
 } from "./util";
 import { ZeroHash } from "ethers";
@@ -118,10 +118,12 @@ describe("Noto", function () {
     );
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const lockStateId1 = randomBytes32();
+    const options = createLockOptions(ZeroHash, lockStateId1);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
-      options: "0x",
+      options: options,
     } as ILockableCapability.LockInfoStruct;
 
     // Lock both of them
@@ -131,7 +133,6 @@ describe("Noto", function () {
       outputs: [txo3],
       contents: [locked1],
       proof: "0x",
-      options: "0x",
     } as NotoCreateLockOperation;
     const lockId = await doLock(notary, noto, params1, unpreparedLockParams, "0x");
 
@@ -142,7 +143,6 @@ describe("Noto", function () {
       outputs: [],
       contents: [locked1],
       proof: "0x",
-      options: "0x",
     };
     await expect(
       doLock(notary, noto, params2, unpreparedLockParams, "0x")
@@ -156,7 +156,7 @@ describe("Noto", function () {
     // Prepare unlock operations (both spend and cancel) before unlocking
     const unlockTxId = randomBytes32();
     const unlockData = randomBytes32();
-    const lockStateId = randomBytes32();
+    const lockStateId2 = randomBytes32();
     const spendHash = await newUnlockHash(
       noto,
       unlockTxId,
@@ -171,18 +171,20 @@ describe("Noto", function () {
       noto,
       lockId,
       unlockTxId,
-      lockStateId,
+      lockStateId2,
       spendHash,
       cancelHash,
       unlockData,
     );
 
     // Delegate the lock
+    const lockStateId3 = randomBytes32(); // changes again on delegate
     await doDelegateLock(
       randomBytes32(),
       notary,
       noto,
       lockId,
+      lockStateId3,
       delegate.address,
       randomBytes32()
     );
@@ -194,7 +196,7 @@ describe("Noto", function () {
         delegate,
         noto,
         lockId,
-        lockStateId,
+        lockStateId3,
         [locked1, fakeTXO()],
         [txo4],
         unlockData
@@ -208,7 +210,7 @@ describe("Noto", function () {
         delegate,
         noto,
         lockId,
-        lockStateId,
+        lockStateId3,
         [locked1],
         [fakeTXO()], // different output than prepared
         unlockData
@@ -222,7 +224,7 @@ describe("Noto", function () {
         other,
         noto,
         lockId,
-        lockStateId,
+        lockStateId3,
         [locked1],
         [txo4],
         unlockData
@@ -235,7 +237,7 @@ describe("Noto", function () {
       delegate,
       noto,
       lockId,
-      lockStateId,
+      lockStateId3,
       [locked1],
       [txo4],
       unlockData
@@ -248,7 +250,7 @@ describe("Noto", function () {
         notary,
         noto,
         lockId,
-        lockStateId,
+        lockStateId3,
         [locked1],
         [],
         randomBytes32()
@@ -276,7 +278,7 @@ describe("Noto", function () {
 
   it("Duplicate TXID reverts lock, unlock, prepare unlock, and delegate lock", async function () {
     const { noto, notary } = await loadFixture(deployNotoFixture);
-    const [_, delegate, other] = await ethers.getSigners();
+    const [_, delegate] = await ethers.getSigners();
     expect(notary.address).to.not.equal(delegate.address);
 
     const txo1 = fakeTXO();
@@ -289,10 +291,12 @@ describe("Noto", function () {
     const txId1 = randomBytes32();
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const lockStateId1 = randomBytes32();
+    const options = createLockOptions(ZeroHash, lockStateId1);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
-      options: "0x",
+      options: options,
     } as ILockableCapability.LockInfoStruct;
 
     // Make two UTXOs
@@ -305,7 +309,6 @@ describe("Noto", function () {
       outputs: [txo3],
       contents: [locked1],
       proof: "0x",
-      options: "0x",
     } as NotoCreateLockOperation;
     await expect(
       doLock(notary, noto, params1, unpreparedLockParams, "0x")
@@ -319,7 +322,6 @@ describe("Noto", function () {
       outputs: [txo3],
       contents: [locked1],
       proof: "0x",
-      options: "0x",
     };
     const lockId = await doLock(notary, noto, params2, unpreparedLockParams, "0x");
 

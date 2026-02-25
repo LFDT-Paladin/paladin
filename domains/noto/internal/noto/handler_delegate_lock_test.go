@@ -151,6 +151,7 @@ func TestDelegateLock(t *testing.T) {
 	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
+	lockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 
 	encodedDelegate, err := n.encodeDelegateLock(ctx, ethtypes.MustNewAddress(contractAddress), lockID, pldtypes.MustEthAddress(delegateAddress), pldtypes.MustParseHexBytes("0x1234"))
 	require.NoError(t, err)
@@ -187,8 +188,8 @@ func TestDelegateLock(t *testing.T) {
 	outputStates := []*prototk.EndorsableState{
 		{
 			SchemaId:      hashName("lockInfo_v1"),
-			Id:            "0x4da2191dc83d31196a735d8df477c1a588f1a5a15c084e7d66b7157ab539019f",
-			StateDataJson: assembleRes.AssembledTransaction.OutputStates[0].StateDataJson,
+			Id:            *lockInfoState.Id,
+			StateDataJson: lockInfoState.StateDataJson,
 		},
 	}
 
@@ -217,7 +218,9 @@ func TestDelegateLock(t *testing.T) {
 	prepareRes, err := n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
 		Transaction:       tx,
 		ResolvedVerifiers: verifiers,
+		InputStates:       inputStates,
 		ReadStates:        readStates,
+		OutputStates:      outputStates,
 		InfoStates:        infoStates,
 		AttestationResult: []*prototk.AttestationResult{
 			{
@@ -243,10 +246,11 @@ func TestDelegateLock(t *testing.T) {
 	params := decodeFnParams[DelegateLockParams](t, delegateLockABI, prepareRes.Transaction.ParamsJson)
 	notoParams := decodeSingleABITuple[types.NotoDelegateOperation](t, types.NotoDelegateOperationABI, params.DelegateInputs)
 	require.Equal(t, &types.NotoDelegateOperation{
-		TxId:    "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:  []string{},
-		Outputs: []string{},
-		Proof:   signatureBytes,
+		TxId:        "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		LockStateID: pldtypes.MustParseBytes32(*lockInfoState.Id),
+		Inputs:      []string{"0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b"},
+		Outputs:     []string{*lockInfoState.Id},
+		Proof:       signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
 	require.NoError(t, err)
@@ -279,7 +283,9 @@ func TestDelegateLock(t *testing.T) {
 	prepareRes, err = n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
 		Transaction:       tx,
 		ResolvedVerifiers: verifiers,
+		InputStates:       inputStates,
 		ReadStates:        readStates,
+		OutputStates:      outputStates,
 		InfoStates:        infoStates,
 		AttestationResult: []*prototk.AttestationResult{
 			{

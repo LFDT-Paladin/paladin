@@ -45,6 +45,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The structure definition for a Noto delegate operation
     struct NotoDelegateOperation {
         bytes32 txId;
+        bytes32 lockStateId;
         bytes32[] inputs;
         bytes32[] outputs;
         bytes proof;
