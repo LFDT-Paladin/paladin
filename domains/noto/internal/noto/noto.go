@@ -808,7 +808,7 @@ func validateTransactionCommon[T comparable](
 		return nil, zero, err
 	}
 
-	// Get the expected ABI for validation
+	// If there is an exact signature match, use that directly
 	suppliedFunctionSignature, _ := functionABI.SignatureCtx(ctx)
 	abi := types.NotoABIFunctionsBySignature[suppliedFunctionSignature]
 

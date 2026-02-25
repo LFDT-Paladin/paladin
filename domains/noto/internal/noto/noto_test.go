@@ -646,7 +646,7 @@ func TestInitTransactionBadParams(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "!!wrong",
 		},
 	})
@@ -662,7 +662,7 @@ func TestInitTransactionMissingTo(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "{}",
 		},
 	})
@@ -678,7 +678,7 @@ func TestInitTransactionMissingAmount(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient"}`,
 		},
 	})
@@ -694,7 +694,7 @@ func TestInitTransactionBadSignature(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient", "amount": 1}`,
 		},
 	})
