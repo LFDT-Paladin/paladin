@@ -808,8 +808,10 @@ func validateTransactionCommon[T comparable](
 		return nil, zero, err
 	}
 
-	// If there is an exact signature match, use that directly
-	abi := types.NotoABIFunctionsBySignature[tx.FunctionSignature]
+	// Lookup the function by signature. Noting below we're even more precise and throw
+	// MsgUnexpectedFunctionSignature if even the parameter names mismatch.
+	suppliedFunctionSignature, _ := functionABI.SignatureCtx(ctx)
+	abi := types.NotoABIFunctionsBySignature[suppliedFunctionSignature]
 
 	var unsetT T
 	handler := getHandler(functionABI.Name)
