@@ -76,7 +76,7 @@ message InitContractResponse {
   ContractConfig contract_config = 2; // The parse contract contract configuration
 }
 
-// **INIT** step for a business transaction happens in-line with the tranaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
+// **INIT** step for a business transaction happens in-line with the transaction being accepted by Paladin from the application. Should verify the transaction is a valid request and build a list of required verifiers, but not resolve whether sufficient states exist to execute the transaction.
 message InitTransactionRequest {
   TransactionSpecification transaction = 1; // The transaction to plan
 }
