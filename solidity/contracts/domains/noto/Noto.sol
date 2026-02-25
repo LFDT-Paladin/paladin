@@ -60,7 +60,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     function requireSpender(bytes32 lockId, address addr) internal view {
         address spender = _locks[lockId].spender;
         if (addr != spender) {
-            revert LockUnauthorized(lockId, addr);
+            revert LockUnauthorized(lockId, spender, addr);
         }
     }
 

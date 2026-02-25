@@ -105,8 +105,8 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			if lockID != nil {
 				receipt.LockInfo = &types.ReceiptLockInfo{
 					LockID:    *lockID,
-					SpendTxId: spendTxID, // only for V1
-					Delegate:  delegate,  // only for V0
+					SpendTxId: spendTxID, // spendTxID came from the info state in V0
+					Delegate:  delegate,  // delegate came directly from the info state in for V0
 				}
 
 				unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
@@ -251,6 +251,9 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 	// Prepared locks have a spendTxId, and we add in extra info
 	if err == nil && !lt.newLockInfo.SpendTxId.IsZero() {
 		lockInfo.SpendTxId = &lt.newLockInfo.SpendTxId
+		if lt.newLockInfo.Spender != lt.newLockInfo.Owner {
+			lockInfo.Delegate = lt.newLockInfo.Spender
+		}
 
 		// Encode the operation to spend the lock
 		var notoUnlockOpEncoded []byte

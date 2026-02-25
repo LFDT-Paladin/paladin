@@ -68,22 +68,6 @@ func (h *prepareMintUnlockHandler) checkAllowed(ctx context.Context, tx *types.P
 	return nil
 }
 
-func (h *prepareMintUnlockHandler) checkAllowedForFrom(ctx context.Context, tx *types.ParsedTransaction, from string) error {
-	if tx.DomainConfig.NotaryMode != types.NotaryModeBasic.Enum() {
-		return nil
-	}
-
-	localNodeName, _ := h.noto.Callbacks.LocalNodeName(ctx, &prototk.LocalNodeNameRequest{})
-	fromQualified, err := pldtypes.PrivateIdentityLocator(from).FullyQualified(ctx, localNodeName.Name)
-	if err != nil {
-		return err
-	}
-	if tx.Transaction.From == fromQualified.String() {
-		return nil
-	}
-	return i18n.NewError(ctx, msgs.MsgUnlockOnlyCreator, tx.Transaction.From, from)
-}
-
 func (h *prepareMintUnlockHandler) Init(ctx context.Context, tx *types.ParsedTransaction, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
 	params := tx.Params.(*types.PrepareMintUnlockParams)
 	notary := tx.DomainConfig.NotaryLookup

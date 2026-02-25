@@ -101,7 +101,7 @@ interface ILockableCapability {
     /**
      * @dev Thrown when the caller is not the current spender for the given lock.
      */
-    error LockUnauthorized(bytes32 lockId, address caller);
+    error LockUnauthorized(bytes32 lockId, address spender, address caller);
 
     /**
      * @dev Thrown when an attempt is made to update a lock that has been delegated, so the current spender is not the owner

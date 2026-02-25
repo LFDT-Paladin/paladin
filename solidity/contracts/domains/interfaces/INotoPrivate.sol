@@ -94,7 +94,7 @@ interface INotoPrivate {
 
     function prepareMintUnlock(
         bytes32 lockId,
-        uint256 amount,
+        UnlockRecipient[] calldata recipients,
         bytes calldata unlockData,
         bytes calldata data
     ) external;
