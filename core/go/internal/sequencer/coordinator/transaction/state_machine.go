@@ -379,7 +379,7 @@ var stateDefinitionsMap = StateDefinitions{
 
 func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
-		fmt.Sprintf("coord-tx-%s", t.pt.Address.String()[0:8]),
+		fmt.Sprintf("coord-tx-%s", t.pt.ID.String()[0:8]),
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *CoordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0

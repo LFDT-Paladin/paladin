@@ -458,7 +458,7 @@ var stateDefinitionsMap = StateDefinitions{
 
 func (t *OriginatorTransaction) initializeStateMachine(initialState State) {
 	t.stateMachine = statemachine.NewStateMachine(initialState, stateDefinitionsMap,
-		fmt.Sprintf("orig-tx-%s", t.pt.Address.String()[0:8]),
+		fmt.Sprintf("orig-tx-%s", t.pt.ID.String()[0:8]),
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *OriginatorTransaction, from, to State, event common.Event) {
 			if t.queueEventForOriginator != nil {
 				t.queueEventForOriginator(ctx, &common.TransactionStateTransitionEvent[State]{
