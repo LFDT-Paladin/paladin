@@ -78,17 +78,20 @@ interface ILockableCapability {
         bytes32 indexed lockId,
         address indexed from,
         address indexed to,
+        address operator,
         bytes data
     );
 
     /**
      * @dev Emitted when a lock is successfully created or updated.
      * @param lockId the lock identifier
+     * @param operator the sender that updated the lock
      * @param lock the new state of the lock after the update
      * @param data the data parameter passed to the createLock, updateLock, or delegateLock call
      */
     event LockUpdated(
         bytes32 indexed lockId,
+        address operator,
         LockInfo lock,
         bytes data
     );
@@ -129,8 +132,8 @@ interface ILockableCapability {
     ) external returns (bytes32 lockId);
 
     /**
-     * @dev Updates an existing lock. The spendHash and cancelHash can be updated until delegation (owner != spender),
-     *      and the options can be updated by the current spender at any time. The lock contents cannot be updated.
+     * @dev Updates an existing lock. The spendHash and cancelHash can be updated until delegation (owner != spender).
+     *      The lock contents cannot be updated. Mutability of the options is implementation specific.
      *
      * Requirements:
      *  - MUST revert with LockSpenderNotOwner(lockId, spender, owner) if the lock is currently

@@ -342,7 +342,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @param data Any additional transaction data (opaque to the blockchain).
      * @return lockId The generated unique identifier for the lock.
      *
-     * Emits a {LockCreated} event.
+     * Emits a {LockCreated} event as defined in ILockableCapability.
+     * Emits a {NotoLockCreated} event containing decoded Noto parameters.
      */
     function createLock(
         bytes calldata createInputs,
@@ -391,7 +392,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @param params The update parameters (see UpdateLockParams struct).
      * @param data Any additional transaction data (opaque to the blockchain).
      *
-     * Emits a {LockUpdated} event.
+     * Emits a {LockUpdated} event as defined in ILockableCapability.
+     * Emits a {NotoLockUpdated} event containing decoded Noto parameters.
      */
     function updateLock(
         bytes32 lockId,
@@ -438,6 +440,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
         emit LockUpdated(
             lockId,
+            msg.sender,
             lock,
             data
         );
@@ -483,6 +486,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
 
         emit LockUpdated(
             lockId,
+            msg.sender,
             lock,
             data
         );
@@ -517,7 +521,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @param spendInputs Must be a valid ABI encoded NotoUnlockOperation struct
      * @param data Any additional transaction data (opaque to the blockchain).
      *
-     * Emits a {LockSpent} event.
+     * Emits a {LockSpent} event as defined in ILockableCapability.
+     * Emits a {NotoLockSpent} event containing decoded Noto parameters.
      */
     function spendLock(
         bytes32 lockId,
@@ -550,7 +555,8 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @param cancelInputs Must be a valid ABI encoded NotoUnlockOperation
      * @param data Any additional transaction data (opaque to the blockchain).
      *
-     * Emits a {LockCancelled} event.
+     * Emits a {LockCancelled} event as defined in ILockableCapability.
+     * Emits a {NotoLockCancelled} event containing decoded Noto parameters.
      */
     function cancelLock(
         bytes32 lockId,
@@ -646,7 +652,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         _processInputs(delegateOp.inputs);
         _processOutputs(delegateOp.outputs);
 
-        emit LockDelegated(lockId, previousSpender, newSpender, data);
+        emit LockDelegated(lockId, previousSpender, newSpender, msg.sender, data);
 
         emit NotoLockDelegated(
             delegateOp.txId,

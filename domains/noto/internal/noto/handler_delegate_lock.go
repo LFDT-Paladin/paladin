@@ -81,9 +81,11 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		if err != nil {
 			return nil, err
 		}
+		// TODO: Check the submitter is the current spender.
 	}
 
-	// Requester must own at least one locked coin state to show ownership of the lock
+	// Prepare the locked inputs.
+	// In V0 at least one locked input was always present here, to confirm lock ownership - not required in V1 due to lock state check.
 	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
 	if err != nil {
 		if revert {

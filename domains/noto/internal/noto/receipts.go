@@ -96,17 +96,15 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		if receipt.LockInfo != nil && len(receipt.States.ReadLockedInputs) > 0 && len(receipt.States.PreparedOutputs) > 0 {
 			// Old info-based decoding scheme
 			var lockID *pldtypes.Bytes32
-			var spendTxID *pldtypes.Bytes32
 			var delegate *pldtypes.EthAddress
-			lockID, spendTxID, delegate, err = n.extractLockInfoV0(ctx, req.InfoStates, false)
+			lockID, delegate, err = n.extractLockInfoV0(ctx, req.InfoStates, false)
 			if err != nil {
 				return nil, err
 			}
 			if lockID != nil {
 				receipt.LockInfo = &types.ReceiptLockInfo{
-					LockID:    *lockID,
-					SpendTxId: spendTxID, // spendTxID came from the info state in V0
-					Delegate:  delegate,  // delegate came directly from the info state in for V0
+					LockID:   *lockID,
+					Delegate: delegate, // delegate came directly from the info state in for V0
 				}
 
 				unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
@@ -117,7 +115,7 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 					"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
 					"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
 					"signature":     pldtypes.HexBytes{},
-					"data":          receipt.Data,
+					"data":          receipt.Data, // for V0 we chose to pass the original "data" sent to "prepareUnlock", and decoded here from the info states
 				}
 				paramsJSON, err = json.Marshal(receipt.LockInfo.UnlockParams)
 			}

@@ -73,10 +73,11 @@ var (
 )
 
 var (
-	// ILockableCapability standardized events
-	EventTransfer      = "Transfer"
-	EventLockUpdated   = "LockUpdated"
-	EventLockDelegated = "LockDelegated"
+	EventTransfer = "Transfer"
+
+	// ILockableCapability standardized events - not used by Noto, as we have events with full details
+	// EventLockUpdated   = "LockUpdated"
+	// EventLockDelegated = "LockDelegated"
 
 	// Noto additional lock related events that include the transaction/UTXO details
 	EventNotoLockCreated   = "NotoLockCreated"
@@ -93,14 +94,11 @@ var (
 )
 
 var allEvents = []string{
-	EventTransfer,
 	EventNotoLockCreated,
 	EventNotoLockUpdated,
 	EventNotoLockSpent,
 	EventNotoLockCancelled,
 	EventNotoLockDelegated,
-	EventLockUpdated,
-	EventLockDelegated,
 }
 
 var allEventsV0 = []string{
@@ -261,7 +259,7 @@ type LockStates struct {
 	Contents []pldtypes.Bytes32 `json:"contents"`
 }
 
-// INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock create
+// INoto.NotoLockCreated event JSON schema - describes the UTXO transaction that accompanies a lock create
 type NotoLockCreated_Event struct {
 	TxId     pldtypes.Bytes32     `json:"txId"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
@@ -297,7 +295,7 @@ type NotoLockUpdated_Event struct {
 	Data     pldtypes.HexBytes    `json:"data"`
 }
 
-// INoto.LockDelegated event JSON schema
+// INoto.NotoLockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
 	TxId    pldtypes.Bytes32     `json:"txId"`
 	LockID  pldtypes.Bytes32     `json:"lockId"`
@@ -1295,27 +1293,19 @@ func (n *Noto) computeLockId(ctx context.Context, contractAddress *pldtypes.EthA
 	return pldtypes.Bytes32Keccak(encoded), nil
 }
 
-func (n *Noto) extractLockInfoV0(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, spendTxId *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
-	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id, n.lockInfoSchemaV1.Id})
+func (n *Noto) extractLockInfoV0(ctx context.Context, infoStates []*prototk.EndorsableState, required bool) (lockID *pldtypes.Bytes32, delegate *pldtypes.EthAddress, err error) {
+	lockStates := n.filterSchema(infoStates, []string{n.lockInfoSchemaV0.Id})
 	if len(lockStates) != 1 {
 		if !required {
-			return nil, nil, nil, nil
+			return nil, nil, nil
 		}
-		return nil, nil, nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
+		return nil, nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 	}
-	state := lockStates[0]
-	if state.SchemaId == n.lockInfoSchemaV0.Id {
-		lock, err := n.unmarshalLockV0(lockStates[0].StateDataJson)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return &lock.LockID, nil /* no spendTxId in V0 lock info */, lock.Delegate, nil
-	}
-	lock, err := n.unmarshalLockV1(lockStates[0].StateDataJson)
+	lock, err := n.unmarshalLockV0(lockStates[0].StateDataJson)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	return &lock.LockID, &lock.SpendTxId, nil /* no delegate in V1 lock info */, nil
+	return &lock.LockID, lock.Delegate, nil
 }
 
 func (n *Noto) encodeNotoLockOptions(ctx context.Context, notoLockOptions *types.NotoLockOptions) (encoded pldtypes.HexBytes, err error) {
