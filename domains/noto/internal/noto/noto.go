@@ -797,54 +797,60 @@ func validateTransactionCommon[T comparable](
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
 	if err != nil {
-		var zero T
-		return nil, zero, err
+		return nil, *new(T), err
 	}
 
 	var domainConfig types.NotoParsedConfig
 	err = json.Unmarshal([]byte(tx.ContractInfo.ContractConfigJson), &domainConfig)
 	if err != nil {
-		var zero T
-		return nil, zero, err
+		return nil, *new(T), err
 	}
 
 	// Lookup the function by signature. Noting below we're even more precise and throw
 	// MsgUnexpectedFunctionSignature if even the parameter names mismatch.
-	suppliedFunctionSignature, _ := functionABI.SignatureCtx(ctx)
-	abi := types.NotoABIFunctionsBySignature[suppliedFunctionSignature]
+	abiFn := types.NotoABIFunctionsBySolSignature[tx.FunctionSignature]
+	exactSignatureMatch := abiFn != nil
+	if !exactSignatureMatch {
+		// If we don't find a full signature match, we do a name lookup.
+		// Noting because the signature is wrong (or the direct lookup would have worked),
+		// we'll fail the lower check and return MsgUnexpectedFunctionSignature.
+		// But this lets us only give MsgUnknownFunction if the name of the function is completely wrong.
+		abiFn = types.NotoABI.Functions()[functionABI.Name]
+	}
 
 	var unsetT T
 	handler := getHandler(functionABI.Name)
-	if abi == nil || handler == unsetT {
+	if abiFn == nil || handler == unsetT {
 		return nil, unsetT, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
 
 	// check if the handler implements the ValidateParams method cause generic T
 	validator, ok := any(handler).(ParamValidator)
 	if !ok {
-		var zero T
-		return nil, zero, i18n.NewError(ctx, msgs.MsgErrorHandlerImplementationNotFound)
+		return nil, *new(T), i18n.NewError(ctx, msgs.MsgErrorHandlerImplementationNotFound)
 	}
 
 	params, err := validator.ValidateParams(ctx, &domainConfig, tx.FunctionParamsJson)
 	if err != nil {
-		var zero T
-		return nil, zero, err
+		return nil, *new(T), err
 	}
 
-	signature, err := abi.SolidityStringCtx(ctx)
-	if err == nil && tx.FunctionSignature != signature {
-		err = i18n.NewError(ctx, msgs.MsgUnexpectedFunctionSignature, functionABI.Name, signature, tx.FunctionSignature)
+	// If we reach here they called a function that exists, and encoded their parameters, but
+	// the signature isn't an exact match - variable naming, missing var etc.
+	// We give them an error telling them a signature of a function with the same name that they
+	// likely meant to call.
+	// In the case we have multiple function definitions for a particular name (like prepareUnlock)
+	// we give an arbitrary one of the defined ones - so this isn't prefect.
+	if !exactSignatureMatch {
+		err = i18n.NewError(ctx, msgs.MsgUnexpectedFunctionSignature, functionABI.Name, abiFn.SolString(), tx.FunctionSignature)
 	}
 	if err != nil {
-		var zero T
-		return nil, zero, err
+		return nil, *new(T), err
 	}
 
 	contractAddress, err := ethtypes.NewAddress(tx.ContractInfo.ContractAddress)
 	if err != nil {
-		var zero T
-		return nil, zero, err
+		return nil, *new(T), err
 	}
 
 	return &types.ParsedTransaction{
