@@ -1562,6 +1562,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	r1 := newTestReceiptReceiver(nil)
 	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
 	require.NoError(t, err)
+	close1.SetActive()
 	defer close1.Close()
 
 	contract1 := pldtypes.RandAddress()
@@ -1726,7 +1727,7 @@ func TestProcessStaleIncompletesFailRetryingDeleteIncompletes(t *testing.T) {
 
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
-	_ = l.addReceiver(newTestReceiptReceiver(nil))
+	l.addReceiver(newTestReceiptReceiver(nil)).SetActive()
 
 	err = l.processStaleIncompletes()
 	assert.Regexp(t, "pop", err)
