@@ -106,10 +106,7 @@ func NewTransaction(
 	// Assume no nonce protection for dispatch ordering until we determine otherwise; however, if the domain
 	// has been configured with a fixed signing identity, we can assume nonce protection is provided by the
 	// fixed signing identity.
-	dynamicSigningIdentity := true
-	if domainSigningIdentity != "" {
-		dynamicSigningIdentity = false
-	}
+	dynamicSigningIdentity := domainSigningIdentity == ""
 	txn := &CoordinatorTransaction{
 		originator:                 originator,
 		originatorNode:             originatorNode,
