@@ -203,7 +203,8 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
 					// A new coordinator became active or was confirmed as active. It might be us or it might be another node.
 					// Update metrics and check if we need to stop one to stay within the configured max active coordinators
-					sMgr.updateActiveCoordinators(sMgr.ctx)
+					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
+					// sMgr.updateActiveCoordinators(sMgr.ctx)
 
 					// The originator needs to know to delegate transactions to the active coordinator
 					seqOriginator.QueueEvent(sMgr.ctx, &originator.ActiveCoordinatorUpdatedEvent{
@@ -213,7 +214,8 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				},
 				func(contractAddress *pldtypes.EthAddress) {
 					// A new coordinator became idle, perform any lifecycle tidy up
-					sMgr.updateActiveCoordinators(sMgr.ctx)
+					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
+					// sMgr.updateActiveCoordinators(sMgr.ctx)
 				},
 			)
 			if err != nil {
