@@ -20,6 +20,8 @@ interface INotoErrors {
 
     error NotoDelegationConditionsNotSet(bytes32 lockId);
 
+    error NotoInvalidLockState(bytes32 lockId, bytes32 expected, bytes32 actual);
+
     error NotoAlreadyDelegated(bytes32 lockId, address owner, address spender);
 
     error NotoDuplicateTransaction(bytes32 txId);
