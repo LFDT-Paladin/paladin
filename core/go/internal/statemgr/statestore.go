@@ -18,6 +18,8 @@ package statemgr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -42,6 +44,46 @@ type stateManager struct {
 	rpcModule         *rpcserver.RPCModule
 	domainContextLock sync.Mutex
 	domainContexts    map[uuid.UUID]*domainContext
+}
+
+type logStateSpendRecords []*pldapi.StateSpendRecord
+
+func (lr logStateSpendRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateReadRecords []*pldapi.StateReadRecord
+
+func (lr logStateReadRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateConfirmRecords []*pldapi.StateConfirmRecord
+
+func (lr logStateConfirmRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateInfoRecords []*pldapi.StateInfoRecord
+
+func (lr logStateInfoRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
 }
 
 func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p persistence.Persistence) components.StateManager {
@@ -92,6 +134,7 @@ func (ss *stateManager) Stop() {
 func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error) {
 	ctx = log.WithComponent(ctx, "statemanager")
 	if len(spends) > 0 {
+		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_spend_records").
@@ -100,6 +143,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(reads) > 0 {
+		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_read_records").
@@ -108,6 +152,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(confirms) > 0 {
+		log.L(ctx).Debugf("Finalizing confirms: %s", logStateConfirmRecords(confirms))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_confirm_records").
@@ -116,6 +161,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(infoRecords) > 0 {
+		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_info_records").

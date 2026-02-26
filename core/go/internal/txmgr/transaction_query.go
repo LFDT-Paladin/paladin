@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm"
 )
 
@@ -378,7 +379,15 @@ func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX pers
 				return nil, i18n.WrapError(ctx, err, msgs.MsgTxMgrABIReferenceLookupFailed, tx.Transaction.ABIReference)
 			}
 		}
-		resolvedFunction, err := tm.pickFunction(ctx, a, tx.Transaction.Function, tx.Transaction.To)
+		// On create, a transaction which is calling a constructor will have provide an empty string for the function;
+		// however, what gets persisted is the signature of the constructor, i.e. the resolved function. This means
+		// that we must be able to go back from the constructor signature to the empty string ahead of resolving the
+		// function again
+		requiredFunction := tx.Transaction.Function
+		if tx.Transaction.To == nil && isConstructorSignature(a, requiredFunction) {
+			requiredFunction = ""
+		}
+		resolvedFunction, err := tm.pickFunction(ctx, a, requiredFunction, tx.Transaction.To)
 		if err != nil {
 			return nil, err
 		}
@@ -388,6 +397,22 @@ func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX pers
 		tm.txCache.Set(*tx.Transaction.ID, tx)
 	}
 	return txs, nil
+}
+
+func isConstructorSignature(pa *pldapi.StoredABI, requiredFunction string) bool {
+	if requiredFunction == "" {
+		return false
+	}
+	for _, e := range pa.ABI {
+		if e.Type != abi.Constructor {
+			continue
+		}
+		signature, _ := e.Signature()
+		if requiredFunction == signature {
+			return true
+		}
+	}
+	return false
 }
 
 func (tm *txManager) GetTransactionByIDFull(ctx context.Context, id uuid.UUID) (result *pldapi.TransactionFull, err error) {

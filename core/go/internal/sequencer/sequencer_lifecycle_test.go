@@ -35,6 +35,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/metricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -177,6 +178,38 @@ func TestSequencer_GetTransportWriter(t *testing.T) {
 
 	transportWriter := seq.GetTransportWriter()
 	assert.Equal(t, mocks.transportWriter, transportWriter)
+}
+
+func TestSequencerManager_HandleTxResume_DeployShapedConstructorStringBlockedByDeps(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	txID := uuid.New()
+	dbTX := persistencemocks.NewDBTX(t)
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID: &txID,
+				TransactionBase: pldapi.TransactionBase{
+					Function: "constructor()",
+					To:       nil,
+				},
+			},
+		},
+	}
+
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.components.EXPECT().TxManager().Return(mocks.txManager).Once()
+	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).RunAndReturn(
+		func(txCtx context.Context, fn func(context.Context, persistence.DBTX) error) error {
+			return fn(txCtx, dbTX)
+		},
+	).Once()
+	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, dbTX, txi).Return(true, nil).Once()
+
+	err := sm.HandleTxResume(ctx, txi)
+	require.NoError(t, err)
 }
 
 func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {

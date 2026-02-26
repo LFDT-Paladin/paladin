@@ -174,6 +174,7 @@ func TestE2EReceiptListenerDeliveryLateAttach(t *testing.T) {
 	receipts := newTestReceiptReceiver(nil)
 	closeReceiver, err := txm.AddReceiptReceiver(ctx, "listener1", receipts)
 	require.NoError(t, err)
+	closeReceiver.SetActive()
 	defer closeReceiver.Close()
 
 	// These will have all ended up in a single batch, as they were committed together
@@ -274,18 +275,22 @@ func TestLoadListenersMultiPageFilters(t *testing.T) {
 	r1 := newTestReceiptReceiver(nil)
 	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
 	require.NoError(t, err)
+	close1.SetActive()
 	defer close1.Close()
 	r2 := newTestReceiptReceiver(nil)
 	close2, err := txm.AddReceiptReceiver(ctx, "listener2", r2)
 	require.NoError(t, err)
+	close2.SetActive()
 	defer close2.Close()
 	r3 := newTestReceiptReceiver(nil)
 	close3, err := txm.AddReceiptReceiver(ctx, "listener3", r3)
 	require.NoError(t, err)
+	close3.SetActive()
 	defer close3.Close()
 	r4 := newTestReceiptReceiver(nil)
 	close4, err := txm.AddReceiptReceiver(ctx, "listener4", r4)
 	require.NoError(t, err)
+	close4.SetActive()
 	defer close4.Close()
 
 	// Now start them all
@@ -437,6 +442,7 @@ func testGapsDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	r1 := newTestReceiptReceiver(nil)
 	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
 	require.NoError(t, err)
+	close1.SetActive()
 	defer close1.Close()
 
 	contract1 := pldtypes.RandAddress()
@@ -754,10 +760,12 @@ func TestAddReceiverNoBlock(t *testing.T) {
 
 	r1, err := txm.AddReceiptReceiver(ctx, "listener1", newTestReceiptReceiver(nil))
 	require.NoError(t, err)
+	r1.SetActive()
 	defer r1.Close()
 
 	r2, err := txm.AddReceiptReceiver(ctx, "listener1", newTestReceiptReceiver(nil))
 	require.NoError(t, err)
+	r2.SetActive()
 	defer r2.Close()
 }
 
@@ -860,6 +868,7 @@ func TestClosedRetryingBatchDeliver(t *testing.T) {
 	trr := newTestReceiptReceiver(fmt.Errorf("pop"))
 	r, err := txm.AddReceiptReceiver(ctx, "listener1", trr)
 	require.NoError(t, err)
+	r.SetActive()
 	defer r.Close()
 
 	txm.receiptsRetry.UTSetMaxAttempts(1)
@@ -892,6 +901,7 @@ func TestClosedRetryingWritingCheckpoint(t *testing.T) {
 	trr := newTestReceiptReceiver(nil)
 	r, err := txm.AddReceiptReceiver(ctx, "listener1", trr)
 	require.NoError(t, err)
+	r.SetActive()
 	defer r.Close()
 
 	txm.receiptsRetry.UTSetMaxAttempts(1)
@@ -997,6 +1007,7 @@ func TestDeliverBatchCancelledCtxNotifyReceiver(t *testing.T) {
 		receipts := newTestReceiptReceiver(nil)
 		closeReceiver, err := txm.AddReceiptReceiver(ctx, "listener1", receipts)
 		require.NoError(t, err)
+		closeReceiver.SetActive()
 		t.Cleanup(func() { closeReceiver.Close() })
 	}()
 
@@ -1006,6 +1017,36 @@ func TestDeliverBatchCancelledCtxNotifyReceiver(t *testing.T) {
 	require.NotNil(t, r)
 	close(l.done)
 
+}
+
+func TestNextReceiptReceiverSkipsInactive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	l := &receiptListener{
+		ctx:          ctx,
+		newReceivers: make(chan bool, 1),
+	}
+
+	inactive := l.addReceiver(newTestReceiptReceiver(nil))
+	assert.NotNil(t, inactive)
+
+	nextReceiver := make(chan components.ReceiptReceiver, 1)
+	go func() {
+		receiver, nextErr := l.nextReceiver(&receiptDeliveryBatch{ID: 0})
+		require.NoError(t, nextErr)
+		nextReceiver <- receiver
+	}()
+
+	active := l.addReceiver(newTestReceiptReceiver(nil))
+	active.SetActive()
+
+	select {
+	case receiver := <-nextReceiver:
+		assert.Same(t, active, receiver)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for receiver activation")
+	}
 }
 
 func TestProcessPersistedReceiptPostFilter(t *testing.T) {
@@ -1162,6 +1203,7 @@ func TestProcessStaleGapFailRetryingUpdateGapForPage(t *testing.T) {
 	receipts := newTestReceiptReceiver(nil)
 	closeReceiver, err := txm.AddReceiptReceiver(ctx, "listener1", receipts)
 	require.NoError(t, err)
+	closeReceiver.SetActive()
 	defer closeReceiver.Close()
 
 	l := txm.receiptListeners["listener1"]
@@ -1205,6 +1247,7 @@ func TestE2EReceiptListenerProcess(t *testing.T) {
 	receipts := newTestReceiptReceiver(nil)
 	closeReceiver, err := txm.AddReceiptReceiver(ctx, "process_listener", receipts)
 	require.NoError(t, err)
+	closeReceiver.SetActive()
 	defer closeReceiver.Close()
 	err = txm.StartReceiptListener(ctx, "process_listener")
 	require.NoError(t, err)
@@ -1519,6 +1562,7 @@ func testIncompleteDomainsForNonAvailableReceipts(t *testing.T, pageSize int) {
 	r1 := newTestReceiptReceiver(nil)
 	close1, err := txm.AddReceiptReceiver(ctx, "listener1", r1)
 	require.NoError(t, err)
+	close1.SetActive()
 	defer close1.Close()
 
 	contract1 := pldtypes.RandAddress()
@@ -1683,7 +1727,7 @@ func TestProcessStaleIncompletesFailRetryingDeleteIncompletes(t *testing.T) {
 
 	l := txm.receiptListeners["listener1"]
 	l.initStart()
-	_ = l.addReceiver(newTestReceiptReceiver(nil))
+	l.addReceiver(newTestReceiptReceiver(nil)).SetActive()
 
 	err = l.processStaleIncompletes()
 	assert.Regexp(t, "pop", err)

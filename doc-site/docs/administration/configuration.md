@@ -26,6 +26,7 @@
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
 | rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
+| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
 | sendQueueLen | Maximum length of send queue | `int` | - |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |
 | sequencerManager | Sequencer manager configuration | [`SequencerConfig`](#sequencermanager) | - |

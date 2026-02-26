@@ -52,10 +52,11 @@ type blockchainEventListener struct {
 
 	definition *blockindexer.EventStream
 
-	receiverLock    sync.Mutex
-	receivers       []*registeredBlockchainEventReceiver
-	newReceivers    chan bool
-	receiverCounter int
+	receiverLock     sync.Mutex
+	receivers        []*registeredBlockchainEventReceiver
+	pendingReceivers []*registeredBlockchainEventReceiver
+	newReceivers     chan bool
+	receiverCounter  int
 }
 
 func (tm *txManager) blockchainEventsInit() {
@@ -308,6 +309,10 @@ func (rr *registeredBlockchainEventReceiver) Close() {
 	rr.el.removeReceiver(rr.id)
 }
 
+func (rr *registeredBlockchainEventReceiver) SetActive() {
+	rr.el.setActive(rr)
+}
+
 func (el *blockchainEventListener) addReceiver(r components.BlockchainEventReceiver) *registeredBlockchainEventReceiver {
 	el.receiverLock.Lock()
 	defer el.receiverLock.Unlock()
@@ -317,29 +322,48 @@ func (el *blockchainEventListener) addReceiver(r components.BlockchainEventRecei
 		el:                      el,
 		BlockchainEventReceiver: r,
 	}
-	el.receivers = append(el.receivers, registered)
+	el.pendingReceivers = append(el.pendingReceivers, registered)
+
+	return registered
+}
+
+func (el *blockchainEventListener) setActive(receiver *registeredBlockchainEventReceiver) {
+	el.receiverLock.Lock()
+	defer el.receiverLock.Unlock()
+
+	for _, existing := range el.receivers {
+		if existing.id == receiver.id {
+			return // already active
+		}
+	}
+	el.receivers = append(el.receivers, receiver)
+	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, receiver.id)
 
 	select {
 	case el.newReceivers <- true:
 	default:
 	}
-
-	return registered
 }
 
 func (el *blockchainEventListener) removeReceiver(rid uuid.UUID) {
 	el.receiverLock.Lock()
 	defer el.receiverLock.Unlock()
 
-	if len(el.receivers) > 0 {
-		newReceivers := make([]*registeredBlockchainEventReceiver, 0, len(el.receivers)-1)
-		for _, existing := range el.receivers {
-			if existing.id != rid {
-				newReceivers = append(newReceivers, existing)
-			}
-		}
-		el.receivers = newReceivers
+	el.receivers = el.removeReceiverFromList(el.receivers, rid)
+	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, rid)
+}
+
+func (el *blockchainEventListener) removeReceiverFromList(receivers []*registeredBlockchainEventReceiver, rid uuid.UUID) []*registeredBlockchainEventReceiver {
+	if len(receivers) == 0 {
+		return receivers
 	}
+	newReceivers := make([]*registeredBlockchainEventReceiver, 0, len(receivers))
+	for _, existing := range receivers {
+		if existing.id != rid {
+			newReceivers = append(newReceivers, existing)
+		}
+	}
+	return newReceivers
 }
 
 func (el *blockchainEventListener) nextReceiver(ctx context.Context) (r components.BlockchainEventReceiver, err error) {
