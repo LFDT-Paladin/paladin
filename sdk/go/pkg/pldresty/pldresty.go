@@ -67,11 +67,13 @@ func OnAfterResponse(c *resty.Client, resp *resty.Response) {
 	// TODO use req.TraceInfo() for richer metrics at the DNS and transport layer
 }
 
-// New creates a new Resty client, using configuration that is passed in
+// New creates a new Resty client, using configuration that is passed in.
+// The returned closeFn should be called when the client is no longer needed to close
+// idle HTTP connections and avoid connection leaks (e.g. from ethClient.Close()).
 //
 // You can use the normal Resty builder pattern, to set per-instance configuration
 // as required.
-func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Client, err error) { //nolint:gocyclo
+func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Client, closeFn func(), err error) { //nolint:gocyclo
 	httpTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -83,20 +85,21 @@ func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Cli
 
 	u, err := url.Parse(conf.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, i18n.WrapError(ctx, err, pldmsgs.MsgRPCClientInvalidHTTPURL, u)
+		return nil, nil, i18n.WrapError(ctx, err, pldmsgs.MsgRPCClientInvalidHTTPURL, u)
 	}
 	if u.Scheme == "https" {
 		conf.TLS.Enabled = true
 	}
 	httpTransport.TLSClientConfig, err = tlsconf.BuildTLSConfig(ctx, &conf.TLS, tlsconf.ClientType)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	httpClient := &http.Client{
 		Transport: httpTransport,
 	}
 	client = resty.NewWithClient(httpClient)
+	closeFn = func() { httpTransport.CloseIdleConnections() }
 
 	_url := strings.TrimSuffix(conf.URL, "/")
 	if _url != "" {
@@ -188,7 +191,7 @@ func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Cli
 			})
 	}
 
-	return client, nil
+	return client, closeFn, nil
 }
 
 func WrapRestErr(ctx context.Context, res *resty.Response, err error, key i18n.ErrorMessageKey) error {

@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyHeartbeatReceived_BasicUpdate(t *testing.T) {
+func Test_applyHeartbeatReceived_BasicUpdate(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -57,7 +57,7 @@ func TestApplyHeartbeatReceived_BasicUpdate(t *testing.T) {
 	assert.Equal(t, uint64(1000), o.latestCoordinatorSnapshot.BlockHeight)
 }
 
-func TestApplyHeartbeatReceived_DispatchedTransactionNotFound(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionNotFoundLogsAndContinues(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -86,7 +86,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionNotFound(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestApplyHeartbeatReceived_DispatchedTransactionWithHash(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionWithHashUpdatesSubmitted(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -138,7 +138,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithHash(t *testing.T) {
 	// If it doesn't exist, it means HandleEvent didn't process the event (transaction might be in wrong state)
 }
 
-func TestApplyHeartbeatReceived_DispatchedTransactionWithNonceOnly(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionWithNonceOnlySendsNonceAssigned(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -179,7 +179,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionWithNonceOnly(t *testing.T)
 	assert.NoError(t, err)
 }
 
-func TestApplyHeartbeatReceived_DispatchedTransactionFromDifferentOriginator(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionFromDifferentOriginatorIgnored(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	otherOriginatorLocator := "otherSender@otherNode"
@@ -205,7 +205,7 @@ func TestApplyHeartbeatReceived_DispatchedTransactionFromDifferentOriginator(t *
 	assert.NoError(t, err)
 }
 
-func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionWithHashAndNonceSucceeds(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -247,7 +247,7 @@ func TestApplyHeartbeatReceived_HandleEventError_SubmittedEvent(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestApplyHeartbeatReceived_HandleEventError_NonceAssignedEvent(t *testing.T) {
+func Test_applyHeartbeatReceived_DispatchedTransactionNonceOnlySucceeds(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -289,7 +289,7 @@ func TestApplyHeartbeatReceived_HandleEventError_NonceAssignedEvent(t *testing.T
 	assert.NoError(t, err)
 }
 
-func TestGuard_HeartbeatThresholdExceeded_NilTime(t *testing.T) {
+func Test_guard_HeartbeatThresholdExceeded_NilTimeReturnsTrue(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
@@ -304,7 +304,7 @@ func TestGuard_HeartbeatThresholdExceeded_NilTime(t *testing.T) {
 	assert.True(t, result, "Should return true when timeOfMostRecentHeartbeat is nil")
 }
 
-func TestGuard_HeartbeatThresholdExceeded_ThresholdExpired(t *testing.T) {
+func Test_guard_HeartbeatThresholdExceeded_ThresholdExpiredReturnsTrue(t *testing.T) {
 	// Test that guard_HeartbeatThresholdExceeded returns true when threshold has expired
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -326,7 +326,7 @@ func TestGuard_HeartbeatThresholdExceeded_ThresholdExpired(t *testing.T) {
 	assert.True(t, result, "Should return true when threshold has expired")
 }
 
-func TestGuard_HeartbeatThresholdExceeded_ThresholdNotExpired(t *testing.T) {
+func Test_guard_HeartbeatThresholdExceeded_ThresholdNotExpiredReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"

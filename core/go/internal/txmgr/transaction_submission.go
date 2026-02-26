@@ -439,6 +439,7 @@ func (tm *txManager) HasChainedTransaction(ctx context.Context, txID uuid.UUID) 
 	var chainingRecords []*persistedChainedPrivateTxn
 	err := tm.p.NOTX().DB().
 		Where(`"transaction" = ?`, txID).
+		Limit(1).
 		Find(&chainingRecords).
 		Error
 	return len(chainingRecords) > 0, err
@@ -548,6 +549,11 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 
 	for _, txi := range txis {
 		if txi.Transaction.Type.V() == pldapi.TransactionTypePrivate {
+			// Note: dependency checking for explicit (app-defined) dependencies will be checked in the sequencer manager
+			// so we just give the TX to the sequencer manager. The sequencer manager has to enforce dependency checks for
+			// resumed transactions (e.g. after a restart), so even though dependencies are not scoped to a specific domain
+			// contract, the sequencer manager enforces them. The txmgr's dependency listener has responsibility for tapping
+			// the sequencer manager if a receipt is processed that might unblock one of its tranasactions.
 			if err := tm.sequencerMgr.HandleNewTx(ctx, dbTX, txi); err != nil {
 				return nil, err
 			}

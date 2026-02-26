@@ -48,7 +48,7 @@ import (
 )
 
 func TestRequestOK(t *testing.T) {
-	c, err := New(context.Background(), &pldconf.HTTPClientConfig{
+	c, _, err := New(context.Background(), &pldconf.HTTPClientConfig{
 		URL:         "http://localhost:12345",
 		HTTPHeaders: map[string]interface{}{"someheader": "headervalue"},
 		Auth: pldconf.HTTPBasicAuthConfig{
@@ -79,7 +79,7 @@ func TestRequestOK(t *testing.T) {
 }
 
 func TestRequestOKForGzip(t *testing.T) {
-	c, err := New(context.Background(), &pldconf.HTTPClientConfig{
+	c, _, err := New(context.Background(), &pldconf.HTTPClientConfig{
 		URL:         "http://localhost:12345",
 		HTTPHeaders: map[string]interface{}{"someheader": "headervalue"},
 		Auth: pldconf.HTTPBasicAuthConfig{
@@ -119,7 +119,7 @@ func TestRequestOKForGzip(t *testing.T) {
 
 func TestRequestRetry(t *testing.T) {
 	ctx := context.Background()
-	c, err := New(ctx, &pldconf.HTTPClientConfig{
+	c, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "http://localhost:12345",
 		Retry: pldconf.HTTPRetryConfig{
 			Enabled:      true,
@@ -142,7 +142,7 @@ func TestRequestRetry(t *testing.T) {
 
 func TestRequestRetryErrorStatusCodeRegex(t *testing.T) {
 	ctx := context.Background()
-	c, err := New(ctx, &pldconf.HTTPClientConfig{
+	c, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "http://localhost:12345",
 		Retry: pldconf.HTTPRetryConfig{
 			Enabled:          true,
@@ -182,7 +182,7 @@ func TestRequestRetryErrorStatusCodeRegex(t *testing.T) {
 
 func TestLongResponse(t *testing.T) {
 	ctx := context.Background()
-	c, err := New(ctx, &pldconf.HTTPClientConfig{
+	c, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "http://localhost:12345",
 	})
 	require.Nil(t, err)
@@ -203,7 +203,7 @@ func TestLongResponse(t *testing.T) {
 
 func TestErrResponse(t *testing.T) {
 	ctx := context.Background()
-	c, err := New(ctx, &pldconf.HTTPClientConfig{
+	c, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "http://localhost:12345",
 	})
 	require.Nil(t, err)
@@ -228,7 +228,7 @@ func TestOnAfterResponseNil(t *testing.T) {
 
 func TestMissingCAFile(t *testing.T) {
 	ctx := context.Background()
-	_, err := New(ctx, &pldconf.HTTPClientConfig{
+	_, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "https://localhost:12345",
 		TLS: pldconf.TLSConfig{
 			Enabled: true,
@@ -312,7 +312,7 @@ func TestMTLSClientWithServer(t *testing.T) {
 	}()
 
 	// Use pldresty to test the mTLS client as well
-	c, err := New(ctx, &pldconf.HTTPClientConfig{
+	c, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: fmt.Sprintf("https://%s", ln.Addr()),
 		TLS: pldconf.TLSConfig{
 			Enabled:  true,
@@ -338,7 +338,7 @@ func TestMTLSClientWithServer(t *testing.T) {
 
 func TestInvalidURL(t *testing.T) {
 	ctx := context.Background()
-	_, err := New(ctx, &pldconf.HTTPClientConfig{
+	_, _, err := New(ctx, &pldconf.HTTPClientConfig{
 		URL: "banana",
 	})
 	assert.Regexp(t, "PD020501", err)

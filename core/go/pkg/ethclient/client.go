@@ -187,9 +187,8 @@ func (u *unconnectedRPC) CallRPC(ctx context.Context, result interface{}, method
 }
 
 func (ec *ethClient) Close() {
-	wsRPC, isWS := ec.rpc.(rpcclient.WSClient)
-	if isWS {
-		wsRPC.Close()
+	if closable, ok := ec.rpc.(rpcclient.ClosableClient); ok {
+		closable.Close()
 	}
 }
 

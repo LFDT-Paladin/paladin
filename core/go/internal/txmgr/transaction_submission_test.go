@@ -1615,18 +1615,18 @@ func TestHasChainedTransactionWithRecords(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			columns := []string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}
+			columns := []string{"chained_private_txns", "transaction", "sender", "domain", "contract_address"}
 			rows := sqlmock.NewRows(columns).
 				AddRow(chainedTxID, txID, "sender1", "domain1", "0x1234567890123456789012345678901234567890")
 			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
-				WithArgs(txID).
+				WithArgs(txID, 1).
 				WillReturnRows(rows)
 		})
 	defer done()
 
 	hasChained, err := txm.HasChainedTransaction(ctx, txID)
 	require.NoError(t, err)
-	assert.True(t, hasChained)
+	require.True(t, hasChained)
 }
 
 func TestHasChainedTransactionNoRecords(t *testing.T) {
@@ -1634,9 +1634,9 @@ func TestHasChainedTransactionNoRecords(t *testing.T) {
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"})
+			rows := sqlmock.NewRows([]string{"chained_private_txns", "transaction", "sender", "domain", "contract_address"})
 			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
-				WithArgs(txID).
+				WithArgs(txID, 1).
 				WillReturnRows(rows)
 		})
 	defer done()
@@ -1652,7 +1652,7 @@ func TestHasChainedTransactionError(t *testing.T) {
 		mockEmptyReceiptListeners,
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectQuery("SELECT.*chained_private_txns.*WHERE.*transaction.*=.*").
-				WithArgs(txID).
+				WithArgs(txID, 1).
 				WillReturnError(fmt.Errorf("database error"))
 		})
 	defer done()

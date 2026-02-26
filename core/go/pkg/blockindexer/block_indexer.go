@@ -546,6 +546,44 @@ func (bi *blockIndexer) hydrateBlock(ctx context.Context, batch *blockWriterBatc
 		return false, nil
 	})
 	batch.receiptResults[blockIndex] = err
+	if err == nil {
+		validationErr := bi.validateBlockReceipts(ctx, batch.blocks[blockIndex], batch.receipts[blockIndex])
+		if validationErr != nil {
+			log.L(ctx).Errorf(
+				"Receipt validation failed block=%+v receipts=%+v error=%s",
+				batch.blocks[blockIndex],
+				batch.receipts[blockIndex],
+				validationErr,
+			)
+			batch.receiptResults[blockIndex] = validationErr
+		}
+	}
+}
+
+func (bi *blockIndexer) validateBlockReceipts(ctx context.Context, block *BlockInfoJSONRPC, receipts []*TXReceiptJSONRPC) error {
+	if len(receipts) != len(block.Transactions) {
+		return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptCountMismatch, block.Hash, block.Number, len(block.Transactions), len(receipts))
+	}
+
+	seen := make(map[string]struct{}, len(receipts))
+	for _, receipt := range receipts {
+		if receipt == nil {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptIntegrityNilReceipt, block.Hash, block.Number)
+		}
+		if receipt.BlockHash.String() != block.Hash.String() || uint64(receipt.BlockNumber) != uint64(block.Number) {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptBlockMismatch, block.Hash, block.Number, receipt.TransactionHash, receipt.BlockHash, receipt.BlockNumber)
+		}
+		seen[receipt.TransactionHash.String()] = struct{}{}
+	}
+
+	for _, tx := range block.Transactions {
+		txHash := tx.Hash.String()
+		if _, exists := seen[txHash]; !exists {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptMissingTxHash, block.Hash, block.Number, txHash)
+		}
+	}
+
+	return nil
 }
 
 func (bi *blockIndexer) logToIndexedEvent(l *LogJSONRPC) *pldapi.IndexedEvent {

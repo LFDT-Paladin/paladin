@@ -149,6 +149,41 @@ func TestUpsertSchemaEmptyList(t *testing.T) {
 
 }
 
+func TestValidateStates(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	schemaID := schemas[0].ID()
+	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	_, dc := newTestDomainContext(t, ctx, ss, "domain1", true)
+	defer dc.Close()
+
+	upsert1 := &components.StateUpsert{
+		ID:     fakeHash1,
+		Schema: schemaID,
+		Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+	}
+	states, err := dc.ValidateStates(ss.p.NOTX(),
+		upsert1,
+		&components.StateUpsert{
+			ID:     fakeHash2,
+			Schema: schemaID,
+			Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.NotEmpty(t, states[0].ID)
+	assert.Equal(t, fakeHash2, states[1].ID)
+
+}
+
 func TestUpsertSchemaAndStates(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)

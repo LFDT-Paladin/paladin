@@ -53,8 +53,8 @@ func transactionReceiptConditionReceiptOnly(t *testing.T, ctx context.Context, t
 	return func() bool {
 		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txReceipt.Success == false), "Have transaction receipt but not successful")
-		return txReceipt.Success == true
+		require.False(t, (txReceipt != nil && txReceipt.Success == false), "Have transaction receipt but not successful")
+		return txReceipt != nil && txReceipt.Success == true
 	}
 }
 
@@ -73,8 +73,8 @@ func transactionReceiptConditionFailureReceiptOnly(t *testing.T, ctx context.Con
 	return func() bool {
 		txReceipt, err := client.PTX().GetTransactionReceipt(ctx, txID)
 		require.NoError(t, err)
-		require.False(t, (txReceipt.Success), "Have transaction receipt but not successful")
-		return txReceipt.Success == false
+		require.False(t, (txReceipt != nil && txReceipt.Success), "Have transaction receipt but it was marked successful")
+		return txReceipt != nil && txReceipt.Success == false
 	}
 }
 

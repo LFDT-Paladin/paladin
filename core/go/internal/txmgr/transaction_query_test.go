@@ -242,6 +242,66 @@ func TestResolveABIReferencesAndCacheBadFunc(t *testing.T) {
 	assert.Regexp(t, "PD012206", err)
 }
 
+func TestResolveABIReferencesAndCacheConstructorSignatureWithNilTo(t *testing.T) {
+	var abiHash = (pldtypes.Bytes32)(pldtypes.RandBytes(32))
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*abis").WillReturnRows(mc.db.NewRows([]string{"hash", "abi"}).AddRow(
+				abiHash.String(), `[{
+					"type":"constructor",
+					"inputs":[
+						{"name":"group","type":"tuple","components":[{"name":"salt","type":"bytes32"},{"name":"members","type":"string[]"}]},
+						{"name":"endorsementType","type":"string"},
+						{"name":"evmVersion","type":"string"},
+						{"name":"externalCallsEnabled","type":"bool"}
+					]
+				}]`,
+			))
+		})
+	defer done()
+
+	txID := uuid.New()
+	txs, err := txm.resolveABIReferencesAndCache(ctx, txm.p.NOTX(), []*components.ResolvedTransaction{
+		{Transaction: &pldapi.Transaction{
+			ID: &txID,
+			TransactionBase: pldapi.TransactionBase{
+				Function:     "((bytes32,string[]),string,string,bool)",
+				To:           nil,
+				ABIReference: confutil.P(abiHash),
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, txs, 1)
+	require.NotNil(t, txs[0].Function)
+	assert.Equal(t, "((bytes32,string[]),string,string,bool)", txs[0].Function.Signature)
+}
+
+func TestResolveABIReferencesAndCacheFunctionWithNilToStillFails(t *testing.T) {
+	var abiHash = (pldtypes.Bytes32)(pldtypes.RandBytes(32))
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectQuery("SELECT.*abis").WillReturnRows(mc.db.NewRows([]string{"hash", "abi"}).AddRow(
+				abiHash.String(), `[]`,
+			))
+		})
+	defer done()
+
+	_, err := txm.resolveABIReferencesAndCache(ctx, txm.p.NOTX(), []*components.ResolvedTransaction{
+		{Transaction: &pldapi.Transaction{
+			ID: confutil.P(uuid.New()),
+			TransactionBase: pldapi.TransactionBase{
+				Function:     "doStuff()",
+				To:           nil,
+				ABIReference: confutil.P(abiHash),
+			},
+		}},
+	})
+	assert.Regexp(t, "PD012204", err)
+}
+
 func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
 	defer done()

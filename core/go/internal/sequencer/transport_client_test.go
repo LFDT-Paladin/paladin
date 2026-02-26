@@ -58,8 +58,8 @@ type transportClientTestMocks struct {
 	domain          *componentsmocks.Domain
 	domainContext   *componentsmocks.DomainContext
 	transportWriter *transport.MockTransportWriter
-	originator      *originator.MockSeqOriginator
-	coordinator     *coordinator.MockSeqCoordinator
+	originator      *originator.MockOriginator
+	coordinator     *coordinator.MockCoordinator
 	metrics         *metrics.MockDistributedSequencerMetrics
 }
 
@@ -75,8 +75,8 @@ func newTransportClientTestMocks(t *testing.T) *transportClientTestMocks {
 		domain:          componentsmocks.NewDomain(t),
 		domainContext:   componentsmocks.NewDomainContext(t),
 		transportWriter: transport.NewMockTransportWriter(t),
-		originator:      originator.NewMockSeqOriginator(t),
-		coordinator:     coordinator.NewMockSeqCoordinator(t),
+		originator:      originator.NewMockOriginator(t),
+		coordinator:     coordinator.NewMockCoordinator(t),
 		metrics:         metrics.NewMockDistributedSequencerMetrics(t),
 	}
 }
@@ -207,9 +207,6 @@ func TestHandleAssembleRequest_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
-	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.AssembleRequestReceivedEvent)
 		return ok && event.TransactionID == txID && event.RequestID == requestID
@@ -346,8 +343,6 @@ func TestHandleAssembleResponse_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.AssembleSuccessEvent)
 		return ok && event.TransactionID == txID && event.RequestID == requestID
@@ -398,8 +393,6 @@ func TestHandleAssembleResponse_Revert(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.AssembleRevertResponseEvent)
 		return ok && event.TransactionID == txID && event.RequestID == requestID
@@ -440,8 +433,6 @@ func TestHandleAssembleError_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.AssembleErrorEvent)
 		return ok && event.TransactionID == txID
@@ -494,9 +485,6 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
-	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "test-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinator.TransactionsDelegatedEvent)
 		return ok && len(event.Transactions) == 1 && event.Transactions[0].ID == txID
@@ -534,8 +522,6 @@ func TestHandleHandoverRequest_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinator.HandoverRequestEvent)
 		return ok && event.Requester == "test-node"
@@ -576,8 +562,6 @@ func TestHandleNonceAssigned_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.NonceAssignedEvent)
 		return ok && event.TransactionID == txID && event.Nonce == 42
@@ -619,8 +603,6 @@ func TestHandleTransactionSubmitted_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.SubmittedEvent)
 		return ok && event.TransactionID == txID
@@ -660,8 +642,6 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedSuccessEvent)
 		return ok && event.TransactionID == txID
@@ -703,8 +683,6 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
 		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason)
@@ -748,8 +726,6 @@ func TestHandleDispatchedEvent_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.DispatchedEvent)
 		// Note: TransactionID parsing from hex string may not match exactly due to format conversion
@@ -853,8 +829,6 @@ func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.PreDispatchRequestReceivedEvent)
 		return ok && event.TransactionID == txID && event.RequestID == requestID && event.Coordinator == "coordinator-node"
@@ -900,8 +874,6 @@ func TestHandlePreDispatchResponse_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.DispatchRequestApprovedEvent)
 		return ok && event.TransactionID == txID && event.RequestID == requestID
@@ -1057,7 +1029,6 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinator.EndorsementRequestedEvent)
 		return ok && event.From == "coordinator-node"
@@ -1179,7 +1150,6 @@ func TestHandleEndorsementRequest_Success_Revert(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
@@ -1296,7 +1266,6 @@ func TestHandleEndorsementRequest_Success_EndorserSubmit(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
@@ -1958,7 +1927,6 @@ func TestHandleEndorsementRequest_SendEndorsementResponseError(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.Anything).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
@@ -2117,8 +2085,6 @@ func TestHandleEndorsementResponse_Success(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorsedEvent)
 		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.Endorsement != nil
@@ -2165,8 +2131,6 @@ func TestHandleEndorsementResponse_Revert(t *testing.T) {
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
 
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordTransaction.EndorsedRejectedEvent)
 		return ok && event.TransactionID == txID && event.RequestID == idempotencyKey && event.RevertReason == revertReason && event.AttestationRequestName == attestationRequestName
@@ -2288,9 +2252,6 @@ func TestHandleEndorsementResponse_EndorsementUnmarshalError(t *testing.T) {
 
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
-
-	// Mock GetCurrentCoordinator call from LoadSequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("coordinator-node").Once()
 
 	// Should not panic - endorsement unmarshal will fail but function should handle it gracefully
 	sm.handleEndorsementResponse(ctx, message)

@@ -79,6 +79,9 @@ type TxBuilder interface {
 	Bytecode(bytecode []byte) TxBuilder // for public transaction constructors this is required (not applicable to private transactions directly - Pente is a special case handled separately)
 	GetBytecode() pldtypes.HexBytes
 
+	DependsOn(dependencies []uuid.UUID) TxBuilder
+	GetDependsOn() []uuid.UUID
+
 	Domain(domain string) TxBuilder // for private transaction constructors the domain must be specified. It is optional for private transactions as it will be inferred from the to address
 	GetDomain() string
 
@@ -297,6 +300,11 @@ func (t *txBuilder) Bytecode(b []byte) TxBuilder {
 	return t
 }
 
+func (t *txBuilder) DependsOn(dependencies []uuid.UUID) TxBuilder {
+	t.tx.DependsOn = dependencies
+	return t
+}
+
 func (t *txBuilder) Domain(domain string) TxBuilder {
 	t.tx.Domain = domain
 	return t
@@ -326,6 +334,10 @@ func (t *txBuilder) GetABIReference() *pldtypes.Bytes32 {
 
 func (t *txBuilder) GetBytecode() pldtypes.HexBytes {
 	return t.tx.Bytecode
+}
+
+func (t *txBuilder) GetDependsOn() []uuid.UUID {
+	return t.tx.DependsOn
 }
 
 func (t *txBuilder) GetDomain() string {

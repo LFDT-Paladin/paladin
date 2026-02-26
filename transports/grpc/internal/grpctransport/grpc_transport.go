@@ -241,6 +241,10 @@ func (t *grpcTransport) ActivatePeer(ctx context.Context, req *prototk.ActivateP
 	t.connLock.Lock()
 	defer t.connLock.Unlock()
 
+	if t.peerVerifier == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgTransportNotConfigured)
+	}
+
 	existing := t.outboundConnections[req.NodeName]
 	if existing != nil {
 		// Replace an existing connection - unexpected as Paladin shouldn't do this
@@ -341,16 +345,22 @@ func (t *grpcTransport) GetLocalDetails(ctx context.Context, req *prototk.GetLoc
 func (t *grpcTransport) StopTransport(ctx context.Context, req *prototk.StopTransportRequest) (*prototk.StopTransportResponse, error) {
 	log.L(t.bgCtx).Infof("Stopping gRPC server for plugin %s", t.name)
 
-	gracefullyStopped := make(chan struct{})
-	go func() {
-		defer close(gracefullyStopped)
-		t.grpcServer.GracefulStop()
-	}()
+	if t.grpcServer != nil {
+		gracefullyStopped := make(chan struct{})
+		go func() {
+			defer close(gracefullyStopped)
+			t.grpcServer.GracefulStop()
+		}()
+		t.waitStopOrForce(gracefullyStopped)
+	}
+
+	return &prototk.StopTransportResponse{}, nil
+}
+
+func (t *grpcTransport) waitStopOrForce(gracefullyStopped chan struct{}) {
 	select {
 	case <-gracefullyStopped:
 	case <-time.After(t.gracefulShutdownTimeout):
 		t.grpcServer.Stop()
 	}
-
-	return &prototk.StopTransportResponse{}, nil
 }

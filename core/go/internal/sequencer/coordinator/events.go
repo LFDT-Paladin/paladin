@@ -18,7 +18,6 @@ package coordinator
 import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -28,18 +27,21 @@ type Event interface {
 	common.Event
 }
 
-type CoordinatorStateEventActivated struct{}
-
-func (*CoordinatorStateEventActivated) Type() EventType {
-	return Event_Activated
+type CoordinatorCreatedEvent struct {
+	common.BaseEvent
 }
 
-func (*CoordinatorStateEventActivated) TypeString() string {
-	return "Event_Activated"
+func (*CoordinatorCreatedEvent) Type() EventType {
+	return Event_CoordinatorCreated
+}
+
+func (*CoordinatorCreatedEvent) TypeString() string {
+	return "Event_CoordinatorCreated"
 }
 
 type TransactionsDelegatedEvent struct {
 	common.BaseEvent
+	FromNode               string // Node name that sent the delegation request
 	Originator             string // Fully qualified identity locator for the originator
 	Transactions           []*components.PrivateTransaction
 	OriginatorsBlockHeight uint64
@@ -79,7 +81,7 @@ type TransactionConfirmedEvent struct {
 	common.BaseEvent
 	TxID         uuid.UUID
 	From         *pldtypes.EthAddress
-	Nonce        uint64
+	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
 }
@@ -172,16 +174,18 @@ func (*HandoverReceivedEvent) TypeString() string {
 	return "Event_HandoverReceived"
 }
 
-type TransactionStateTransitionEvent struct {
-	TransactionID uuid.UUID
-	From          transaction.State
-	To            transaction.State
+// OriginatorNodePoolUpdateRequestedEvent is queued when a sequencer is loaded and already exists,
+// so the coordinator can add the transaction's endorsers to its originator node pool (e.g. when
+// the sequencer was first created with tx=nil and had an empty pool).
+type OriginatorNodePoolUpdateRequestedEvent struct {
+	common.BaseEvent
+	Nodes []string // Node names (e.g. from tx.PreAssembly.RequiredVerifiers)
 }
 
-func (*TransactionStateTransitionEvent) Type() EventType {
-	return Event_TransactionStateTransition
+func (*OriginatorNodePoolUpdateRequestedEvent) Type() EventType {
+	return Event_OriginatorNodePoolUpdateRequested
 }
 
-func (*TransactionStateTransitionEvent) TypeString() string {
-	return "Event_TransactionStateTransition"
+func (*OriginatorNodePoolUpdateRequestedEvent) TypeString() string {
+	return "Event_OriginatorNodePoolUpdateRequested"
 }

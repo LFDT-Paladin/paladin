@@ -35,6 +35,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/metricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -58,8 +59,8 @@ type sequencerLifecycleTestMocks struct {
 	keyManager       *componentsmocks.KeyManager
 	domainAPI        *componentsmocks.DomainSmartContract
 	transportWriter  *transport.MockTransportWriter
-	originator       *originator.MockSeqOriginator
-	coordinator      *coordinator.MockSeqCoordinator
+	originator       *originator.MockOriginator
+	coordinator      *coordinator.MockCoordinator
 	syncPoints       *syncpoints.MockSyncPoints
 	metrics          *metrics.MockDistributedSequencerMetrics
 }
@@ -77,8 +78,8 @@ func newSequencerLifecycleTestMocks(t *testing.T) *sequencerLifecycleTestMocks {
 		keyManager:       componentsmocks.NewKeyManager(t),
 		domainAPI:        componentsmocks.NewDomainSmartContract(t),
 		transportWriter:  transport.NewMockTransportWriter(t),
-		originator:       originator.NewMockSeqOriginator(t),
-		coordinator:      coordinator.NewMockSeqCoordinator(t),
+		originator:       originator.NewMockOriginator(t),
+		coordinator:      coordinator.NewMockCoordinator(t),
 		syncPoints:       syncpoints.NewMockSyncPoints(t),
 		metrics:          metrics.NewMockDistributedSequencerMetrics(t),
 	}
@@ -103,6 +104,9 @@ func (m *sequencerLifecycleTestMocks) setupDefaultExpectations(ctx context.Conte
 
 	// Setup domain manager expectations
 	m.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, contractAddr).Return(m.domainAPI, nil).Maybe()
+
+	// Allow background coordinator callbacks
+	m.metrics.EXPECT().SetActiveCoordinators(mock.Anything).Maybe()
 
 	// // Setup domain API expectations
 	// m.domainAPI.EXPECT().Domain().Return("test-domain").Maybe()
@@ -176,6 +180,38 @@ func TestSequencer_GetTransportWriter(t *testing.T) {
 	assert.Equal(t, mocks.transportWriter, transportWriter)
 }
 
+func TestSequencerManager_HandleTxResume_DeployShapedConstructorStringBlockedByDeps(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	txID := uuid.New()
+	dbTX := persistencemocks.NewDBTX(t)
+	txi := &components.ValidatedTransaction{
+		ResolvedTransaction: components.ResolvedTransaction{
+			Transaction: &pldapi.Transaction{
+				ID: &txID,
+				TransactionBase: pldapi.TransactionBase{
+					Function: "constructor()",
+					To:       nil,
+				},
+			},
+		},
+	}
+
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.components.EXPECT().TxManager().Return(mocks.txManager).Once()
+	mocks.persistence.EXPECT().Transaction(mock.Anything, mock.Anything).RunAndReturn(
+		func(txCtx context.Context, fn func(context.Context, persistence.DBTX) error) error {
+			return fn(txCtx, dbTX)
+		},
+	).Once()
+	mocks.txManager.EXPECT().BlockedByDependencies(mock.Anything, dbTX, txi).Return(true, nil).Once()
+
+	err := sm.HandleTxResume(ctx, txi)
+	require.NoError(t, err)
+}
+
 func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
@@ -195,11 +231,6 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	mocks.transportWriter.EXPECT().SendDispatched(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Setup originator creation expectations
-	mocks.originator.EXPECT().SetActiveCoordinator(ctx, mock.Anything).Maybe()
-
-	// Setup coordinator creation expectations
-	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, mock.Anything).Maybe()
-	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Maybe()
 
 	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
 
@@ -228,6 +259,9 @@ func TestSequencerManager_LoadSequencer_NewSequencer(t *testing.T) {
 	defer sm.sequencersLock.RUnlock()
 	assert.Contains(t, sm.sequencers, contractAddr.String())
 	mocks.metrics.AssertExpectations(t)
+
+	result.GetCoordinator().Stop()
+	result.GetOriginator().Stop()
 }
 
 func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
@@ -244,8 +278,11 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
 
-	// Setup coordinator expectations for existing sequencer
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("test-coordinator").Once()
+	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
+		return ok && ev != nil
+	})).Return().Once()
 
 	// Create a mock private transaction
 	tx := &components.PrivateTransaction{
@@ -286,8 +323,11 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
 
-	// Setup coordinator expectations - GetCurrentCoordinator returns empty string (no coordinator set)
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("").Once()
+	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
+		return ok && ev != nil
+	})).Return().Once()
 
 	// Create a mock private transaction with required verifiers
 	tx := &components.PrivateTransaction{
@@ -299,12 +339,7 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 		},
 	}
 
-	// Setup expectations for setInitialCoordinator to succeed
-	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
-	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
-	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(nil).Once()
-
-	//  this should call setInitialCoordinator
+	// this should not error for existing sequencer
 	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, tx)
 
 	// Verify results
@@ -317,48 +352,6 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 	defer sm.sequencersLock.RUnlock()
 	seq := sm.sequencers[contractAddr.String()]
 	assert.True(t, seq.lastTXTime.After(time.Now().Add(-time.Second)))
-}
-
-func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Error(t *testing.T) {
-	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create and store an existing sequencer
-	existingSeq := newSequencerForTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = existingSeq
-
-	// Setup expectations for existing sequencer
-	mocks.setupDefaultExpectations(ctx, contractAddr)
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
-
-	// Setup coordinator expectations - GetCurrentCoordinator returns empty string (no coordinator set)
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("").Once()
-
-	// Create a mock private transaction with required verifiers
-	tx := &components.PrivateTransaction{
-		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
-			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-				{Lookup: "verifier1@node1"},
-			},
-		},
-	}
-
-	// Setup expectations for setInitialCoordinator to fail
-	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
-	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
-	expectedError := errors.New("failed to set active coordinator")
-	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(expectedError).Once()
-
-	// this should call setInitialCoordinator
-	result, err := sm.LoadSequencer(ctx, nil, *contractAddr, nil, tx)
-
-	// Verify that the error from setInitialCoordinator is returned
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
-	assert.Nil(t, result)
 }
 
 func TestSequencerManager_LoadSequencer_NoDomainAPI(t *testing.T) {
@@ -606,14 +599,10 @@ func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
 	mocks1.metrics.AssertExpectations(t)
 }
 
-func TestSequencerManager_setInitialCoordinator_InvalidVerifierLookup(t *testing.T) {
+func TestSequencerManager_getOriginatorNodesFromTx_InvalidVerifierLookup(t *testing.T) {
 	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a sequencer
-	seq := newSequencerForTesting(contractAddr, mocks)
 
 	// Create a transaction with an invalid verifier lookup (too many @ symbols)
 	tx := &components.PrivateTransaction{
@@ -625,22 +614,17 @@ func TestSequencerManager_setInitialCoordinator_InvalidVerifierLookup(t *testing
 		},
 	}
 
-	// Call setInitialCoordinator
-	err := sm.setInitialCoordinator(ctx, tx, seq)
+	_, err := sm.getOriginatorNodesFromTx(ctx, tx)
 
 	// Verify that an error is returned
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "PD020006") // Error code for invalid private identity locator format
 }
 
-func TestSequencerManager_setInitialCoordinator_SetActiveCoordinatorError(t *testing.T) {
+func TestSequencerManager_getOriginatorNodesFromTx_ReturnsNodes(t *testing.T) {
 	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a sequencer
-	seq := newSequencerForTesting(contractAddr, mocks)
 
 	// Create a transaction with valid required verifiers
 	tx := &components.PrivateTransaction{
@@ -652,22 +636,11 @@ func TestSequencerManager_setInitialCoordinator_SetActiveCoordinatorError(t *tes
 		},
 	}
 
-	// Setup expectations for successful verifier validation
-	mocks.coordinator.EXPECT().UpdateOriginatorNodePool(ctx, "node1").Once()
+	nodes, err := sm.getOriginatorNodesFromTx(ctx, tx)
 
-	// Setup expectation for GetActiveCoordinatorNode to return a coordinator
-	mocks.coordinator.EXPECT().GetActiveCoordinatorNode(ctx, true).Return("test-coordinator").Once()
-
-	// Setup expectation for SetActiveCoordinator to return an error (this is what we're testing)
-	expectedError := errors.New("failed to set active coordinator")
-	mocks.originator.EXPECT().SetActiveCoordinator(ctx, "test-coordinator").Return(expectedError).Once()
-
-	// Call setInitialCoordinator
-	err := sm.setInitialCoordinator(ctx, tx, seq)
-
-	// Verify that the error from SetActiveCoordinator is returned
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, "node1", nodes[0])
 }
 
 func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
@@ -1157,7 +1130,6 @@ func TestSequencerManager_GetTxStatus_Success(t *testing.T) {
 	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
 	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("test-coordinator").Once()
 
 	// Setup expectations for GetTxStatus
 	txID := uuid.New()
@@ -1244,7 +1216,6 @@ func TestSequencerManager_GetTxStatus_OriginatorError(t *testing.T) {
 	mocks.components.EXPECT().DomainManager().Return(mocks.domainManager).Once()
 	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
-	mocks.originator.EXPECT().GetCurrentCoordinator().Return("test-coordinator").Once()
 
 	// Setup expectations for GetTxStatus to return an error
 	txID := uuid.New()

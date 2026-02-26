@@ -19,10 +19,73 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
+}
+
+func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	pt := txn.pt
+	assert.Same(t, pt, txn.GetPrivateTransaction())
+}
+
+func TestTransaction_GetStatus_NilPt_ReturnsUnknown(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt = nil
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, "", status.TxID)
+	assert.Equal(t, "unknown", status.Status)
+}
+
+func TestTransaction_GetStatus_NilPostAssembly_ReturnsStatusWithNilEndorsements(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt.PostAssembly = nil
+	txn.stateMachine.CurrentState = State_Assembling
+	txn.stateMachine.LatestEvent = "evt"
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, txn.pt.ID.String(), status.TxID)
+	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Nil(t, status.Endorsements)
+}
+
+func TestTransaction_GetStatus_ReturnsStatusWithEndorsements(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+	txn.pt.PostAssembly = &components.TransactionPostAssembly{
+		AttestationPlan: []*prototk.AttestationRequest{
+			{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}, VerifierType: "v1"},
+		},
+		Endorsements: []*prototk.AttestationResult{
+			{Name: "att1", Verifier: &prototk.ResolvedVerifier{Lookup: "party1", VerifierType: "v1"}},
+		},
+	}
+	txn.stateMachine.CurrentState = State_Assembling
+	txn.stateMachine.LatestEvent = "evt"
+	status := txn.GetStatus(ctx)
+	assert.Equal(t, txn.pt.ID.String(), status.TxID)
+	assert.Equal(t, "State_Assembling", status.Status)
+	assert.Equal(t, "evt", status.LatestEvent)
+	require.Len(t, status.Endorsements, 1)
+	assert.Equal(t, "party1", status.Endorsements[0].Party)
+	assert.True(t, status.Endorsements[0].EndorsementReceived)
+	assert.Same(t, txn.pt, status.Transaction)
+}
 
 func TestTransaction_GetLastDelegatedTime_InitiallyNil(t *testing.T) {
 	// Test that GetLastDelegatedTime returns nil for a newly created transaction
@@ -42,7 +105,7 @@ func TestTransaction_UpdateLastDelegatedTime_SetsTime(t *testing.T) {
 	require.Nil(t, txn.GetLastDelegatedTime(), "LastDelegatedTime should be nil initially")
 
 	// Update the time
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 
 	// Verify that the time is now set
 	lastDelegatedTime := txn.GetLastDelegatedTime()
@@ -60,7 +123,7 @@ func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// First update
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 	firstTime := txn.GetLastDelegatedTime()
 	require.NotNil(t, firstTime, "First update should set a time")
 
@@ -68,7 +131,7 @@ func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Second update
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 	secondTime := txn.GetLastDelegatedTime()
 	require.NotNil(t, secondTime, "Second update should set a time")
 
@@ -84,7 +147,7 @@ func TestTransaction_GetLastDelegatedTime_ReturnsUpdatedTime(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// Update the time
-	txn.UpdateLastDelegatedTime()
+	txn.updateLastDelegatedTime()
 
 	// Get the time multiple times and verify it returns the same value
 	time1 := txn.GetLastDelegatedTime()
@@ -99,14 +162,14 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a transaction with nil PrivateTransaction by manually constructing it
-	txn := &Transaction{
-		PrivateTransaction: nil,
+	txn := &OriginatorTransaction{
+		pt: nil,
 		stateMachine: &StateMachine{
-			currentState: State_Initial,
+			CurrentState: State_Initial,
 		},
 	}
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 
 	assert.Error(t, err, "Hash should return an error when PrivateTransaction is nil")
 	assert.Nil(t, hash, "Hash should return nil hash when PrivateTransaction is nil")
@@ -122,9 +185,9 @@ func TestTransaction_Hash_ErrorWhenPostAssemblyIsNil(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	// Set PostAssembly to nil to test the error case
-	txn.PostAssembly = nil
+	txn.pt.PostAssembly = nil
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 
 	assert.Error(t, err, "Hash should return an error when PostAssembly is nil")
 	assert.Nil(t, hash, "Hash should return nil hash when PostAssembly is nil")
@@ -178,7 +241,7 @@ func TestTransaction_GetLatestEvent_ReturnsSetEvent(t *testing.T) {
 	txn, _ := builder.BuildWithMocks()
 
 	expectedEvent := "test-event"
-	txn.stateMachine.latestEvent = expectedEvent
+	txn.stateMachine.LatestEvent = expectedEvent
 
 	event := txn.GetLatestEvent()
 	assert.Equal(t, expectedEvent, event, "GetLatestEvent should return the event that was set")

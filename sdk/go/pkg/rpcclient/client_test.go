@@ -61,7 +61,12 @@ func newTestServer(t *testing.T, rpcHandler testRPCHander) (context.Context, *rp
 	})
 	assert.NoError(t, err)
 
-	rb := c.(*rpcClient)
+	var rb *rpcClient
+	if closeable, ok := c.(*closeableHTTPClient); ok {
+		rb = closeable.Client.(*rpcClient)
+	} else {
+		rb = c.(*rpcClient)
+	}
 
 	return ctx, rb, func() {
 		cancelCtx()

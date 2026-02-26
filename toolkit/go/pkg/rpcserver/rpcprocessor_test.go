@@ -478,7 +478,7 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	}
 
 	// Call processRPC directly with HTTP context (wsc == nil) that has no authentication results
-	response, isOK := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)
@@ -518,7 +518,7 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has no identities
-	response, isOK := server.processRPC(ctx, rpcReq, wsc)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)
@@ -566,7 +566,7 @@ func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has authentication result mismatch
-	response, isOK := server.processRPC(ctx, rpcReq, wsc)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)

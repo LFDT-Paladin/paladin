@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -43,7 +44,7 @@ func TestOriginatorTransaction_Initial_ToPending_OnCreated(t *testing.T) {
 
 	err := txn.HandleEvent(ctx, &transaction.CreatedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -57,7 +58,7 @@ func TestOriginatorTransaction_Pending_ToDelegated_OnDelegated(t *testing.T) {
 
 	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: builder.GetCoordinator(),
 	})
@@ -75,7 +76,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   requestID,
 		Coordinator: builder.GetCoordinator(),
@@ -83,8 +84,9 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	assert.NoError(t, err)
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	currentState := txn.GetCurrentState()
@@ -101,7 +103,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   requestID,
 		Coordinator: builder.GetCoordinator(),
@@ -109,8 +111,9 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	assert.NoError(t, err)
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleRevertEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -126,7 +129,7 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   requestID,
 		Coordinator: builder.GetCoordinator(),
@@ -134,8 +137,9 @@ func TestOriginatorTransaction_Delegated_ToAssembling_OnAssembleRequestReceived_
 	assert.NoError(t, err)
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleParkEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -148,7 +152,7 @@ func TestOriginatorTransaction_Assembling_ToEndorsement_Gathering_OnAssembleAndS
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleAndSignSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		PostAssembly: &components.TransactionPostAssembly{
 			AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -168,7 +172,7 @@ func TestOriginatorTransaction_Assembling_ToReverted_OnAssembleRevert(t *testing
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRevertEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		PostAssembly: &components.TransactionPostAssembly{
 			AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
@@ -188,7 +192,7 @@ func TestOriginatorTransaction_Assembling_ToParked_OnAssemblePark(t *testing.T) 
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleParkEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		PostAssembly: &components.TransactionPostAssembly{
 			AssemblyResult: prototk.AssembleTransactionResponse_PARK,
@@ -209,15 +213,16 @@ func TestOriginatorTransaction_Delegated_ToReverted_OnAssembleRequestReceived_Af
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleRevertEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
 	assert.NoError(t, err)
 
@@ -235,15 +240,16 @@ func TestOriginatorTransaction_Delegated_ToParked_OnAssembleRequestReceived_Afte
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: builder.GetCoordinator(),
 	})
 	assert.NoError(t, err)
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleParkEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 	err = txn.HandleEvent(ctx, mocks.GetEmittedEvents()[0])
 	assert.NoError(t, err)
 
@@ -261,7 +267,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnAssembleRequ
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   builder.GetLatestFulfilledAssembleRequestID(),
 		Coordinator: builder.GetCoordinator(),
@@ -281,7 +287,7 @@ func TestOriginatorTransaction_Reverted_DoResendAssembleResponse_OnAssembleReque
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   builder.GetLatestFulfilledAssembleRequestID(),
 		Coordinator: builder.GetCoordinator(),
@@ -299,7 +305,7 @@ func TestOriginatorTransaction_Reverted_Ignore_OnAssembleRequest_IfNotMatchesPre
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   uuid.New(),
 		Coordinator: builder.GetCoordinator(),
@@ -319,7 +325,7 @@ func TestOriginatorTransaction_Parked_DoResendAssembleResponse_OnAssembleRequest
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   builder.GetLatestFulfilledAssembleRequestID(),
 		Coordinator: builder.GetCoordinator(),
@@ -338,7 +344,7 @@ func TestOriginatorTransaction_Parked_Ignore_OnAssembleRequest_IfNotMatchesPrevi
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   uuid.New(),
 		Coordinator: builder.GetCoordinator(),
@@ -359,7 +365,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID:   uuid.New(),
 		Coordinator: builder.GetCoordinator(),
@@ -368,8 +374,9 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToAssembling_OnAssembleRequ
 
 	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
 
-	require.Len(t, mocks.GetEmittedEvents(), 1)
+	require.Len(t, mocks.GetEmittedEvents(), 2)
 	require.IsType(t, &transaction.AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
 
 	//We haven't fed that event back into the state machine yet, so the state should still be Assembling
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
@@ -381,12 +388,12 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToPrepared_OnDispatchConfir
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering)
 	txn, mocks := builder.BuildWithMocks()
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      builder.GetCoordinator(),
 		PostAssemblyHash: hash,
@@ -404,12 +411,12 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering)
 	txn, mocks := builder.BuildWithMocks()
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      uuid.New().String(),
 		PostAssemblyHash: hash,
@@ -430,7 +437,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 
 	err := txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      builder.GetCoordinator(),
 		PostAssemblyHash: &hash,
@@ -447,7 +454,7 @@ func TestOriginatorTransaction_Endorsement_Gathering_ToDelegated_OnCoordinatorCh
 
 	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: uuid.New().String(),
 	})
@@ -465,7 +472,7 @@ func TestOriginatorTransaction_Prepared_ToDispatched_OnDispatched(t *testing.T) 
 
 	err := txn.HandleEvent(ctx, &transaction.DispatchedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		SignerAddress: signerAddress,
 	})
@@ -479,12 +486,12 @@ func TestOriginatorTransaction_Prepared_NoTransition_Do_Resend_OnDispatchConfirm
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Prepared)
 	txn, mocks := builder.BuildWithMocks()
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      builder.GetCoordinator(),
 		PostAssemblyHash: hash,
@@ -501,12 +508,12 @@ func TestOriginatorTransaction_Prepared_Ignore_OnDispatchConfirmationRequestRece
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Prepared)
 	txn, mocks := builder.BuildWithMocks()
 
-	hash, err := txn.Hash(ctx)
+	hash, err := txn.GetHash(ctx)
 	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      uuid.New().String(),
 		PostAssemblyHash: hash,
@@ -527,7 +534,7 @@ func TestOriginatorTransaction_Prepared_Ignore_OnDispatchConfirmationRequestRece
 
 	err := txn.HandleEvent(ctx, &transaction.PreDispatchRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator:      builder.GetCoordinator(),
 		PostAssemblyHash: &hash,
@@ -544,7 +551,7 @@ func TestOriginatorTransaction_Prepared_ToDelegated_OnCoordinatorChanged(t *test
 
 	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: uuid.New().String(),
 	})
@@ -560,7 +567,7 @@ func TestOriginatorTransaction_Dispatched_ToConfirmed_OnConfirmedSuccess(t *test
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -574,7 +581,7 @@ func TestOriginatorTransaction_Dispatched_ToSequenced_OnNonceAssigned(t *testing
 
 	err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		SignerAddress: pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		Nonce:         42,
@@ -590,7 +597,7 @@ func TestOriginatorTransaction_Dispatched_ToSubmitted_OnSubmitted(t *testing.T) 
 
 	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		SignerAddress:        pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		Nonce:                42,
@@ -607,7 +614,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnConfirmedReverted(t *tes
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -621,7 +628,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnCoordinatorChanged(t *te
 
 	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: uuid.New().String(),
 	})
@@ -637,7 +644,7 @@ func TestOriginatorTransaction_Sequenced_ToConfirmed_OnConfirmedSuccess(t *testi
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -651,7 +658,7 @@ func TestOriginatorTransaction_Sequenced_ToSubmitted_OnSubmitted(t *testing.T) {
 
 	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		SignerAddress:        pldtypes.EthAddress(pldtypes.RandBytes(20)),
 		Nonce:                42,
@@ -668,7 +675,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnConfirmedReverted(t *test
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -682,7 +689,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnCoordinatorChanged(t *tes
 
 	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: uuid.New().String(),
 	})
@@ -698,7 +705,7 @@ func TestOriginatorTransaction_Submitted_ToConfirmed_OnConfirmedSuccess(t *testi
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -712,7 +719,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnConfirmedReverted(t *test
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
@@ -726,7 +733,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnCoordinatorChanged(t *tes
 
 	err := txn.HandleEvent(ctx, &transaction.CoordinatorChangedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		Coordinator: uuid.New().String(),
 	})
@@ -741,7 +748,7 @@ func TestOriginatorTransaction_Parked_ToPending_OnResumed(t *testing.T) {
 
 	err := txn.HandleEvent(ctx, &transaction.ResumedEvent{
 		BaseEvent: transaction.BaseEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)

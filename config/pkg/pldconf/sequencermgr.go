@@ -21,35 +21,45 @@ import (
 )
 
 type SequencerConfig struct {
-	AssembleTimeout               *string           `json:"assembleTimeout"`
-	RequestTimeout                *string           `json:"requestTimeout"`
-	BlockHeightTolerance          *uint64           `json:"blockHeightTolerance"`
-	BlockRange                    *uint64           `json:"blockRange"`
-	ClosingGracePeriod            *int              `json:"closingGracePeriod"`
-	DelegateTimeout               *string           `json:"delegateTimeout"`
-	HeartbeatInterval             *string           `json:"heartbeatInterval"`
-	HeartbeatThreshold            *int              `json:"heartbeatThreshold"`
-	MaxInflightTransactions       *int              `json:"maxInflightTransactions"`
-	MaxDispatchAhead              *int              `json:"maxDispatchAhead"`
-	TargetActiveCoordinators      *int              `json:"targetActiveCoordinators"`
-	TargetActiveSequencers        *int              `json:"targetActiveSequencers"`
-	TransactionResumePollInterval *string           `json:"transactionResumePollInterval"`
-	Writer                        FlushWriterConfig `json:"writer"`
+	StateTimeout                      *string           `json:"stateTimeout"`
+	RequestTimeout                    *string           `json:"requestTimeout"`
+	BlockHeightTolerance              *uint64           `json:"blockHeightTolerance"`
+	BlockRange                        *uint64           `json:"blockRange"`
+	CoordinatorEventQueueSize         *int              `json:"coordinatorEventQueueSize"`
+	CoordinatorPriorityEventQueueSize *int              `json:"coordinatorPriorityEventQueueSize"`
+	OriginatorEventQueueSize          *int              `json:"originatorEventQueueSize"`
+	OriginatorPriorityEventQueueSize  *int              `json:"originatorPriorityEventQueueSize"`
+	ClosingGracePeriod                *int              `json:"closingGracePeriod"`
+	ConfirmedLockRetentionGracePeriod *int              `json:"confirmedLockRetentionGracePeriod"`
+	DelegateTimeout                   *string           `json:"delegateTimeout"`
+	HeartbeatInterval                 *string           `json:"heartbeatInterval"`
+	HeartbeatThreshold                *int              `json:"heartbeatThreshold"`
+	MaxInflightTransactions           *int              `json:"maxInflightTransactions"`
+	MaxDispatchAhead                  *int              `json:"maxDispatchAhead"`
+	TargetActiveCoordinators          *int              `json:"targetActiveCoordinators"`
+	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
+	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
+	Writer                            FlushWriterConfig `json:"writer"`
 }
 
 type SequencerMinimumConfig struct {
-	AssembleTimeout               time.Duration
-	RequestTimeout                time.Duration
-	BlockHeightTolerance          uint64
-	BlockRange                    uint64
-	ClosingGracePeriod            int
-	DelegateTimeout               time.Duration
-	HeartbeatInterval             time.Duration
-	MaxInflightTransactions       int
-	MaxDispatchAhead              int
-	TargetActiveCoordinators      int
-	TargetActiveSequencers        int
-	TransactionResumePollInterval time.Duration
+	StateTimeout                      time.Duration
+	RequestTimeout                    time.Duration
+	BlockHeightTolerance              uint64
+	BlockRange                        uint64
+	CoordinatorEventQueueSize         int
+	CoordinatorPriorityEventQueueSize int
+	OriginatorEventQueueSize          int
+	OriginatorPriorityEventQueueSize  int
+	ClosingGracePeriod                int
+	ConfirmedLockRetentionGracePeriod int
+	DelegateTimeout                   time.Duration
+	HeartbeatInterval                 time.Duration
+	MaxInflightTransactions           int
+	MaxDispatchAhead                  int
+	TargetActiveCoordinators          int
+	TargetActiveSequencers            int
+	TransactionResumePollInterval     time.Duration
 }
 
 var SequencerDefaults = SequencerConfig{
@@ -58,31 +68,41 @@ var SequencerDefaults = SequencerConfig{
 		BatchTimeout: confutil.P("25ms"),
 		BatchMaxSize: confutil.P(100),
 	},
-	AssembleTimeout:               confutil.P("10s"), // Time before giving up on assembly of the in progress transaction and re-pooling it
-	RequestTimeout:                confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc.
-	BlockHeightTolerance:          confutil.P(uint64(5)),
-	BlockRange:                    confutil.P(uint64(100)),
-	ClosingGracePeriod:            confutil.P(4),
-	DelegateTimeout:               confutil.P("5s"),
-	HeartbeatInterval:             confutil.P("10s"),
-	MaxInflightTransactions:       confutil.P(500),
-	MaxDispatchAhead:              confutil.P(1), // TODO - temporarily reduced to 1 for safety until reliable re-assembly is implemented (see https://github.com/LFDT-Paladin/paladin/issues/917)
-	TargetActiveCoordinators:      confutil.P(50),
-	TargetActiveSequencers:        confutil.P(50),
-	TransactionResumePollInterval: confutil.P("5m"),
+	StateTimeout:                      confutil.P("10s"), // Time before giving up on request-driven transaction state progress and re-pooling
+	RequestTimeout:                    confutil.P("3s"),  // Time before sending 1 retry of an assemble request, endorsement request etc.
+	BlockHeightTolerance:              confutil.P(uint64(5)),
+	BlockRange:                        confutil.P(uint64(100)),
+	CoordinatorEventQueueSize:         confutil.P(100),
+	CoordinatorPriorityEventQueueSize: confutil.P(500),
+	OriginatorEventQueueSize:          confutil.P(50),
+	OriginatorPriorityEventQueueSize:  confutil.P(500),
+	ClosingGracePeriod:                confutil.P(4),
+	ConfirmedLockRetentionGracePeriod: confutil.P(1),
+	DelegateTimeout:                   confutil.P("5s"),
+	HeartbeatInterval:                 confutil.P("10s"),
+	MaxInflightTransactions:           confutil.P(500),
+	MaxDispatchAhead:                  confutil.P(50),
+	TargetActiveCoordinators:          confutil.P(50),
+	TargetActiveSequencers:            confutil.P(50),
+	TransactionResumePollInterval:     confutil.P("5m"),
 }
 
 var SequencerMinimum = SequencerMinimumConfig{
-	AssembleTimeout:               1 * time.Second,
-	RequestTimeout:                1 * time.Second,
-	BlockHeightTolerance:          1,
-	BlockRange:                    10,
-	ClosingGracePeriod:            1,
-	DelegateTimeout:               100 * time.Millisecond,
-	HeartbeatInterval:             1 * time.Second,
-	MaxInflightTransactions:       1,
-	MaxDispatchAhead:              1,
-	TargetActiveCoordinators:      10,
-	TargetActiveSequencers:        10,
-	TransactionResumePollInterval: 10 * time.Second,
+	StateTimeout:                      1 * time.Second,
+	RequestTimeout:                    1 * time.Second,
+	BlockHeightTolerance:              1,
+	BlockRange:                        10,
+	CoordinatorEventQueueSize:         1,
+	CoordinatorPriorityEventQueueSize: 1,
+	OriginatorEventQueueSize:          1,
+	OriginatorPriorityEventQueueSize:  1,
+	ClosingGracePeriod:                1,
+	ConfirmedLockRetentionGracePeriod: 0,
+	DelegateTimeout:                   100 * time.Millisecond,
+	HeartbeatInterval:                 1 * time.Second,
+	MaxInflightTransactions:           1,
+	MaxDispatchAhead:                  1,
+	TargetActiveCoordinators:          10,
+	TargetActiveSequencers:            10,
+	TransactionResumePollInterval:     10 * time.Second,
 }

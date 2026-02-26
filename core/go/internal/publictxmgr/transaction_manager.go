@@ -587,12 +587,13 @@ func (ptm *pubTxManager) runTransactionQuery(ctx context.Context, dbTX persisten
 
 func mapPersistedTransaction(ptx *DBPublicTxn) *pldapi.PublicTx {
 	tx := &pldapi.PublicTx{
-		LocalID: &ptx.PublicTxnID,
-		From:    ptx.From,
-		Created: ptx.Created,
-		To:      ptx.To,
-		Nonce:   (*pldtypes.HexUint64)(ptx.Nonce),
-		Data:    ptx.Data,
+		LocalID:    &ptx.PublicTxnID,
+		From:       ptx.From,
+		Created:    ptx.Created,
+		To:         ptx.To,
+		Nonce:      (*pldtypes.HexUint64)(ptx.Nonce),
+		Data:       ptx.Data,
+		Dispatcher: ptx.Dispatcher,
 		PublicTxOptions: pldapi.PublicTxOptions{
 			Gas:                (*pldtypes.HexUint64)(&ptx.Gas),
 			Value:              ptx.Value,
@@ -873,7 +874,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 	}
 
 	if len(completions) > 0 {
-		// We have some completions to persis - in the same order as the confirmations that came in
+		// We have some completions to persist - in the same order as the confirmations that came in
 		log.L(ctx).Tracef("MatchUpdateConfirmedTransactions: Writing %d completions to 'public_completions'", len(completions))
 		err := dbTX.DB().
 			Table("public_completions").

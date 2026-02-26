@@ -30,6 +30,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm"
 )
 
@@ -378,7 +379,15 @@ func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX pers
 				return nil, i18n.WrapError(ctx, err, msgs.MsgTxMgrABIReferenceLookupFailed, tx.Transaction.ABIReference)
 			}
 		}
-		resolvedFunction, err := tm.pickFunction(ctx, a, tx.Transaction.Function, tx.Transaction.To)
+		// On create, a transaction which is calling a constructor will have provide an empty string for the function;
+		// however, what gets persisted is the signature of the constructor, i.e. the resolved function. This means
+		// that we must be able to go back from the constructor signature to the empty string ahead of resolving the
+		// function again
+		requiredFunction := tx.Transaction.Function
+		if tx.Transaction.To == nil && isConstructorSignature(a, requiredFunction) {
+			requiredFunction = ""
+		}
+		resolvedFunction, err := tm.pickFunction(ctx, a, requiredFunction, tx.Transaction.To)
 		if err != nil {
 			return nil, err
 		}
@@ -390,6 +399,22 @@ func (tm *txManager) resolveABIReferencesAndCache(ctx context.Context, dbTX pers
 	return txs, nil
 }
 
+func isConstructorSignature(pa *pldapi.StoredABI, requiredFunction string) bool {
+	if requiredFunction == "" {
+		return false
+	}
+	for _, e := range pa.ABI {
+		if e.Type != abi.Constructor {
+			continue
+		}
+		signature, _ := e.Signature()
+		if requiredFunction == signature {
+			return true
+		}
+	}
+	return false
+}
+
 func (tm *txManager) GetTransactionByIDFull(ctx context.Context, id uuid.UUID) (result *pldapi.TransactionFull, err error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	ptxs, err := tm.QueryTransactionsFull(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
@@ -399,7 +424,7 @@ func (tm *txManager) GetTransactionByIDFull(ctx context.Context, id uuid.UUID) (
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+func (tm *txManager) getResolvedTransactionByIDWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*components.ResolvedTransaction, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	// This is cache optimized, because domains rely on the sender node's transaction store as
 	// the only place to read transaction data from for init and assembly.
@@ -410,11 +435,15 @@ func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUI
 	}
 
 	// Do the query - this function also does the caching (so individual TXs get cached from paginated queries)
-	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), tm.p.NOTX(), false)
+	rtxs, err := tm.QueryTransactionsResolved(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query(), dbTX, false)
 	if len(rtxs) == 0 || err != nil {
 		return nil, err
 	}
 	return rtxs[0], nil
+}
+
+func (tm *txManager) GetResolvedTransactionByID(ctx context.Context, id uuid.UUID) (*components.ResolvedTransaction, error) {
+	return tm.getResolvedTransactionByIDWithinTX(ctx, id, tm.p.NOTX())
 }
 
 func (tm *txManager) GetTransactionByID(ctx context.Context, id uuid.UUID) (*pldapi.Transaction, error) {
@@ -434,10 +463,10 @@ func (tm *txManager) GetTransactionByIdempotencyKey(ctx context.Context, idempot
 	return ptxs[0], nil
 }
 
-func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+func (tm *txManager) getTransactionDependenciesWithinTX(ctx context.Context, id uuid.UUID, dbTX persistence.DBTX) (*pldapi.TransactionDependencies, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	var persistedDeps []*transactionDep
-	err := tm.p.DB().
+	err := dbTX.DB().
 		WithContext(ctx).
 		Table(`transaction_deps`).
 		Where(`"transaction" = ?`, id).
@@ -459,6 +488,10 @@ func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUI
 		}
 	}
 	return res, nil
+}
+
+func (tm *txManager) GetTransactionDependencies(ctx context.Context, id uuid.UUID) (*pldapi.TransactionDependencies, error) {
+	return tm.getTransactionDependenciesWithinTX(ctx, id, tm.p.NOTX())
 }
 
 func (tm *txManager) queryPublicTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {

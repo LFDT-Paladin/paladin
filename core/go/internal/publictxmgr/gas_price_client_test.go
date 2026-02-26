@@ -34,7 +34,8 @@ import (
 )
 
 func NewTestGasPriceClient(t *testing.T, conf *pldconf.GasPriceConfig, zeroGasPrice bool) (context.Context, *HybridGasPriceClient, *ethclientmocks.EthClient) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	mockEthClient := ethclientmocks.NewEthClient(t)
 
 	hgc := &HybridGasPriceClient{

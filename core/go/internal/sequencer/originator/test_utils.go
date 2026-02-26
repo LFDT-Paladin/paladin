@@ -73,7 +73,7 @@ type OriginatorBuilderForTesting struct {
 	nodeName         *string
 	committeeMembers []string
 	contractAddress  *pldtypes.EthAddress
-	transactions     []*transaction.Transaction
+	transactions     []*transaction.OriginatorTransaction
 	metrics          metrics.DistributedSequencerMetrics
 	sequencerConfig  *pldconf.SequencerConfig
 }
@@ -107,7 +107,7 @@ func (b *OriginatorBuilderForTesting) CommitteeMembers(committeeMembers ...strin
 	return b
 }
 
-func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.Transaction) *OriginatorBuilderForTesting {
+func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.OriginatorTransaction) *OriginatorBuilderForTesting {
 	b.transactions = transactions
 	return b
 }
@@ -164,11 +164,12 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 	)
 
 	for _, tx := range b.transactions {
-		originator.transactionsByID[tx.ID] = tx
-		originator.transactionsOrdered = append(originator.transactionsOrdered, &tx.ID)
+		txID := tx.GetID()
+		originator.transactionsByID[txID] = tx
+		originator.transactionsOrdered = append(originator.transactionsOrdered, tx)
 		switch tx.GetCurrentState() {
 		case transaction.State_Submitted:
-			originator.submittedTransactionsByHash[*tx.GetLatestSubmissionHash()] = &tx.ID
+			originator.submittedTransactionsByHash[*tx.GetLatestSubmissionHash()] = &txID
 		}
 	}
 
@@ -176,15 +177,12 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		panic(err)
 	}
 
-	originator.stateMachine.currentState = b.state
+	originator.stateMachineEventLoop.StateMachine().CurrentState = b.state
 	switch b.state {
 	// Any state specific setup can be done here
 	}
 
-	err = originator.SetActiveCoordinator(ctx, "coordinator")
-	if err != nil {
-		return nil, nil
-	}
+	originator.activeCoordinatorNode = "coordinator"
 
 	return originator, mocks
 }

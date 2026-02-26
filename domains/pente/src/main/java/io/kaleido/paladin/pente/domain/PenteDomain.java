@@ -17,7 +17,6 @@
 
  import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  import com.fasterxml.jackson.annotation.JsonProperty;
- import com.fasterxml.jackson.core.type.TypeReference;
  import com.fasterxml.jackson.databind.JsonNode;
  import com.fasterxml.jackson.databind.ObjectMapper;
  import com.fasterxml.jackson.databind.node.*;
@@ -182,14 +181,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
              var onChainConfig = PenteConfiguration.decodeConfig(request.getContractConfig().toByteArray());
 
              var contractConfigObj = new PenteConfiguration.ContractConfig(onChainConfig.evmVersion());
-             var contractConfig = ContractConfig.newBuilder().
+            var contractConfig = ContractConfig.newBuilder().
                      setContractConfigJson(new ObjectMapper().writeValueAsString(contractConfigObj)).
                      setCoordinatorSelection(ContractConfig.CoordinatorSelection.COORDINATOR_ENDORSER).
-                     setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR).
-                     build();
+                    setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR);
+            if (request.hasPrivacyGroup()) {
+                var privacyGroup = request.getPrivacyGroup();
+                var members = privacyGroup.getMembersList().toArray(new String[0]);
+                if (members.length > 0) {
+                    var lookups = PenteTransaction.buildGroupScopeIdentityLookups(new JsonHex.Bytes32(privacyGroup.getGenesisSalt()), members);
+                    contractConfig.addAllCoordinatorEndorserCandidates(lookups);
+                }
+            }
              return CompletableFuture.completedFuture(InitContractResponse.newBuilder().
                      setValid(true).
-                     setContractConfig(contractConfig).
+                    setContractConfig(contractConfig.build()).
                      build());
 
          } catch (Exception e) {
@@ -596,7 +602,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<BuildReceiptResponse> buildReceipt(BuildReceiptRequest request) {
          try {
-             if (!request.getComplete()) {
+             if (request.getUnavailableStates()) {
                  throw new IllegalStateException("all states must be available to build an EVM receipt");
              }
 
@@ -843,6 +849,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }
+     }
+
+     @Override
+     protected CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request) {
+         // Very simple for Pente - we expect all the states, so we can just pass back the pre-calculated
+         // first unavailable ID that Paladin provided us
+         var res = CheckStateCompletionResponse.newBuilder();
+         if (request.getUnavailableStates().hasFirstUnavailableId()) {
+             res.setNextMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
+         }
+         return CompletableFuture.completedFuture(res.build());
      }
 
      @NotNull

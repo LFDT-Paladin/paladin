@@ -21,18 +21,21 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/sha3"
 )
 
-func (t *Transaction) applyDispatchConfirmation(_ context.Context, requestID uuid.UUID) error {
+func (t *CoordinatorTransaction) completePreDispatchRequest(_ context.Context) error {
 	t.pendingPreDispatchRequest = nil
+	t.clearTimeoutSchedules()
 	return nil
 }
 
-func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
+func (t *CoordinatorTransaction) sendPreDispatchRequest(ctx context.Context) error {
 
 	if t.pendingPreDispatchRequest == nil {
-		hash, err := t.Hash(ctx)
+		hash, err := t.hash(ctx)
 		if err != nil {
 			log.L(ctx).Debugf("error hashing transaction for dispatch confirmation request: %s", err)
 			return err
@@ -42,37 +45,48 @@ func (t *Transaction) sendPreDispatchRequest(ctx context.Context) error {
 				ctx,
 				t.originatorNode,
 				idempotencyKey,
-				t.PreAssembly.TransactionSpecification,
+				t.pt.PreAssembly.TransactionSpecification,
 				hash,
 			)
 		})
-		t.cancelDispatchConfirmationRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
-			err := t.eventHandler(ctx, &RequestTimeoutIntervalEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: t.ID,
-				},
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error handling RequestTimeoutIntervalEvent: %s", err)
-				return
-			}
-		})
+		t.scheduleRequestTimeout(ctx)
 	}
 
 	sendErr := t.pendingPreDispatchRequest.Nudge(ctx)
 
-	// MRW TODO - we are the ones doing the dispatching, so after we've informed the originator we can just update our own state?
-	// t.HandleEvent(ctx, &DispatchConfirmedEvent{
-	// 	BaseCoordinatorEvent: BaseCoordinatorEvent{
-	// 		TransactionID: t.ID,
-	// 	},
-	// 	RequestID: t.pendingDispatchConfirmationRequest.IdempotencyKey(),
-	// })
-
 	return sendErr
 
 }
-func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
+
+// Hash method of Transaction
+func (t *CoordinatorTransaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
+	if t.pt == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
+	}
+	if t.pt.PostAssembly == nil {
+		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PostAssembly")
+	}
+
+	// MRW TODO - MUST DO - this was relying on only signatures being present, but Pente contracts reject transactions that have both signatures and endorsements.
+	// if len(t.pt.PostAssembly.Signatures) == 0 {
+	// 	return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without at least one Signature")
+	// }
+
+	hash := sha3.NewLegacyKeccak256()
+
+	if len(t.pt.PostAssembly.Signatures) != 0 {
+		for _, signature := range t.pt.PostAssembly.Signatures {
+			hash.Write(signature.Payload)
+		}
+	}
+
+	var h32 pldtypes.Bytes32
+	_ = hash.Sum(h32[0:0])
+	return &h32, nil
+
+}
+
+func (t *CoordinatorTransaction) nudgePreDispatchRequest(ctx context.Context) error {
 	if t.pendingPreDispatchRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgePreDispatchRequest called with no pending request")
 	}
@@ -80,7 +94,7 @@ func (t *Transaction) nudgePreDispatchRequest(ctx context.Context) error {
 	return t.pendingPreDispatchRequest.Nudge(ctx)
 }
 
-func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transaction, event common.Event) (bool, error) {
+func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *DispatchRequestApprovedEvent:
 		return txn.pendingPreDispatchRequest != nil && txn.pendingPreDispatchRequest.IdempotencyKey() == event.RequestID, nil
@@ -88,10 +102,31 @@ func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Transa
 	return false, nil
 }
 
-func action_SendPreDispatchRequest(ctx context.Context, txn *Transaction) error {
+func action_DispatchRequestApproved(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+	return t.completePreDispatchRequest(ctx)
+}
+
+func action_DispatchRequestRejected(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+	return t.completePreDispatchRequest(ctx)
+}
+
+func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendPreDispatchRequest(ctx)
 }
 
-func action_NudgePreDispatchRequest(ctx context.Context, txn *Transaction) error {
+func action_OnTransitionToConfirmingDispatchable(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
+	txn.scheduleStateTimeout(ctx)
+	return action_SendPreDispatchRequest(ctx, txn, event)
+}
+
+func action_NudgePreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
+}
+
+func (t *CoordinatorTransaction) dispatchConfirmationStateTimeoutExceeded(ctx context.Context) bool {
+	return t.stateTimeoutExceeded(ctx, t.pendingPreDispatchRequest, "dispatch confirmation")
+}
+
+func guard_DispatchConfirmationStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
+	return txn.dispatchConfirmationStateTimeoutExceeded(ctx)
 }

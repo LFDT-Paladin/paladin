@@ -269,11 +269,6 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 		switch attRequest.AttestationType {
 		case prototk.AttestationType_ENDORSE:
 		case prototk.AttestationType_SIGN:
-		case prototk.AttestationType_GENERATE_PROOF:
-			errorMessage := "AttestationType_GENERATE_PROOF is not implemented yet"
-			log.L(ctx).Error(errorMessage)
-			return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, errorMessage)
-
 		default:
 			errorMessage := fmt.Sprintf("Unsupported attestation type: %s", attRequest.AttestationType)
 			log.L(ctx).Error(errorMessage)

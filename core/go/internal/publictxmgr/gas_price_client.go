@@ -66,10 +66,11 @@ type HybridGasPriceClient struct {
 	gasPriceIncreasePercent int
 
 	// Gas oracle HTTP client for external gas price retrieval
-	gasOracleHTTPClient *resty.Client
-	gasOracleTemplate   *template.Template
-	gasOracleMethod     string
-	gasOracleBody       *string
+	gasOracleHTTPClient        *resty.Client
+	gasOracleHTTPClientCloseFn func()
+	gasOracleTemplate          *template.Template
+	gasOracleMethod            string
+	gasOracleBody              *string
 
 	// Eth fee history gas pricing configuration (always set with defaults so this works as a fallback option)
 	priorityFeePercentile int
@@ -414,12 +415,13 @@ func (hGpc *HybridGasPriceClient) Init(ctx context.Context) error {
 	// We need to check for a non-empty URL for backwards compatibility with an older configuration version which
 	// didn't use a pointer to the gas oracle API config.
 	if hGpc.conf.GasOracleAPI != nil && hGpc.conf.GasOracleAPI.URL != "" {
-		gasOracleClient, err := pldresty.New(ctx, &hGpc.conf.GasOracleAPI.HTTPClientConfig)
+		gasOracleClient, closeFn, err := pldresty.New(ctx, &hGpc.conf.GasOracleAPI.HTTPClientConfig)
 		if err != nil {
 			log.L(ctx).Errorf("Failed to initialize gas oracle HTTP client: %+v", err)
 			return err
 		}
 		hGpc.gasOracleHTTPClient = gasOracleClient
+		hGpc.gasOracleHTTPClientCloseFn = closeFn
 
 		// Set method and body with defaults from configuration
 		defaults := pldconf.PublicTxManagerDefaults
@@ -598,6 +600,9 @@ func (hGpc *HybridGasPriceClient) startGasPriceRefresh(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				// Context cancelled, stop refreshing
+				if hGpc.gasOracleHTTPClientCloseFn != nil {
+					hGpc.gasOracleHTTPClientCloseFn()
+				}
 				return
 			case <-hGpc.gasPriceRefreshTicker.C:
 				// Ticker fired, refresh cache

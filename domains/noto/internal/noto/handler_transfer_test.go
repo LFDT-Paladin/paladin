@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
@@ -34,9 +35,10 @@ import (
 )
 
 var pTrue = true
-var notoBasicConfig = &types.NotoParsedConfig{
+var notoBasicConfigV1 = &types.NotoParsedConfig{
 	NotaryMode:   types.NotaryModeBasic.Enum(),
 	NotaryLookup: "notary@node1",
+	Variant:      types.NotoVariantDefault,
 	Options: types.NotoOptions{
 		Basic: &types.NotoBasicOptions{
 			RestrictMint: &pTrue,
@@ -46,12 +48,23 @@ var notoBasicConfig = &types.NotoParsedConfig{
 	},
 }
 
+var notaryAddress = pldtypes.RandAddress()
+
+var notaryVerifierResolved = &prototk.ResolvedVerifier{
+	Lookup:       "notary@node1",
+	Verifier:     notaryAddress.String(),
+	Algorithm:    algorithms.ECDSA_SECP256K1,
+	VerifierType: verifiers.ETH_ADDRESS,
+}
+
 func TestTransfer(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
-		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
+		Callbacks:      mockCallbacks,
+		coinSchema:     &prototk.StateSchema{Id: "coin"},
+		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
+		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
+		manifestSchema: &prototk.StateSchema{Id: "manifest"},
 	}
 	ctx := context.Background()
 	fn := types.NotoABI.Functions()["transfer"]
@@ -86,7 +99,7 @@ func TestTransfer(t *testing.T) {
 		From:          "sender@node1",
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress:    contractAddress,
-			ContractConfigJson: mustParseJSON(notoBasicConfig),
+			ContractConfigJson: mustParseJSON(notoBasicConfigV1),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
 		FunctionSignature: fn.SolString(),
@@ -136,7 +149,7 @@ func TestTransfer(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 2)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 1)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + data
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
 	outputCoin, err := n.unmarshalCoin(assembleRes.AssembledTransaction.OutputStates[0].StateDataJson)
@@ -151,7 +164,7 @@ func TestTransfer(t *testing.T) {
 	assert.Equal(t, "25", remainderCoin.Amount.Int().String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1"}, assembleRes.AssembledTransaction.OutputStates[1].DistributionList)
 
-	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[0].StateDataJson)
+	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
 	assert.Equal(t, []string{"notary@node1", "sender@node1", "receiver@node2"}, assembleRes.AssembledTransaction.InfoStates[0].DistributionList)
@@ -186,9 +199,14 @@ func TestTransfer(t *testing.T) {
 	}
 	infoStates := []*prototk.EndorsableState{
 		{
-			SchemaId:      "data",
+			SchemaId:      "manifest",
 			Id:            "0x0000000000000000000000000000000000000000000000000000000000000003",
 			StateDataJson: assembleRes.AssembledTransaction.InfoStates[0].StateDataJson,
+		},
+		{
+			SchemaId:      "data",
+			Id:            "0x0000000000000000000000000000000000000000000000000000000000000004",
+			StateDataJson: assembleRes.AssembledTransaction.InfoStates[1].StateDataJson,
 		},
 	}
 
@@ -240,7 +258,7 @@ func TestTransfer(t *testing.T) {
 		"outputs": ["0x0000000000000000000000000000000000000000000000000000000000000001","0x0000000000000000000000000000000000000000000000000000000000000002"],
 		"signature": "%s",
 		"txId": "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		"data": "0x00010000015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000003"
+		"data": "0x000100010000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000004"
 	}`, inputCoin.ID, signatureBytes), prepareRes.Transaction.ParamsJson)
 
 	var invokeFn abi.Entry
@@ -254,6 +272,7 @@ func TestTransfer(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -294,9 +313,38 @@ func TestTransfer(t *testing.T) {
 			"encodedCall": "%s"
 		}
 	}`, senderKey.Address, senderKey.Address, contractAddress, pldtypes.HexBytes(encodedCall)), prepareRes.Transaction.ParamsJson)
+
+	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
+	manifestState.Id = confutil.P(pldtypes.RandBytes32().String()) // manifest is odd one out that  doesn't get ID allocated during assemble
+	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	outCoin1State := assembleRes.AssembledTransaction.OutputStates[0]
+	outCoin2State := assembleRes.AssembledTransaction.OutputStates[1]
+	mt := newManifestTester(t, ctx, n, mockCallbacks, tx.TransactionId, assembleRes.AssembledTransaction)
+	mt.withMissingStates( /* no missing states */ ).
+		completeForIdentity(notaryAddress).
+		completeForIdentity(senderKey.Address.String()).
+		completeForIdentity(receiverAddress)
+	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(outCoin1State).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()). // we currently mark the target coins as required by the sender
+		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(outCoin2State).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String()). // the sender needs both coins
+		completeForIdentity(receiverAddress)               // the receiver only needs coin one
+
 }
 
 func TestTransferAssembleMissingFrom(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},
@@ -316,7 +364,7 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 		},
 		FunctionABI:     fn,
 		ContractAddress: ethtypes.MustNewAddress(contractAddress),
-		DomainConfig:    notoBasicConfig,
+		DomainConfig:    notoBasicConfigV1,
 		Params: &types.TransferParams{
 			To:     "receiver@node2",
 			Amount: pldtypes.Int64ToInt256(75),
@@ -324,14 +372,15 @@ func TestTransferAssembleMissingFrom(t *testing.T) {
 		},
 	}
 	req := &prototk.AssembleTransactionRequest{
-		ResolvedVerifiers: []*prototk.ResolvedVerifier{},
+		ResolvedVerifiers: []*prototk.ResolvedVerifier{notaryVerifierResolved},
 	}
 
 	_, err := handler.Assemble(ctx, parsedTx, req)
-	assert.Regexp(t, "PD200011.*'from'", err)
+	assert.Regexp(t, "PD200011.*'sender'", err)
 }
 
 func TestTransferAssembleMissingTo(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
 		coinSchema:   &prototk.StateSchema{Id: "coin"},
@@ -351,7 +400,7 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 		},
 		FunctionABI:     fn,
 		ContractAddress: ethtypes.MustNewAddress(contractAddress),
-		DomainConfig:    notoBasicConfig,
+		DomainConfig:    notoBasicConfigV1,
 		Params: &types.TransferParams{
 			To:     "receiver@node2",
 			Amount: pldtypes.Int64ToInt256(75),
@@ -360,6 +409,7 @@ func TestTransferAssembleMissingTo(t *testing.T) {
 	}
 	req := &prototk.AssembleTransactionRequest{
 		ResolvedVerifiers: []*prototk.ResolvedVerifier{
+			notaryVerifierResolved,
 			{
 				Lookup:       "sender@node1",
 				Algorithm:    algorithms.ECDSA_SECP256K1,

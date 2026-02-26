@@ -121,6 +121,7 @@ nav:
           - Components: architecture/distributed_sequencer_components.md
           - State Machine: architecture/distributed_sequencer_state_machine.md
           - Data Flows: architecture/distributed_sequencer_data_flows.md
+          - Dependency Handling: architecture/distributed_sequencer_dependency_handling.md
           - Protocol: architecture/distributed_sequencer_protocol.md
   - Getting Started:
     - Installation: 

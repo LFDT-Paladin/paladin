@@ -21,7 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 )
 
-type Guard func(ctx context.Context, c *coordinator) bool
+// Guard type is defined as a type alias in state_machine.go using statemachine.Guard[*coordinator]
 
 func guard_Not(guard Guard) Guard {
 	return func(ctx context.Context, c *coordinator) bool {
@@ -52,7 +52,6 @@ func guard_FlushComplete(ctx context.Context, c *coordinator) bool {
 		c.getTransactionsInStates(ctx, []transaction.State{
 			transaction.State_Ready_For_Dispatch,
 			transaction.State_Dispatched,
-			transaction.State_Submitted,
 		}),
 	) == 0
 }
@@ -75,4 +74,8 @@ func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
 			transaction.State_Assembling,
 		}),
 	) > 0
+}
+
+func guard_HasActiveCoordinator(ctx context.Context, c *coordinator) bool {
+	return c.activeCoordinatorNode != ""
 }

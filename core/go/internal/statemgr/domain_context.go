@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -57,6 +58,16 @@ type domainContext struct {
 	// These are held only in memory, and used during DB queries to create a view on top of the database
 	// that can make both additional states available, and remove visibility to states.
 	txLocks []*pldapi.StateLock
+}
+
+type logStateSummary []*pldapi.State
+
+func (lr logStateSummary) String() string {
+	summary := make([]string, len(lr))
+	for i, s := range lr {
+		summary[i] = fmt.Sprintf("schema=%s/id=%s", s.Schema, s.ID)
+	}
+	return strings.Join(summary, ",")
 }
 
 // Very important that callers Close domain contexts they open
@@ -294,7 +305,7 @@ func (dc *domainContext) GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.
 }
 
 func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	log.L(dc.Context).Debug("domainContext:FindAvailableStates")
+	log.L(dc.Context).Debugf("domainContext:FindAvailableStates %s", query) // log the query at debug level
 	// Build a list of spending states
 	spending, _, _, err := dc.getUnFlushedSpends()
 	if err != nil {
@@ -316,16 +327,17 @@ func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pld
 	if err != nil {
 		return nil, nil, err
 	}
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates read %d states from DB", len(states))
+	// At debug log the schemas/IDs of the states
+	log.L(dc.Context).Tracef("domainContext:FindAvailableStates read %d states from DB", len(states))
 
 	// Merge in un-flushed states to results
 	states, err = dc.mergeUnFlushedApplyLocks(schema, states, query, true /* exclude spent states */, false)
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates mergeUnFlushedApplyLocks %d", len(states))
 	if log.IsTraceEnabled() {
 		for _, s := range states {
 			log.L(dc.Context).Tracef("domainContext returning available state %s", s.ID)
 		}
 	}
+	log.L(dc.Context).Debugf("domainContext:FindAvailableStates read+merged %d states: %s", len(states), logStateSummary(states))
 
 	return schema, states, err
 }
@@ -353,16 +365,20 @@ func (dc *domainContext) FindAvailableNullifiers(dbTX persistence.DBTX, schemaID
 	return schema, states, err
 }
 
-func (dc *domainContext) UpsertStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.State, err error) {
-	return dc.upsertStates(dbTX, false, stateUpserts...)
+type validatedStateSet struct {
+	states          []*pldapi.State
+	stateLocks      []*pldapi.StateLock
+	withValues      []*components.StateWithLabels
+	toMakeAvailable []*components.StateWithLabels
 }
 
-func (dc *domainContext) upsertStates(dbTX persistence.DBTX, holdingLock bool, stateUpserts ...*components.StateUpsert) (states []*pldapi.State, err error) {
-
-	states = make([]*pldapi.State, len(stateUpserts))
-	stateLocks := make([]*pldapi.StateLock, 0, len(stateUpserts))
-	withValues := make([]*components.StateWithLabels, len(stateUpserts))
-	toMakeAvailable := make([]*components.StateWithLabels, 0, len(stateUpserts))
+func (dc *domainContext) validateStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (ss *validatedStateSet, err error) {
+	ss = &validatedStateSet{
+		states:          make([]*pldapi.State, len(stateUpserts)),
+		stateLocks:      make([]*pldapi.StateLock, 0, len(stateUpserts)),
+		withValues:      make([]*components.StateWithLabels, len(stateUpserts)),
+		toMakeAvailable: make([]*components.StateWithLabels, 0, len(stateUpserts)),
+	}
 	for i, ns := range stateUpserts {
 		schema, err := dc.ss.getSchemaByID(dc, dbTX, dc.domainName, ns.Schema, true)
 		if err != nil {
@@ -373,20 +389,44 @@ func (dc *domainContext) upsertStates(dbTX persistence.DBTX, holdingLock bool, s
 		if err != nil {
 			return nil, err
 		}
-		withValues[i] = vs
-		states[i] = withValues[i].State
+		ss.withValues[i] = vs
+		ss.states[i] = vs.State
 		if ns.CreatedBy != nil {
 			createLock := &pldapi.StateLock{
 				Type:        pldapi.StateLockTypeCreate.Enum(),
 				Transaction: *ns.CreatedBy,
-				StateID:     withValues[i].ID,
+				StateID:     vs.ID,
 			}
-			stateLocks = append(stateLocks, createLock)
-			toMakeAvailable = append(toMakeAvailable, vs)
-			log.L(dc).Infof("Upserting state %s with create lock tx=%s", states[i].ID, ns.CreatedBy)
+			ss.stateLocks = append(ss.stateLocks, createLock)
+			ss.toMakeAvailable = append(ss.toMakeAvailable, vs)
+			log.L(dc).Infof("Upserting state %s with create lock tx=%s", vs.ID, ns.CreatedBy)
 		} else {
-			log.L(dc).Infof("Upserting state %s (no create lock)", states[i].ID)
+			log.L(dc).Infof("Upserting state %s (no create lock)", vs.ID)
 		}
+	}
+	return ss, nil
+}
+
+func (dc *domainContext) UpsertStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.State, err error) {
+	return dc.upsertStates(dbTX, false, stateUpserts...)
+}
+
+func (dc *domainContext) ValidateStates(dbTX persistence.DBTX, stateUpserts ...*components.StateUpsert) (states []*pldapi.StateBase, err error) {
+	ss, err := dc.validateStates(dbTX, stateUpserts...)
+	if err == nil {
+		states = make([]*pldapi.StateBase, len(ss.states))
+		for i, s := range ss.states {
+			states[i] = &s.StateBase
+		}
+	}
+	return states, err
+}
+
+func (dc *domainContext) upsertStates(dbTX persistence.DBTX, holdingLock bool, stateUpserts ...*components.StateUpsert) ([]*pldapi.State, error) {
+
+	ss, err := dc.validateStates(dbTX, stateUpserts...)
+	if err != nil {
+		return nil, err
 	}
 
 	// Take lock and check flush state
@@ -401,17 +441,17 @@ func (dc *domainContext) upsertStates(dbTX persistence.DBTX, holdingLock bool, s
 	// Only those transactions with a creating TX lock can be returned from queries
 	// (any other states supplied for flushing are just to ensure we have a copy of the state
 	// for data availability when the existing/later confirm is available)
-	for _, s := range toMakeAvailable {
+	for _, s := range ss.toMakeAvailable {
 		dc.creatingStates[s.ID.String()] = s
 	}
-	err = dc.addStateLocks(stateLocks...)
+	err = dc.addStateLocks(ss.stateLocks...)
 	if err != nil {
 		return nil, err
 	}
 
 	// Add all the states to the flush that will go to the DB
-	dc.unFlushed.states = append(dc.unFlushed.states, withValues...)
-	return states, nil
+	dc.unFlushed.states = append(dc.unFlushed.states, ss.withValues...)
+	return ss.states, nil
 }
 
 func (dc *domainContext) UpsertNullifiers(nullifiers ...*components.NullifierUpsert) error {

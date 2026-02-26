@@ -36,7 +36,7 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 # Tool Versions
 KUSTOMIZE_VERSION ?= v5.4.3
 CONTROLLER_TOOLS_VERSION ?= v0.16.3
-ENVTEST_VERSION ?= release-0.17
+ENVTEST_VERSION ?= release-0.22
 GOLANGCI_LINT_VERSION ?= v1.57.2
 
 # Paths for Helm charts

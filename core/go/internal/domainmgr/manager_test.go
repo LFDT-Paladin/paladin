@@ -33,6 +33,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
@@ -54,6 +55,7 @@ type mockComponents struct {
 	sequencerManager *componentsmocks.SequencerManager
 	transportMgr     *componentsmocks.TransportManager
 	publicTxManager  *componentsmocks.PublicTxManager
+	groupManager     *componentsmocks.GroupManager
 }
 
 func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManagerInlineConfig, extraSetup ...func(mc *mockComponents)) (context.Context, *domainManager, *mockComponents, func()) {
@@ -70,6 +72,7 @@ func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManager
 		sequencerManager: componentsmocks.NewSequencerManager(t),
 		transportMgr:     componentsmocks.NewTransportManager(t),
 		publicTxManager:  componentsmocks.NewPublicTxManager(t),
+		groupManager:     componentsmocks.NewGroupManager(t),
 	}
 
 	// Blockchain stuff is always mocked
@@ -84,6 +87,8 @@ func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManager
 	allComponents.On("SequencerManager").Return(mc.sequencerManager)
 	allComponents.On("TransportManager").Return(mc.transportMgr)
 	allComponents.On("PublicTxManager").Return(mc.publicTxManager)
+	allComponents.On("GroupManager").Maybe().Return(mc.groupManager)
+	mc.groupManager.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Maybe().Return([]*pldapi.PrivacyGroup{}, nil)
 	mc.transportMgr.On("LocalNodeName").Return("node1").Maybe()
 
 	var p persistence.Persistence
@@ -191,6 +196,8 @@ func TestDomainMissingRegistryAddress(t *testing.T) {
 		txManager:        componentsmocks.NewTXManager(t),
 		sequencerManager: componentsmocks.NewSequencerManager(t),
 		transportMgr:     componentsmocks.NewTransportManager(t),
+		publicTxManager:  componentsmocks.NewPublicTxManager(t),
+		groupManager:     componentsmocks.NewGroupManager(t),
 	}
 	componentsmocks := componentsmocks.NewAllComponents(t)
 	componentsmocks.On("EthClientFactory").Return(mc.ethClientFactory)
@@ -204,6 +211,7 @@ func TestDomainMissingRegistryAddress(t *testing.T) {
 	componentsmocks.On("SequencerManager").Return(mc.sequencerManager)
 	componentsmocks.On("TransportManager").Return(mc.transportMgr)
 	componentsmocks.On("PublicTxManager").Return(mc.publicTxManager)
+	componentsmocks.On("GroupManager").Return(mc.groupManager)
 
 	mp, err := mockpersistence.NewSQLMockProvider()
 	require.NoError(t, err)
@@ -375,8 +383,62 @@ func TestWaitForTransactionTimeout(t *testing.T) {
 	assert.Regexp(t, "PD020100", err)
 }
 
-func TestQuerySmartContractsLimitNotSet(t *testing.T) {
+func TestPopulateContractConfig(t *testing.T) {
+}
+
+func TestGetSigner(t *testing.T) {
+	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	signer := dm.GetSigner()
+	assert.NotNil(t, signer)
+	assert.Equal(t, dm.domainSigner, signer)
+}
+
+func TestGetSmartContractByAddressCached(t *testing.T) {
 	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{},
+	})
+	defer done()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// Create a minimal mock domain
+	mockDomain := &domain{
+		dm:              dm,
+		name:            "test",
+		registryAddress: contractAddr,
+	}
+
+	// Create a mock domain contract and put it in the cache
+	mockContract := &domainContract{
+		dm: dm,
+		d:  mockDomain,
+		info: &PrivateSmartContract{
+			Address: *contractAddr,
+		},
+		config: &prototk.ContractConfig{
+			ContractConfigJson: `{"cached":"true"}`,
+		},
+	}
+	dm.contractCache.Set(*contractAddr, mockContract)
+
+	// Get the contract - should return from cache
+	sc, err := dm.GetSmartContractByAddress(ctx, dm.persistence.NOTX(), *contractAddr)
+	require.NoError(t, err)
+	require.NotNil(t, sc)
+	assert.Equal(t, *contractAddr, sc.Address())
+	assert.Equal(t, `{"cached":"true"}`, sc.ContractConfig().ContractConfigJson)
+}
+
+func TestQuerySmartContractsLimitNotSet(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"domain1": {
 				RegistryAddress: pldtypes.RandHex(20),
@@ -386,7 +448,13 @@ func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	defer done()
 
 	jq := &query.QueryJSON{}
-	_, err := dm.querySmartContracts(ctx, jq)
+	mc.db.ExpectBegin()
+	mc.db.ExpectRollback()
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "PD010721", err)
 }
 
@@ -405,9 +473,15 @@ func TestQuerySmartContractsDatabaseError(t *testing.T) {
 		Limit: &limit,
 	}
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(fmt.Errorf("database error"))
+	mc.db.ExpectRollback()
 
-	_, err := dm.querySmartContracts(ctx, jq)
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "database error", err)
 }
 
@@ -426,11 +500,18 @@ func TestQuerySmartContractsEmptyResults(t *testing.T) {
 		Limit: &limit,
 	}
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
 	)
+	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -454,12 +535,19 @@ func TestQuerySmartContractsDomainNotFound(t *testing.T) {
 	// Use a different domain address that's not configured
 	unknownDomainAddr := pldtypes.RandAddress()
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
 			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr.String(), []byte{}),
 	)
+	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, *contractAddr, results[0].Address)
@@ -515,12 +603,19 @@ func TestQuerySmartContractsDomainFound(t *testing.T) {
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
 			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
 	)
+	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, *contractAddr, results[0].Address)
@@ -577,13 +672,20 @@ func TestQuerySmartContractsMultipleResults(t *testing.T) {
 	contractAddr2 := pldtypes.RandAddress()
 	unknownDomainAddr := pldtypes.RandAddress()
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
 			AddRow(uuid.New(), domainAddr.String(), contractAddr1.String(), []byte{0xfe, 0xed, 0xbe, 0xef}).
 			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr2.String(), []byte{0xde, 0xad, 0xbe, 0xef}),
 	)
+	mc.db.ExpectCommit()
 
-	results, err := dm.querySmartContracts(ctx, jq)
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 
@@ -638,11 +740,17 @@ func TestQuerySmartContractsEnrichError(t *testing.T) {
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
 
+	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
 		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
 			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
 	)
+	mc.db.ExpectRollback()
 
-	_, err := dm.querySmartContracts(ctx, jq)
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
 	assert.Regexp(t, "init contract error", err)
 }
