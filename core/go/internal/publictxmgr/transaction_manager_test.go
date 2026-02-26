@@ -1173,6 +1173,12 @@ func TestWriteReceivedPublicTransactionSubmissions(t *testing.T) {
 	})
 	assert.NoError(t, err)
 
+	// Write the same submission a second time. This should do nothing instead of failing.
+	err = ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return ptm.WriteReceivedPublicTransactionSubmissions(ctx, dbTX, txns)
+	})
+	assert.NoError(t, err)
+
 	// Verify the transaction was written
 	var dbTx DBPublicTxn
 	err = ptm.p.DB().WithContext(ctx).
@@ -1186,9 +1192,119 @@ func TestWriteReceivedPublicTransactionSubmissions(t *testing.T) {
 	assert.Equal(t, testNonce, *dbTx.Nonce)
 }
 
+func TestWriteReceivedPublicTransactionSubmissionsMultipleTransactionsNoCrossContamination(t *testing.T) {
+	ctx, ptm, _, done := newTestPublicTxManager(t, true)
+	defer done()
+
+	testAddressA := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testAddressB := pldtypes.MustEthAddress("0x2234567890123456789012345678901234567890")
+	testTxHashA := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567801")
+	testTxHashB := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567802")
+	testTxIDA := uuid.New()
+	testTxIDB := uuid.New()
+	testNonceA := uint64(101)
+	testNonceB := uint64(102)
+	maxFeePerGas := pldtypes.MustParseHexUint256("0x100")
+	maxPriorityFeePerGas := pldtypes.MustParseHexUint256("0x10")
+
+	txns := []*pldapi.PublicTxWithBinding{
+		{
+			PublicTx: &pldapi.PublicTx{
+				From:    *testAddressA,
+				Nonce:   confutil.P(pldtypes.HexUint64(testNonceA)),
+				Data:    []byte("test data A"),
+				Created: pldtypes.TimestampNow(),
+				PublicTxOptions: pldapi.PublicTxOptions{
+					Gas: confutil.P(pldtypes.HexUint64(21000)),
+					PublicTxGasPricing: pldapi.PublicTxGasPricing{
+						MaxFeePerGas:         maxFeePerGas,
+						MaxPriorityFeePerGas: maxPriorityFeePerGas,
+					},
+				},
+				Submissions: []*pldapi.PublicTxSubmissionData{
+					{
+						Time:            pldtypes.TimestampNow(),
+						TransactionHash: testTxHashA,
+						PublicTxGasPricing: pldapi.PublicTxGasPricing{
+							MaxFeePerGas:         maxFeePerGas,
+							MaxPriorityFeePerGas: maxPriorityFeePerGas,
+						},
+					},
+				},
+				Dispatcher: "test-dispatcher",
+			},
+			PublicTxBinding: pldapi.PublicTxBinding{
+				Transaction:     testTxIDA,
+				TransactionType: pldapi.TransactionTypePrivate.Enum(),
+			},
+		},
+		{
+			PublicTx: &pldapi.PublicTx{
+				From:    *testAddressB,
+				Nonce:   confutil.P(pldtypes.HexUint64(testNonceB)),
+				Data:    []byte("test data B"),
+				Created: pldtypes.TimestampNow(),
+				PublicTxOptions: pldapi.PublicTxOptions{
+					Gas: confutil.P(pldtypes.HexUint64(22000)),
+					PublicTxGasPricing: pldapi.PublicTxGasPricing{
+						MaxFeePerGas:         maxFeePerGas,
+						MaxPriorityFeePerGas: maxPriorityFeePerGas,
+					},
+				},
+				Submissions: []*pldapi.PublicTxSubmissionData{
+					{
+						Time:            pldtypes.TimestampNow(),
+						TransactionHash: testTxHashB,
+						PublicTxGasPricing: pldapi.PublicTxGasPricing{
+							MaxFeePerGas:         maxFeePerGas,
+							MaxPriorityFeePerGas: maxPriorityFeePerGas,
+						},
+					},
+				},
+				Dispatcher: "test-dispatcher",
+			},
+			PublicTxBinding: pldapi.PublicTxBinding{
+				Transaction:     testTxIDB,
+				TransactionType: pldapi.TransactionTypePrivate.Enum(),
+			},
+		},
+	}
+
+	// Set TransactionHash on the PublicTx (it's used in WriteReceivedPublicTransactionSubmissions)
+	txns[0].TransactionHash = &testTxHashA
+	txns[1].TransactionHash = &testTxHashB
+
+	err := ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return ptm.WriteReceivedPublicTransactionSubmissions(ctx, dbTX, txns)
+	})
+	require.NoError(t, err)
+
+	results, err := ptm.QueryPublicTxWithBindings(ctx, ptm.p.NOTX(), nil)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	byHash := make(map[pldtypes.Bytes32]*pldapi.PublicTxWithBinding)
+	for _, tx := range results {
+		require.Len(t, tx.Submissions, 1)
+		byHash[tx.Submissions[0].TransactionHash] = tx
+	}
+
+	txA, ok := byHash[testTxHashA]
+	require.True(t, ok)
+	assert.Equal(t, *testAddressA, txA.From)
+	assert.Equal(t, testTxIDA, txA.Transaction)
+
+	txB, ok := byHash[testTxHashB]
+	require.True(t, ok)
+	assert.Equal(t, *testAddressB, txB.From)
+	assert.Equal(t, testTxIDB, txB.Transaction)
+}
+
 func TestWriteReceivedPublicTransactionSubmissionsDBError(t *testing.T) {
 	ctx := context.Background()
-	_, ptm, m, done := newTestPublicTxManager(t, false)
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
 	defer done()
 
 	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
@@ -1223,11 +1339,101 @@ func TestWriteReceivedPublicTransactionSubmissionsDBError(t *testing.T) {
 	// Set TransactionHash on the PublicTx
 	txns[0].TransactionHash = &testTxHash
 
-	m.db.ExpectBegin()
 	m.db.ExpectQuery("INSERT.*public_txns").WillReturnError(fmt.Errorf("database error"))
 
 	err := ptm.WriteReceivedPublicTransactionSubmissions(ctx, m.allComponents.Persistence().NOTX(), txns)
 	assert.Error(t, err)
+}
+
+func TestWriteReceivedPublicTransactionSubmissionsBindingDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testTxHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+
+	txns := []*pldapi.PublicTxWithBinding{
+		{
+			PublicTx: &pldapi.PublicTx{
+				From:    *testAddress,
+				Nonce:   confutil.P(pldtypes.HexUint64(42)),
+				Data:    []byte("test"),
+				Created: pldtypes.TimestampNow(),
+				PublicTxOptions: pldapi.PublicTxOptions{
+					Gas: confutil.P(pldtypes.HexUint64(21000)),
+				},
+				Submissions: []*pldapi.PublicTxSubmissionData{
+					{
+						Time:            pldtypes.TimestampNow(),
+						TransactionHash: testTxHash,
+					},
+				},
+				Dispatcher: "test-dispatcher",
+			},
+			PublicTxBinding: pldapi.PublicTxBinding{
+				Transaction:     testTxID,
+				TransactionType: pldapi.TransactionTypePrivate.Enum(),
+			},
+		},
+	}
+
+	txns[0].TransactionHash = &testTxHash
+
+	m.db.ExpectQuery("INSERT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(1))
+	m.db.ExpectQuery("INSERT.*public_txn_bindings").WillReturnError(fmt.Errorf("binding database error"))
+
+	err := ptm.WriteReceivedPublicTransactionSubmissions(ctx, m.allComponents.Persistence().NOTX(), txns)
+	assert.ErrorContains(t, err, "binding database error")
+}
+
+func TestWriteReceivedPublicTransactionSubmissionsSubmissionDBError(t *testing.T) {
+	ctx := context.Background()
+	_, ptm, m, done := newTestPublicTxManager(t, false, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
+	defer done()
+
+	testAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	testTxHash := pldtypes.MustParseBytes32("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
+	testTxID := uuid.New()
+
+	txns := []*pldapi.PublicTxWithBinding{
+		{
+			PublicTx: &pldapi.PublicTx{
+				From:    *testAddress,
+				Nonce:   confutil.P(pldtypes.HexUint64(42)),
+				Data:    []byte("test"),
+				Created: pldtypes.TimestampNow(),
+				PublicTxOptions: pldapi.PublicTxOptions{
+					Gas: confutil.P(pldtypes.HexUint64(21000)),
+				},
+				Submissions: []*pldapi.PublicTxSubmissionData{
+					{
+						Time:            pldtypes.TimestampNow(),
+						TransactionHash: testTxHash,
+					},
+				},
+				Dispatcher: "test-dispatcher",
+			},
+			PublicTxBinding: pldapi.PublicTxBinding{
+				Transaction:     testTxID,
+				TransactionType: pldapi.TransactionTypePrivate.Enum(),
+			},
+		},
+	}
+
+	txns[0].TransactionHash = &testTxHash
+
+	m.db.ExpectQuery("INSERT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(1))
+	m.db.ExpectQuery("INSERT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id"}).AddRow(1))
+	m.db.ExpectQuery("INSERT.*public_submissions").WillReturnError(fmt.Errorf("submission database error"))
+
+	err := ptm.WriteReceivedPublicTransactionSubmissions(ctx, m.allComponents.Persistence().NOTX(), txns)
+	assert.ErrorContains(t, err, "submission database error")
 }
 
 func TestQueryPublicTxForTransactionsNilBoundToTxns(t *testing.T) {
