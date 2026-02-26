@@ -26,8 +26,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func action_UpdateSigningIdentity(_ context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	txn.updateSigningIdentity()
+func action_UpdateSigningIdentity(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+	txn.updateSigningIdentity(ctx)
 	return nil
 }
 
@@ -38,14 +38,14 @@ func guard_HasDynamicSigningIdentity(_ context.Context, txn *CoordinatorTransact
 // The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
 // may stipulate a constraint that allows us to assume dispatching transactions in parallel will be safe knowing
 // the signing identity nonce will provide ordering guarantees.
-func (t *CoordinatorTransaction) updateSigningIdentity() {
+func (t *CoordinatorTransaction) updateSigningIdentity(ctx context.Context) {
 	if t.pt.PostAssembly != nil && t.submitterSelection == prototk.ContractConfig_SUBMITTER_COORDINATOR {
 		for _, endorsement := range t.pt.PostAssembly.Endorsements {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 					t.pt.Signer = endorsement.Verifier.Lookup
 					t.dynamicSigningIdentity = false
-					log.L(context.Background()).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.pt.ID.String(), t.pt.Signer)
+					log.L(ctx).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.pt.ID.String(), t.pt.Signer)
 					return
 				}
 			}
@@ -53,7 +53,7 @@ func (t *CoordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
+func (t *CoordinatorTransaction) dependentsMustWait(ctx context.Context, dynamicSigningIdentity bool) bool {
 	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
 
 	// Whether or not we can safely dispatch this transaction's dependents is partly based on if the base-ledger is providing any ordering protection.
@@ -61,23 +61,23 @@ func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool)
 	// (or later) states we can let the dependent transactions proceed. For dynamic signing keys there is no such base-ledger ordering guarantee so we
 	// must wait for the TX to get all the way to confirmed state.
 	if !dynamicSigningIdentity {
-		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
+		log.L(ctx).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
 		notReady := t.stateMachine.CurrentState != State_Confirmed &&
 			t.stateMachine.CurrentState != State_Submitted &&
 			t.stateMachine.CurrentState != State_Dispatched &&
 			t.stateMachine.CurrentState != State_Ready_For_Dispatch
 		if notReady {
-			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
+			log.L(ctx).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
 		}
 		return notReady
 	}
 
-	log.L(context.Background()).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.pt.ID.String())
+	log.L(ctx).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.pt.ID.String())
 	// Dynamic signing address - we must want for the dependency to be confirmed before we can dispatch
 	notReady := t.stateMachine.CurrentState != State_Confirmed
 	if notReady {
-		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.pt.ID.String())
+		log.L(ctx).Tracef("TX %s not confirmed, dependents remain blocked", t.pt.ID.String())
 	}
 	return notReady
 }
@@ -104,7 +104,7 @@ func (t *CoordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 			return true
 		}
 
-		if dependency.dependentsMustWait(t.dynamicSigningIdentity) {
+		if dependency.dependentsMustWait(ctx, t.dynamicSigningIdentity) {
 			return true
 		}
 	}

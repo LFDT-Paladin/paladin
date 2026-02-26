@@ -80,6 +80,8 @@ func TestBlockedByDependencies_DependencyWithFailedReceipt_ReturnsTrue(t *testin
 				sqlmock.NewRows([]string{"transaction", "sequence", "indexed", "domain", "success", "tx_hash", "block_number", "tx_index", "log_index", "source", "failure_message", "revert_data", "contract_address"}).
 					AddRow(depID, 1, "2024-01-01T00:00:00Z", "", false, nil, nil, nil, nil, nil, "failed", nil, nil),
 			)
+			// failDependentTransaction will attempt a new DB transaction to propagate the failure
+			mc.db.ExpectBegin().WillReturnError(fmt.Errorf("mock: propagation not under test"))
 		})
 	defer done()
 
