@@ -57,7 +57,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	spendTxId := pldtypes.Bytes32UUIDFirst16(uuid.New())
 
 	unlockData := params.UnlockData
-	if tx.DomainConfig.IsV0() && len(params.UnlockData) == 0 {
+	if tx.DomainConfig.IsV0() {
 		unlockData = params.Data // in V0 we used to use the same data in the unlock, so we preserve this behavior.
 	}
 
@@ -262,7 +262,8 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		}
 	default:
 		var unlockHash ethtypes.HexBytes0xPrefix
-		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs), inParams.Data)
+		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs),
+			inParams.Data /* we do not have unlockData in V0 inputs */)
 		if err != nil {
 			return nil, err
 		}
