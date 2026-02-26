@@ -69,37 +69,6 @@ func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	assert.NotNil(t, txn.syncPoints)
 }
 
-func Test_cancelAssembleTimeoutSchedules_BothNil(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.cancelAssembleTimeoutSchedule = nil
-	txn.cancelAssembleRequestTimeoutSchedule = nil
-
-	// Should not panic
-	txn.cancelAssembleTimeoutSchedules()
-
-	assert.Nil(t, txn.cancelAssembleTimeoutSchedule)
-	assert.Nil(t, txn.cancelAssembleRequestTimeoutSchedule)
-}
-
-func Test_cancelAssembleTimeoutSchedules_BothSet(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	called1 := false
-	called2 := false
-	txn.cancelAssembleTimeoutSchedule = func() {
-		called1 = true
-	}
-	txn.cancelAssembleRequestTimeoutSchedule = func() {
-		called2 = true
-	}
-
-	txn.cancelAssembleTimeoutSchedules()
-
-	assert.True(t, called1)
-	assert.True(t, called2)
-	assert.Nil(t, txn.cancelAssembleTimeoutSchedule)
-	assert.Nil(t, txn.cancelAssembleRequestTimeoutSchedule)
-}
-
 func Test_applyPostAssembly_RevertResult(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
@@ -296,8 +265,7 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 	err := txn.sendAssembleRequest(ctx)
 	assert.NoError(t, err)
 	assert.NotNil(t, txn.pendingAssembleRequest)
-	assert.NotNil(t, txn.cancelAssembleTimeoutSchedule)
-	assert.NotNil(t, txn.cancelAssembleRequestTimeoutSchedule)
+	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
 }
 
 func Test_sendAssembleRequest_GetStateLocksError(t *testing.T) {
@@ -382,16 +350,16 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func Test_assembleTimeoutExceeded_NilPendingRequest(t *testing.T) {
+func Test_assembleStateTimeoutExceeded_NilPendingRequest(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.pendingAssembleRequest = nil
 
-	result := txn.assembleTimeoutExceeded(ctx)
+	result := txn.assembleStateTimeoutExceeded(ctx)
 	assert.False(t, result)
 }
 
-func Test_assembleTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
+func Test_assembleStateTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
@@ -406,11 +374,17 @@ func Test_assembleTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
 
 	_ = txn.sendAssembleRequest(ctx)
 
-	result := txn.assembleTimeoutExceeded(ctx)
+	result := txn.assembleStateTimeoutExceeded(ctx)
 	assert.False(t, result)
+
+	// Advance clock past timeout; even without FirstRequestTime we should time out
+	// using state entry time as fallback.
+	mocks.clock.Advance(6000) // stateTimeout is 5000ms
+	result = txn.assembleStateTimeoutExceeded(ctx)
+	assert.True(t, result)
 }
 
-func Test_assembleTimeoutExceeded_NotExpired(t *testing.T) {
+func Test_assembleStateTimeoutExceeded_NotExpired(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
@@ -427,11 +401,11 @@ func Test_assembleTimeoutExceeded_NotExpired(t *testing.T) {
 	require.NoError(t, err)
 
 	// Timeout not exceeded yet
-	result := txn.assembleTimeoutExceeded(ctx)
+	result := txn.assembleStateTimeoutExceeded(ctx)
 	assert.False(t, result)
 }
 
-func Test_assembleTimeoutExceeded_Expired(t *testing.T) {
+func Test_assembleStateTimeoutExceeded_Expired(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
@@ -448,9 +422,9 @@ func Test_assembleTimeoutExceeded_Expired(t *testing.T) {
 	require.NoError(t, err)
 
 	// Advance clock past timeout
-	mocks.clock.Advance(6000) // assembleTimeout is 5000ms
+	mocks.clock.Advance(6000) // stateTimeout is 5000ms
 
-	result := txn.assembleTimeoutExceeded(ctx)
+	result := txn.assembleStateTimeoutExceeded(ctx)
 	assert.True(t, result)
 }
 
@@ -478,7 +452,6 @@ func Test_isNotAssembled_AssembledStates(t *testing.T) {
 		State_Confirming_Dispatchable,
 		State_Ready_For_Dispatch,
 		State_Dispatched,
-		State_Submitted,
 		State_Confirmed,
 	}
 
@@ -561,77 +534,6 @@ func Test_notifyDependentsOfAssembled_DependentNotFound(t *testing.T) {
 
 	err := txn1.notifyDependentsOfAssembled(ctx)
 	assert.Error(t, err)
-}
-
-func Test_notifyDependentsOfRevert_NoDependents(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := txn.notifyDependentsOfRevert(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfRevert_WithDependenciesFromPreAssembly(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txn2.pt.ID},
-		},
-	}
-
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfRevert_DependentNotFound(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	missingID := uuid.New()
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{missingID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.Error(t, err)
-}
-
-func Test_notifyDependentsOfRevert_WithDependent_HandleEventError(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	if txn2.metrics == nil {
-		txn2.metrics = metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	}
-
-	txn2.stateMachine.CurrentState = State_Blocked
-	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
-
-	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
-	err := txn1.notifyDependentsOfRevert(ctx)
-	assert.Error(t, err)
-	// Verify the error is returned (the error will be from action_initializeDependencies failing)
-	assert.NotNil(t, err)
 }
 
 func Test_calculatePostAssembleDependencies_NilPostAssembly(t *testing.T) {
@@ -776,11 +678,11 @@ func Test_writeLockStates_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func Test_incrementAssembleErrors_IncrementsErrorCount(t *testing.T) {
+func Test_incrementErrors_IncrementsErrorCount(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	initialCount := txn.errorCount
 
-	err := txn.incrementAssembleErrors()
+	err := txn.incrementErrors()
 	assert.NoError(t, err)
 	assert.Equal(t, initialCount+1, txn.errorCount)
 }
@@ -903,8 +805,7 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 	assert.NoError(t, err)
 	// Assert state: pending request and timer schedules were set
 	assert.NotNil(t, txn.pendingAssembleRequest)
-	assert.NotNil(t, txn.cancelAssembleTimeoutSchedule)
-	assert.NotNil(t, txn.cancelAssembleRequestTimeoutSchedule)
+	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
 	mocks.transportWriter.AssertExpectations(t)
 }
 
@@ -948,20 +849,6 @@ func Test_action_NotifyDependentsOfAssembled_Success(t *testing.T) {
 	assert.Len(t, txn.dependencies.PrereqOf, 0)
 }
 
-func Test_action_NotifyDependentsOfRevert_Success(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	err := action_NotifyDependentsOfRevert(ctx, txn, nil)
-	assert.NoError(t, err)
-	// State: no dependents, so no HandleEvent calls; dependencies unchanged
-	assert.Len(t, txn.dependencies.PrereqOf, 0)
-}
-
 func Test_action_NotifyOfConfirmation_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
@@ -982,12 +869,12 @@ func Test_action_IncrementAssembleErrors_Success(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	initialCount := txn.errorCount
 
-	err := action_IncrementAssembleErrors(ctx, txn, nil)
+	err := action_IncrementErrors(ctx, txn, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, initialCount+1, txn.errorCount)
 }
 
-func Test_guard_AssembleTimeoutExceeded_NotExceeded(t *testing.T) {
+func Test_guard_AssembleStateTimeoutExceeded_NotExceeded(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
@@ -1003,11 +890,11 @@ func Test_guard_AssembleTimeoutExceeded_NotExceeded(t *testing.T) {
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 
-	result := guard_AssembleTimeoutExceeded(ctx, txn)
+	result := guard_AssembleStateTimeoutExceeded(ctx, txn)
 	assert.False(t, result)
 }
 
-func Test_guard_AssembleTimeoutExceeded_Exceeded(t *testing.T) {
+func Test_guard_AssembleStateTimeoutExceeded_Exceeded(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 	txn.originatorNode = "node1"
@@ -1026,7 +913,7 @@ func Test_guard_AssembleTimeoutExceeded_Exceeded(t *testing.T) {
 	// Advance clock past timeout
 	mocks.clock.Advance(6000)
 
-	result := guard_AssembleTimeoutExceeded(ctx, txn)
+	result := guard_AssembleStateTimeoutExceeded(ctx, txn)
 	assert.True(t, result)
 }
 
@@ -1110,6 +997,7 @@ func Test_sendAssembleRequest_RequestTimeoutCallback(t *testing.T) {
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		mockTransportWriter,
 		realClock,
 		func(ctx context.Context, event common.Event) {},
@@ -1118,6 +1006,7 @@ func Test_sendAssembleRequest_RequestTimeoutCallback(t *testing.T) {
 		realClock.Duration(1), // Very short timeout for testing
 		realClock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -1168,6 +1057,7 @@ func Test_sendAssembleRequest_RequestTimeoutCallback_Error(t *testing.T) {
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		mockTransportWriter,
 		realClock,
 		func(ctx context.Context, event common.Event) {},
@@ -1176,6 +1066,7 @@ func Test_sendAssembleRequest_RequestTimeoutCallback_Error(t *testing.T) {
 		realClock.Duration(1), // Very short timeout for testing
 		realClock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -1207,7 +1098,7 @@ func Test_sendAssembleRequest_RequestTimeoutCallback_Error(t *testing.T) {
 	assert.True(t, errorLogged)
 }
 
-func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
+func Test_onTransitionToAssembling_AssembleTimeoutCallback(t *testing.T) {
 	ctx := context.Background()
 	realClock := common.RealClock()
 	grapher := NewGrapher(ctx)
@@ -1221,6 +1112,7 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		mockTransportWriter,
 		realClock,
 		func(ctx context.Context, event common.Event) {},
@@ -1229,6 +1121,7 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 		realClock.Duration(1000),
 		realClock.Duration(1), // Very short timeout for testing
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -1247,14 +1140,14 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 	timeoutEventReceived := false
 	var mu sync.Mutex
 	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
-		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
+		if _, ok := event.(*StateTimeoutIntervalEvent); ok {
 			mu.Lock()
 			timeoutEventReceived = true
 			mu.Unlock()
 		}
 	}
 
-	err = txn.sendAssembleRequest(ctx)
+	err = action_OnTransitionToAssembling(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Wait for timeout to fire
@@ -1265,7 +1158,7 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback(t *testing.T) {
 	mu.Unlock()
 }
 
-func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
+func Test_onTransitionToAssembling_AssembleTimeoutCallback_Error(t *testing.T) {
 	ctx := context.Background()
 	realClock := common.RealClock()
 	grapher := NewGrapher(ctx)
@@ -1279,6 +1172,7 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		mockTransportWriter,
 		realClock,
 		func(ctx context.Context, event common.Event) {},
@@ -1287,6 +1181,7 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
 		realClock.Duration(1000),
 		realClock.Duration(1), // Very short timeout for testing
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -1304,12 +1199,12 @@ func Test_sendAssembleRequest_AssembleTimeoutCallback_Error(t *testing.T) {
 
 	errorLogged := false
 	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
-		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
+		if _, ok := event.(*StateTimeoutIntervalEvent); ok {
 			errorLogged = true
 		}
 	}
 
-	err = txn.sendAssembleRequest(ctx)
+	err = action_OnTransitionToAssembling(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Wait for timeout to fire

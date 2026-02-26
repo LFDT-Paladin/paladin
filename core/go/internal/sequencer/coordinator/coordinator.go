@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 
@@ -41,8 +42,9 @@ import (
 // Coordinator is the interface that consumers should use to interact with the coordinator.
 type Coordinator interface {
 	// Asynchronously update the state machine by queueing an event to be processed
-	// This is the only interface by which consumers should update the state of the coordinator
+	// These are the only interfaces by which consumers should update the state of the coordinator
 	QueueEvent(ctx context.Context, event common.Event)
+	TryQueueEvent(ctx context.Context, event common.Event) bool
 
 	// Query the state of the coordinator
 	GetCurrentState() State
@@ -62,6 +64,8 @@ type coordinator struct {
 	ctx       context.Context
 	cancelCtx context.CancelFunc
 
+	signingIdentity string
+
 	/* State machine - using generic statemachine.StateMachineEventLoop */
 	stateMachineEventLoop                      *statemachine.StateMachineEventLoop[State, *coordinator]
 	activeCoordinatorNode                      string
@@ -76,15 +80,16 @@ type coordinator struct {
 	originatorNodePool                         []string // The (possibly changing) list of originator nodes
 
 	/* Config */
-	contractAddress                *pldtypes.EthAddress
-	blockHeightTolerance           uint64
-	closingGracePeriod             int // expressed as a multiple of heartbeat intervals
-	requestTimeout                 common.Duration
-	assembleTimeout                common.Duration
-	nodeName                       string
-	coordinatorSelectionBlockRange uint64
-	maxInflightTransactions        int
-	maxDispatchAhead               int
+	contractAddress                   *pldtypes.EthAddress
+	blockHeightTolerance              uint64
+	closingGracePeriod                int // expressed as a multiple of heartbeat intervals
+	confirmedLockRetentionGracePeriod int // expressed as a multiple of heartbeat intervals
+	requestTimeout                    common.Duration
+	stateTimeout                      common.Duration
+	nodeName                          string
+	coordinatorSelectionBlockRange    uint64
+	maxInflightTransactions           int
+	maxDispatchAhead                  int
 
 	/* Dependencies */
 	domainAPI         components.DomainSmartContract
@@ -155,6 +160,8 @@ func NewCoordinator(
 		c.updateOriginatorNodePool(node)
 	}
 
+	c.signingIdentity = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
+
 	coordinatorEventQueueSize := confutil.IntMin(configuration.CoordinatorEventQueueSize, pldconf.SequencerMinimum.CoordinatorEventQueueSize, *pldconf.SequencerDefaults.CoordinatorEventQueueSize)
 	coordinatorPriorityEventQueueSize := confutil.IntMin(configuration.CoordinatorPriorityEventQueueSize, pldconf.SequencerMinimum.CoordinatorPriorityEventQueueSize, *pldconf.SequencerDefaults.CoordinatorPriorityEventQueueSize)
 
@@ -168,9 +175,10 @@ func NewCoordinator(
 
 	// Configuration
 	c.requestTimeout = confutil.DurationMin(configuration.RequestTimeout, pldconf.SequencerMinimum.RequestTimeout, *pldconf.SequencerDefaults.RequestTimeout)
-	c.assembleTimeout = confutil.DurationMin(configuration.AssembleTimeout, pldconf.SequencerMinimum.AssembleTimeout, *pldconf.SequencerDefaults.AssembleTimeout)
+	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
+	c.confirmedLockRetentionGracePeriod = confutil.IntMin(configuration.ConfirmedLockRetentionGracePeriod, pldconf.SequencerMinimum.ConfirmedLockRetentionGracePeriod, *pldconf.SequencerDefaults.ConfirmedLockRetentionGracePeriod)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
 	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)

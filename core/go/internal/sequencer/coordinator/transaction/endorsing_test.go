@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -115,6 +116,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 			PostAssembly: nil, // no unfulfilled requirements so we only hit the nil branch and schedule timer
 		},
 		false,
+		"coordinator-signer",
 		mockTransportWriter,
 		realClock,
 		func(ctx context.Context, event common.Event) {},
@@ -123,6 +125,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 		realClock.Duration(1),
 		realClock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -274,7 +277,7 @@ func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testin
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	cancelCalled := false
-	txn.cancelEndorsementRequestTimeoutSchedule = func() { cancelCalled = true }
+	txn.cancelRequestTimeoutSchedule = func() { cancelCalled = true }
 	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
 		"att1": {},
 	}
@@ -282,8 +285,116 @@ func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testin
 	txn.resetEndorsementRequests(ctx)
 
 	assert.True(t, cancelCalled)
-	assert.NotNil(t, txn.pendingEndorsementRequests)
-	assert.Empty(t, txn.pendingEndorsementRequests)
+	assert.Nil(t, txn.pendingEndorsementRequests)
+}
+
+func Test_endorsementStateTimeoutExceeded_NoPendingRequests_ReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.pendingEndorsementRequests = nil
+
+	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_endorsementStateTimeoutExceeded_WithPendingRequest_NotExpired(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+	require.NoError(t, req.Nudge(ctx))
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"att1": {"party1": req},
+	}
+
+	mocks.clock.Advance(1000) // less than default state timeout (5000)
+	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_endorsementStateTimeoutExceeded_WithPendingRequest_Expired(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+	require.NoError(t, req.Nudge(ctx))
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"att1": {"party1": req},
+	}
+
+	mocks.clock.Advance(6000) // greater than default state timeout (5000)
+	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.True(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_endorsementStateTimeoutExceeded_WithPendingRequest_NilFirstRequestTime_UsesStateEntryTime(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+
+	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return errors.New("send failed")
+	})
+	_ = req.Nudge(ctx) // Keep FirstRequestTime nil
+	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
+		"att1": {"party1": req},
+	}
+
+	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+
+	mocks.clock.Advance(6000) // greater than default state timeout (5000)
+	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
+	assert.True(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
+}
+
+func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2)
+	txn, _ := builder.BuildWithMocks()
+
+	require.NotNil(t, txn.pendingEndorsementRequests)
+	require.NotNil(t, txn.cancelRequestTimeoutSchedule)
+	require.NotNil(t, txn.cancelStateTimeoutSchedule)
+
+	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirming_Dispatchable, txn.GetCurrentState())
+	assert.Nil(t, txn.pendingEndorsementRequests)
+}
+
+func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	blockingDependency := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
+		Build()
+
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
+		InputStateIDs(blockingDependency.pt.PostAssembly.OutputStates[0].ID)
+	txn, _ := builder.BuildWithMocks()
+
+	require.NotNil(t, txn.pendingEndorsementRequests)
+	require.NotNil(t, txn.cancelRequestTimeoutSchedule)
+	require.NotNil(t, txn.cancelStateTimeoutSchedule)
+
+	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
+	require.NoError(t, err)
+	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+	assert.Nil(t, txn.pendingEndorsementRequests)
+	assert.Nil(t, txn.cancelRequestTimeoutSchedule)
+	assert.Nil(t, txn.cancelStateTimeoutSchedule)
 }
 
 func Test_requestEndorsement_TransportError_SetsLatestErrorAndReturnsError(t *testing.T) {

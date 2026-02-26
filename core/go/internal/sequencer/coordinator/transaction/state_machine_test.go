@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStateMachine_InitializeOK(t *testing.T) {
@@ -41,6 +42,7 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		transportWriter,
 		clock,
 		func(ctx context.Context, event common.Event) {
@@ -52,6 +54,7 @@ func TestStateMachine_InitializeOK(t *testing.T) {
 		clock.Duration(1000),
 		clock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		NewGrapher(ctx),
@@ -78,8 +81,6 @@ func Test_State_String_AllStates(t *testing.T) {
 		{State_Confirming_Dispatchable, "State_Confirming_Dispatchable"},
 		{State_Ready_For_Dispatch, "State_Ready_For_Dispatch"},
 		{State_Dispatched, "State_Dispatched"},
-		{State_SubmissionPrepared, "State_SubmissionPrepared"},
-		{State_Submitted, "State_Submitted"},
 		{State_Confirmed, "State_Confirmed"},
 		{State_Final, "State_Final"},
 	}
@@ -105,4 +106,49 @@ func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t
 	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, txn, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, txn.heartbeatIntervalsSinceStateChange)
+}
+
+func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn.stateMachine.CurrentState = State_Confirmed
+	txn.confirmedLockRetentionGracePeriod = 2
+	txn.finalizingGracePeriod = 10
+	txn.confirmedLocksReleased = false
+	txn.heartbeatIntervalsSinceStateChange = 0
+	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
+	assert.False(t, txn.confirmedLocksReleased)
+	mocks.engineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, 2, txn.heartbeatIntervalsSinceStateChange)
+	assert.True(t, txn.confirmedLocksReleased)
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+}
+
+func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
+	ctx := context.Background()
+	txn := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
+	txn.confirmedLockRetentionGracePeriod = 100
+	txn.confirmedLocksReleased = true
+	txn.finalizingGracePeriod = 2
+	txn.heartbeatIntervalsSinceStateChange = 0
+
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Final, txn.GetCurrentState())
 }

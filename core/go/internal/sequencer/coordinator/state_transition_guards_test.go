@@ -266,7 +266,7 @@ func TestGuard_FlushComplete_TransactionInSubmittedState(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -281,7 +281,7 @@ func TestGuard_FlushComplete_MultipleTransactionsInFlushStates(t *testing.T) {
 	defer c.Stop()
 	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -388,7 +388,7 @@ func TestGuard_HasTransactionsInflight_TransactionInSubmittedState(t *testing.T)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _ := builder.Build(ctx)
 	defer c.Stop()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}

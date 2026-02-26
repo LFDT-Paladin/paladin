@@ -37,9 +37,7 @@ const (
 	State_Blocked                              // is fully endorsed but cannot proceed due to dependencies not being ready for dispatch
 	State_Confirming_Dispatchable              // endorsed and waiting for confirmation that were are OK to dispatch. The originator can still request not to proceed at this point.
 	State_Ready_For_Dispatch                   // dispatch confirmation received and waiting to be collected by the dispatcher thread.Going into this state is the point of no return
-	State_Dispatched                           // collected by the dispatcher thread but not yet processed by the public TX manager
-	State_SubmissionPrepared                   // collected by the public TX manager but not yet submitted
-	State_Submitted                            // at least one submission has been made to the blockchain
+	State_Dispatched                           // collected by the dispatcher/public TX manager and in-flight on base ledger
 	State_Confirmed                            // "recently" confirmed on the base ledger.  NOTE: confirmed transactions are not held in memory for ever so getting a list of confirmed transactions will only return those confirmed recently
 	State_Final                                // final state for the transaction. Transactions are removed from memory as soon as they enter this state
 )
@@ -57,6 +55,7 @@ const (
 	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
 	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
 	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DependencyRepooled                                                                   // another transaction, for which this transaction has a dependency on, has been put back in the pool
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
 	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
 	Event_Dispatched                                                                           // dispatched to the public TX manager
@@ -65,6 +64,7 @@ const (
 	Event_Submitted                                                                            // submission made to the blockchain.  Each time this event is received, the submission hash is updated
 	Event_Confirmed                                                                            // confirmation received from the blockchain of either a successful or reverted transaction
 	Event_RequestTimeoutInterval                                                               // event emitted by the state machine on a regular period while we have pending requests
+	Event_StateTimeoutInterval                                                                 // event emitted when a state has exceeded its maximum allowed duration
 	Event_StateTransition                                                                      // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
 	Event_AssembleTimeout                                                                      // the assemble timeout period has passed since we sent the first assemble request
 	Event_TransactionUnknownByOriginator                                                       // originator has reported that it doesn't recognize this transaction
@@ -89,7 +89,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Delegated: {
 				Transitions: []Transition{
 					{
-						To: State_Submitted,
+						To: State_Dispatched,
 						If: guard_HasChainedTxInProgress,
 					},
 					{
@@ -106,7 +106,19 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_PreAssembly_Blocked: {
 		Events: map[EventType]EventHandler{
+			// TODO: when we have best effort FIFO ordering for first assemble within an originator, these transitions become relevant.
+			// they are currently unreachable as transactions only currently gain dependencies once they have been assembled.
+			// In both case it should only be the "previous" transaction that queues this event to us. The guard is likely wrong
+			// as we know that this event means we must sever the next/previous dependency link as we are now past first assembly.
+			// The guard comes from a time when it was possible for predefined explicit dependencies to be passed in, meaning there
+			// could be multiple dependencies blocking assembly, but explicit dependencies are now handled in the transaction manager.
 			Event_DependencyAssembled: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+					If: statemachine.Not(guard_HasUnassembledDependencies),
+				}},
+			},
+			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 					If: statemachine.Not(guard_HasUnassembledDependencies),
@@ -115,7 +127,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Pooled: {
-		OnTransitionTo: action_initializeDependencies,
+		OnTransitionTo: action_onTransitionToPooled,
 		Events: map[EventType]EventHandler{
 			Event_Selected: {
 				Transitions: []Transition{
@@ -123,6 +135,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Assembling,
 					}},
 			},
+
 			Event_DependencyReverted: {
 				Transitions: []Transition{{
 					To: State_PreAssembly_Blocked,
@@ -131,7 +144,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Assembling: {
-		OnTransitionTo: action_SendAssembleRequest,
+		OnTransitionTo: action_OnTransitionToAssembling,
 		Events: map[EventType]EventHandler{
 			Event_Assemble_Success: {
 				Validator: validator_MatchesPendingAssembleRequest,
@@ -141,7 +154,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 					{
 						Action: action_UpdateSigningIdentity,
-						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+						If:     statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasSigner)),
 					},
 				},
 				Transitions: []Transition{
@@ -158,12 +171,13 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeAssembleRequest,
-					If:     statemachine.Not(guard_AssembleTimeoutExceeded),
+					If:     statemachine.Not(guard_AssembleStateTimeoutExceeded),
 				}},
+			},
+			Event_StateTimeoutInterval: {
 				Transitions: []Transition{{
 					To:     State_Pooled,
-					If:     guard_AssembleTimeoutExceeded,
-					Action: action_IncrementAssembleErrors,
+					Action: action_IncrementErrors,
 				}},
 			},
 			Event_Assemble_Revert_Response: {
@@ -186,7 +200,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Endorsement_Gathering: {
-		OnTransitionTo: action_SendEndorsementRequests,
+		OnTransitionTo: action_OnTransitionToEndorsementGathering,
 		Events: map[EventType]EventHandler{
 			Event_Endorsed: {
 				Actions: []ActionRule{
@@ -194,8 +208,12 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_Endorsed,
 					},
 					{
+						Action: action_ResetEndorsementRequests,
+						If:     guard_AttestationPlanFulfilled,
+					},
+					{
 						Action: action_UpdateSigningIdentity,
-						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+						If:     statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasSigner)),
 					}},
 				Transitions: []Transition{
 					{
@@ -213,16 +231,25 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{
 					{
 						To:     State_Pooled,
-						Action: action_IncrementAssembleErrors,
+						Action: action_IncrementErrors,
 					},
 				},
 			},
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgeEndorsementRequests,
+					If:     statemachine.Not(guard_EndorsementStateTimeoutExceeded),
 				}},
 			},
-			Event_DependencyReverted: {
+			Event_StateTimeoutInterval: {
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						Action: action_IncrementErrors,
+					},
+				},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -235,14 +262,14 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{
 						Action: action_UpdateSigningIdentity,
-						If:     statemachine.And(guard_AttestationPlanFulfilled, guard_HasDynamicSigningIdentity),
+						If:     statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasSigner)),
 					}},
 				Transitions: []Transition{{
 					To: State_Confirming_Dispatchable,
 					If: statemachine.And(guard_AttestationPlanFulfilled, statemachine.Not(guard_HasDependenciesNotReady)),
 				}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -250,7 +277,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirming_Dispatchable: {
-		OnTransitionTo: action_SendPreDispatchRequest,
+		OnTransitionTo: action_OnTransitionToConfirmingDispatchable,
 		Events: map[EventType]EventHandler{
 			Event_DispatchRequestApproved: {
 				Validator: validator_MatchesPendingPreDispatchRequest,
@@ -260,12 +287,30 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Ready_For_Dispatch,
 					}},
 			},
+			Event_DispatchRequestRejected: {
+				Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						Action: action_IncrementErrors,
+					},
+				},
+			},
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
 					Action: action_NudgePreDispatchRequest,
+					If:     statemachine.Not(guard_DispatchConfirmationStateTimeoutExceeded),
 				}},
 			},
-			Event_DependencyReverted: {
+			Event_StateTimeoutInterval: {
+				Transitions: []Transition{
+					{
+						To:     State_Pooled,
+						Action: action_DispatchRequestRejected,
+					},
+				},
+			},
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -281,7 +326,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Dispatched,
 					}},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -292,39 +337,13 @@ var stateDefinitionsMap = StateDefinitions{
 		Events: map[EventType]EventHandler{
 			Event_Collected: {
 				Actions: []ActionRule{{Action: action_Collected}},
-				Transitions: []Transition{
-					{
-						To: State_SubmissionPrepared,
-					}},
-			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
-		},
-	},
-	State_SubmissionPrepared: {
-		Events: map[EventType]EventHandler{
-			Event_Submitted: {
-				Actions: []ActionRule{{Action: action_Submitted}},
-				Transitions: []Transition{
-					{
-						To: State_Submitted,
-					}},
 			},
 			Event_NonceAllocated: {
 				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
 			},
-		},
-	},
-	State_Submitted: {
-		Events: map[EventType]EventHandler{
 			Event_Confirmed: {
 				Actions: []ActionRule{{Action: action_Confirmed}},
 				Transitions: []Transition{
@@ -339,7 +358,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyReverted: {
+			Event_DependencyRepooled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -347,13 +366,15 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		OnTransitionTo: action_NotifyDependentsOfRevert,
+		// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyRevert will
+		// need to be sent to the "next" transaction from that originator as a signal that it may now assemble. The dependency
+		// can be severed at this point as we have passed first assemble.
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
 				Transitions: []Transition{
 					{
-						If: guard_HasGracePeriodPassedSinceStateChange,
+						If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
 						To: State_Final,
 					}},
 			},
@@ -363,10 +384,22 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: action_NotifyDependantsOfConfirmation,
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
-				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
+				Actions: []ActionRule{
+					{
+						Action: action_IncrementHeartbeatIntervalsSinceStateChange,
+					},
+					{
+						// TODO: this could be handled in a more sophisticated way using block height, either
+						// by resetting a number of blocks after confirmation, or by removing this grace period
+						// by only allowing originators to assemble if they are at the same block height as the
+						// coordinator
+						Action: action_ResetConfirmedTransactionLocksOnce,
+						If:     guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange,
+					},
+				},
 				Transitions: []Transition{
 					{
-						If: guard_HasGracePeriodPassedSinceStateChange,
+						If: guard_HasFinalizingGracePeriodPassedSinceStateChange,
 						To: State_Final,
 					}},
 			},
@@ -383,6 +416,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 		statemachine.WithTransitionCallback(func(ctx context.Context, t *CoordinatorTransaction, from, to State, event common.Event) {
 			// Reset heartbeat counter on state change
 			t.heartbeatIntervalsSinceStateChange = 0
+			t.stateEntryTime = t.clock.Now()
 
 			// Record metrics
 			t.metrics.ObserveSequencerTXStateChange("Coord_"+to.String(), time.Duration(event.GetEventTime().Sub(t.stateMachine.GetLastStateChange()).Milliseconds()))
@@ -398,6 +432,7 @@ func (t *CoordinatorTransaction) initializeStateMachine(initialState State) {
 			}
 		}),
 	)
+	t.stateEntryTime = t.clock.Now()
 }
 
 func (t *CoordinatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
@@ -433,10 +468,6 @@ func (s State) String() string {
 		return "State_Ready_For_Dispatch"
 	case State_Dispatched:
 		return "State_Dispatched"
-	case State_SubmissionPrepared:
-		return "State_SubmissionPrepared"
-	case State_Submitted:
-		return "State_Submitted"
 	case State_Confirmed:
 		return "State_Confirmed"
 	case State_Final:

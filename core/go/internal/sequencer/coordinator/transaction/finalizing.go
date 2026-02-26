@@ -22,10 +22,24 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *CoordinatorTransaction) bool {
+func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *CoordinatorTransaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?
 	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
 	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
+}
+
+func guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx context.Context, txn *CoordinatorTransaction) bool {
+	return txn.heartbeatIntervalsSinceStateChange >= txn.confirmedLockRetentionGracePeriod
+}
+
+func action_ResetConfirmedTransactionLocksOnce(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+	if txn.confirmedLocksReleased {
+		return nil
+	}
+	log.L(ctx).Debugf("releasing confirmed transaction locks for %s", txn.pt.ID.String())
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	txn.confirmedLocksReleased = true
+	return nil
 }
 
 // action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
@@ -38,7 +52,7 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *CoordinatorT
 }
 
 func (t *CoordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
-	t.cancelAssembleTimeoutSchedules()
+	t.clearTimeoutSchedules()
 
 	var tryFinalize func()
 	tryFinalize = func() {

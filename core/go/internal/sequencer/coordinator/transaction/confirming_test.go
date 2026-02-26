@@ -168,3 +168,27 @@ func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
 	assert.Equal(t, revertReason, txn.revertReason)
 	mocks.transportWriter.AssertExpectations(t)
 }
+
+func Test_action_NotifyDependantsOfConfirmation_DoesNotResetLocksOnTransitionWhenRetentionConfigured(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn.confirmedLockRetentionGracePeriod = 2
+	txn.dependencies = &pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}
+
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
+	assert.NoError(t, err)
+	assert.False(t, txn.confirmedLocksReleased)
+	mocks.engineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+}
+
+func Test_action_NotifyDependantsOfConfirmation_ResetsLocksImmediatelyWhenRetentionDisabled(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn.confirmedLockRetentionGracePeriod = 0
+	txn.dependencies = &pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}
+	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
+	assert.NoError(t, err)
+	assert.True(t, txn.confirmedLocksReleased)
+}

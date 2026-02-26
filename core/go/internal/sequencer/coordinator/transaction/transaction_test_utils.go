@@ -215,6 +215,8 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 type TransactionBuilderForTesting struct {
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
 	originator                         *identityForTesting
+	domainSigningIdentity              string
+	coordinatorSigningIdentity         string
 	dispatchConfirmed                  bool
 	signerAddress                      *pldtypes.EthAddress
 	latestSubmissionHash               *pldtypes.Bytes32
@@ -227,7 +229,7 @@ type TransactionBuilderForTesting struct {
 	grapher                            Grapher
 	txn                                *CoordinatorTransaction
 	requestTimeout                     int
-	assembleTimeout                    int
+	stateTimeout                       int
 	heartbeatIntervalsSinceStateChange int
 }
 
@@ -243,6 +245,8 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 			verifier:        pldtypes.RandAddress().String(),
 			keyHandle:       originatorName + "_KeyHandle",
 		},
+		domainSigningIdentity:     "",
+		coordinatorSigningIdentity: "coordinator-signer",
 		dispatchConfirmed:         false,
 		signerAddress:             nil,
 		latestSubmissionHash:      nil,
@@ -250,32 +254,27 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		sentMessageRecorder:       NewSentMessageRecorder(),
 		fakeClock:                 &common.FakeClockForTesting{},
 		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
-		assembleTimeout:           5000,
+		stateTimeout:              5000,
 		requestTimeout:            100,
 		syncPoints:                &syncpoints.MockSyncPoints{},
 		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
 	}
 
 	switch state {
-	case State_Submitted:
+	case State_Dispatched:
 		nonce := rand.Uint64()
 		builder.nonce = &nonce
 		builder.signerAddress = pldtypes.RandAddress()
 		latestSubmissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 		builder.latestSubmissionHash = &latestSubmissionHash
+		builder.privateTransactionBuilder.EndorsementComplete()
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
-	case State_SubmissionPrepared:
-		// Emulates having received CollectedEvent; signerAddress is required when processing SubmittedEvent (which sends to originator)
-		builder.signerAddress = pldtypes.RandAddress()
-		fallthrough
 	case State_Blocked:
 		fallthrough
 	case State_Confirming_Dispatchable:
 		fallthrough
 	case State_Ready_For_Dispatch:
-		fallthrough
-	case State_Dispatched:
 		fallthrough
 	case State_Confirmed:
 		//we are emulating a transaction that has been passed State_Endorsement_Gathering so default to complete attestation plan
@@ -334,7 +333,12 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
-// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Submitted/State_Dispatched). Overrides any default.
+func (b *TransactionBuilderForTesting) DomainSigningIdentity(domainSigningIdentity string) *TransactionBuilderForTesting {
+	b.domainSigningIdentity = domainSigningIdentity
+	return b
+}
+
+// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Dispatched). Overrides any default.
 func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
 	b.latestSubmissionHash = &hash
 	return b
@@ -344,8 +348,8 @@ func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
 	return b.originator
 }
 
-func (b *TransactionBuilderForTesting) GetAssembleTimeout() int {
-	return b.assembleTimeout
+func (b *TransactionBuilderForTesting) GetStateTimeout() int {
+	return b.stateTimeout
 }
 
 func (b *TransactionBuilderForTesting) GetRequestTimeout() int {
@@ -391,6 +395,7 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.originator.identityLocator,
 		privateTransaction,
 		false, // hasChainedTransaction
+		b.coordinatorSigningIdentity,
 		b.sentMessageRecorder,
 		b.fakeClock,
 		func(ctx context.Context, event common.Event) {
@@ -399,9 +404,10 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 		b.fakeEngineIntegration,
 		b.syncPoints,
 		b.fakeClock.Duration(b.requestTimeout),
-		b.fakeClock.Duration(b.assembleTimeout),
+		b.fakeClock.Duration(b.stateTimeout),
 		5,
-		"",
+		0,
+		b.domainSigningIdentity,
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		b.grapher,
 		metrics,
@@ -444,7 +450,6 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 	b.txn.latestSubmissionHash = b.latestSubmissionHash
 	b.txn.nonce = b.nonce
 	b.txn.stateMachine.CurrentState = b.state
-	b.txn.dynamicSigningIdentity = false
 	return b.txn
 
 }

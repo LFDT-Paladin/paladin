@@ -105,7 +105,6 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
 	transaction1 := transaction1Builder.Build()
-	transaction1.dynamicSigningIdentity = false
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -113,7 +112,6 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
 	transaction2 := transaction2Builder.Build()
-	transaction2.dynamicSigningIdentity = false
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
@@ -220,6 +218,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*CoordinatorTr
 			ID: uuid.New(),
 		},
 		false,
+		"coordinator-signer",
 		mocks.transportWriter,
 		mocks.clock,
 		func(ctx context.Context, event common.Event) {
@@ -230,6 +229,7 @@ func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*CoordinatorTr
 		mocks.clock.Duration(1000),
 		mocks.clock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		grapher,
@@ -253,6 +253,7 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 		"", // invalid: empty originator
 		&components.PrivateTransaction{ID: uuid.New()},
 		false,
+		"coordinator-signer",
 		transportWriter,
 		clock,
 		func(ctx context.Context, event common.Event) {},
@@ -261,6 +262,7 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 		clock.Duration(1000),
 		clock.Duration(5000),
 		5,
+		0,
 		"",
 		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		NewGrapher(ctx),

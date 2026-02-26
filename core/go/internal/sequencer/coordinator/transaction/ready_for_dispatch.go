@@ -16,14 +16,12 @@ package transaction
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
 )
 
 func action_UpdateSigningIdentity(_ context.Context, txn *CoordinatorTransaction, _ common.Event) error {
@@ -31,8 +29,8 @@ func action_UpdateSigningIdentity(_ context.Context, txn *CoordinatorTransaction
 	return nil
 }
 
-func guard_HasDynamicSigningIdentity(_ context.Context, txn *CoordinatorTransaction) bool {
-	return txn.dynamicSigningIdentity
+func guard_HasSigner(_ context.Context, txn *CoordinatorTransaction) bool {
+	return txn.pt.Signer != ""
 }
 
 // The type of signing identity affects the safety of dispatching transactions in parallel. Every endorsement
@@ -44,7 +42,6 @@ func (t *CoordinatorTransaction) updateSigningIdentity() {
 			for _, constraint := range endorsement.Constraints {
 				if constraint == prototk.AttestationResult_ENDORSER_MUST_SUBMIT {
 					t.pt.Signer = endorsement.Verifier.Lookup
-					t.dynamicSigningIdentity = false
 					log.L(context.Background()).Debugf("Setting transaction %s signer %s based on endorsement constraint", t.pt.ID.String(), t.pt.Signer)
 					return
 				}
@@ -53,33 +50,18 @@ func (t *CoordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *CoordinatorTransaction) dependentsMustWait(dynamicSigningIdentity bool) bool {
+func (t *CoordinatorTransaction) dependentsMustWait() bool {
 	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
-
-	// Whether or not we can safely dispatch this transaction's dependents is partly based on if the base-ledger is providing any ordering protection.
-	// For fixed signing keys the base ledger prevents a dependent transaction getting ahead of this one so as long as this TX has reached one of the dispatch
-	// (or later) states we can let the dependent transactions proceed. For dynamic signing keys there is no such base-ledger ordering guarantee so we
-	// must wait for the TX to get all the way to confirmed state.
-	if !dynamicSigningIdentity {
-		log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
-		// Fixed signing address - safe to dispatch as soon as the dependency TX is dispatched
-		notReady := t.stateMachine.CurrentState != State_Confirmed &&
-			t.stateMachine.CurrentState != State_Submitted &&
-			t.stateMachine.CurrentState != State_Dispatched &&
-			t.stateMachine.CurrentState != State_Ready_For_Dispatch
-		if notReady {
-			log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
-		}
-		return notReady
-	}
-
-	log.L(context.Background()).Tracef("Checking if TX %s has progressed to confirmed state and unblocks it dependents", t.pt.ID.String())
-	// Dynamic signing address - we must want for the dependency to be confirmed before we can dispatch
-	notReady := t.stateMachine.CurrentState != State_Confirmed
+	log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
+	// Safe to dispatch as soon as the dependency TX is dispatched
+	notReady := t.stateMachine.CurrentState != State_Confirmed &&
+		t.stateMachine.CurrentState != State_Dispatched &&
+		t.stateMachine.CurrentState != State_Ready_For_Dispatch
 	if notReady {
-		log.L(context.Background()).Tracef("TX %s not confirmed, dependents remain blocked", t.pt.ID.String())
+		log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
 	}
 	return notReady
+
 }
 
 func guard_HasDependenciesNotReady(ctx context.Context, txn *CoordinatorTransaction) bool {
@@ -104,7 +86,7 @@ func (t *CoordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 			return true
 		}
 
-		if dependency.dependentsMustWait(t.dynamicSigningIdentity) {
+		if dependency.dependentsMustWait() {
 			return true
 		}
 	}
@@ -152,17 +134,15 @@ func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 }
 
 func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
-
-	// Generate a dynamic signing identity unless Paladin config asserts something specific to use
+	// Use the coordinator signing identity unless Paladin config asserts something specific to use
 	if t.domainSigningIdentity != "" {
 		log.L(ctx).Debugf("Domain has a fixed signing identity for TX %s - using that", t.pt.ID.String())
 		t.pt.Signer = t.domainSigningIdentity
-		t.dynamicSigningIdentity = false
 		return
 	}
 
 	log.L(ctx).Debugf("No fixed or endorsement-specific signing identity for TX %s - allocating a dynamic signing identity", t.pt.ID.String())
-	t.pt.Signer = fmt.Sprintf("domains.%s.submit.%s", t.pt.Address.String(), uuid.New())
+	t.pt.Signer = t.coordinatorSigningIdentity
 }
 
 func action_NotifyDependentsOfReadiness(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {

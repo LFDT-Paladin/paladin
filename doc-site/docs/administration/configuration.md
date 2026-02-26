@@ -784,10 +784,10 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleTimeout | Timeout for transaction assembly | `string` | `"10s"` |
 | blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |
 | closingGracePeriod | Grace period for closing operations | `int` | `4` |
+| confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `1` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
@@ -798,6 +798,7 @@
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |

@@ -715,7 +715,7 @@ var (
 	DistributerConfigReceivedObjectWriter  = pdm("DistributerConfig.receivedStateWriter", "Received state writer configuration")
 
 	// SequencerConfig field descriptions
-	SequencerConfigAssembleTimeout                   = pdm("SequencerConfig.assembleTimeout", "Timeout for transaction assembly")
+	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
 	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
 	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
 	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")
@@ -724,6 +724,7 @@ var (
 	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
 	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
+	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
 	SequencerConfigHeartbeatThreshold                = pdm("SequencerConfig.heartbeatThreshold", "Heartbeat threshold")

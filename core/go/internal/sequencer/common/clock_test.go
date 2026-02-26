@@ -76,6 +76,16 @@ func TestRealClock_HasExpired_FutureStart(t *testing.T) {
 	assert.False(t, expired, "should not be expired when start + duration is in the future")
 }
 
+func TestFakeClock_HasExpired_ExactlyAtExpiry(t *testing.T) {
+	clock := &FakeClockForTesting{}
+	start := clock.Now()
+	duration := clock.Duration(100)
+
+	clock.Advance(100)
+	expired := clock.HasExpired(start, duration)
+	assert.True(t, expired, "should be expired when now is exactly start + duration")
+}
+
 func TestRealClock_ScheduleTimer_FiresAfterDuration(t *testing.T) {
 	clock := RealClock()
 	ctx := context.Background()

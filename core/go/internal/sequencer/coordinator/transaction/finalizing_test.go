@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_guard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -34,10 +34,10 @@ func Test_guard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testin
 	txn.heartbeatIntervalsSinceStateChange = 3
 
 	// Should return false when heartbeat intervals is less than grace period
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -46,10 +46,10 @@ func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T)
 	txn.heartbeatIntervalsSinceStateChange = 5
 
 	// Should return true when heartbeat intervals equals grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -58,10 +58,10 @@ func Test_guard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *test
 	txn.heartbeatIntervalsSinceStateChange = 7
 
 	// Should return true when heartbeat intervals is greater than grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -70,10 +70,10 @@ func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.
 	txn.heartbeatIntervalsSinceStateChange = 0
 
 	// Should return true when both are zero (0 >= 0)
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -82,7 +82,7 @@ func Test_guard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *t
 	txn.heartbeatIntervalsSinceStateChange = 0
 
 	// Should return false when heartbeat intervals is 0 and grace period is positive
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
 func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
@@ -110,13 +110,13 @@ func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *
 	mockSyncPoints.AssertExpectations(t)
 }
 
-func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := newTransactionForUnitTesting(t, nil)
 
 	// Set up a cancel function to track if it's called
 	cancelCalled := false
-	txn.cancelAssembleTimeoutSchedule = func() { cancelCalled = true }
+	txn.cancelRequestTimeoutSchedule = func() { cancelCalled = true }
 
 	// Set up the mock
 	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
@@ -131,7 +131,7 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsAssembleTimeoutSchedules(t
 	require.NoError(t, err)
 
 	// Verify the cancel function was called
-	assert.True(t, cancelCalled, "cancelAssembleTimeoutSchedule should have been called")
+	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
 
 func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
@@ -188,4 +188,32 @@ func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, callCount, 1)
 	mockSyncPoints.AssertExpectations(t)
+}
+
+func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn.confirmedLockRetentionGracePeriod = 2
+
+	txn.heartbeatIntervalsSinceStateChange = 1
+	assert.False(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
+
+	txn.heartbeatIntervalsSinceStateChange = 2
+	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
+
+	txn.confirmedLocksReleased = true
+	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
+}
+
+func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := newTransactionForUnitTesting(t, nil)
+	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+
+	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, txn.confirmedLocksReleased)
+
+	err = action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
+	require.NoError(t, err)
 }

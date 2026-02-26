@@ -337,6 +337,10 @@ func (c *coordinator) QueueEvent(ctx context.Context, event common.Event) {
 	c.stateMachineEventLoop.QueueEvent(ctx, event)
 }
 
+func (c *coordinator) TryQueueEvent(ctx context.Context, event common.Event) bool {
+	return c.stateMachineEventLoop.TryQueueEvent(ctx, event)
+}
+
 // Queue a state machine event generated internally for the sequencer loop to process. Is prioritized above
 // external event sources
 func (c *coordinator) queueEventInternal(ctx context.Context, event common.Event) {

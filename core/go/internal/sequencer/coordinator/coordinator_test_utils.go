@@ -112,9 +112,9 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 	copy := &pldconf.SequencerConfig{
 		Writer: pldconf.FlushWriterConfig{},
 	}
-	if def.AssembleTimeout != nil {
-		v := *def.AssembleTimeout
-		copy.AssembleTimeout = &v
+	if def.StateTimeout != nil {
+		v := *def.StateTimeout
+		copy.StateTimeout = &v
 	}
 	if def.RequestTimeout != nil {
 		v := *def.RequestTimeout

@@ -52,7 +52,6 @@ func guard_FlushComplete(ctx context.Context, c *coordinator) bool {
 		c.getTransactionsInStates(ctx, []transaction.State{
 			transaction.State_Ready_For_Dispatch,
 			transaction.State_Dispatched,
-			transaction.State_Submitted,
 		}),
 	) == 0
 }

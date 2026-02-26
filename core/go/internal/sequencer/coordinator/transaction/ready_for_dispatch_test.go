@@ -23,7 +23,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -43,13 +42,11 @@ func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) 
 	}
 	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	err := action_UpdateSigningIdentity(ctx, txn, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "signer1", txn.pt.Signer)
-	assert.False(t, txn.dynamicSigningIdentity)
 }
 
 func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
@@ -57,12 +54,10 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 	txn.pt.PostAssembly = nil
 	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.updateSigningIdentity()
 
 	assert.Empty(t, txn.pt.Signer)
-	assert.True(t, txn.dynamicSigningIdentity)
 }
 
 func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
@@ -72,12 +67,10 @@ func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 	}
 	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.updateSigningIdentity()
 
 	assert.Empty(t, txn.pt.Signer)
-	assert.True(t, txn.dynamicSigningIdentity)
 }
 
 func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
@@ -97,12 +90,10 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 	}
 	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.updateSigningIdentity()
 
 	assert.Equal(t, verifierLookup, txn.pt.Signer)
-	assert.False(t, txn.dynamicSigningIdentity)
 }
 
 func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
@@ -119,12 +110,10 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 	}
 	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.updateSigningIdentity()
 
 	assert.Empty(t, txn.pt.Signer)
-	assert.True(t, txn.dynamicSigningIdentity)
 }
 
 func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
@@ -144,61 +133,45 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 	// Use a different submitter selection value (0 is COORDINATOR, so use 1 or higher)
 	txn.submitterSelection = 999 // Invalid value to test the condition
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.updateSigningIdentity()
 
 	assert.Empty(t, txn.pt.Signer)
-	assert.True(t, txn.dynamicSigningIdentity)
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_Confirmed(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Confirmed
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait())
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_Submitted(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Submitted
+	txn.stateMachine.CurrentState = State_Dispatched
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait())
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_Dispatched(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Dispatched
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait())
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
 
-	assert.False(t, txn.dependentsMustWait(false))
+	assert.False(t, txn.dependentsMustWait())
 }
 
 func Test_dependentsMustWait_FixedSigningIdentity_NotReady(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.stateMachine.CurrentState = State_Assembling
 
-	assert.True(t, txn.dependentsMustWait(false))
-}
-
-func Test_dependentsMustWait_DynamicSigningIdentity_Confirmed(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Confirmed
-
-	assert.False(t, txn.dependentsMustWait(true))
-}
-
-func Test_dependentsMustWait_DynamicSigningIdentity_NotReady(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
-
-	assert.True(t, txn.dependentsMustWait(true))
+	assert.True(t, txn.dependentsMustWait())
 }
 
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
@@ -232,7 +205,6 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	grapher := NewGrapher(ctx)
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn1.stateMachine.CurrentState = State_Assembling
-	txn1.dynamicSigningIdentity = false
 
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 	txn2.dependencies = &pldapi.TransactionDependencies{
@@ -249,9 +221,26 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	grapher := NewGrapher(ctx)
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn1.stateMachine.CurrentState = State_Confirmed
-	txn1.dynamicSigningIdentity = false
 
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2.dependencies = &pldapi.TransactionDependencies{
+		DependsOn: []uuid.UUID{txn1.pt.ID},
+	}
+	txn2.pt.PreAssembly = nil
+
+	assert.False(t, txn2.hasDependenciesNotReady(ctx))
+}
+
+func Test_hasDependenciesNotReady_FixedDomainSigner_DependencyReadyForDispatch(t *testing.T) {
+	ctx := context.Background()
+
+	grapher := NewGrapher(ctx)
+	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
+
+	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		DomainSigningIdentity("fixed-signer").
+		Build()
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -266,7 +255,6 @@ func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
 	grapher := NewGrapher(ctx)
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn1.stateMachine.CurrentState = State_Assembling
-	txn1.dynamicSigningIdentity = false
 
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 	txn2.dependencies = &pldapi.TransactionDependencies{}
@@ -285,11 +273,9 @@ func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *
 	grapher := NewGrapher(ctx)
 	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	txn1.stateMachine.CurrentState = State_Confirmed
-	txn1.dynamicSigningIdentity = false
 
 	txn2, _ := newTransactionForUnitTesting(t, grapher)
 	txn2.stateMachine.CurrentState = State_Assembling
-	txn2.dynamicSigningIdentity = false
 
 	txn3, _ := newTransactionForUnitTesting(t, grapher)
 	txn3.dependencies = &pldapi.TransactionDependencies{
@@ -458,12 +444,10 @@ func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.domainSigningIdentity = "domain-signer"
 	txn.pt.Signer = ""
-	txn.dynamicSigningIdentity = true
 
 	txn.allocateSigningIdentity(ctx)
 
 	assert.Equal(t, "domain-signer", txn.pt.Signer)
-	assert.False(t, txn.dynamicSigningIdentity)
 }
 
 func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
@@ -472,15 +456,10 @@ func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.domainSigningIdentity = ""
 	txn.pt.Signer = ""
-	addr := pldtypes.RandAddress()
-	txn.pt.Address = *addr
 
 	txn.allocateSigningIdentity(ctx)
 
-	assert.NotEmpty(t, txn.pt.Signer)
-	assert.Contains(t, txn.pt.Signer, txn.pt.Address.String())
-	assert.Contains(t, txn.pt.Signer, "domains.")
-	assert.Contains(t, txn.pt.Signer, ".submit.")
+	assert.Equal(t, txn.coordinatorSigningIdentity, txn.pt.Signer)
 }
 
 func Test_action_NotifyDependentsOfReadiness_WithExistingSigner(t *testing.T) {
@@ -503,15 +482,13 @@ func Test_action_NotifyDependentsOfReadiness_WithoutSigner(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 	txn.pt.Signer = ""
 	txn.domainSigningIdentity = ""
-	addr := pldtypes.RandAddress()
-	txn.pt.Address = *addr
 	txn.dependencies = &pldapi.TransactionDependencies{
 		PrereqOf: []uuid.UUID{},
 	}
 
 	err := action_NotifyDependentsOfReadiness(ctx, txn, nil)
 	assert.NoError(t, err)
-	assert.NotEmpty(t, txn.pt.Signer)
+	assert.Equal(t, txn.coordinatorSigningIdentity, txn.pt.Signer)
 }
 
 func Test_hasDependenciesNotIn_NoDependencies(t *testing.T) {

@@ -35,7 +35,12 @@ func action_Confirmed(ctx context.Context, t *CoordinatorTransaction, event comm
 
 func action_NotifyDependantsOfConfirmation(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
-	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	txn.confirmedLocksReleased = false
+	if txn.confirmedLockRetentionGracePeriod == 0 {
+		if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
+			return err
+		}
+	}
 	return txn.notifyDependentsOfConfirmation(ctx)
 }
 
