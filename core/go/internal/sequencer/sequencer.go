@@ -540,6 +540,7 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 
 		// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
 		// orchestrator polling so it is critical we do not block here waiting on a full event queue.
+		// TODO - return to the idea of substates for these
 		sequencer.GetCoordinator().TryQueueEvent(ctx, collectedEvent)
 	}
 
