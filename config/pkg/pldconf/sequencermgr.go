@@ -74,7 +74,7 @@ var SequencerDefaults = SequencerConfig{
 	CoordinatorPriorityEventQueueSize: confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
-	ClosingGracePeriod:                confutil.P(4),
+	ClosingGracePeriod:                confutil.P(1),
 	DelegateTimeout:                   confutil.P("5s"),
 	HeartbeatInterval:                 confutil.P("10s"),
 	MaxInflightTransactions:           confutil.P(500),

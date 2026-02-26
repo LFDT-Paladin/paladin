@@ -265,9 +265,10 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	heartbeatEvent.CoordinatorSnapshot = *coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
+	// we only pass heartbeat notifications to sequencers that are already loaded in memory
+	seq, err := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass heartbeat event to %v:", err)
+		log.L(ctx).Debugf("ignoring heartbeat for contract %s as sequencer is not loaded: %v", contractAddress, err)
 		return
 	}
 

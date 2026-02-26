@@ -792,6 +792,32 @@ func TestHandleCoordinatorHeartbeatNotification_MissingFrom(t *testing.T) {
 	sm.handleCoordinatorHeartbeatNotification(ctx, message)
 }
 
+func TestHandleCoordinatorHeartbeatNotification_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	coordinatorSnapshot := &common.CoordinatorSnapshot{}
+	snapshotJSON, _ := json.Marshal(coordinatorSnapshot)
+	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
+		From:                "coordinator@node2",
+		ContractAddress:     contractAddr.String(),
+		CoordinatorSnapshot: snapshotJSON,
+	}
+	payload, _ := proto.Marshal(heartbeatNotification)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_CoordinatorHeartbeatNotification,
+		Payload:     payload,
+	}
+
+	sm.handleCoordinatorHeartbeatNotification(ctx, message)
+	assert.Empty(t, sm.sequencers)
+}
+
 func TestHandlePreDispatchRequest_Success(t *testing.T) {
 	ctx := context.Background()
 	mocks := newTransportClientTestMocks(t)

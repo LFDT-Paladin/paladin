@@ -20,6 +20,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 type Event interface {
@@ -103,4 +104,18 @@ func (*TransactionConfirmedEvent) Type() EventType {
 
 func (*TransactionConfirmedEvent) TypeString() string {
 	return "Event_TransactionConfirmed"
+}
+
+type TransactionConfirmedByIDEvent struct {
+	common.BaseEvent
+	TransactionID uuid.UUID
+	RevertReason  pldtypes.HexBytes
+}
+
+func (*TransactionConfirmedByIDEvent) Type() EventType {
+	return Event_TransactionConfirmedByID
+}
+
+func (*TransactionConfirmedByIDEvent) TypeString() string {
+	return "Event_TransactionConfirmedByID"
 }

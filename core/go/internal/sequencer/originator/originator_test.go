@@ -160,7 +160,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	heartbeatWithPooled := &HeartbeatReceivedEvent{}
 	heartbeatWithPooled.From = coordinatorLocator
 	heartbeatWithPooled.ContractAddress = &contractAddress
-	heartbeatEvent.PooledTransactions = []*common.Transaction{
+	heartbeatWithPooled.PooledTransactions = []*common.Transaction{
 		{
 			ID:         txn1.ID,
 			Originator: originatorLocator,
@@ -172,6 +172,46 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Delegation request should be sent after heartbeat")
 	require.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(txn1.ID))
 	require.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(txn2.ID))
+}
+
+func TestOriginator_TransactionConfirmedByID_AllStates(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		initialState  State
+		expectedState State
+	}{
+		{name: "Idle", initialState: State_Idle, expectedState: State_Idle},
+		{name: "Observing", initialState: State_Observing, expectedState: State_Observing},
+		{name: "Sending", initialState: State_Sending, expectedState: State_Observing},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			builder := NewOriginatorBuilderForTesting(tc.initialState).CommitteeMembers("member1@node1", "member2@node2")
+			txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+			builder.Transactions(txn)
+
+			s, _, cleanup := builder.Build(ctx)
+			defer cleanup()
+
+			submissionHash := txn.GetLatestSubmissionHash()
+			require.NotNil(t, submissionHash)
+			_, exists := s.submittedTransactionsByHash[*submissionHash]
+			require.True(t, exists)
+
+			s.QueueEvent(ctx, &TransactionConfirmedByIDEvent{
+				BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+				TransactionID: txn.GetID(),
+			})
+
+			require.Eventually(t, func() bool { return txn.GetCurrentState() == transaction.State_Confirmed }, 100*time.Millisecond, 1*time.Millisecond)
+			_, exists = s.submittedTransactionsByHash[*submissionHash]
+			assert.False(t, exists)
+			require.Eventually(t, func() bool { return s.GetCurrentState() == tc.expectedState }, 100*time.Millisecond, 1*time.Millisecond)
+		})
+	}
 }
 
 func Test_propagateEventToTransaction_UnknownTransaction_AssembleRequestSendsUnknown(t *testing.T) {

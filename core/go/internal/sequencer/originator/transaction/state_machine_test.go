@@ -101,3 +101,31 @@ func Test_initializeStateMachine_InvokesTransitionCallback(t *testing.T) {
 	_, ok := events[0].(*common.TransactionStateTransitionEvent[State])
 	require.True(t, ok)
 }
+
+func Test_HandleEvent_ConfirmedSuccess_AllNonFinalStates(t *testing.T) {
+	ctx := context.Background()
+	states := []State{
+		State_Initial,
+		State_Pending,
+		State_Delegated,
+		State_Assembling,
+		State_Endorsement_Gathering,
+		State_Prepared,
+		State_Dispatched,
+		State_Sequenced,
+		State_Submitted,
+		State_Parked,
+	}
+
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			builder := NewTransactionBuilderForTesting(t, state)
+			txn, _ := builder.BuildWithMocks()
+			err := txn.HandleEvent(ctx, &ConfirmedSuccessEvent{
+				BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+		})
+	}
+}

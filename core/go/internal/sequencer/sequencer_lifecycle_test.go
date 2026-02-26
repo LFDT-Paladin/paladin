@@ -148,6 +148,7 @@ func newSequencerForTesting(contractAddr *pldtypes.EthAddress, mocks *sequencerL
 		originator:      mocks.originator,
 		coordinator:     mocks.coordinator,
 		transportWriter: mocks.transportWriter,
+		cancelCtx:       func() {},
 		lastTXTime:      time.Now(),
 	}
 }
@@ -412,6 +413,98 @@ func TestSequencerManager_LoadSequencer_NoDomainProvided(t *testing.T) {
 	mocks.metrics.AssertExpectations(t)
 }
 
+func TestSequencerManager_GetSequencer_NotLoaded(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq, err := sm.GetSequencer(ctx, *contractAddr)
+	require.NoError(t, err)
+	assert.Nil(t, seq)
+}
+
+func TestSequencerManager_GetSequencer_Loaded(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	existing := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = existing
+	sm.sequencersLock.Unlock()
+
+	seq, err := sm.GetSequencer(ctx, *contractAddr)
+	require.NoError(t, err)
+	assert.Equal(t, existing, seq)
+}
+
+func TestSequencerManager_handleTransactionConfirmedDirect_NotLoaded(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+
+	txID := uuid.New()
+	from := pldtypes.RandAddress()
+	nonce := pldtypes.HexUint64(7)
+	completion := &components.TxCompletion{
+		ReceiptInput: components.ReceiptInput{
+			TransactionID: txID,
+			OnChain: pldtypes.OnChainLocation{
+				TransactionHash: pldtypes.RandBytes32(),
+			},
+		},
+		PSC: mocks.domainAPI,
+	}
+
+	err := sm.handleTransactionConfirmedDirect(ctx, completion, from, &nonce)
+	require.NoError(t, err)
+}
+
+func TestSequencerManager_handleTransactionConfirmedByChainedTransaction_LoadedQueuesCoordinatorAndOriginator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+
+	txID := uuid.New()
+	txHash := pldtypes.RandBytes32()
+	completion := &components.TxCompletion{
+		ReceiptInput: components.ReceiptInput{
+			TransactionID: txID,
+			OnChain: pldtypes.OnChainLocation{
+				TransactionHash: txHash,
+			},
+		},
+		PSC: mocks.domainAPI,
+	}
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinator.TransactionConfirmedEvent)
+		return ok && event.TxID == txID && event.Hash == txHash
+	})).Once()
+	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*originator.TransactionConfirmedByIDEvent)
+		return ok && event.TransactionID == txID
+	})).Once()
+
+	err := sm.handleTransactionConfirmedByChainedTransaction(ctx, completion)
+	require.NoError(t, err)
+}
+
 func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -456,6 +549,7 @@ func TestSequencerManager_stopLowestPrioritySequencer_IdleSequencer(t *testing.T
 	// Create an idle sequencer
 	seq := newSequencerForTesting(contractAddr, mocks)
 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
+	mocks.originator.EXPECT().GetCurrentState().Return(originator.State_Idle)
 	mocks.originator.EXPECT().WaitForDone(mock.Anything).Once()
 	mocks.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
 
@@ -470,6 +564,39 @@ func TestSequencerManager_stopLowestPrioritySequencer_IdleSequencer(t *testing.T
 	sm.sequencersLock.RLock()
 	defer sm.sequencersLock.RUnlock()
 	assert.NotContains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_stopLowestPrioritySequencer_IdleCoordinatorBusyOriginator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr1 := pldtypes.RandAddress()
+	contractAddr2 := pldtypes.RandAddress()
+	mocks1 := newSequencerLifecycleTestMocks(t)
+	mocks2 := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks1)
+
+	seq1 := newSequencerForTesting(contractAddr1, mocks1)
+	seq1.lastTXTime = time.Now().Add(-1 * time.Hour) // Newer
+	seq2 := newSequencerForTesting(contractAddr2, mocks2)
+	seq2.lastTXTime = time.Now().Add(-2 * time.Hour) // Older
+
+	// seq1 has an idle coordinator but a busy originator, so it should not be immediately paged out.
+	mocks1.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
+	mocks1.originator.EXPECT().GetCurrentState().Return(originator.State_Sending)
+	mocks2.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
+	mocks2.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
+	mocks2.originator.EXPECT().WaitForDone(mock.Anything).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr1.String()] = seq1
+	sm.sequencers[contractAddr2.String()] = seq2
+	sm.sequencersLock.Unlock()
+
+	sm.stopLowestPrioritySequencer(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Contains(t, sm.sequencers, contractAddr1.String())
+	assert.NotContains(t, sm.sequencers, contractAddr2.String())
 }
 
 func TestSequencerManager_stopLowestPrioritySequencer_LowestPriority(t *testing.T) {

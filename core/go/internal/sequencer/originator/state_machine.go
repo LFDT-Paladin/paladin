@@ -41,6 +41,7 @@ const (
 	Event_HeartbeatReceived                                       // a heartbeat message was received from the current active coordinator
 	Event_TransactionCreated                                      // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
 	Event_TransactionConfirmed                                    // a transaction, that was send by this originator, has been confirmed on the base ledger
+	Event_TransactionConfirmedByID                                // a transaction has been confirmed using its transaction ID
 	Event_NewBlock                                                // a new block has been mined on the base ledger
 	Event_Base_Ledger_Transaction_Reverted                        // A transaction has moved from the dispatched to pending state because it was reverted on the base ledger
 	Event_Delegate_Timeout                                        // a regular interval to re-delegate transactions that have been delegated but not yet confirmed
@@ -73,6 +74,9 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions:     []ActionRule{{Action: action_TransactionCreated}},
 				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
 			},
+			Event_TransactionConfirmedByID: {
+				Actions: []ActionRule{{Action: action_TransactionConfirmedByID}},
+			},
 		},
 	},
 	State_Observing: {
@@ -90,6 +94,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_NewBlock:          {},
 			Event_HeartbeatReceived: {Actions: []ActionRule{{Action: action_HeartbeatReceived}}},
+			Event_TransactionConfirmedByID: {
+				Actions: []ActionRule{{Action: action_TransactionConfirmedByID}},
+			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
 			},
@@ -105,6 +112,10 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_TransactionConfirmed: {
 				Actions:     []ActionRule{{Action: action_TransactionConfirmed}},
+				Transitions: []Transition{{To: State_Observing, If: statemachine.Not(guard_HasUnconfirmedTransactions)}},
+			},
+			Event_TransactionConfirmedByID: {
+				Actions:     []ActionRule{{Action: action_TransactionConfirmedByID}},
 				Transitions: []Transition{{To: State_Observing, If: statemachine.Not(guard_HasUnconfirmedTransactions)}},
 			},
 			Event_TransactionCreated: {

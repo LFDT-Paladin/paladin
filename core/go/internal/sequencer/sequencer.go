@@ -523,7 +523,7 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 	log.L(sMgr.ctx).Tracef("HandleTransactionCollected %s %s %s", signerAddress, contractAddress, txID.String())
 
 	// Get the sequencer for the signer address
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *pldtypes.MustEthAddress(contractAddress), nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if err != nil {
 		return err
 	}
@@ -549,7 +549,7 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 	log.L(sMgr.ctx).Tracef("HandleNonceAssigned %d %s %s", nonce, contractAddress, txID.String())
 
 	// Get the sequencer for the signer address
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *pldtypes.MustEthAddress(contractAddress), nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if err != nil {
 		return err
 	}
@@ -576,7 +576,7 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 
 	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(tx.TransactionContractAddress), nil, nil)
+		sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(tx.TransactionContractAddress))
 		if err != nil {
 			return err
 		}
@@ -634,7 +634,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedDirect(ctx context.Conte
 		contractAddress = confirmedTxn.PSC.Address()
 	}
 
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), contractAddress, nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
 		return err
 	}
@@ -655,6 +655,11 @@ func (sMgr *sequencerManager) handleTransactionConfirmedDirect(ctx context.Conte
 		}
 
 		sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
+		sequencer.GetOriginator().QueueEvent(ctx, &originator.TransactionConfirmedByIDEvent{
+			BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+			TransactionID: confirmedTxn.TransactionID,
+			RevertReason:  confirmedTxn.RevertData,
+		})
 	}
 
 	return nil
@@ -678,7 +683,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedByChainedTransaction(ctx
 		contractAddress = confirmedTxn.PSC.Address()
 	}
 
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), contractAddress, nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
 		return err
 	}
@@ -695,6 +700,11 @@ func (sMgr *sequencerManager) handleTransactionConfirmedByChainedTransaction(ctx
 		confirmedEvent.EventTime = time.Now()
 
 		sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
+		sequencer.GetOriginator().QueueEvent(ctx, &originator.TransactionConfirmedByIDEvent{
+			BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+			TransactionID: confirmedTxn.TransactionID,
+			RevertReason:  confirmedTxn.RevertData,
+		})
 	}
 
 	return nil
@@ -725,7 +735,7 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 		}
 		contractAddress := tx.To
 
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *contractAddress, nil, nil)
+		sequencer, err := sMgr.GetSequencer(ctx, *contractAddress)
 		if err != nil {
 			return err
 		}

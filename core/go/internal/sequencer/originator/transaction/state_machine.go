@@ -90,6 +90,11 @@ type (
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Created: {
 				Transitions: []Transition{
 					{
@@ -101,6 +106,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Pending: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 				Transitions: []Transition{
@@ -113,6 +123,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Delegated: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 			},
@@ -144,6 +159,11 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Assembling: {
 		OnTransitionTo: action_AssembleAndSign,
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleAndSignSuccess: {
 				Actions: []ActionRule{{Action: action_AssembleAndSignSuccess}},
 				Transitions: []Transition{
@@ -202,6 +222,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Endorsement_Gathering: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Validator: validator_AssembleRequestMatches,
 				Actions: []ActionRule{
@@ -239,6 +264,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Prepared: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Dispatched: {
 				Actions: []ActionRule{{Action: action_Dispatched}},
 				//Note: no validator here although this event may or may not match the most recent dispatch confirmation response.
@@ -404,6 +434,11 @@ var stateDefinitionsMap = StateDefinitions{
 
 	State_Parked: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Actions: []ActionRule{
 					{Action: action_AssembleRequestReceived},

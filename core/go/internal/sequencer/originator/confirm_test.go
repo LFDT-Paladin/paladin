@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,4 +165,33 @@ func Test_confirmTransaction_Success_WithRevertReasonRemovesHash(t *testing.T) {
 	// Verify the hash was deleted after confirmation
 	_, exists = o.submittedTransactionsByHash[*submissionHash]
 	assert.False(t, exists, "Hash should be deleted from submittedTransactionsByHash after confirmation")
+}
+
+func Test_confirmTransactionByID_UnknownTransactionNoOp(t *testing.T) {
+	ctx := context.Background()
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+
+	err := o.confirmTransactionByID(ctx, uuid.New(), pldtypes.HexBytes(""))
+	require.NoError(t, err)
+}
+
+func Test_confirmTransactionByID_SuccessRemovesSubmittedHash(t *testing.T) {
+	ctx := context.Background()
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	builder.Transactions(txn)
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+
+	submissionHash := txn.GetLatestSubmissionHash()
+	require.NotNil(t, submissionHash)
+	_, exists := o.submittedTransactionsByHash[*submissionHash]
+	require.True(t, exists)
+
+	err := o.confirmTransactionByID(ctx, txn.GetID(), pldtypes.HexBytes(""))
+	require.NoError(t, err)
+	_, exists = o.submittedTransactionsByHash[*submissionHash]
+	assert.False(t, exists)
 }

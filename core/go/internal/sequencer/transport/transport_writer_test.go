@@ -84,6 +84,7 @@ func TestSendTransactionSubmitted_Success(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -110,6 +111,7 @@ func TestSendTransactionSubmitted_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -179,6 +181,7 @@ func TestSendTransactionSubmitted_SendError(t *testing.T) {
 	mockTransportManager.On("Send", ctx, mock.Anything).Return(sendError)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -210,6 +213,7 @@ func TestSendTransactionSubmitted_VerifyProtoFields(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -296,6 +300,7 @@ func TestSendDelegationRequest_Success(t *testing.T) {
 	})).Return(nil).Times(2)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -317,6 +322,7 @@ func TestSendDelegationRequest_EmptyTransactions(t *testing.T) {
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -372,6 +378,7 @@ func TestSendDelegationRequestAcknowledgment_Success(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -398,6 +405,7 @@ func TestSendDelegationRequestAcknowledgment_SendError(t *testing.T) {
 	mockTransportManager.On("Send", ctx, mock.Anything).Return(sendError)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -488,6 +496,7 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -521,6 +530,7 @@ func TestSendEndorsementRequest_NodeLookupError(t *testing.T) {
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -734,6 +744,7 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -768,6 +779,7 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 	mockTransportManager.On("Send", ctx, mock.Anything).Return(sendError)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -830,6 +842,7 @@ func TestSendAssembleResponse_Success(t *testing.T) {
 	})).Return(nil)
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1266,6 +1279,7 @@ func TestSendTransactionConfirmed_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1406,6 +1420,7 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1543,6 +1558,7 @@ func TestSendPreDispatchRequest_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1673,6 +1689,7 @@ func TestSendPreDispatchResponse_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1830,6 +1847,7 @@ func TestSendDispatched_Loopback(t *testing.T) {
 	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,
@@ -1967,6 +1985,7 @@ func TestSendTransactionUnknown_Loopback(t *testing.T) {
 	mockLoopbackTransport.On("LoopbackQueue").Return(loopbackQueue).Maybe()
 
 	tw := &transportWriter{
+		ctx:               ctx,
 		nodeID:            "local-node",
 		transportManager:  mockTransportManager,
 		loopbackTransport: mockLoopbackTransport,

@@ -25,11 +25,17 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 )
 
 func action_TransactionConfirmed(ctx context.Context, o *originator, event common.Event) error {
 	e := event.(*TransactionConfirmedEvent)
 	return o.confirmTransaction(ctx, e.Hash, e.RevertReason)
+}
+
+func action_TransactionConfirmedByID(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*TransactionConfirmedByIDEvent)
+	return o.confirmTransactionByID(ctx, e.TransactionID, e.RevertReason)
 }
 
 func (o *originator) confirmTransaction(
@@ -100,6 +106,48 @@ func (o *originator) confirmTransaction(
 	delete(o.submittedTransactionsByHash, hash)
 	return nil
 
+}
+
+func (o *originator) confirmTransactionByID(
+	ctx context.Context,
+	transactionID uuid.UUID,
+	revertReason pldtypes.HexBytes,
+) error {
+	txn, ok := o.transactionsByID[transactionID]
+	if txn == nil || !ok {
+		log.L(ctx).Debugf("transaction %s not found in originator transaction set", transactionID)
+		return nil
+	}
+
+	if revertReason.String() == "" {
+		err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+			BaseEvent: transaction.BaseEvent{
+				TransactionID: txn.GetID(),
+			},
+		})
+		if err != nil {
+			msg := fmt.Sprintf("error handling confirmed success event for transaction %s: %v", txn.GetID(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+	} else {
+		err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+			BaseEvent: transaction.BaseEvent{
+				TransactionID: txn.GetID(),
+			},
+			RevertReason: revertReason,
+		})
+		if err != nil {
+			msg := fmt.Sprintf("error handling confirmed revert event for transaction %s: %v", txn.GetID(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
+		}
+	}
+
+	if hash := txn.GetLatestSubmissionHash(); hash != nil {
+		delete(o.submittedTransactionsByHash, *hash)
+	}
+	return nil
 }
 
 func guard_HasUnconfirmedTransactions(ctx context.Context, o *originator) bool {
