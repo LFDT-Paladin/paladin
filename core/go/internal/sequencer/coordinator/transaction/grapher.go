@@ -81,9 +81,44 @@ func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, tran
 }
 
 func (s *grapher) Forget(transactionID uuid.UUID) error {
+	txn := s.transactionByID[transactionID]
+	if txn != nil {
+		s.pruneDependencyLinks(txn)
+	}
 	s.ForgetMints(transactionID)
 	delete(s.transactionByID, transactionID)
 	return nil
+}
+
+// Temporary approach that removes updates depends-on list for any transactions this is a pre-req of
+// Note - this doesn't update the grapher itself
+func (s *grapher) pruneDependencyLinks(txn *CoordinatorTransaction) {
+	// Remove this TX from all dependent forward links.
+	dependentIDs := make(map[uuid.UUID]struct{})
+	if txn.dependencies != nil {
+		for _, dependentID := range txn.dependencies.PrereqOf {
+			dependentIDs[dependentID] = struct{}{}
+		}
+	}
+	for dependentID := range dependentIDs {
+		dependent := s.transactionByID[dependentID]
+		if dependent == nil {
+			continue
+		}
+		if dependent.dependencies != nil {
+			dependent.dependencies.DependsOn = removeUUID(dependent.dependencies.DependsOn, txn.pt.ID)
+		}
+	}
+}
+
+func removeUUID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
+	filtered := ids[:0]
+	for _, id := range ids {
+		if id != target {
+			filtered = append(filtered, id)
+		}
+	}
+	return filtered
 }
 
 func (s *grapher) ForgetMints(transactionID uuid.UUID) {
