@@ -442,7 +442,7 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			ContractAddress: tx.TransactionContractAddress,
 		})
 
-		for _, submission := range tx.PublicTx.Submissions {
+		for _, submission := range tx.Submissions {
 			dbSubmissions = append(dbSubmissions, &DBPubTxnSubmission{
 				PublicTxnID:     persistedTransactions[i].PublicTxnID,
 				TransactionHash: submission.TransactionHash,
