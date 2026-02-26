@@ -11,8 +11,6 @@ instances:
       name: public_contract
       workers: 30
       actionsPerLoop: 10
-    maxTimePerAction: 60s
-    delinquentAction: log
     length: 1m
     rampLength: 30s
 logLevel: debug    

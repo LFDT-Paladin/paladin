@@ -25,7 +25,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/perf/internal/contracts"
 	"github.com/LFDT-Paladin/paladin/perf/internal/util"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
@@ -34,23 +33,23 @@ import (
 
 type publicContractSuite struct {
 	ctx             context.Context
-	httpClients     []pldclient.PaladinClient
-	wsClient        pldclient.PaladinWSClient
-	nodes           []conf.NodeConfig
+	runner          Runner
 	contractAddress *pldtypes.EthAddress
 	sub             rpcclient.Subscription
 	abiRef          *pldtypes.Bytes32
 }
 
-// NewPublicContractSuite creates a new public contract test suite with the given context and clients.
-func NewPublicContractSuite(ctx context.Context, httpClients []pldclient.PaladinClient, wsClient pldclient.PaladinWSClient, nodes []conf.NodeConfig) *publicContractSuite {
-	return &publicContractSuite{ctx: ctx, httpClients: httpClients, wsClient: wsClient, nodes: nodes}
+// NewPublicContractSuite creates a new public contract test suite with the given context and runner.
+func NewPublicContractSuite(ctx context.Context, runner Runner) *publicContractSuite {
+	return &publicContractSuite{ctx: ctx, runner: runner}
 }
 
 func (s *publicContractSuite) Setup() error {
-	if len(s.nodes) > 0 {
-		log.Infof("Running public contract test using first configured node: %s", s.nodes[0].HTTPEndpoint)
+	nodes := s.runner.GetNodes()
+	if len(nodes) == 0 {
+		return fmt.Errorf("no nodes configured")
 	}
+	log.Infof("Running public contract test using first configured node: %s", nodes[0].Config.HTTPEndpoint)
 
 	simpleStorage, err := contracts.LoadSimpleStorageContract()
 	if err != nil {
@@ -58,7 +57,7 @@ func (s *publicContractSuite) Setup() error {
 	}
 
 	// create ABI separately so we know its ref
-	hash, err := s.httpClients[0].PTX().StoreABI(s.ctx, simpleStorage.ABI)
+	hash, err := nodes[0].HTTPClient.PTX().StoreABI(s.ctx, simpleStorage.ABI)
 	if err != nil {
 		return fmt.Errorf("failed to store ABI: %w", err)
 	}
@@ -66,7 +65,7 @@ func (s *publicContractSuite) Setup() error {
 	s.abiRef = &hash
 
 	log.Info("Deploying contract as public transaction...")
-	deployTxID, err := s.httpClients[0].PTX().SendTransaction(s.ctx, &pldapi.TransactionInput{
+	deployTxID, err := nodes[0].HTTPClient.PTX().SendTransaction(s.ctx, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			Type: pldapi.TransactionTypePublic.Enum(),
 			From: "deploy",
@@ -80,7 +79,7 @@ func (s *publicContractSuite) Setup() error {
 	}
 
 	log.Info("Waiting for contract deployment receipt...")
-	deployReceipt, err := util.WaitForTransactionReceiptFull(s.ctx, s.httpClients[0], *deployTxID, 60*time.Second)
+	deployReceipt, err := util.WaitForTransactionReceiptFull(s.ctx, nodes[0].HTTPClient, *deployTxID, 60*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to get contract deployment receipt: %w", err)
 	}
@@ -95,15 +94,11 @@ func (s *publicContractSuite) Setup() error {
 		return fmt.Errorf("contract address not found in deployment receipt")
 	}
 
-	return nil
-}
-
-func (s *publicContractSuite) Subscribe() (rpcclient.Subscription, error) {
+	// Create receipt listener (stays in Setup per plan; listener is not deleted by Unsubscribe or node kill)
 	const listenerName = "publiclistener"
-
 	var latestSequence *uint64
 	qb := query.NewQueryBuilder().Sort("-sequence").Limit(1)
-	receipts, err := s.httpClients[0].PTX().QueryTransactionReceipts(s.ctx, qb.Query())
+	receipts, err := nodes[0].HTTPClient.PTX().QueryTransactionReceipts(s.ctx, qb.Query())
 	if err == nil && len(receipts) > 0 {
 		seq := receipts[0].Sequence
 		latestSequence = &seq
@@ -112,13 +107,10 @@ func (s *publicContractSuite) Subscribe() (rpcclient.Subscription, error) {
 		log.Info("No existing receipts found, starting listener from beginning")
 	}
 
-	_, err = s.httpClients[0].PTX().DeleteReceiptListener(s.ctx, listenerName)
-	if err != nil {
-		log.Debugf("No existing listener to delete (or delete failed): %v", err)
-	}
+	_, _ = nodes[0].HTTPClient.PTX().DeleteReceiptListener(s.ctx, listenerName)
 
 	txType := pldapi.TransactionTypePublic.Enum()
-	_, err = s.httpClients[0].PTX().CreateReceiptListener(s.ctx, &pldapi.TransactionReceiptListener{
+	_, err = nodes[0].HTTPClient.PTX().CreateReceiptListener(s.ctx, &pldapi.TransactionReceiptListener{
 		Name: listenerName,
 		Filters: pldapi.TransactionReceiptFilters{
 			Type:          &txType,
@@ -126,10 +118,19 @@ func (s *publicContractSuite) Subscribe() (rpcclient.Subscription, error) {
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create receipt listener: %w", err)
+		return fmt.Errorf("failed to create receipt listener: %w", err)
 	}
 
-	sub, err := s.wsClient.PTX().SubscribeReceipts(s.ctx, listenerName)
+	return nil
+}
+
+func (s *publicContractSuite) Subscribe() (rpcclient.Subscription, error) {
+	const listenerName = "publiclistener"
+	nodes := s.runner.GetNodes()
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("no nodes configured")
+	}
+	sub, err := nodes[0].WSClient.PTX().SubscribeReceipts(s.ctx, listenerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to public receipts: %w", err)
 	}
@@ -149,11 +150,14 @@ func (s *publicContractSuite) Unsubscribe() {
 }
 
 func (s *publicContractSuite) Cleanup() {
-	_, err := s.httpClients[0].PTX().DeleteReceiptListener(s.ctx, "publiclistener")
-	if err != nil {
-		log.Debugf("Failed to delete receipt listener publiclistener: %v", err)
-	} else {
-		log.Infof("Successfully deleted receipt listener: publiclistener")
+	nodes := s.runner.GetNodes()
+	if len(nodes) > 0 {
+		_, err := nodes[0].HTTPClient.PTX().DeleteReceiptListener(s.ctx, "publiclistener")
+		if err != nil {
+			log.Debugf("Failed to delete receipt listener publiclistener: %v", err)
+		} else {
+			log.Infof("Successfully deleted receipt listener: publiclistener")
+		}
 	}
 }
 
@@ -165,15 +169,19 @@ func (s *publicContractSuite) NewWorker(startTime int64, workerID int) TestCase 
 			workerID:  workerID,
 		},
 		contractAddress: s.contractAddress,
-		httpClients:     s.httpClients,
+		runner:          s.runner,
 		abiRef:          s.abiRef,
 	}
+}
+
+func (s *publicContractSuite) PostRun() error {
+	return nil
 }
 
 type publicContract struct {
 	testBase
 	contractAddress *pldtypes.EthAddress
-	httpClients     []pldclient.PaladinClient
+	runner          Runner
 	abiRef          *pldtypes.Bytes32
 }
 
@@ -185,8 +193,12 @@ func (tc *publicContract) RunOnce(iterationCount int) (string, error) {
 	if tc.contractAddress == nil {
 		return "", fmt.Errorf("contract address not set - contract deployment may have failed")
 	}
+	nodes := tc.runner.GetNodes()
+	if len(nodes) == 0 {
+		return "", fmt.Errorf("no nodes configured")
+	}
 
-	result, err := tc.httpClients[0].PTX().SendTransaction(tc.ctx, &pldapi.TransactionInput{
+	result, err := nodes[0].HTTPClient.PTX().SendTransaction(tc.ctx, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			Type:         pldapi.TransactionTypePublic.Enum(),
 			Function:     "set",

@@ -57,6 +57,14 @@
             "mode": "debug",
             "program": "${workspaceRoot}/perf/pldperf/main.go",
             "args": ["run", "-c", "../config/example-private-transaction-node-restart.yaml", "-i", "0"],
+        },
+        {
+            "name": "Run privacy group contract deploy perf test against quick start",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/perf/pldperf/main.go",
+            "args": ["run", "-c", "../config/example-privacy-group-contract-deploy.yaml", "-i", "0"],
         }
     ]
 }

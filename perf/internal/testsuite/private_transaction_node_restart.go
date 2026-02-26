@@ -21,15 +21,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/perf/internal/contracts"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
+	"github.com/LFDT-Paladin/paladin/perf/internal/contracts"
 	"github.com/LFDT-Paladin/paladin/perf/internal/util"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	log "github.com/sirupsen/logrus"
@@ -37,34 +40,40 @@ import (
 
 type privateTransactionNodeRestartSuite struct {
 	ctx             context.Context
-	httpClients     []pldclient.PaladinClient
-	wsClient        pldclient.PaladinWSClient
-	nodes           []conf.NodeConfig
+	runner          Runner
 	privacyGroupID  *pldtypes.HexBytes
 	contractAddress *pldtypes.EthAddress
 	sub             rpcclient.Subscription
 }
 
-// NewPrivateTransactionNodeRestartSuite creates a new private transaction node restart test suite with the given context and clients.
-func NewPrivateTransactionNodeRestartSuite(ctx context.Context, httpClients []pldclient.PaladinClient, wsClient pldclient.PaladinWSClient, nodes []conf.NodeConfig) *privateTransactionNodeRestartSuite {
-	return &privateTransactionNodeRestartSuite{ctx: ctx, httpClients: httpClients, wsClient: wsClient, nodes: nodes}
+const privateTxPostRunPageSize = 500
+const privateTxRetryAttempts = 5
+const txMgrIdempotencyKeyClashErrorCode = "PD012220"
+
+// NewPrivateTransactionNodeRestartSuite creates a new private transaction node restart test suite with the given context and runner.
+func NewPrivateTransactionNodeRestartSuite(ctx context.Context, runner Runner) *privateTransactionNodeRestartSuite {
+	return &privateTransactionNodeRestartSuite{ctx: ctx, runner: runner}
 }
 
 func (s *privateTransactionNodeRestartSuite) Setup() error {
 	log.Infof("Running private transaction node restart test")
+	nodes := s.runner.GetNodes()
+	if len(nodes) == 0 {
+		return fmt.Errorf("no nodes configured")
+	}
 
 	simpleStorage, err := contracts.LoadSimpleStorageContract()
 	if err != nil {
 		return err
 	}
 
-	members := make([]string, len(s.nodes))
-	for i, node := range s.nodes {
-		members[i] = fmt.Sprintf("member@%s", node.Name)
+	members := make([]string, len(nodes))
+	for i, node := range nodes {
+		members[i] = fmt.Sprintf("member@%s", node.Config.Name)
 	}
 
 	log.Info("Creating privacy group for pente test...")
-	group, err := s.httpClients[0].PrivacyGroups().CreateGroup(s.ctx, &pldapi.PrivacyGroupInput{
+	group, err := nodes[0].HTTPClient.PrivacyGroups().CreateGroup(s.ctx, &pldapi.PrivacyGroupInput{
 		Domain:  "pente",
 		Members: members,
 		Name:    "perf-test-privacy-group",
@@ -81,7 +90,7 @@ func (s *privateTransactionNodeRestartSuite) Setup() error {
 	log.Infof("Privacy group created with ID: %s", group.ID)
 
 	log.Info("Waiting for privacy group creation receipt...")
-	receipt, err := util.WaitForTransactionReceipt(s.ctx, s.httpClients[0], group.GenesisTransaction, 60*time.Second)
+	receipt, err := util.WaitForTransactionReceipt(s.ctx, nodes[0].HTTPClient, group.GenesisTransaction, 60*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to get privacy group creation receipt: %w", err)
 	}
@@ -99,7 +108,7 @@ func (s *privateTransactionNodeRestartSuite) Setup() error {
 	}
 
 	log.Info("Deploying contract to privacy group...")
-	deployTxID, err := s.httpClients[0].PrivacyGroups().SendTransaction(s.ctx, &pldapi.PrivacyGroupEVMTXInput{
+	deployTxID, err := nodes[0].HTTPClient.PrivacyGroups().SendTransaction(s.ctx, &pldapi.PrivacyGroupEVMTXInput{
 		Domain: "pente",
 		Group:  *s.privacyGroupID,
 		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
@@ -114,12 +123,25 @@ func (s *privateTransactionNodeRestartSuite) Setup() error {
 	}
 
 	log.Info("Waiting for contract deployment receipt...")
-	deployReceipt, err := util.WaitForTransactionReceiptFull(s.ctx, s.httpClients[0], deployTxID, 60*time.Second)
+	deployReceipt, err := util.WaitForTransactionReceiptFull(s.ctx, nodes[0].HTTPClient, deployTxID, 60*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to get contract deployment receipt: %w", err)
 	}
 	if !deployReceipt.Success {
 		return fmt.Errorf("contract deployment transaction failed")
+	}
+
+	if len(nodes) > 1 {
+		log.Info("Waiting for contract deployment domain receipt to index on peer nodes...")
+		for i := 1; i < len(nodes); i++ {
+			node := nodes[i]
+			log.Infof("Waiting for deployment domain receipt on node %s...", node.Config.Name)
+			_, err = util.WaitForDomainReceipt(s.ctx, node.HTTPClient, "pente", deployTxID, 60*time.Second)
+			if err != nil {
+				return fmt.Errorf("failed waiting for deployment domain receipt on node %s: %w", node.Config.Name, err)
+			}
+			log.Infof("Deployment domain receipt indexed on node %s", node.Config.Name)
+		}
 	}
 
 	var addr *pldtypes.EthAddress
@@ -140,13 +162,10 @@ func (s *privateTransactionNodeRestartSuite) Setup() error {
 	}
 	s.contractAddress = addr
 
-	return nil
-}
-
-func (s *privateTransactionNodeRestartSuite) Subscribe() (rpcclient.Subscription, error) {
+	// Create receipt listener (stays in Setup per plan)
 	var latestSequence *uint64
 	qb := query.NewQueryBuilder().Equal("domain", "pente").Sort("-sequence").Limit(1)
-	receipts, err := s.httpClients[0].PTX().QueryTransactionReceipts(s.ctx, qb.Query())
+	receipts, err := nodes[0].HTTPClient.PTX().QueryTransactionReceipts(s.ctx, qb.Query())
 	if err == nil && len(receipts) > 0 {
 		seq := receipts[0].Sequence
 		latestSequence = &seq
@@ -155,13 +174,10 @@ func (s *privateTransactionNodeRestartSuite) Subscribe() (rpcclient.Subscription
 		log.Info("No existing receipts found, starting listener from beginning")
 	}
 
-	_, err = s.httpClients[0].PTX().DeleteReceiptListener(s.ctx, "penteperflistener")
-	if err != nil {
-		log.Debugf("No existing listener to delete (or delete failed): %v", err)
-	}
+	_, _ = nodes[0].HTTPClient.PTX().DeleteReceiptListener(s.ctx, "penteperflistener")
 
 	txType := pldapi.TransactionTypePrivate.Enum()
-	_, err = s.httpClients[0].PTX().CreateReceiptListener(s.ctx, &pldapi.TransactionReceiptListener{
+	_, err = nodes[0].HTTPClient.PTX().CreateReceiptListener(s.ctx, &pldapi.TransactionReceiptListener{
 		Name: "penteperflistener",
 		Filters: pldapi.TransactionReceiptFilters{
 			Type:          &txType,
@@ -173,10 +189,18 @@ func (s *privateTransactionNodeRestartSuite) Subscribe() (rpcclient.Subscription
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create receipt listener: %w", err)
+		return fmt.Errorf("failed to create receipt listener: %w", err)
 	}
 
-	sub, err := s.wsClient.PTX().SubscribeReceipts(s.ctx, "penteperflistener")
+	return nil
+}
+
+func (s *privateTransactionNodeRestartSuite) Subscribe() (rpcclient.Subscription, error) {
+	nodes := s.runner.GetNodes()
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("no nodes configured")
+	}
+	sub, err := nodes[0].WSClient.PTX().SubscribeReceipts(s.ctx, "penteperflistener")
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to pente receipts: %w", err)
 	}
@@ -196,27 +220,100 @@ func (s *privateTransactionNodeRestartSuite) Unsubscribe() {
 }
 
 func (s *privateTransactionNodeRestartSuite) Cleanup() {
-	_, err := s.httpClients[0].PTX().DeleteReceiptListener(s.ctx, "penteperflistener")
-	if err != nil {
-		log.Debugf("Failed to delete receipt listener penteperflistener: %v", err)
-	} else {
-		log.Infof("Successfully deleted receipt listener: penteperflistener")
+	nodes := s.runner.GetNodes()
+	if len(nodes) > 0 {
+		_, err := nodes[0].HTTPClient.PTX().DeleteReceiptListener(s.ctx, "penteperflistener")
+		if err != nil {
+			log.Debugf("Failed to delete receipt listener penteperflistener: %v", err)
+		} else {
+			log.Infof("Successfully deleted receipt listener: penteperflistener")
+		}
 	}
 }
 
 func (s *privateTransactionNodeRestartSuite) NewWorker(startTime int64, workerID int) TestCase {
-	return newPrivateTransactionNodeRestartTestWorker(s.ctx, startTime, workerID, s.privacyGroupID, s.contractAddress, s.httpClients)
+	return newPrivateTransactionNodeRestartTestWorker(s.ctx, startTime, workerID, s.privacyGroupID, s.contractAddress, s.runner)
+}
+
+func (s *privateTransactionNodeRestartSuite) PostRun() error {
+	if s.contractAddress == nil {
+		return fmt.Errorf("contract address not set for post-run analysis")
+	}
+	nodes := s.runner.GetNodes()
+	if len(nodes) == 0 {
+		return fmt.Errorf("no nodes configured")
+	}
+
+	log.Infof("Running post-run private transaction analysis for contract %s", *s.contractAddress)
+
+	var createdCursor pldtypes.Timestamp
+	totalTransactions := 0
+	multiPublicTransactions := 0
+	multiPublicTransactionIDs := make([]string, 0)
+	pageCount := 0
+
+	for {
+		qb := query.NewQueryBuilder().
+			Equal("domain", "pente").
+			Equal("to", *s.contractAddress).
+			Sort("-created").
+			Limit(privateTxPostRunPageSize)
+		if createdCursor != 0 {
+			qb = qb.LessThan("created", createdCursor)
+		}
+
+		txs, err := nodes[0].HTTPClient.PTX().QueryTransactionsFull(s.ctx, qb.Query())
+		if err != nil {
+			return fmt.Errorf("post-run queryTransactionsFull failed for contract %s with created cursor %s: %w", *s.contractAddress, createdCursor.String(), err)
+		}
+		if len(txs) == 0 {
+			break
+		}
+
+		pageCount++
+		totalTransactions += len(txs)
+
+		for _, tx := range txs {
+			if tx != nil && len(tx.Public) > 1 {
+				multiPublicTransactions++
+				if tx.ID != nil {
+					multiPublicTransactionIDs = append(multiPublicTransactionIDs, tx.ID.String())
+				}
+			}
+		}
+
+		createdCursor = txs[len(txs)-1].Created
+		if len(txs) < privateTxPostRunPageSize {
+			break
+		}
+	}
+
+	log.Infof(
+		"Private transaction post-run analysis complete for contract %s: scanned %d transactions across %d pages; %d had more than one public transaction",
+		*s.contractAddress,
+		totalTransactions,
+		pageCount,
+		multiPublicTransactions,
+	)
+	if len(multiPublicTransactionIDs) > 0 {
+		log.Infof(
+			"Transaction IDs with more than one public submission (%d): %v",
+			len(multiPublicTransactionIDs),
+			multiPublicTransactionIDs,
+		)
+	}
+	return nil
 }
 
 type privateTransactionNodeRestart struct {
 	testBase
 	privacyGroupID  *pldtypes.HexBytes
 	contractAddress *pldtypes.EthAddress
-	httpClients     []pldclient.PaladinClient
+	runner          Runner
 	random          *rand.Rand
 }
 
-func newPrivateTransactionNodeRestartTestWorker(ctx context.Context, startTime int64, workerID int, privacyGroupID *pldtypes.HexBytes, contractAddress *pldtypes.EthAddress, httpClients []pldclient.PaladinClient) TestCase {
+func newPrivateTransactionNodeRestartTestWorker(ctx context.Context, startTime int64, workerID int, privacyGroupID *pldtypes.HexBytes, contractAddress *pldtypes.EthAddress, runner Runner) TestCase {
 	return &privateTransactionNodeRestart{
 		testBase: testBase{
 			ctx:       ctx,
@@ -225,7 +322,7 @@ func newPrivateTransactionNodeRestartTestWorker(ctx context.Context, startTime i
 		},
 		privacyGroupID:  privacyGroupID,
 		contractAddress: contractAddress,
-		httpClients:     httpClients,
+		runner:          runner,
 		random:          rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID))),
 	}
 }
@@ -235,11 +332,12 @@ func (tc *privateTransactionNodeRestart) Name() conf.TestName {
 }
 
 func (tc *privateTransactionNodeRestart) RunOnce(iterationCount int) (string, error) {
-	if len(tc.httpClients) == 0 {
-		return "", fmt.Errorf("no HTTP clients available")
+	nodes := tc.runner.GetNodes()
+	if len(nodes) == 0 {
+		return "", fmt.Errorf("no nodes configured")
 	}
-	nodeIndex := tc.random.Intn(len(tc.httpClients))
-	client := tc.httpClients[nodeIndex]
+	nodeIndex := tc.random.Intn(len(nodes))
+	client := nodes[nodeIndex].HTTPClient
 
 	setFunctionABI := &abi.Entry{
 		Name: "set",
@@ -260,7 +358,8 @@ func (tc *privateTransactionNodeRestart) RunOnce(iterationCount int) (string, er
 		return "", fmt.Errorf("failed to marshal input data: %w", err)
 	}
 
-	txID, err := client.PrivacyGroups().SendTransaction(tc.ctx, &pldapi.PrivacyGroupEVMTXInput{
+	idempotencyKey := util.GetIdempotencyKey(tc.startTime, tc.workerID, iterationCount)
+	txInput := &pldapi.PrivacyGroupEVMTXInput{
 		Domain: "pente",
 		Group:  *tc.privacyGroupID,
 		PrivacyGroupEVMTX: pldapi.PrivacyGroupEVMTX{
@@ -269,12 +368,35 @@ func (tc *privateTransactionNodeRestart) RunOnce(iterationCount int) (string, er
 			Function: setFunctionABI,
 			Input:    pldtypes.RawJSON(inputJSON),
 		},
-		IdempotencyKey: util.GetIdempotencyKey(tc.startTime, tc.workerID, iterationCount),
+		IdempotencyKey: idempotencyKey,
+	}
+
+	retryPolicy := retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		RetryConfig: pldconf.RetryConfig{
+			InitialDelay: confutil.P("250ms"),
+			MaxDelay:     confutil.P("2s"),
+			Factor:       confutil.P(2.0),
+		},
+		MaxAttempts: confutil.P(privateTxRetryAttempts),
+	})
+	var txID string
+	err = retryPolicy.Do(tc.ctx, func(attempt int) (bool, error) {
+		sentTxID, sendErr := client.PrivacyGroups().SendTransaction(tc.ctx, txInput)
+		if sendErr != nil {
+			// Don't retry idempotency key clashes, because this indicates the server rejected deduplication semantics.
+			if strings.Contains(sendErr.Error(), txMgrIdempotencyKeyClashErrorCode) {
+				return false, sendErr
+			}
+			log.Warnf("Worker %d send attempt %d/%d failed on node %d: %v", tc.workerID, attempt, privateTxRetryAttempts, nodeIndex, sendErr)
+			return true, sendErr
+		}
+		txID = sentTxID.String()
+		return false, nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to send pente transaction to node %d: %w", nodeIndex, err)
+		return "", fmt.Errorf("failed to send pente transaction to node %d after %d attempts: %w", nodeIndex, privateTxRetryAttempts, err)
 	}
 
 	log.Debugf("Worker %d sent pente transaction %s to node %d", tc.workerID, txID, nodeIndex)
-	return txID.String(), nil
+	return txID, nil
 }

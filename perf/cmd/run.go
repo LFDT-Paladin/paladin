@@ -36,7 +36,6 @@ var configFilePath string
 var instanceName string
 var instanceIndex int
 var daemonOverride bool
-var deliquentAction string
 
 var httpServer *server.HttpServer
 var perfRunner perf.PerfRunner
@@ -98,7 +97,6 @@ func init() {
 	runCmd.Flags().StringVarP(&instanceName, "instance-name", "n", "", "Instance within performance config to run")
 	runCmd.Flags().IntVarP(&instanceIndex, "instance-idx", "i", -1, "Index of the instance within performance config to run")
 	runCmd.Flags().BoolVarP(&daemonOverride, "daemon", "d", false, "Run in long-lived, daemon mode. Any provided test length is ignored.")
-	runCmd.Flags().StringVarP(&deliquentAction, "delinquent", "", "exit", "Action to take when delinquent messages are detected. Valid options: [exit log]")
 
 	runCmd.MarkFlagRequired("config")
 }
@@ -153,8 +151,6 @@ func generateRunnerConfigFromInstance(instance *conf.InstanceConfig, perfConfig 
 	runnerConfig.Length = instance.Length
 	runnerConfig.Daemon = perfConfig.Daemon
 	runnerConfig.LogEvents = perfConfig.LogEvents
-	runnerConfig.DelinquentAction = conf.DelinquentAction(deliquentAction)
-	runnerConfig.MaxTimePerAction = instance.MaxTimePerAction
 	runnerConfig.MaxActions = instance.MaxActions
 	runnerConfig.RampLength = instance.RampLength
 	runnerConfig.CompletionTimeout = instance.CompletionTimeout
@@ -162,21 +158,12 @@ func generateRunnerConfigFromInstance(instance *conf.InstanceConfig, perfConfig 
 	runnerConfig.NodeKillConfig = instance.NodeKillConfig
 	runnerConfig.Nodes = perfConfig.Nodes
 
-	// If delinquent action has been set on the test run instance this overrides the command line
-	if instance.DelinquentAction != "" {
-		runnerConfig.DelinquentAction = instance.DelinquentAction
-	}
-
 	setDefaults(runnerConfig)
 
 	return runnerConfig, nil
 }
 
 func setDefaults(runnerConfig *conf.RunnerConfig) {
-	if runnerConfig.MaxTimePerAction.Seconds() == 0 {
-		runnerConfig.MaxTimePerAction = 60 * time.Second
-	}
-
 	if runnerConfig.Test.ActionsPerLoop <= 0 {
 		runnerConfig.Test.ActionsPerLoop = 1
 	}

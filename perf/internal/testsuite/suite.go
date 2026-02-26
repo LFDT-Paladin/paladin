@@ -20,16 +20,17 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 )
 
-// GetTestSuite returns a new TestSuite for the given test name with the given context and clients, or nil if unknown.
-func GetTestSuite(name conf.TestName, ctx context.Context, httpClients []pldclient.PaladinClient, wsClient pldclient.PaladinWSClient, nodes []conf.NodeConfig) TestSuite {
+// GetTestSuite returns a new TestSuite for the given test name with the given context and runner, or nil if unknown.
+func GetTestSuite(name conf.TestName, ctx context.Context, runner Runner) TestSuite {
 	switch name {
 	case conf.PerfTestPublicContract:
-		return NewPublicContractSuite(ctx, httpClients, wsClient, nodes)
+		return NewPublicContractSuite(ctx, runner)
 	case conf.PerfTestPrivateTransactionNodeRestart:
-		return NewPrivateTransactionNodeRestartSuite(ctx, httpClients, wsClient, nodes)
+		return NewPrivateTransactionNodeRestartSuite(ctx, runner)
+	case conf.PerfTestPrivacyGroupContractDeploy:
+		return NewPrivacyGroupContractDeploySuite(ctx, runner)
 	default:
 		return nil
 	}

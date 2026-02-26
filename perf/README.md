@@ -6,6 +6,7 @@ Paladin Performance CLI is a HTTP load testing tool that generates a constant re
 
 - Public transaction submission
 - Private transaction (pente) submission with node restart resilience testing
+- Private transaction (pente) submission that creates a group and deploys a contract per run
 
 ## Build
 
@@ -159,7 +160,6 @@ Usage:
 Flags:
   -c, --config string          Path to performance config that describes the nodes and test instances
   -d, --daemon                 Run in long-lived, daemon mode. Any provided test length is ignored.
-      --delinquent string      Action to take when delinquent messages are detected. Valid options: [exit log] (default "exit")
   -h, --help                   help for run
   -i, --instance-idx int       Index of the instance within performance config to run (default -1)
   -n, --instance-name string   Instance within performance config to run
@@ -172,7 +172,6 @@ The `pldperf` tool registers the following metrics for prometheus to consume:
 - `pldperf_runner_actions_submitted_total`
 - `pldperf_runner_received_events_total`
 - `pldperf_runner_incomplete_events_total`
-- `pldperf_runner_deliquent_msgs_total`
 - `pldperf_runner_perf_test_duration_seconds`
 
 ## Useful features
@@ -182,13 +181,10 @@ The `pldperf` tool is designed to let you run various styles of test. There are 
 - Setting a maximum number of test actions
   - See `maxActions` attribute (defaults to `0` i.e. unlimited).
   - Once `maxActions` test actions (e.g. token mints) have taken place the test will shut down.
-- Ending the test when an error occurs
-  - See `delinquentAction` attribute (defaults to `exit`).
-  - A value of `exit` causes the test to end if an error occurs. Set to `log` to simply log the error and continue the test.
 - Set the maximum duration of the test
   - See `length` attribute.
-  - Setting a test instance's `length` attribute to a time duration (e.g. `3h`) will cause the test to run for that long or until an error occurs (see `delinquentAction`).
-  - Note this setting is ignored if the test is run in daemon mode (running the `pldperf` command with `-d` or `--daemon`, or setting the global `daemon` value to `true` in the `instances.yaml` file). In daemon mode the test will run until `maxActions` has been reached or an error has occurred and `delinquentActions` is set to true.
+  - Setting a test instance's `length` attribute to a time duration (e.g. `3h`) will cause the test to run for that long or until an error occurs (the test exits on any worker error).
+  - Note this setting is ignored if the test is run in daemon mode (running the `pldperf` command with `-d` or `--daemon`, or setting the global `daemon` value to `true` in the config). In daemon mode the test will run until `maxActions` has been reached or an error has occurred.
 - Ramping up the rate of test actions
   - See the `startRate`, `endRate` and `rateRampUpTime` attribute of a test instance.
   - All values default to `0` which has the effect of not limiting the rate of the test.
@@ -233,7 +229,8 @@ pldperf run -c <config file> -i 0
 3. **Node Kill Phase**: At each `killInterval`, a random node is killed and new transaction submissions stop
 4. **Recovery Phase**: The test waits for the killed node to restart (up to `restartTimeout`)
 5. **Resume Phase**: Once the node restarts, transaction submissions resume
-6. **Verification Phase**: When the test ends, it waits up to `completionTimeout` for all pending transactions to receive receipts
+6. **Receipt Listener Behavior**: Receipt subscriptions stay active through node kill/restart; they are not explicitly unsubscribed/reconnected during the kill cycle
+7. **Verification Phase**: When the test ends, it waits up to `completionTimeout` for all pending transactions to receive receipts
 
 ### Node Kill Configuration
 
@@ -252,3 +249,28 @@ The `healthCheckCommand` and `healthCheckTemplate` work together to determine wh
 
 Available template fields:
 - `.NodeName`: The name of the node from the configuration
+
+## Privacy Group Contract Deploy Test
+
+This test creates a new pente privacy group and deploys the `simple_storage` contract in each worker run.
+
+### Setup
+
+1. Create a configuration file for your test. See [`example-privacy-group-contract-deploy.yaml`](./config/example-privacy-group-contract-deploy.yaml) for an example.
+2. Configure multiple nodes in the `nodes` section of the config file. The privacy group members are generated as `member@<node name>`.
+3. Set test parameters:
+   - `maxSubmissionsPerSecond`: Maximum submissions per second (for this test each submission creates a privacy group and deploys a contract)
+   - `completionTimeout`: Maximum time to wait for receipts after test send phase ends
+4. Do **not** configure `nodeKillConfig` for this test.
+
+### Running the Test
+
+```bash
+pldperf run -c <config file> -i 0
+```
+
+### Test Flow
+
+1. **Setup Phase**: Creates a pente private receipt listener with domain receipts enabled
+2. **Worker Run Phase**: For each run, creates a new privacy group, waits for the group genesis receipt, then deploys `simple_storage`
+3. **Correlation ID**: Uses the deploy transaction ID as the worker correlator so receipts map to the correct worker

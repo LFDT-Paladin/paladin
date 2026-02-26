@@ -19,25 +19,24 @@ instances:
     test:
       name: private_transaction_node_restart
       workers: 1
-      actionsPerLoop: 2
-    maxSubmissionsPerSecond: 2  # Target transactions per second
-    completionTimeout: 5m  # Wait up to 5 minutes for all transactions to complete
+      actionsPerLoop: 1
+    maxSubmissionsPerSecond: 5  # Target transactions per second
+    completionTimeout: 30m  # Wait up to 5 minutes for all transactions to complete
     noWaitSubmission: true  # Don't wait for confirmations before submitting next action
-    delinquentAction: log
-    length: 30s
-    # nodeKillConfig:
-    #   # Kill command template - use Go template syntax with .NodeName field
-    #   # For Kubernetes, construct pod name as paladin-{NodeName}-0 in the template
-    #   # Example for Kubernetes:
-    #   killCommandTemplate: "kubectl delete pod paladin-{{.NodeName}}-0 --grace-period=0 --force"
-    #   # Health check command - use Go template syntax with .NodeName field
-    #   # For Kubernetes, construct pod name as paladin-{NodeName}-0 in the template
-    #   # Example for Kubernetes: check that pod has 2/2 containers running
-    #   healthCheckCommand: "kubectl get pod paladin-{{.NodeName}}-0 -o jsonpath='{.status.containerStatuses[*].ready}'"
-    #   # Health check template - parses command output to determine if node is healthy
-    #   # Example: checks if output equals "true true" (both containers ready)
-    #   healthCheckTemplate: "{{if eq .Output \"true true\"}}true{{else}}false{{end}}"
-    #   killInterval: 30s
+    length: 2m
+    nodeKillConfig:
+      # Kill command template - use Go template syntax with .NodeName field
+      # For Kubernetes, construct pod name as paladin-{NodeName}-0 in the template
+      # Example for Kubernetes:
+      killCommandTemplate: "kubectl delete pod paladin-{{.NodeName}}-0 --grace-period=0 --force"
+      # Health check command - use Go template syntax with .NodeName field
+      # For Kubernetes, construct pod name as paladin-{NodeName}-0 in the template
+      # Example for Kubernetes: check that pod has 2/2 containers running
+      healthCheckCommand: "kubectl get pod paladin-{{.NodeName}}-0 -o jsonpath='{.status.containerStatuses[*].ready}'"
+      # Health check template - parses command output to determine if node is healthy
+      # Example: checks if output equals "true true" (both containers ready)
+      healthCheckTemplate: "{{if eq .Output \"true true\"}}true{{else}}false{{end}}"
+      killInterval: 30s
 
 logLevel: info
 logEvents: false

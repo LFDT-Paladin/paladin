@@ -20,8 +20,21 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
+
+// Node holds the HTTP client, WebSocket client, and config for one configured node.
+type Node struct {
+	HTTPClient pldclient.PaladinClient
+	WSClient   pldclient.PaladinWSClient
+	Config     conf.NodeConfig
+}
+
+// Runner is implemented by the perf runner; suites use it to get configured nodes and clients.
+type Runner interface {
+	GetNodes() []*Node
+}
 
 // TestCase is the per-worker object that runs one loop of the test.
 type TestCase interface {
@@ -34,6 +47,7 @@ type TestSuite interface {
 	Setup() error
 	Subscribe() (rpcclient.Subscription, error)
 	NewWorker(startTime int64, workerID int) TestCase
+	PostRun() error
 	Unsubscribe()
 	Cleanup()
 }

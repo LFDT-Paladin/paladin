@@ -28,10 +28,8 @@ type RunnerConfig struct {
 	Length                  time.Duration
 	WSConfig                pldconf.WSClientConfig
 	HTTPConfig              pldconf.HTTPClientConfig
-	DelinquentAction        DelinquentAction
 	Daemon                  bool
 	LogEvents               bool
-	MaxTimePerAction        time.Duration
 	MaxActions              int64
 	RampLength              time.Duration
 	MaxSubmissionsPerSecond int
@@ -52,17 +50,15 @@ type PerformanceTestConfig struct {
 }
 
 type InstanceConfig struct {
-	Name                    string           `json:"name" yaml:"name"`
-	Test                    TestCaseConfig   `json:"test" yaml:"test"`
-	Length                  time.Duration    `json:"length" yaml:"length"`
-	MaxTimePerAction        time.Duration    `json:"maxTimePerAction,omitempty" yaml:"maxTimePerAction,omitempty"`
-	MaxActions              int64            `json:"maxActions,omitempty" yaml:"maxActions,omitempty"`
-	RampLength              time.Duration    `json:"rampLength,omitempty" yaml:"rampLength,omitempty"`
-	MaxSubmissionsPerSecond int              `json:"maxSubmissionsPerSecond" yaml:"maxSubmissionsPerSecond"`
-	DelinquentAction        DelinquentAction `json:"delinquentAction,omitempty" yaml:"delinquentAction,omitempty"`
-	CompletionTimeout       time.Duration    `json:"completionTimeout,omitempty" yaml:"completionTimeout,omitempty"`
-	NoWaitSubmission        bool             `json:"noWaitSubmission,omitempty" yaml:"noWaitSubmission,omitempty"`
-	NodeKillConfig          *NodeKillConfig  `json:"nodeKillConfig,omitempty" yaml:"nodeKillConfig,omitempty"`
+	Name                    string          `json:"name" yaml:"name"`
+	Test                    TestCaseConfig  `json:"test" yaml:"test"`
+	Length                  time.Duration   `json:"length" yaml:"length"`
+	MaxActions              int64           `json:"maxActions,omitempty" yaml:"maxActions,omitempty"`
+	RampLength              time.Duration   `json:"rampLength,omitempty" yaml:"rampLength,omitempty"`
+	MaxSubmissionsPerSecond int             `json:"maxSubmissionsPerSecond" yaml:"maxSubmissionsPerSecond"`
+	CompletionTimeout       time.Duration   `json:"completionTimeout,omitempty" yaml:"completionTimeout,omitempty"`
+	NoWaitSubmission        bool            `json:"noWaitSubmission,omitempty" yaml:"noWaitSubmission,omitempty"`
+	NodeKillConfig          *NodeKillConfig `json:"nodeKillConfig,omitempty" yaml:"nodeKillConfig,omitempty"`
 }
 
 type TestCaseConfig struct {
@@ -90,15 +86,8 @@ type TestName string
 const (
 	// PerfTestPublicContract invokes a public smart contract and checks for transaction receipts
 	PerfTestPublicContract TestName = "public_contract"
+	// PerfTestPrivacyGroupContractDeploy creates a privacy group and deploys a contract per run
+	PerfTestPrivacyGroupContractDeploy TestName = "privacy_group_contract_deploy"
 	// PerfTestPrivateTransactionNodeRestart drives pente transactions across nodes, kills a node, and verifies recovery
 	PerfTestPrivateTransactionNodeRestart TestName = "private_transaction_node_restart"
-)
-
-type DelinquentAction string
-
-const (
-	// DelinquentActionExit causes paladin perf to exit after detecting delinquent messages
-	DelinquentActionExit DelinquentAction = "exit"
-	// DelinquentActionLog causes paladin perf to log and move on after delinquent messages
-	DelinquentActionLog DelinquentAction = "log"
 )

@@ -25,6 +25,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 // WaitForTransactionReceipt polls for a transaction receipt until it is available, the context is cancelled, or the timeout is reached.
@@ -69,6 +70,28 @@ func WaitForTransactionReceiptFull(ctx context.Context, client pldclient.Paladin
 	}
 
 	return nil, fmt.Errorf("timeout waiting for transaction receipt: %s", txID)
+}
+
+// WaitForDomainReceipt polls for a domain receipt until it is available, the context is cancelled, or the timeout is reached.
+func WaitForDomainReceipt(ctx context.Context, client pldclient.PaladinClient, domain string, txID uuid.UUID, timeout time.Duration) (pldtypes.RawJSON, error) {
+	deadline := time.Now().Add(timeout)
+	checkInterval := 1 * time.Second
+
+	for time.Now().Before(deadline) {
+		domainReceipt, err := client.PTX().GetDomainReceipt(ctx, domain, txID)
+		if err == nil && len(domainReceipt) > 0 {
+			return domainReceipt, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(checkInterval):
+			// Continue polling
+		}
+	}
+
+	return nil, fmt.Errorf("timeout waiting for domain receipt for domain %s transaction: %s", domain, txID)
 }
 
 // GetIdempotencyKey returns a unique key for a worker action, used to avoid duplicate transaction submission.

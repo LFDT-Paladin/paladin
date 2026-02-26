@@ -24,6 +24,8 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"runtime/pprof"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -44,7 +46,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const workerPrefix = "worker-"
+const (
+	workerPrefix          = "worker-"
+	runnerShutdownTimeout = 30 * time.Second
+)
 
 var METRICS_NAMESPACE = "pldperf"
 var METRICS_SUBSYSTEM = "runner"
@@ -67,12 +72,6 @@ var incompleteEventsCounter = prometheus.NewGauge(prometheus.GaugeOpts{
 	Subsystem: METRICS_SUBSYSTEM,
 })
 
-var delinquentMsgsCounter = prometheus.NewGauge(prometheus.GaugeOpts{
-	Namespace: METRICS_NAMESPACE,
-	Name:      "deliquent_msgs_total",
-	Subsystem: METRICS_SUBSYSTEM,
-})
-
 var perfTestDurationHistogram = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 	Namespace: METRICS_NAMESPACE,
 	Subsystem: METRICS_SUBSYSTEM,
@@ -81,7 +80,6 @@ var perfTestDurationHistogram = prometheus.NewHistogramVec(prometheus.HistogramO
 }, []string{"test"})
 
 func Init() {
-	prometheus.Register(delinquentMsgsCounter)
 	prometheus.Register(receivedEventsCounter)
 	prometheus.Register(incompleteEventsCounter)
 	prometheus.Register(totalActionsCounter)
@@ -109,11 +107,6 @@ type PerfRunner interface {
 	Start() error
 }
 
-type inflightTest struct {
-	time     time.Time
-	testCase testsuite.TestCase
-}
-
 type summary struct {
 	mutex        *sync.Mutex
 	rampSummary  int64
@@ -122,8 +115,7 @@ type summary struct {
 type perfRunner struct {
 	bfr               chan int
 	cfg               *conf.RunnerConfig
-	httpClients       []pldclient.PaladinClient // HTTP clients for all nodes
-	wsClient          pldclient.PaladinWSClient
+	nodes             []*testsuite.Node // HTTP + WS client and config per node
 	ctx               context.Context
 	shutdown          context.CancelFunc
 	stopping          bool
@@ -143,10 +135,9 @@ type perfRunner struct {
 	receiveTime   *util.Latency
 	totalTime     *util.Latency
 	summary       summary
-	msgTimeMap    sync.Map
 	workerIDMap   sync.Map
 
-	wsReceivers   map[string]chan bool
+	wsReceivers map[string]chan bool
 
 	currentSuite testsuite.TestSuite
 	nodeManager  NodeManager
@@ -155,6 +146,8 @@ type perfRunner struct {
 	pauseRequests []chan struct{} // Channels to signal each worker to pause
 	pauseAcks     []chan struct{} // Channels for each worker to acknowledge they've paused
 	resumeSignals []chan struct{} // Channels to signal each worker to resume
+
+	wg sync.WaitGroup // tracks worker and event-loop goroutines for graceful shutdown
 }
 
 func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
@@ -165,13 +158,6 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 	}
 
 	totalWorkers := config.Test.Workers
-
-	// Create channel based dispatch for workers
-	wsReceivers := make(map[string]chan bool)
-	for i := 0; i < totalWorkers; i++ {
-		prefixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, i)
-		wsReceivers[prefixedWorkerID] = make(chan bool, 1)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -193,13 +179,11 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 		sendTime:      &util.Latency{},
 		receiveTime:   &util.Latency{},
 		totalTime:     &util.Latency{},
-		msgTimeMap:    sync.Map{},
 		workerIDMap:   sync.Map{},
 		summary: summary{
 			totalSummary: 0,
 			mutex:        &sync.Mutex{},
 		},
-		wsReceivers:   wsReceivers,
 		totalWorkers:  totalWorkers,
 		pauseRequests: make([]chan struct{}, totalWorkers),
 		pauseAcks:     make([]chan struct{}, totalWorkers),
@@ -207,9 +191,9 @@ func New(config *conf.RunnerConfig, reportBuilder *util.Report) PerfRunner {
 	}
 	// Initialize channels for each worker
 	for i := 0; i < totalWorkers; i++ {
-		pr.pauseRequests[i] = make(chan struct{})
-		pr.pauseAcks[i] = make(chan struct{})
-		pr.resumeSignals[i] = make(chan struct{})
+		pr.pauseRequests[i] = make(chan struct{}, 1)
+		pr.pauseAcks[i] = make(chan struct{}, 1)
+		pr.resumeSignals[i] = make(chan struct{}, 1)
 	}
 	return pr
 }
@@ -220,24 +204,26 @@ func (pr *perfRunner) Init() (err error) {
 		return fmt.Errorf("at least one node must be configured")
 	}
 
-	// Create HTTP clients for all configured nodes
-	pr.httpClients = make([]pldclient.PaladinClient, len(pr.cfg.Nodes))
-	for i, node := range pr.cfg.Nodes {
+	// Create distinct HTTP and WebSocket clients for every node
+	pr.nodes = make([]*testsuite.Node, 0, len(pr.cfg.Nodes))
+	for i, nodeCfg := range pr.cfg.Nodes {
 		httpConfig := pr.cfg.HTTPConfig
-		httpConfig.URL = node.HTTPEndpoint
-
-		pr.httpClients[i], err = pldclient.New().HTTP(pr.ctx, &httpConfig)
+		httpConfig.URL = nodeCfg.HTTPEndpoint
+		httpClient, err := pldclient.New().HTTP(pr.ctx, &httpConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create HTTP client for node %d: %w", i, err)
 		}
-	}
-
-	// Use first node's WSEndpoint for WebSocket connection
-	wsConfig := pr.cfg.WSConfig
-	wsConfig.URL = pr.cfg.Nodes[0].WSEndpoint
-	pr.wsClient, err = pr.httpClients[0].WebSocket(pr.ctx, &wsConfig)
-	if err != nil {
-		return err
+		wsConfig := pr.cfg.WSConfig
+		wsConfig.URL = nodeCfg.WSEndpoint
+		wsClient, err := pldclient.New().WebSocket(pr.ctx, &wsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create WebSocket client for node %d: %w", i, err)
+		}
+		pr.nodes = append(pr.nodes, &testsuite.Node{
+			HTTPClient: httpClient,
+			WSClient:   wsClient,
+			Config:     nodeCfg,
+		})
 	}
 
 	// Initialize node manager if node kill config is provided
@@ -248,11 +234,24 @@ func (pr *perfRunner) Init() (err error) {
 	return nil
 }
 
+// GetNodes implements testsuite.Runner so suites can access node-scoped HTTP and WS clients.
+func (pr *perfRunner) GetNodes() []*testsuite.Node {
+	return pr.nodes
+}
+
 func (pr *perfRunner) Start() (err error) {
 	log.Infof("Running test:\n%+v", pr.cfg)
 
 	test := pr.cfg.Test
-	suite := testsuite.GetTestSuite(test.Name, pr.ctx, pr.httpClients, pr.wsClient, pr.cfg.Nodes)
+
+	// Create channel based dispatch for workers
+	pr.wsReceivers = make(map[string]chan bool)
+	for i := 0; i < pr.totalWorkers; i++ {
+		prefixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, i)
+		pr.wsReceivers[prefixedWorkerID] = make(chan bool, test.ActionsPerLoop)
+	}
+
+	suite := testsuite.GetTestSuite(test.Name, pr.ctx, pr)
 	if suite == nil {
 		return fmt.Errorf("unknown test case '%s'", test.Name)
 	}
@@ -266,17 +265,20 @@ func (pr *perfRunner) Start() (err error) {
 		return err
 	}
 	if sub != nil {
+		pr.wg.Add(1)
 		go pr.batchEventLoop(sub)
 	}
 
 	// Start workers
 	log.Infof("Starting %d workers for case \"%s\"", test.Workers, test.Name)
+	workerErrCh := make(chan error, test.Workers)
 	id := 0
 	for iWorker := 0; iWorker < test.Workers; iWorker++ {
 		tc := suite.NewWorker(pr.startTime, id)
 
 		delayPerWorker := pr.cfg.RampLength / time.Duration(test.Workers)
 
+		pr.wg.Add(1)
 		go func(workerID int) {
 			// Delay the start of the next worker by (ramp time) / (number of workers)
 			if delayPerWorker > 0 {
@@ -286,6 +288,10 @@ func (pr *perfRunner) Start() (err error) {
 			err := pr.runLoop(tc, workerID, test.ActionsPerLoop)
 			if err != nil {
 				log.Errorf("Worker %d failed: %s", workerID, err)
+				select {
+				case workerErrCh <- fmt.Errorf("worker %d failed: %w", workerID, err):
+				default:
+				}
 			}
 		}(id)
 		id++
@@ -297,7 +303,6 @@ func (pr *perfRunner) Start() (err error) {
 	signal.Notify(signalCh, syscall.SIGQUIT)
 
 	i := 0
-	lastCheckedTime := time.Now()
 
 	rateLimiter := rate.NewLimiter(rate.Limit(math.MaxFloat64), math.MaxInt)
 
@@ -319,9 +324,10 @@ func (pr *perfRunner) Start() (err error) {
 			}
 		}()
 	}
+
+	var fatalErr error
 perfLoop:
 	for pr.IsDaemon() || time.Now().Unix() < pr.endTime {
-		timeout := time.After(60 * time.Second)
 		// If we've been given a maximum number of actions to perform, check if we're done
 		if pr.cfg.MaxActions > 0 && int64(getMetricVal(totalActionsCounter)) >= pr.cfg.MaxActions {
 			break perfLoop
@@ -330,38 +336,61 @@ perfLoop:
 		select {
 		case <-signalCh:
 			break perfLoop
+		case workerErr := <-workerErrCh:
+			fatalErr = workerErr
+			log.Errorf("Stopping run due to worker error: %v", workerErr)
+			break perfLoop
 		case <-nodeKillTimerCh:
 			// Clear the timer channel since the timer has fired
 			nodeKillTimerCh = nil
 
-			// Don't kill the first node (index 0) as it has the websocket connection
-			// If there's only one node, skip killing and restart the timer
-			// TODO: handle the websocket needing to reconnect so that any node could be killed
-			if len(pr.cfg.Nodes) == 1 {
-				log.Debug("Only one node configured, skipping kill to preserve websocket connection")
-				// Restart the timer since we skipped the kill
-				if nodeKillTimer != nil {
-					nodeKillTimer.Stop()
-				}
-				nodeKillTimer = time.NewTimer(pr.cfg.NodeKillConfig.KillInterval)
-				nodeKillTimerCh = nodeKillTimer.C
-				continue
-			}
-
-			// Randomly select from nodes 1 onwards (excluding first node)
-			nodeIndex := 1 + rand.Intn(len(pr.cfg.Nodes)-1)
-			log.Infof("Randomly selected node %d (%s) to kill (excluding first node which has websocket connection)", nodeIndex, pr.cfg.Nodes[nodeIndex].Name)
+			// Select a node to kill
+			nodeIndex := rand.Intn(len(pr.nodes))
+			log.Infof("Randomly selected node %d (%s) to kill", nodeIndex, pr.cfg.Nodes[nodeIndex].Name)
 
 			// Request pause from all workers
 			log.Info("Requesting workers to pause for node kill")
 			for i := 0; i < pr.totalWorkers; i++ {
+				log.Infof("Sending pause request to worker %d", i)
 				pr.pauseRequests[i] <- struct{}{}
+				log.Infof("Pause request delivered to worker %d", i)
 			}
 
 			// Wait for all workers to acknowledge they've paused
 			log.Infof("Waiting for %d workers to acknowledge pause", pr.totalWorkers)
+			ackCh := make(chan int, pr.totalWorkers)
 			for i := 0; i < pr.totalWorkers; i++ {
-				<-pr.pauseAcks[i]
+				workerID := i
+				go func(workerID int) {
+					<-pr.pauseAcks[workerID]
+					ackCh <- workerID
+				}(workerID)
+			}
+			ackedWorkers := make([]bool, pr.totalWorkers)
+			ackedCount := 0
+			statusTicker := time.NewTicker(5 * time.Second)
+			defer statusTicker.Stop()
+			for ackedCount < pr.totalWorkers {
+				select {
+				case workerID := <-ackCh:
+					if !ackedWorkers[workerID] {
+						ackedWorkers[workerID] = true
+						ackedCount++
+						log.Infof("Worker %d acknowledged pause (%d/%d)", workerID, ackedCount, pr.totalWorkers)
+					}
+				case <-statusTicker.C:
+					pendingWorkers := make([]int, 0)
+					for i := 0; i < pr.totalWorkers; i++ {
+						if !ackedWorkers[i] {
+							pendingWorkers = append(pendingWorkers, i)
+						}
+					}
+					log.Warnf("Still waiting for worker pause acknowledgements (%d/%d complete). Pending workers: %v", ackedCount, pr.totalWorkers, pendingWorkers)
+				case <-pr.ctx.Done():
+					log.Warn("Context cancelled while waiting for workers to acknowledge pause")
+					fatalErr = pr.ctx.Err()
+					break perfLoop
+				}
 			}
 			log.Info("All workers have paused, proceeding with node kill")
 
@@ -389,7 +418,7 @@ perfLoop:
 				break perfLoop
 			}
 
-			log.Infof("Node %d has restarted successfully, resuming transaction submissions", nodeIndex)
+			log.Infof("Node %d has restarted successfully, resuming workers", nodeIndex)
 
 			// Resume all workers
 			for i := 0; i < pr.totalWorkers; i++ {
@@ -413,17 +442,6 @@ perfLoop:
 				break perfLoop
 			}
 			i++
-			if time.Since(lastCheckedTime).Seconds() > pr.cfg.MaxTimePerAction.Seconds() {
-				if pr.detectDelinquentMsgs() && pr.cfg.DelinquentAction == conf.DelinquentActionExit {
-					break perfLoop
-				}
-				lastCheckedTime = time.Now()
-			}
-		case <-timeout:
-			if pr.detectDelinquentMsgs() && pr.cfg.DelinquentAction == conf.DelinquentActionExit {
-				break perfLoop
-			}
-			lastCheckedTime = time.Now()
 		case <-pr.ctx.Done():
 			pr.cleanup()
 			break perfLoop
@@ -433,42 +451,59 @@ perfLoop:
 
 	pr.stopping = true
 
-	// Wait for all pending transactions to complete
-	log.Infof("Waiting up to %v for all pending transactions to complete", pr.cfg.CompletionTimeout)
-	deadline := time.Now().Add(pr.cfg.CompletionTimeout)
-	checkInterval := 2 * time.Second
-	idleStart := time.Now()
-	lastEventsCount := int64(getMetricVal(receivedEventsCounter))
+	if fatalErr == nil {
+		// Wait for all pending transactions to complete
+		log.Infof("Waiting up to %v for all pending transactions to complete", pr.cfg.CompletionTimeout)
+		deadline := time.Now().Add(pr.cfg.CompletionTimeout)
+		checkInterval := 2 * time.Second
+		idleStart := time.Now()
+		lastEventsCount := int64(getMetricVal(receivedEventsCounter))
 
-	for time.Now().Before(deadline) {
+		for time.Now().Before(deadline) {
+			submissionCount := int64(getMetricVal(totalActionsCounter))
+			eventsCount := int64(getMetricVal(receivedEventsCounter))
+
+			if eventsCount >= submissionCount {
+				log.Infof("All transactions completed! Submitted: %d, Received: %d", submissionCount, eventsCount)
+				break
+			}
+
+			// Check if we've been idle (no new events) for too long
+			if eventsCount > lastEventsCount {
+				// Reset idle start time if there are new events
+				idleStart = time.Now()
+				lastEventsCount = eventsCount
+			} else if time.Since(idleStart) > 30*time.Second {
+				// If no new events for 30 seconds, log warning but continue waiting until completion timeout
+				log.Warnf("No new events received for 30s. Submitted: %d, Received: %d. Continuing to wait...", submissionCount, eventsCount)
+				remainingTransactionIDs := pr.remainingTransactionIDs()
+				if len(remainingTransactionIDs) > 0 {
+					log.Warnf("Transactions still waiting for events (%d): %v", len(remainingTransactionIDs), remainingTransactionIDs)
+				}
+				idleStart = time.Now() // Reset to avoid spamming
+			}
+
+			log.Infof("Waiting for transactions to complete... Submitted: %d, Received: %d", submissionCount, eventsCount)
+			time.Sleep(checkInterval)
+		}
+
+		// Final check
 		submissionCount := int64(getMetricVal(totalActionsCounter))
 		eventsCount := int64(getMetricVal(receivedEventsCounter))
-
-		if eventsCount >= submissionCount {
-			log.Infof("All transactions completed! Submitted: %d, Received: %d", submissionCount, eventsCount)
-			break
+		if eventsCount < submissionCount {
+			log.Warnf("Completion timeout reached. Submitted: %d, Received: %d", submissionCount, eventsCount)
 		}
-
-		// Check if we've been idle (no new events) for too long
-		if eventsCount > lastEventsCount {
-			// Reset idle start time if there are new events
-			idleStart = time.Now()
-			lastEventsCount = eventsCount
-		} else if time.Since(idleStart) > 30*time.Second {
-			// If no new events for 30 seconds, log warning but continue waiting until completion timeout
-			log.Warnf("No new events received for 30s. Submitted: %d, Received: %d. Continuing to wait...", submissionCount, eventsCount)
-			idleStart = time.Now() // Reset to avoid spamming
-		}
-
-		log.Infof("Waiting for transactions to complete... Submitted: %d, Received: %d", submissionCount, eventsCount)
-		time.Sleep(checkInterval)
 	}
-
-	// Final check
-	submissionCount := int64(getMetricVal(totalActionsCounter))
-	eventsCount := int64(getMetricVal(receivedEventsCounter))
-	if eventsCount < submissionCount {
-		log.Warnf("Completion timeout reached. Submitted: %d, Received: %d", submissionCount, eventsCount)
+	remainingTransactionIDs := pr.remainingTransactionIDs()
+	if len(remainingTransactionIDs) > 0 {
+		log.Warnf("Transactions still waiting for events (%d): %v", len(remainingTransactionIDs), remainingTransactionIDs)
+	}
+	log.Info("Running suite post-run verification")
+	if postRunErr := pr.currentSuite.PostRun(); postRunErr != nil {
+		if fatalErr == nil {
+			fatalErr = fmt.Errorf("post-run analysis failed: %w", postRunErr)
+		}
+		log.Errorf("Post-run analysis failed: %v", postRunErr)
 	}
 
 	measuredActions := pr.summary.totalSummary
@@ -484,21 +519,28 @@ perfLoop:
 		log.Errorf("failed to generate performance report: %+v", err)
 	}
 
-	// we sleep on shutdown / completion to allow for Prometheus metrics to be scraped one final time
-	// After 30 seconds workers should be completed, so we check for delinquent messages
-	// one last time so metrics are up-to-date
-	log.Warn("Runner stopping in 5s")
-	time.Sleep(5 * time.Second)
-	pr.detectDelinquentMsgs()
+	// Signal runners to stop, then wait for them with a timeout
+	log.Info("Stopping runners (cancelling context and closing WebSockets)")
+	pr.shutdown()
+	pr.cleanup()
+
+	done := make(chan struct{})
+	go func() {
+		pr.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		log.Info("All runners stopped")
+	case <-time.After(runnerShutdownTimeout):
+		log.Warnf("Timeout waiting for runners to stop after %v", runnerShutdownTimeout)
+	}
 
 	log.Info("Cleaning up")
-
-	pr.cleanup()
 
 	log.Info("Shutdown summary:")
 	log.Infof(" - Prometheus metric received_events_total   = %f\n", getMetricVal(receivedEventsCounter))
 	log.Infof(" - Prometheus metric incomplete_events_total = %f\n", getMetricVal(incompleteEventsCounter))
-	log.Infof(" - Prometheus metric delinquent_msgs_total    = %f\n", getMetricVal(delinquentMsgsCounter))
 	log.Infof(" - Prometheus metric actions_submitted_total = %f\n", getMetricVal(totalActionsCounter))
 	log.Infof(" - Test duration: %s", measuredTime)
 	log.Infof(" - Measured actions: %d", measuredActions)
@@ -508,7 +550,7 @@ perfLoop:
 	log.Infof(" - Measured event receiving duration: %s", pr.receiveTime)
 	log.Infof(" - Measured total duration: %s", pr.totalTime)
 
-	return nil
+	return fatalErr
 }
 
 func (pr *perfRunner) cleanup() {
@@ -516,9 +558,13 @@ func (pr *perfRunner) cleanup() {
 		pr.currentSuite.Unsubscribe()
 	}
 
-	// Set flag to indicate websocket is being closed
+	// Set flag to indicate websocket is being closed, then close all node WebSockets
 	pr.closingWebsocket = true
-	pr.wsClient.Close()
+	for _, node := range pr.nodes {
+		if node != nil && node.WSClient != nil {
+			node.WSClient.Close()
+		}
+	}
 
 	if pr.currentSuite != nil {
 		pr.currentSuite.Cleanup()
@@ -526,6 +572,7 @@ func (pr *perfRunner) cleanup() {
 }
 
 func (pr *perfRunner) batchEventLoop(sub rpcclient.Subscription) (err error) {
+	defer pr.wg.Done()
 	log.Info("Batch Event loop started")
 	for {
 		log.Trace("blocking until wsconn.Receive or ctx.Done()")
@@ -624,7 +671,31 @@ func (pr *perfRunner) allActionsComplete() bool {
 	return pr.cfg.MaxActions > 0 && int64(getMetricVal(totalActionsCounter)) >= pr.cfg.MaxActions
 }
 
+func (pr *perfRunner) remainingTransactionIDs() []string {
+	transactionIDs := make([]string, 0)
+	pr.workerIDMap.Range(func(key, _ any) bool {
+		transactionID, ok := key.(string)
+		if !ok {
+			return true
+		}
+		transactionIDs = append(transactionIDs, transactionID)
+		return true
+	})
+	sort.Strings(transactionIDs)
+	return transactionIDs
+}
+
+func (pr *perfRunner) dumpGoroutines(reason string) {
+	log.Warnf("Dumping goroutines for diagnostics (%s)", reason)
+	if err := pprof.Lookup("goroutine").WriteTo(os.Stderr, 2); err != nil {
+		log.Errorf("Failed to dump goroutines (%s): %v", reason, err)
+		return
+	}
+	log.Warnf("Completed goroutine dump (%s)", reason)
+}
+
 func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoop int) error {
+	defer pr.wg.Done()
 	testName := tc.Name()
 	preFixedWorkerID := fmt.Sprintf("%s%d", workerPrefix, workerID)
 
@@ -634,10 +705,13 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 		select {
 		case <-pr.pauseRequests[workerID]:
 			// Worker received pause request - send acknowledgment
+			log.Infof("Worker %d received pause request", workerID)
 			pr.pauseAcks[workerID] <- struct{}{}
+			log.Infof("Worker %d acknowledged pause, waiting for resume signal", workerID)
 
 			// Wait for resume signal
 			<-pr.resumeSignals[workerID]
+			log.Infof("Worker %d received resume signal", workerID)
 
 			// Continue to next iteration of loop
 			continue
@@ -685,24 +759,41 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 				}()
 			}
 			resultCount := 0
+			pendingActionsTicker := time.NewTicker(10 * time.Second)
+			waitForActionsStart := time.Now()
+			goroutineDumpedForPendingActions := false
 			for pendingActions > 0 {
-				aResponse := <-actionResponses
-				pendingActions--
-				resultCount++
-				if aResponse.err != nil {
-					if pr.cfg.DelinquentAction == conf.DelinquentActionExit {
-						return aResponse.err
-					} else {
-						log.Errorf("Worker %d error running job (logging but continuing): %s", workerID, aResponse.err)
+				select {
+				case <-pr.ctx.Done():
+					pendingActionsTicker.Stop()
+					return nil
+				case <-pendingActionsTicker.C:
+					log.Infof(
+						"%d --> %s Still waiting for pending action responses (pending=%d received=%d elapsed=%s)",
+						workerID,
+						testName,
+						pendingActions,
+						resultCount,
+						time.Since(waitForActionsStart).Round(time.Second),
+					)
+					if !goroutineDumpedForPendingActions {
+						pr.dumpGoroutines(fmt.Sprintf("worker %d pending action responses", workerID))
+						goroutineDumpedForPendingActions = true
 					}
-				} else {
+				case aResponse := <-actionResponses:
+					pendingActions--
+					resultCount++
+					if aResponse.err != nil {
+						pendingActionsTicker.Stop()
+						return aResponse.err
+					}
 					transactionIDs = append(transactionIDs, aResponse.transactionID)
 					pr.workerIDMap.Store(aResponse.transactionID, workerID)
-					pr.markTestInFlight(tc, aResponse.transactionID)
 					log.Debugf("%d --> %s Sent transaction ID: %s", workerID, testName, aResponse.transactionID)
 					totalActionsCounter.Inc()
 				}
 			}
+			pendingActionsTicker.Stop()
 			// if we've reached the expected amount of metadata calls then stop
 			if resultCount == actionsPerLoop {
 				submissionDurationPerLoop := time.Since(startTime)
@@ -716,11 +807,13 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 			// Wait for worker to confirm each message before proceeding to next task
 			if !pr.cfg.NoWaitSubmission {
 				for j := 0; j < actionsCompleted; j++ {
-					<-pr.wsReceivers[preFixedWorkerID]
-					if len(transactionIDs) > 0 {
-						nextTransactionID := transactionIDs[0]
-						transactionIDs = transactionIDs[1:]
-						pr.stopTrackingRequest(nextTransactionID)
+					select {
+					case <-pr.ctx.Done():
+						return nil
+					case <-pr.wsReceivers[preFixedWorkerID]:
+						if len(transactionIDs) > 0 {
+							transactionIDs = transactionIDs[1:]
+						}
 					}
 				}
 			}
@@ -749,50 +842,12 @@ func (pr *perfRunner) runLoop(tc testsuite.TestCase, workerID int, actionsPerLoo
 	}
 }
 
-func (pr *perfRunner) detectDelinquentMsgs() bool {
-	delinquentMsgs := make(map[string]time.Time)
-	pr.msgTimeMap.Range(func(k, v interface{}) bool {
-		trackingID := k.(string)
-		inflight := v.(*inflightTest)
-		if time.Since(inflight.time).Seconds() > pr.cfg.MaxTimePerAction.Seconds() {
-			delinquentMsgs[trackingID] = inflight.time
-		}
-		return true
-	})
-
-	dw, err := json.MarshalIndent(delinquentMsgs, "", "  ")
-	if err != nil {
-		log.Errorf("Error printing delinquent messages: %s", err)
-		return len(delinquentMsgs) > 0
-	}
-
-	if len(delinquentMsgs) > 0 {
-		log.Warnf("Delinquent Messages:\n%s", string(dw))
-	}
-
-	return len(delinquentMsgs) > 0
-}
-
-func (pr *perfRunner) markTestInFlight(tc testsuite.TestCase, transactionID string) {
-	if len(transactionID) > 0 {
-		pr.msgTimeMap.Store(transactionID, &inflightTest{
-			testCase: tc,
-			time:     time.Now(),
-		})
-	}
-}
-
 func (pr *perfRunner) recordCompletedAction() {
 	if pr.ramping() {
 		_ = atomic.AddInt64(&pr.summary.rampSummary, 1)
 	} else {
 		_ = atomic.AddInt64(&pr.summary.totalSummary, 1)
 	}
-}
-
-func (pr *perfRunner) stopTrackingRequest(transactionID string) {
-	log.Debugf("Deleting tracking request: %s", transactionID)
-	pr.msgTimeMap.Delete(transactionID)
 }
 
 func (pr *perfRunner) IsDaemon() bool {
