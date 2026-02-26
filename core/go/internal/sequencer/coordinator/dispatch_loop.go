@@ -47,6 +47,18 @@ func (c *coordinator) dispatchLoop(ctx context.Context) {
 				}
 			}
 
+			// A transaction might have been queued while ready, then moved back to pooled
+			// before the dispatch loop processed it. Skip stale queue entries.
+			if tx.GetCurrentState() != transaction.State_Ready_For_Dispatch {
+				log.L(ctx).Debugf(
+					"skipping stale transaction %s from dispatch queue. current state: %s",
+					tx.GetID().String(),
+					tx.GetCurrentState(),
+				)
+				c.inFlightMutex.L.Unlock()
+				continue
+			}
+
 			// Dispatch and then asynchronously update the state machine to State_Dispatched
 			log.L(ctx).Debugf("submitting transaction %s for dispatch", tx.GetID().String())
 			c.readyForDispatch(ctx, tx)
