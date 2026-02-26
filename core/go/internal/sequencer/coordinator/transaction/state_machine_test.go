@@ -80,8 +80,6 @@ func Test_State_String_AllStates(t *testing.T) {
 		{State_Confirming_Dispatchable, "State_Confirming_Dispatchable"},
 		{State_Ready_For_Dispatch, "State_Ready_For_Dispatch"},
 		{State_Dispatched, "State_Dispatched"},
-		{State_SubmissionPrepared, "State_SubmissionPrepared"},
-		{State_Submitted, "State_Submitted"},
 		{State_Confirmed, "State_Confirmed"},
 		{State_Final, "State_Final"},
 	}

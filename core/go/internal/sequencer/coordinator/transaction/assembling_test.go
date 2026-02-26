@@ -452,7 +452,6 @@ func Test_isNotAssembled_AssembledStates(t *testing.T) {
 		State_Confirming_Dispatchable,
 		State_Ready_For_Dispatch,
 		State_Dispatched,
-		State_Submitted,
 		State_Confirmed,
 	}
 

@@ -37,9 +37,7 @@ const (
 	State_Blocked                              // is fully endorsed but cannot proceed due to dependencies not being ready for dispatch
 	State_Confirming_Dispatchable              // endorsed and waiting for confirmation that were are OK to dispatch. The originator can still request not to proceed at this point.
 	State_Ready_For_Dispatch                   // dispatch confirmation received and waiting to be collected by the dispatcher thread.Going into this state is the point of no return
-	State_Dispatched                           // collected by the dispatcher thread but not yet processed by the public TX manager
-	State_SubmissionPrepared                   // collected by the public TX manager but not yet submitted
-	State_Submitted                            // at least one submission has been made to the blockchain
+	State_Dispatched                           // collected by the dispatcher/public TX manager and in-flight on base ledger
 	State_Confirmed                            // "recently" confirmed on the base ledger.  NOTE: confirmed transactions are not held in memory for ever so getting a list of confirmed transactions will only return those confirmed recently
 	State_Final                                // final state for the transaction. Transactions are removed from memory as soon as they enter this state
 )
@@ -91,7 +89,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Delegated: {
 				Transitions: []Transition{
 					{
-						To: State_Submitted,
+						To: State_Dispatched,
 						If: guard_HasChainedTxInProgress,
 					},
 					{
@@ -339,39 +337,13 @@ var stateDefinitionsMap = StateDefinitions{
 		Events: map[EventType]EventHandler{
 			Event_Collected: {
 				Actions: []ActionRule{{Action: action_Collected}},
-				Transitions: []Transition{
-					{
-						To: State_SubmissionPrepared,
-					}},
-			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
-			},
-		},
-	},
-	State_SubmissionPrepared: {
-		Events: map[EventType]EventHandler{
-			Event_Submitted: {
-				Actions: []ActionRule{{Action: action_Submitted}},
-				Transitions: []Transition{
-					{
-						To: State_Submitted,
-					}},
 			},
 			Event_NonceAllocated: {
 				Actions: []ActionRule{{Action: action_NonceAllocated}},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
+			Event_Submitted: {
+				Actions: []ActionRule{{Action: action_Submitted}},
 			},
-		},
-	},
-	State_Submitted: {
-		Events: map[EventType]EventHandler{
 			Event_Confirmed: {
 				Actions: []ActionRule{{Action: action_Confirmed}},
 				Transitions: []Transition{
@@ -496,10 +468,6 @@ func (s State) String() string {
 		return "State_Ready_For_Dispatch"
 	case State_Dispatched:
 		return "State_Dispatched"
-	case State_SubmissionPrepared:
-		return "State_SubmissionPrepared"
-	case State_Submitted:
-		return "State_Submitted"
 	case State_Confirmed:
 		return "State_Confirmed"
 	case State_Final:

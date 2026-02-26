@@ -41,8 +41,9 @@ import (
 // Coordinator is the interface that consumers should use to interact with the coordinator.
 type Coordinator interface {
 	// Asynchronously update the state machine by queueing an event to be processed
-	// This is the only interface by which consumers should update the state of the coordinator
+	// These are the only interfaces by which consumers should update the state of the coordinator
 	QueueEvent(ctx context.Context, event common.Event)
+	TryQueueEvent(ctx context.Context, event common.Event) bool
 
 	// Query the state of the coordinator
 	GetCurrentState() State

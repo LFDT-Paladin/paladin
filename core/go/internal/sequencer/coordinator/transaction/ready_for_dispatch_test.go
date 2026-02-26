@@ -161,7 +161,7 @@ func Test_dependentsMustWait_FixedSigningIdentity_Confirmed(t *testing.T) {
 
 func Test_dependentsMustWait_FixedSigningIdentity_Submitted(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Submitted
+	txn.stateMachine.CurrentState = State_Dispatched
 
 	assert.False(t, txn.dependentsMustWait(false))
 }

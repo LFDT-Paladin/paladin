@@ -504,7 +504,7 @@ func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *te
 	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Dispatched_ToSubmissionPrepared_OnCollected(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_NoTransition_OnCollected(t *testing.T) {
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
@@ -515,12 +515,12 @@ func TestCoordinatorTransaction_Dispatched_ToSubmissionPrepared_OnCollected(t *t
 	})
 	assert.NoError(t, err)
 
-	assert.Equal(t, transaction.State_SubmissionPrepared, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_SubmissionPrepared_ToSubmitted_OnSubmitted(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_NoTransition_OnSubmitted(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_SubmissionPrepared).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -529,12 +529,12 @@ func TestCoordinatorTransaction_SubmissionPrepared_ToSubmitted_OnSubmitted(t *te
 	})
 	assert.NoError(t, err)
 
-	assert.Equal(t, transaction.State_Submitted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Submitted_ToPooled_OnConfirmed_IfRevert(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmed_IfRevert(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -547,9 +547,9 @@ func TestCoordinatorTransaction_Submitted_ToPooled_OnConfirmed_IfRevert(t *testi
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Submitted_ToConfirmed_IfNoRevert(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_ToConfirmed_IfNoRevert(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{

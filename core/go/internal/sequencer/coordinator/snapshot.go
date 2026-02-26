@@ -118,10 +118,6 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 			//this is already past the point of no return.  It is as good as dispatched, just waiting for the the dispatcher thread to collect it so we include it in the dispatched transactions
 			// of the snapshot
 			fallthrough
-		case transaction.State_Submitted:
-			fallthrough
-		case transaction.State_SubmissionPrepared:
-			fallthrough
 		case transaction.State_Dispatched:
 			dispatchedTransaction := &common.DispatchedTransaction{}
 			dispatchedTransaction.ID = txn.GetID()

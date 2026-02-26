@@ -92,7 +92,7 @@ func action_NudgeDispatchLoop(ctx context.Context, c *coordinator, _ common.Even
 	c.inFlightMutex.L.Lock()
 	defer c.inFlightMutex.L.Unlock()
 	clear(c.inFlightTxns)
-	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched, transaction.State_Submitted, transaction.State_SubmissionPrepared})
+	dispatchingTransactions := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Dispatched})
 	for _, txn := range dispatchingTransactions {
 		if !txn.HasPreparedPrivateTransaction() {
 			// We don't count transactions that result in new private transactions

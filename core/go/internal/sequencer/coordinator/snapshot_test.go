@@ -70,7 +70,6 @@ func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
 	for _, state := range []transaction.State{
 		transaction.State_Ready_For_Dispatch,
 		transaction.State_Dispatched,
-		transaction.State_Submitted,
 	} {
 		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
 		c.transactionsByID[txn.GetID()] = txn
@@ -78,7 +77,7 @@ func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
 
 	snapshot := c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
-	assert.Equal(t, 3, len(snapshot.DispatchedTransactions))
+	assert.Equal(t, 2, len(snapshot.DispatchedTransactions))
 
 }
 
@@ -98,13 +97,13 @@ func TestGetSnapshot_ExcludesRevertedTransaction(t *testing.T) {
 	assert.Equal(t, 0, len(snapshot.ConfirmedTransactions))
 }
 
-func TestGetSnapshot_IncludesSubmissionPrepared(t *testing.T) {
+func TestGetSnapshot_IncludesDispatchedDetailsState(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	c, _ := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer c.Stop()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_SubmissionPrepared).Build()
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -201,8 +200,8 @@ func TestGetSnapshot_DispatchedTransactionWithSignerAddress(t *testing.T) {
 	c, _ := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer c.Stop()
 
-	// Use State_Submitted which sets signerAddress, nonce, and latestSubmissionHash
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	// Use State_Dispatched which sets signerAddress, nonce, and latestSubmissionHash
+	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -210,7 +209,7 @@ func TestGetSnapshot_DispatchedTransactionWithSignerAddress(t *testing.T) {
 	assert.Equal(t, 1, len(snapshot.DispatchedTransactions))
 	dispatched := snapshot.DispatchedTransactions[0]
 	assert.Equal(t, txn.GetID(), dispatched.ID)
-	// State_Submitted transactions should have signer address, nonce, and submission hash
+	// State_Dispatched transactions should have signer address, nonce, and submission hash
 	signerAddr := txn.GetSignerAddress()
 	if signerAddr != nil {
 		assert.Equal(t, *signerAddr, dispatched.Signer)
