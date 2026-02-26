@@ -156,6 +156,11 @@ func action_OriginatorTransactionStateTransition(ctx context.Context, o *origina
 	case transaction.State_Final:
 		o.removeTransaction(ctx, e.TransactionID)
 	case transaction.State_Confirmed, transaction.State_Reverted:
+		if txn := o.transactionsByID[e.TransactionID]; txn != nil {
+			if hash := txn.GetLatestSubmissionHash(); hash != nil {
+				delete(o.submittedTransactionsByHash, *hash)
+			}
+		}
 		o.queueEventInternal(ctx, &transaction.FinalizeEvent{
 			BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
 			TransactionID: e.TransactionID,
@@ -177,7 +182,7 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 			break
 		}
 	}
-	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
+	// Note: submittedTransactionsByHash cleanup is handled separately in confirmation handlers.
 }
 
 func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {

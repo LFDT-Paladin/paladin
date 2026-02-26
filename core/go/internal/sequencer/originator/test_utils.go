@@ -69,13 +69,13 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 }
 
 type OriginatorBuilderForTesting struct {
-	state            State
-	nodeName         *string
-	committeeMembers []string
-	contractAddress  *pldtypes.EthAddress
-	transactions     []*transaction.OriginatorTransaction
-	metrics          metrics.DistributedSequencerMetrics
-	sequencerConfig  *pldconf.SequencerConfig
+	state               State
+	nodeName            *string
+	committeeMembers    []string
+	contractAddress     *pldtypes.EthAddress
+	transactionBuilders []*transaction.TransactionBuilderForTesting
+	metrics             metrics.DistributedSequencerMetrics
+	sequencerConfig     *pldconf.SequencerConfig
 }
 
 type OriginatorDependencyMocks struct {
@@ -107,8 +107,8 @@ func (b *OriginatorBuilderForTesting) CommitteeMembers(committeeMembers ...strin
 	return b
 }
 
-func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.OriginatorTransaction) *OriginatorBuilderForTesting {
-	b.transactions = transactions
+func (b *OriginatorBuilderForTesting) TransactionBuilders(builders ...*transaction.TransactionBuilderForTesting) *OriginatorBuilderForTesting {
+	b.transactionBuilders = builders
 	return b
 }
 
@@ -164,7 +164,8 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		b.metrics,
 	)
 
-	for _, tx := range b.transactions {
+	for _, txBuilder := range b.transactionBuilders {
+		tx := txBuilder.QueueEventsTo(originator.queueEventInternal).Build()
 		txID := tx.GetID()
 		originator.transactionsByID[txID] = tx
 		originator.transactionsOrdered = append(originator.transactionsOrdered, tx)

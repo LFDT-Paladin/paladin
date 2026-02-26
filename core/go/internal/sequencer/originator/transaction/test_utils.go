@@ -230,6 +230,15 @@ func (b *TransactionBuilderForTesting) GetLatestSubmissionHash() pldtypes.Bytes3
 	return *b.latestSubmissionHash
 }
 
+func (b *TransactionBuilderForTesting) QueueEventsTo(emit func(ctx context.Context, event common.Event)) *TransactionBuilderForTesting {
+	b.queueEventForOriginator = emit
+	return b
+}
+
+func (b *TransactionBuilderForTesting) GetBuiltTransaction() *OriginatorTransaction {
+	return b.txn
+}
+
 type TransactionDependencyFakes struct {
 	SentMessageRecorder *SentMessageRecorder
 	Clock               *common.FakeClockForTesting

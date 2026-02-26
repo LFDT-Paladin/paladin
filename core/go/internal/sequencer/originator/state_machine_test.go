@@ -44,10 +44,12 @@ func Test_State_String_Unknown(t *testing.T) {
 
 func Test_GetTxStatus_KnownTransactionReturnsStatus(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending).Build()
-	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").Transactions(txn)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").TransactionBuilders(txBuilder)
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	status, err := o.GetTxStatus(ctx, txn.GetID())
 	require.NoError(t, err)

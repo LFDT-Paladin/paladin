@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStateMachine_InitializeOK(t *testing.T) {
@@ -78,35 +79,41 @@ func TestStateMachine_Observing_ToSending_OnTransactionCreated(t *testing.T) {
 func TestStateMachine_Sending_ToObserving_OnTransactionConfirmed_IfNoTransactionsInflight(t *testing.T) {
 	ctx := context.Background()
 
-	soleTransaction := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 
 	o, _, cleanup := originator.NewOriginatorBuilderForTesting(originator.State_Sending).
-		Transactions(soleTransaction).
+		TransactionBuilders(txBuilder).
 		Build(ctx)
 	defer cleanup()
+	soleTransaction := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, soleTransaction)
 
-	o.QueueEvent(ctx, &originator.TransactionConfirmedEvent{
-		From:  soleTransaction.GetSignerAddress(),
-		Nonce: *soleTransaction.GetNonce(),
-		Hash:  *soleTransaction.GetLatestSubmissionHash(),
+	o.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: soleTransaction.GetID(),
+		},
 	})
 	assert.Eventually(t, func() bool { return o.GetCurrentState() == originator.State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "current state is %s", o.GetCurrentState().String())
 }
 
 func TestStateMachine_Sending_NoTransition_OnTransactionConfirmed_IfHasTransactionsInflight(t *testing.T) {
 	ctx := context.Background()
-	txn1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-	txn2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	txn1Builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+	txn2Builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
 
 	o, _, cleanup := originator.NewOriginatorBuilderForTesting(originator.State_Sending).
-		Transactions(txn1, txn2).
+		TransactionBuilders(txn1Builder, txn2Builder).
 		Build(ctx)
 	defer cleanup()
+	txn1 := txn1Builder.GetBuiltTransaction()
+	txn2 := txn2Builder.GetBuiltTransaction()
+	require.NotNil(t, txn1)
+	require.NotNil(t, txn2)
 
-	o.QueueEvent(ctx, &originator.TransactionConfirmedEvent{
-		From:  txn1.GetSignerAddress(),
-		Nonce: *txn1.GetNonce(),
-		Hash:  *txn1.GetLatestSubmissionHash(),
+	o.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn1.GetID(),
+		},
 	})
 	sync := statemachine.NewSyncEvent()
 	o.QueueEvent(ctx, sync)

@@ -114,7 +114,11 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	s.QueueEvent(ctx, heartbeatEvent)
 
 	// Simulate the block indexer confirming the transaction
-	s.QueueEvent(ctx, &TransactionConfirmedEvent{From: signerAddress, Nonce: 42, Hash: submissionHash})
+	s.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn.ID,
+		},
+	})
 
 	// After confirmation: the transaction state machine transitions Submitted → Confirmed → Final,
 	// and the originator removes the transaction from memory (removeTransaction). With no
@@ -174,7 +178,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	require.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(txn2.ID))
 }
 
-func TestOriginator_TransactionConfirmedByID_AllStates(t *testing.T) {
+func TestOriginator_TransactionConfirmedViaTransactionEvent_AllStates(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
@@ -190,23 +194,30 @@ func TestOriginator_TransactionConfirmedByID_AllStates(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := NewOriginatorBuilderForTesting(tc.initialState).CommitteeMembers("member1@node1", "member2@node2")
-			txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
-			builder.Transactions(txn)
+			txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
+			builder.TransactionBuilders(txBuilder)
 
 			s, _, cleanup := builder.Build(ctx)
 			defer cleanup()
+			txn := txBuilder.GetBuiltTransaction()
+			require.NotNil(t, txn)
 
 			submissionHash := txn.GetLatestSubmissionHash()
 			require.NotNil(t, submissionHash)
 			_, exists := s.submittedTransactionsByHash[*submissionHash]
 			require.True(t, exists)
 
-			s.QueueEvent(ctx, &TransactionConfirmedByIDEvent{
-				BaseEvent:     common.BaseEvent{EventTime: time.Now()},
-				TransactionID: txn.GetID(),
+			s.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
+				BaseEvent: transaction.BaseEvent{
+					BaseEvent:     common.BaseEvent{EventTime: time.Now()},
+					TransactionID: txn.GetID(),
+				},
 			})
 
-			require.Eventually(t, func() bool { return txn.GetCurrentState() == transaction.State_Confirmed }, 100*time.Millisecond, 1*time.Millisecond)
+			require.Eventually(t, func() bool {
+				state := txn.GetCurrentState()
+				return state == transaction.State_Confirmed || state == transaction.State_Final
+			}, 100*time.Millisecond, 1*time.Millisecond)
 			_, exists = s.submittedTransactionsByHash[*submissionHash]
 			assert.False(t, exists)
 			require.Eventually(t, func() bool { return s.GetCurrentState() == tc.expectedState }, 100*time.Millisecond, 1*time.Millisecond)

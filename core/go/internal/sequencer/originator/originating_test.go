@@ -51,10 +51,12 @@ func Test_guard_HasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *test
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
-	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated)
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
 		PooledTransactions: []*common.Transaction{},
@@ -67,10 +69,12 @@ func Test_guard_HasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testin
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
-	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated)
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
 		PooledTransactions: []*common.Transaction{
@@ -118,10 +122,12 @@ func Test_validator_TransactionDoesNotExist_TransactionAlreadyExistsReturnsFalse
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending).Build()
-	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	require.NotNil(t, o.transactionsByID[txn.GetID()])
 
