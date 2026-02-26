@@ -198,6 +198,7 @@ async function main(): Promise<boolean> {
       lockId,
       from: investor1,
       recipients: [{ to: investor2, amount: assetAmount }],
+      unlockData: "0x",
       data: "0x",
     })
     .waitForReceipt(DEFAULT_POLL_TIMEOUT);
