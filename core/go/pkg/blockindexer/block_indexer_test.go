@@ -1391,7 +1391,7 @@ func TestHydrateBlockReceiptTxHashMismatchReturnsMissing(t *testing.T) {
 	batch.wg.Add(1)
 
 	bi.hydrateBlock(ctx, batch, 0)
-	assert.Regexp(t, "PD011317", batch.receiptResults[0])
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
 	batch.wg.Wait()
 }
 
@@ -1442,7 +1442,7 @@ func TestHydrateBlockReceiptDuplicateCausesMissing(t *testing.T) {
 	batch.wg.Add(1)
 
 	bi.hydrateBlock(ctx, batch, 0)
-	assert.Regexp(t, "PD011317", batch.receiptResults[0])
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
 	batch.wg.Wait()
 }
 
@@ -1485,7 +1485,7 @@ func TestHydrateBlockReceiptBlockMismatch(t *testing.T) {
 	batch.wg.Add(1)
 
 	bi.hydrateBlock(ctx, batch, 0)
-	assert.Regexp(t, "PD011315", batch.receiptResults[0])
+	assert.Regexp(t, "PD011314", batch.receiptResults[0])
 	batch.wg.Wait()
 }
 
@@ -1520,7 +1520,7 @@ func TestHydrateBlockReceiptNilEntry(t *testing.T) {
 	batch.wg.Add(1)
 
 	bi.hydrateBlock(ctx, batch, 0)
-	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	assert.Regexp(t, "PD011315", batch.receiptResults[0])
 	batch.wg.Wait()
 }
 
@@ -1571,7 +1571,7 @@ func TestHydrateBlockReceiptMissingTxHash(t *testing.T) {
 	batch.wg.Add(1)
 
 	bi.hydrateBlock(ctx, batch, 0)
-	assert.Regexp(t, "PD011317", batch.receiptResults[0])
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
 	batch.wg.Wait()
 }
 
