@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -771,6 +773,114 @@ func TestSendMessageErrorHandlerCalled(t *testing.T) {
 	if p != nil {
 		p.close()
 	}
+}
+
+func TestSendConsecutiveFailureThresholdRestartsSenderAndReconnects(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			// One full reliable-message scan happens at sender startup.
+			// This test intentionally restarts sender once after one send failure.
+			for range 4 {
+				mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{}))
+			}
+			mc.db.Mock.MatchExpectationsInOrder(false)
+		},
+		mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+	tm.sendFailureResetThreshold = 1
+
+	var activateCalls atomic.Int32
+	tp.Functions.ActivatePeer = func(ctx context.Context, anr *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+		activateCalls.Add(1)
+		return &prototk.ActivatePeerResponse{PeerInfoJson: `{"endpoint":"some.url"}`}, nil
+	}
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		return &prototk.DeactivatePeerResponse{}, nil
+	}
+
+	var sendCalls atomic.Int32
+	secondSendSucceeded := make(chan struct{}, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		call := sendCalls.Add(1)
+		if call == 1 {
+			return nil, fmt.Errorf("PD030016: Send for node that is not active '%s'", req.Node)
+		}
+		select {
+		case secondSendSucceeded <- struct{}{}:
+		default:
+		}
+		return &prototk.SendMessageResponse{}, nil
+	}
+
+	// First send fails and should stop the current sender loop at threshold=1.
+	err := tm.Send(ctx, testMessage())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Second send should trigger re-activation and succeed.
+	err = tm.Send(ctx, testMessage())
+	require.NoError(t, err)
+
+	<-secondSendSucceeded
+	require.GreaterOrEqual(t, activateCalls.Load(), int32(2))
+}
+
+func TestReliableScanConsecutiveFailureThresholdStopsSender(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, true,
+		mockGoodTransport,
+		mockGetStateOk,
+	)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.sendFailureResetThreshold = 1
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+
+	mockActivateDeactivateOk(tp)
+
+	sendAttempted := make(chan struct{}, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		select {
+		case sendAttempted <- struct{}{}:
+		default:
+		}
+		return nil, fmt.Errorf("send failed")
+	}
+
+	sd := &components.StateDistribution{
+		Domain:          "domain1",
+		ContractAddress: pldtypes.RandAddress().String(),
+		SchemaID:        pldtypes.RandHex(32),
+		StateID:         pldtypes.RandHex(32),
+	}
+
+	err := tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return tm.SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
+			MessageType: pldapi.RMTState.Enum(),
+			Node:        "node2",
+			Metadata:    pldtypes.JSONString(sd),
+		})
+	})
+	require.NoError(t, err)
+
+	<-sendAttempted
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {

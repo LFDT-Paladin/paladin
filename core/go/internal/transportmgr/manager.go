@@ -76,9 +76,10 @@ type transportManager struct {
 	quiesceTimeout        time.Duration
 	peerReaperInterval    time.Duration
 
-	senderBufferLen         int
-	reliableMessageResend   time.Duration
-	reliableMessagePageSize int
+	senderBufferLen           int
+	sendFailureResetThreshold int
+	reliableMessageResend     time.Duration
+	reliableMessagePageSize   int
 }
 
 var reliableMessageFilters = filters.FieldMap{
@@ -97,19 +98,20 @@ var reliableMessageAckFilters = filters.FieldMap{
 
 func NewTransportManager(bgCtx context.Context, conf *pldconf.TransportManagerInlineConfig) components.TransportManager {
 	tm := &transportManager{
-		conf:                    conf,
-		localNodeName:           conf.NodeName,
-		transportsByID:          make(map[uuid.UUID]*transport),
-		transportsByName:        make(map[string]*transport),
-		peers:                   make(map[string]*peer),
-		senderBufferLen:         confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
-		reliableMessageResend:   confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
-		sendShortRetry:          retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
-		reliableScanRetry:       retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
-		peerInactivityTimeout:   confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
-		peerReaperInterval:      confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
-		quiesceTimeout:          1 * time.Second, // not currently tunable (considered very small edge case)
-		reliableMessagePageSize: 100,             // not currently tunable
+		conf:                      conf,
+		localNodeName:             conf.NodeName,
+		transportsByID:            make(map[uuid.UUID]*transport),
+		transportsByName:          make(map[string]*transport),
+		peers:                     make(map[string]*peer),
+		senderBufferLen:           confutil.IntMin(conf.SendQueueLen, 0, *pldconf.TransportManagerDefaults.SendQueueLen),
+		reliableMessageResend:     confutil.DurationMin(conf.ReliableMessageResend, 100*time.Millisecond, *pldconf.TransportManagerDefaults.ReliableMessageResend),
+		sendShortRetry:            retry.NewRetryLimited(&conf.SendRetry, &pldconf.TransportManagerDefaults.SendRetry),
+		reliableScanRetry:         retry.NewRetryIndefinite(&conf.ReliableScanRetry, &pldconf.TransportManagerDefaults.ReliableScanRetry),
+		peerInactivityTimeout:     confutil.DurationMin(conf.PeerInactivityTimeout, 0, *pldconf.TransportManagerDefaults.PeerInactivityTimeout),
+		peerReaperInterval:        confutil.DurationMin(conf.PeerReaperInterval, 100*time.Millisecond, *pldconf.TransportManagerDefaults.PeerReaperInterval),
+		sendFailureResetThreshold: confutil.IntMin(conf.SendFailureResetThreshold, 1, *pldconf.TransportManagerDefaults.SendFailureResetThreshold),
+		quiesceTimeout:            1 * time.Second, // not currently tunable (considered very small edge case)
+		reliableMessagePageSize:   100,             // not currently tunable
 	}
 	tm.bgCtx, tm.cancelCtx = context.WithCancel(log.WithComponent(bgCtx, "transportmanager"))
 	return tm
