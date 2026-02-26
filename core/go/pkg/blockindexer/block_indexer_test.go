@@ -900,6 +900,68 @@ func TestBlockIndexerResetsAfterHashLookupFail(t *testing.T) {
 	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
 }
 
+func TestBlockIndexerResetsAfterReceiptIntegrityFail(t *testing.T) {
+	_, bi, mRPC, blDone := newTestBlockIndexer(t)
+	defer blDone()
+
+	blocks, receipts := testBlockArray(t, 5)
+
+	// Set up event stream
+	eventStream, err := bi.AddEventStream(context.Background(), bi.persistence.NOTX(), &InternalEventStream{
+		HandlerDBTX: func(ctx context.Context, dbTX persistence.DBTX, batch *EventDeliveryBatch) error {
+			return nil
+		},
+		Definition: &EventStream{
+			Name: "unit_test",
+			Sources: []EventStreamSource{{
+				ABI: abi.ABI{
+					testABI[1], // Listen to one event type
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	es := bi.eventStreams[eventStream.ID]
+	require.NotNil(t, es)
+
+	sentFail := false
+	mockBlocksRPCCallsDynamic(mRPC, func(args mock.Arguments) ([]*BlockInfoJSONRPC, map[string][]*TXReceiptJSONRPC) {
+		if !sentFail &&
+			args[2].(string) == "eth_getBlockReceipts" &&
+			args[3].([]interface{})[0].(ethtypes.HexBytes0xPrefix).Equals(blocks[2].Hash) {
+			sentFail = true
+			badReceipts := make(map[string][]*TXReceiptJSONRPC, len(receipts))
+			for hash, blockReceipts := range receipts {
+				badReceipts[hash] = blockReceipts
+			}
+			// Return fewer receipts than transactions for one block to trigger integrity reset.
+			badReceipts[blocks[2].Hash.String()] = []*TXReceiptJSONRPC{}
+			return blocks, badReceipts
+		}
+		return blocks, receipts
+	})
+
+	utBatchNotify := make(chan []*pldapi.IndexedBlock)
+	addBlockPostCommit(bi, func(blocks []*pldapi.IndexedBlock) { utBatchNotify <- blocks })
+
+	bi.startOrReset() // do not start block listener
+
+	for i := 0; i < len(blocks); i++ {
+		notifiedBlocks := <-utBatchNotify
+		assert.Len(t, notifiedBlocks, 1) // We should get one block per batch
+		checkIndexedBlockEqual(t, blocks[i], notifiedBlocks[0])
+	}
+
+	assert.True(t, sentFail)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		es := bi.eventStreams[eventStream.ID]
+		assert.NotNil(c, es.detectorDone, "Event stream detector should be started after reset")
+		assert.NotNil(c, es.dispatcherDone, "Event stream dispatcher should be started after reset")
+	}, testTimeout(t), 100*time.Millisecond, "Event streams should be started after reset")
+}
+
 func TestBlockIndexerDispatcherFallsBehindHead(t *testing.T) {
 	_, bi, mRPC, blDone := newTestBlockIndexer(t)
 	defer blDone()
@@ -1236,6 +1298,281 @@ func TestHydrateBlockBesuNullCase(t *testing.T) {
 	assert.Regexp(t, "PD011310", batch.receiptResults[0])
 	batch.wg.Wait()
 
+}
+
+func TestHydrateBlockReceiptCountMismatch(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(123),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	validReceipt := &TXReceiptJSONRPC{
+		BlockHash:       block.Hash,
+		BlockNumber:     block.Number,
+		TransactionHash: block.Transactions[0].Hash,
+		Status:          ethtypes.NewHexInteger64(1),
+		Type:            ethtypes.NewHexInteger64(0x2),
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{validReceipt}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011313", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptTxHashMismatchReturnsMissing(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(124),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	unknownHash := pldtypes.RandBytes(32)
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: unknownHash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptDuplicateCausesMissing(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(126),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptBlockMismatch(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(125),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       pldtypes.RandBytes(32),
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011314", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptNilEntry(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(128),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{nil}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011315", batch.receiptResults[0])
+	batch.wg.Wait()
+}
+
+func TestHydrateBlockReceiptMissingTxHash(t *testing.T) {
+	ctx, bi, mRPC, _, done := newMockBlockIndexer(t, &pldconf.BlockIndexerConfig{})
+	defer done()
+
+	bi.retry.UTSetMaxAttempts(1)
+
+	block := &BlockInfoJSONRPC{
+		Hash:   pldtypes.RandBytes(32),
+		Number: ethtypes.HexUint64(127),
+		Transactions: []*PartialTransactionInfo{
+			{Hash: pldtypes.RandBytes(32)},
+			{Hash: pldtypes.RandBytes(32)},
+		},
+	}
+	mRPC.On("CallRPC", mock.Anything, mock.Anything, "eth_getBlockReceipts", mock.Anything).Run(
+		func(args mock.Arguments) {
+			*(args[1].(*[]*TXReceiptJSONRPC)) = []*TXReceiptJSONRPC{
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+				{
+					BlockHash:       block.Hash,
+					BlockNumber:     block.Number,
+					TransactionHash: block.Transactions[0].Hash,
+					Status:          ethtypes.NewHexInteger64(1),
+					Type:            ethtypes.NewHexInteger64(0x2),
+				},
+			}
+		},
+	).Return(nil)
+
+	batch := &blockWriterBatch{
+		wg: sync.WaitGroup{},
+		blocks: []*BlockInfoJSONRPC{
+			block,
+		},
+		summaries:      []string{"block_0"},
+		receipts:       [][]*TXReceiptJSONRPC{nil},
+		receiptResults: []error{nil},
+	}
+	batch.wg.Add(1)
+
+	bi.hydrateBlock(ctx, batch, 0)
+	assert.Regexp(t, "PD011316", batch.receiptResults[0])
+	batch.wg.Wait()
 }
 
 func TestHydrateBlockNoTransactions(t *testing.T) {
