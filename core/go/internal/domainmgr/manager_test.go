@@ -383,6 +383,60 @@ func TestWaitForTransactionTimeout(t *testing.T) {
 	assert.Regexp(t, "PD020100", err)
 }
 
+func TestPopulateContractConfig(t *testing.T) {
+}
+
+func TestGetSigner(t *testing.T) {
+	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	signer := dm.GetSigner()
+	assert.NotNil(t, signer)
+	assert.Equal(t, dm.domainSigner, signer)
+}
+
+func TestGetSmartContractByAddressCached(t *testing.T) {
+	ctx, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{},
+	})
+	defer done()
+
+	contractAddr := pldtypes.RandAddress()
+
+	// Create a minimal mock domain
+	mockDomain := &domain{
+		dm:              dm,
+		name:            "test",
+		registryAddress: contractAddr,
+	}
+
+	// Create a mock domain contract and put it in the cache
+	mockContract := &domainContract{
+		dm: dm,
+		d:  mockDomain,
+		info: &PrivateSmartContract{
+			Address: *contractAddr,
+		},
+		config: &prototk.ContractConfig{
+			ContractConfigJson: `{"cached":"true"}`,
+		},
+	}
+	dm.contractCache.Set(*contractAddr, mockContract)
+
+	// Get the contract - should return from cache
+	sc, err := dm.GetSmartContractByAddress(ctx, dm.persistence.NOTX(), *contractAddr)
+	require.NoError(t, err)
+	require.NotNil(t, sc)
+	assert.Equal(t, *contractAddr, sc.Address())
+	assert.Equal(t, `{"cached":"true"}`, sc.ContractConfig().ContractConfigJson)
+}
+
 func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
