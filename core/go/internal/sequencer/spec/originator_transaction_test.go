@@ -283,8 +283,6 @@ func TestOriginatorTransaction_Reverted_DoResendAssembleResponse_OnAssembleReque
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted)
 	txn, mocks := builder.BuildWithMocks()
 
-	// NOTE we do not mock AssembleAndSign function because we expect to resend the previous response
-
 	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.GetID(),
@@ -448,6 +446,46 @@ func TestOriginatorTransaction_Endorsement_Gathering_NoTransition_OnDispatchConf
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
+func TestOriginatorTransaction_Prepared_NoTransition_OnAssembleRequest_IfMatchesPreviousRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Prepared)
+	txn, mocks := builder.BuildWithMocks()
+
+	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		RequestID:   builder.GetLatestFulfilledAssembleRequestID(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleSuccessResponse(), "assemble success response was not sent back to coordinator")
+	assert.Equal(t, transaction.State_Prepared, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Prepared_ToAssembling_OnAssembleRequest_IfNotMatchesPreviousRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Prepared)
+	txn, mocks := builder.BuildWithMocks()
+	mocks.MockForAssembleAndSignRequestOK().Once()
+
+	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.Len(t, mocks.GetEmittedEvents(), 2)
+	require.IsType(t, &transaction.AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
+	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
 func TestOriginatorTransaction_Endorsement_Gathering_ToDelegated_OnCoordinatorChanged(t *testing.T) {
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).Build()
@@ -575,6 +613,28 @@ func TestOriginatorTransaction_Dispatched_ToConfirmed_OnConfirmedSuccess(t *test
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
+func TestOriginatorTransaction_Dispatched_ToAssembling_OnAssembleRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
+	txn, mocks := builder.BuildWithMocks()
+	mocks.MockForAssembleAndSignRequestOK().Once()
+
+	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.Len(t, mocks.GetEmittedEvents(), 2)
+	require.IsType(t, &transaction.AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
+	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
 func TestOriginatorTransaction_Dispatched_ToSequenced_OnNonceAssigned(t *testing.T) {
 	ctx := context.Background()
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
@@ -650,6 +710,28 @@ func TestOriginatorTransaction_Sequenced_ToConfirmed_OnConfirmedSuccess(t *testi
 	assert.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestOriginatorTransaction_Sequenced_ToAssembling_OnAssembleRequest(t *testing.T) {
+	ctx := context.Background()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Sequenced)
+	txn, mocks := builder.BuildWithMocks()
+	mocks.MockForAssembleAndSignRequestOK().Once()
+
+	err := txn.HandleEvent(ctx, &transaction.AssembleRequestReceivedEvent{
+		BaseEvent: transaction.BaseEvent{
+			TransactionID: txn.GetID(),
+		},
+		RequestID:   uuid.New(),
+		Coordinator: builder.GetCoordinator(),
+	})
+	assert.NoError(t, err)
+
+	assert.True(t, mocks.EngineIntegration.AssertExpectations(t))
+	require.Len(t, mocks.GetEmittedEvents(), 2)
+	require.IsType(t, &transaction.AssembleAndSignSuccessEvent{}, mocks.GetEmittedEvents()[0])
+	require.IsType(t, &common.TransactionStateTransitionEvent[transaction.State]{}, mocks.GetEmittedEvents()[1])
+	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestOriginatorTransaction_Sequenced_ToSubmitted_OnSubmitted(t *testing.T) {

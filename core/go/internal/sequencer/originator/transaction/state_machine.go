@@ -282,6 +282,21 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions: []ActionRule{
+					{Action: action_AssembleRequestReceived},
+					{
+						//We thought we had got as far as endorsement but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
+						If:     guard_AssembleRequestMatchesPreviousResponse,
+						Action: action_ResendAssembleSuccessResponse,
+					}},
+				Transitions: []Transition{{
+					//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
+					If: statemachine.Not(guard_AssembleRequestMatchesPreviousResponse),
+					To: State_Assembling,
+				}},
+			},
 			Event_PreDispatchRequestReceived: {
 				Validator: validator_PreDispatchRequestMatchesAssembledDelegation,
 				Actions: []ActionRule{
@@ -362,6 +377,15 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			// The coordinator must have decided that it was necessary to re-assemble with different available
+			// states so we go back to assembling state for another attempt
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
+				Transitions: []Transition{{
+					To: State_Assembling,
+				}},
+			},
 		},
 	},
 	State_Sequenced: {
@@ -391,6 +415,15 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Submitted,
 					},
 				},
+			},
+			// The coordinator must have decided that it was necessary to re-assemble with different available
+			// states so we go back to assembling state for another attempt
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
+				Transitions: []Transition{{
+					To: State_Assembling,
+				}},
 			},
 		},
 	},
