@@ -84,6 +84,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockCreated.TxId, lockCreated.Inputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, lockCreated.Outputs)...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, lockCreated.Contents)...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockCreated.TxId, []pldtypes.Bytes32{lockCreated.NewLockState})...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockCreated event in batch %s: %s", req.BatchId, err)
 		}
@@ -98,8 +99,8 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			}
 			n.recordTransactionInfo(ev, lockUpdated.TxId, txData.InfoStates, res)
 			res.ReadStates = append(res.ReadStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.Contents)...)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockUpdated.TxId, lockUpdated.Outputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockUpdated.TxId, []pldtypes.Bytes32{lockUpdated.OldLockState})...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockUpdated.TxId, []pldtypes.Bytes32{lockUpdated.NewLockState})...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockUpdated event in batch %s: %s", req.BatchId, err)
 		}
@@ -145,8 +146,8 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 				return err
 			}
 			n.recordTransactionInfo(ev, lockDelegated.TxId, txData.InfoStates, res)
-			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockDelegated.TxId, lockDelegated.Inputs)...)
-			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockDelegated.TxId, lockDelegated.Outputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockDelegated.TxId, []pldtypes.Bytes32{lockDelegated.OldLockState})...)
+			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockDelegated.TxId, []pldtypes.Bytes32{lockDelegated.NewLockState})...)
 		} else {
 			log.L(ctx).Warnf("Ignoring malformed LockDelegated event in batch %s: %s", req.BatchId, err)
 		}

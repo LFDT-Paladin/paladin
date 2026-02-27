@@ -31,7 +31,7 @@ describe("Atom", function () {
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
     const lockStateId1 = randomBytes32();
-    const options1 = createLockOptions(ZeroHash, lockStateId1);
+    const options1 = createLockOptions(ZeroHash);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
@@ -53,6 +53,7 @@ describe("Atom", function () {
       inputs: [],
       outputs: [],
       contents: [f1txo1, f1txo2],
+      newLockState: lockStateId1,
       proof: "0x",
     } as NotoCreateLockOperation;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
@@ -117,7 +118,7 @@ describe("Atom", function () {
 
     // Do the delegation/approval transactions
     const lockStateId2 = randomBytes32();
-    const options2 = createLockOptions(unlockTxId, lockStateId2);
+    const options2 = createLockOptions(unlockTxId);
     const txId2 = randomBytes32();
     const lockUpdate = {
       spendHash,
@@ -127,8 +128,10 @@ describe("Atom", function () {
     const updateParams = {
       txId: txId2,
       inputs: [],
-      outputs: [lockStateId2],
+      outputs: [],
       contents: [],
+      oldLockState: lockStateId1,
+      newLockState: lockStateId2,
       proof: "0x",
       options: "0x",
     } as NotoUpdateLockOperation;
@@ -138,7 +141,8 @@ describe("Atom", function () {
     const lockStateId3 = randomBytes32();
     const delegateLockParams = {
       txId: delegateTxId,
-      lockStateId: lockStateId3,
+      oldLockState: lockStateId2,
+      newLockState: lockStateId3,
       inputs: [],
       outputs: [lockStateId3],
       proof: "0x",

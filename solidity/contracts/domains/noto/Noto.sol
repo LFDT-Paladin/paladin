@@ -562,7 +562,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     ) external override lockActive(lockId) onlySpender(lockId) {
         LockInfo storage lock = _locks[lockId];
         NotoUnlockOperation memory unlockOp = abi.decode(spendInputs, (NotoUnlockOperation));
-        bytes32 oldLockState = _lockStates[unlockOp.txId];
+        bytes32 oldLockState = _lockStates[lockId];
         _spendLock(lockId, lock, lock.spendHash, unlockOp, oldLockState);
         emit LockSpent(lockId, msg.sender, data);
         emit NotoLockSpent(
@@ -598,7 +598,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     ) external override lockActive(lockId) onlySpender(lockId) {
         LockInfo storage lock = _locks[lockId];
         NotoUnlockOperation memory unlockOp = abi.decode(cancelInputs, (NotoUnlockOperation));
-        bytes32 oldLockState = _lockStates[unlockOp.txId];
+        bytes32 oldLockState = _lockStates[lockId];
         _spendLock(lockId, lock, lock.cancelHash, unlockOp, oldLockState);
         emit LockCancelled(lockId, msg.sender, data);
         emit NotoLockCancelled(

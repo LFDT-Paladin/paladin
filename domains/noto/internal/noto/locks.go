@@ -44,12 +44,13 @@ const (
 )
 
 type lockTransition struct {
-	noto           *Noto
-	prevLockState  *prototk.EndorsableState
-	prevLockInfo   types.NotoLockInfo_V1
-	newLockState   *prototk.EndorsableState
-	newLockStateID pldtypes.Bytes32
-	newLockInfo    types.NotoLockInfo_V1
+	noto            *Noto
+	prevLockState   *prototk.EndorsableState
+	prevLockStateID pldtypes.Bytes32
+	prevLockInfo    types.NotoLockInfo_V1
+	newLockState    *prototk.EndorsableState
+	newLockStateID  pldtypes.Bytes32
+	newLockInfo     types.NotoLockInfo_V1
 }
 
 func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (*loadedLockInfo, error) {
@@ -106,7 +107,11 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 
 	if len(inputLockInfoStates) == 1 {
 		lt.prevLockState = inputLockInfoStates[0]
-		if err := json.Unmarshal([]byte(lt.prevLockState.StateDataJson), &lt.prevLockInfo); err != nil {
+		err := json.Unmarshal([]byte(lt.prevLockState.StateDataJson), &lt.prevLockInfo)
+		if err == nil {
+			lt.prevLockStateID, err = pldtypes.ParseBytes32Ctx(ctx, lt.prevLockState.Id)
+		}
+		if err != nil {
 			return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lt.prevLockState.Id)
 		}
 

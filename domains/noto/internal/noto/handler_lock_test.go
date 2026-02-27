@@ -230,11 +230,12 @@ func TestLock(t *testing.T) {
 	require.Zero(t, notoOptions.SpendTxId)
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
-		TxId:     "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:   []string{inputCoin.ID.String()},
-		Outputs:  []string{*lockState.Id},
-		Contents: []string{*outCoin1State.Id},
-		Proof:    signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{inputCoin.ID.String()},
+		Outputs:      []string{},
+		Contents:     []string{*outCoin1State.Id},
+		NewLockState: pldtypes.MustParseBytes32(*lockState.Id),
+		Proof:        signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
 	require.NoError(t, err)

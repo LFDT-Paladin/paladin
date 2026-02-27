@@ -16,10 +16,10 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // - The contents that were stored in the lock. e.g. the locked value states
     struct NotoCreateLockOperation {
         bytes32 txId;
-        bytes32 newLockState; 
         bytes32[] inputs; // spent in the transaction
         bytes32[] outputs; // created outside the lock by the transaction
         bytes32[] contents; // created inside of the lock - this array ABI encoded is the lock contents (can be empty for mint-locks)
+        bytes32 newLockState; 
         bytes proof; // recorded signature for the lock operation
     }
 
