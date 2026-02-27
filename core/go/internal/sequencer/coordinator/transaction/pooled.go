@@ -45,6 +45,7 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.dependencies = &pldapi.TransactionDependencies{}
 	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
+	t.grapher.ForgetLocks(t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
 	t.engineIntegration.ResetTransactions(ctx, t.pt.ID)

@@ -79,11 +79,18 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 
 	// Once we've written the lock states we have output states which must be added to the grapher
 	for _, state := range postAssembly.OutputStates {
-		err := t.grapher.AddMinter(ctx, state.ID, t)
+		err := t.grapher.AddMinter(ctx, state, t)
 		if err != nil {
 			errMsg := i18n.NewError(ctx, msgs.MsgSequencerAddMinterError, t.pt.ID.String(), state.ID.String(), err)
 			log.L(ctx).Error(errMsg)
 			return errMsg
+		}
+		// If we created the state it must be locked until the transaction is confirmed
+		err = t.grapher.LockMintOnCreate(ctx, state.ID, t.pt.ID)
+		if err != nil {
+			msg := fmt.Sprintf("error locking state %s for transaction %s: %s", state.ID.String(), t.pt.ID.String(), err)
+			log.L(ctx).Error(msg)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	}
 	return t.calculatePostAssembleDependencies(ctx)
@@ -104,13 +111,22 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			log.L(ctx).Errorf("failed to get engine state locks: %s", err)
 			return err
 		}
+		log.L(ctx).Debugf("engine state locks: %s", string(stateLocks))
+
+		grapherStateLocks, err := t.grapher.ExportMints(ctx)
+		if err != nil {
+			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
+			return err
+		}
+		log.L(ctx).Debugf("grapher state locks: %s", string(grapherStateLocks))
+
 		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to get engine block height: %s", err)
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, stateLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStateLocks, blockHeight)
 	})
 
 	t.scheduleRequestTimeout(ctx)

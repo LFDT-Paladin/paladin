@@ -295,7 +295,7 @@ func (_c *MockGrapher_Add_Call) RunAndReturn(run func(context1 context.Context, 
 }
 
 // AddMinter provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction) error {
+func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error {
 	ret := _mock.Called(ctx, stateID, transaction)
 
 	if len(ret) == 0 {
@@ -303,7 +303,7 @@ func (_mock *MockGrapher) AddMinter(ctx context.Context, stateID pldtypes.HexByt
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, *coordinatorTransaction) error); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, *CoordinatorTransaction) error); ok {
 		r0 = returnFunc(ctx, stateID, transaction)
 	} else {
 		r0 = ret.Error(0)
@@ -319,20 +319,20 @@ type MockGrapher_AddMinter_Call struct {
 // AddMinter is a helper method to define mock.On call
 //   - ctx context.Context
 //   - stateID pldtypes.HexBytes
-//   - transaction *coordinatorTransaction
+//   - transaction *CoordinatorTransaction
 func (_e *MockGrapher_Expecter) AddMinter(ctx interface{}, stateID interface{}, transaction interface{}) *MockGrapher_AddMinter_Call {
 	return &MockGrapher_AddMinter_Call{Call: _e.mock.On("AddMinter", ctx, stateID, transaction)}
 }
 
-func (_c *MockGrapher_AddMinter_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction)) *MockGrapher_AddMinter_Call {
+func (_c *MockGrapher_AddMinter_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction)) *MockGrapher_AddMinter_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 pldtypes.HexBytes
+		var arg1 *components.FullState
 		if args[1] != nil {
-			arg1 = args[1].(pldtypes.HexBytes)
+			arg1 = args[1].(*components.FullState)
 		}
 		var arg2 *coordinatorTransaction
 		if args[2] != nil {
@@ -352,7 +352,7 @@ func (_c *MockGrapher_AddMinter_Call) Return(err error) *MockGrapher_AddMinter_C
 	return _c
 }
 
-func (_c *MockGrapher_AddMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction) error) *MockGrapher_AddMinter_Call {
+func (_c *MockGrapher_AddMinter_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transaction *CoordinatorTransaction) error) *MockGrapher_AddMinter_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -408,6 +408,46 @@ func (_c *MockGrapher_Forget_Call) RunAndReturn(run func(transactionID uuid.UUID
 	return _c
 }
 
+// ForgetLocks provides a mock function for the type MockGrapher
+func (_mock *MockGrapher) ForgetLocks(transactionID uuid.UUID) {
+	_mock.Called(transactionID)
+	return
+}
+
+// MockGrapher_ForgetLocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForgetLocks'
+type MockGrapher_ForgetLocks_Call struct {
+	*mock.Call
+}
+
+// ForgetLocks is a helper method to define mock.On call
+//   - transactionID uuid.UUID
+func (_e *MockGrapher_Expecter) ForgetLocks(transactionID interface{}) *MockGrapher_ForgetLocks_Call {
+	return &MockGrapher_ForgetLocks_Call{Call: _e.mock.On("ForgetLocks", transactionID)}
+}
+
+func (_c *MockGrapher_ForgetLocks_Call) Run(run func(transactionID uuid.UUID)) *MockGrapher_ForgetLocks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 uuid.UUID
+		if args[0] != nil {
+			arg0 = args[0].(uuid.UUID)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGrapher_ForgetLocks_Call) Return() *MockGrapher_ForgetLocks_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockGrapher_ForgetLocks_Call) RunAndReturn(run func(transactionID uuid.UUID)) *MockGrapher_ForgetLocks_Call {
+	_c.Run(run)
+	return _c
+}
+
 // ForgetMints provides a mock function for the type MockGrapher
 func (_mock *MockGrapher) ForgetMints(transactionID uuid.UUID) {
 	_mock.Called(transactionID)
@@ -445,6 +485,132 @@ func (_c *MockGrapher_ForgetMints_Call) Return() *MockGrapher_ForgetMints_Call {
 
 func (_c *MockGrapher_ForgetMints_Call) RunAndReturn(run func(transactionID uuid.UUID)) *MockGrapher_ForgetMints_Call {
 	_c.Run(run)
+	return _c
+}
+
+// LockMintOnCreate provides a mock function for the type MockGrapher
+func (_mock *MockGrapher) LockMintOnCreate(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error {
+	ret := _mock.Called(ctx, stateID, transactionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockMintOnCreate")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, uuid.UUID) error); ok {
+		r0 = returnFunc(ctx, stateID, transactionID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockGrapher_LockMintOnCreate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LockMintOnCreate'
+type MockGrapher_LockMintOnCreate_Call struct {
+	*mock.Call
+}
+
+// LockMintOnCreate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stateID pldtypes.HexBytes
+//   - transactionID uuid.UUID
+func (_e *MockGrapher_Expecter) LockMintOnCreate(ctx interface{}, stateID interface{}, transactionID interface{}) *MockGrapher_LockMintOnCreate_Call {
+	return &MockGrapher_LockMintOnCreate_Call{Call: _e.mock.On("LockMintOnCreate", ctx, stateID, transactionID)}
+}
+
+func (_c *MockGrapher_LockMintOnCreate_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID)) *MockGrapher_LockMintOnCreate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 pldtypes.HexBytes
+		if args[1] != nil {
+			arg1 = args[1].(pldtypes.HexBytes)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGrapher_LockMintOnCreate_Call) Return(err error) *MockGrapher_LockMintOnCreate_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockGrapher_LockMintOnCreate_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error) *MockGrapher_LockMintOnCreate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LockMintOnSpend provides a mock function for the type MockGrapher
+func (_mock *MockGrapher) LockMintOnSpend(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error {
+	ret := _mock.Called(ctx, stateID, transactionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LockMintOnSpend")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, pldtypes.HexBytes, uuid.UUID) error); ok {
+		r0 = returnFunc(ctx, stateID, transactionID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockGrapher_LockMintOnSpend_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LockMintOnSpend'
+type MockGrapher_LockMintOnSpend_Call struct {
+	*mock.Call
+}
+
+// LockMintOnSpend is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stateID pldtypes.HexBytes
+//   - transactionID uuid.UUID
+func (_e *MockGrapher_Expecter) LockMintOnSpend(ctx interface{}, stateID interface{}, transactionID interface{}) *MockGrapher_LockMintOnSpend_Call {
+	return &MockGrapher_LockMintOnSpend_Call{Call: _e.mock.On("LockMintOnSpend", ctx, stateID, transactionID)}
+}
+
+func (_c *MockGrapher_LockMintOnSpend_Call) Run(run func(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID)) *MockGrapher_LockMintOnSpend_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 pldtypes.HexBytes
+		if args[1] != nil {
+			arg1 = args[1].(pldtypes.HexBytes)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockGrapher_LockMintOnSpend_Call) Return(err error) *MockGrapher_LockMintOnSpend_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockGrapher_LockMintOnSpend_Call) RunAndReturn(run func(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error) *MockGrapher_LockMintOnSpend_Call {
+	_c.Call.Return(run)
 	return _c
 }
 
