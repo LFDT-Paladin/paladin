@@ -226,8 +226,7 @@ func TestLock(t *testing.T) {
 
 	// Validate the parameters
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
-	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, params.Params.Options)
-	require.Zero(t, notoOptions.SpendTxId)
+	require.Empty(t, params.Params.Options)
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
@@ -726,15 +725,15 @@ func TestLockEmpty(t *testing.T) {
 
 	// Validate the parameters
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
-	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, params.Params.Options)
-	require.Zero(t, notoOptions.SpendTxId)
+	require.Empty(t, params.Params.Options)
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
-		TxId:     "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:   []string{},
-		Outputs:  []string{*lockState.Id},
-		Contents: []string{},
-		Proof:    signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{},
+		Outputs:      []string{},
+		Contents:     []string{},
+		NewLockState: pldtypes.MustParseBytes32(*lockState.Id),
+		Proof:        signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
 	require.NoError(t, err)

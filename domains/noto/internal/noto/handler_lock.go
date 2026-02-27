@@ -299,29 +299,21 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 	switch tx.DomainConfig.Variant {
 	case types.NotoVariantDefault:
 		var notoLockOpEncoded []byte
-		lockStates := h.noto.filterSchema(req.OutputStates, []string{h.noto.lockInfoSchemaV1.Id})
 		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
-			TxId:     req.Transaction.TransactionId,
-			Inputs:   endorsableStateIDs(inputs),
-			Outputs:  append(endorsableStateIDs(lockStates), endorsableStateIDs(outputs)...),
-			Contents: endorsableStateIDs(lockedOutputs),
-			Proof:    lockSignature.Payload,
+			TxId:         req.Transaction.TransactionId,
+			Inputs:       endorsableStateIDs(inputs),
+			Outputs:      endorsableStateIDs(outputs),
+			Contents:     endorsableStateIDs(lockedOutputs),
+			NewLockState: lt.newLockStateID,
+			Proof:        lockSignature.Payload,
 		})
-		var encodedOptions pldtypes.HexBytes
-		if err == nil {
-			encodedOptions, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
-				LockStateId: lt.newLockStateID,
-			})
-		}
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
 			functionName = "createLock"
 			params := &CreateLockParams{
 				CreateInputs: notoLockOpEncoded,
-				Params: LockParams{
-					Options: encodedOptions,
-				},
-				Data: data,
+				Params:       LockParams{},
+				Data:         data,
 			}
 			paramsJSON, err = json.Marshal(params)
 		}

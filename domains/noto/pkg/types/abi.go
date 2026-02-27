@@ -266,7 +266,6 @@ var NotoDelegateOperationABI = abi.ParameterArray{
 		InternalType: "struct NotoDelegateOperation",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
-			{Name: "lockStateId", Type: "bytes32"},
 			{Name: "oldLockState", Type: "bytes32"},
 			{Name: "newLockState", Type: "bytes32"},
 			{Name: "proof", Type: "bytes"},
@@ -289,8 +288,7 @@ var NotoUnlockOperationABI = abi.ParameterArray{
 }
 
 type NotoLockOptions struct {
-	SpendTxId   pldtypes.Bytes32 `json:"spendTxId"`
-	LockStateId pldtypes.Bytes32 `json:"lockStateId"`
+	SpendTxId pldtypes.Bytes32 `json:"spendTxId"`
 }
 
 var NotoLockOptionsABI = abi.ParameterArray{
@@ -299,7 +297,6 @@ var NotoLockOptionsABI = abi.ParameterArray{
 		InternalType: "struct NotoLockOptions",
 		Components: abi.ParameterArray{
 			{Name: "spendTxId", Type: "bytes32"},
-			{Name: "lockStateId", Type: "bytes32"},
 		},
 	},
 }

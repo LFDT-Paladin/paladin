@@ -167,17 +167,19 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 	lockId := pldtypes.RandBytes32()
 	input := pldtypes.RandBytes32()
 	output := pldtypes.RandBytes32()
+	lockStateID := pldtypes.RandBytes32()
 	lockedOutput := pldtypes.RandBytes32()
 	owner := (*pldtypes.EthAddress)(pldtypes.RandAddress())
 	event := &NotoLockCreated_Event{
-		TxId:     txId,
-		LockID:   lockId,
-		Owner:    owner,
-		Inputs:   []pldtypes.Bytes32{input},
-		Outputs:  []pldtypes.Bytes32{output},
-		Contents: []pldtypes.Bytes32{lockedOutput},
-		Proof:    pldtypes.MustParseHexBytes("0x1234"),
-		Data:     sampleV1Data(t, n),
+		TxId:         txId,
+		LockID:       lockId,
+		Owner:        owner,
+		Inputs:       []pldtypes.Bytes32{input},
+		Outputs:      []pldtypes.Bytes32{output},
+		Contents:     []pldtypes.Bytes32{lockedOutput},
+		NewLockState: lockStateID,
+		Proof:        pldtypes.MustParseHexBytes("0x1234"),
+		Data:         sampleV1Data(t, n),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -201,9 +203,10 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 	require.Len(t, res.TransactionsComplete, 1)
 	require.Len(t, res.SpentStates, 1)
 	assert.Equal(t, input.String(), res.SpentStates[0].Id)
-	require.Len(t, res.ConfirmedStates, 2)
+	require.Len(t, res.ConfirmedStates, 3)
 	assert.Equal(t, output.String(), res.ConfirmedStates[0].Id)
 	assert.Equal(t, lockedOutput.String(), res.ConfirmedStates[1].Id)
+	assert.Equal(t, lockStateID.String(), res.ConfirmedStates[2].Id)
 	require.Len(t, res.InfoStates, 1)
 }
 
