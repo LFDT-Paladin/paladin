@@ -25,15 +25,15 @@ import InfiniteScroll from "react-infinite-scroll-component";
 import { IEvent } from "../interfaces";
 import { useTranslation } from "react-i18next";
 
-export const Events: React.FC = () => {
+export const Events: React.FC<{ txHash?: string }> = ({ txHash }) => {
 
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
 
   const { data: events, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
-    queryKey: ["events", lastBlockWithTransactions],
-    queryFn: ({ pageParam }) => fetchEvents(pageParam),
+    queryKey: ["events", lastBlockWithTransactions, txHash],
+    queryFn: ({ pageParam }) => fetchEvents(pageParam, txHash),
     initialPageParam: undefined as IEvent | undefined,
-    getNextPageParam: (lastPage) => { return lastPage.length > 0? lastPage[lastPage.length - 1] : undefined },
+    getNextPageParam: (lastPage) => { return lastPage.length > 0 ? lastPage[lastPage.length - 1] : undefined },
   });
 
   const theme = useTheme();

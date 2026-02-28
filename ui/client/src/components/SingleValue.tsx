@@ -18,25 +18,27 @@ import { Box, Typography, Tooltip, IconButton } from "@mui/material";
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { JSONBox } from "./JSONBox";
 
 type Props = {
   label: string
   value: string
+  json?: boolean
 }
 
-export const SingleValue: React.FC<Props> = ({ label, value }) => {
+export const SingleValue: React.FC<Props> = ({ label, value, json }) => {
 
   const [copyLabel, setCopyLabel] = useState('copyToClipboard');
   const { t } = useTranslation();
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', border: theme => `solid 1px ${theme.palette.divider}`, borderRadius: '4px' }}>
-      <Box sx={{ borderRight: theme => `solid 1px ${theme.palette.divider}`, padding: '10px', minWidth: '160px' }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', border: theme => `solid 1px ${theme.palette.divider}`, borderRadius: '4px' }}>
+      <Box sx={{ borderRight: theme => `solid 1px ${theme.palette.divider}`, padding: '10px', minWidth: '160px', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
         <Typography color="textSecondary">{label}</Typography>
       </Box>
-      <Typography sx={{ marginLeft: '10px', flexGrow: 1 }} color="textPrimary">{value}</Typography>
+      {json ? <div style={{ marginLeft: '10px', flexGrow: 1 }}><JSONBox data={value} /></div> : <Typography sx={{ marginLeft: '10px', flexGrow: 1 }} color="textPrimary">{value}</Typography>}
       <Tooltip title={t(copyLabel)} arrow placement="bottom" onMouseLeave={() => setTimeout(() => setCopyLabel('copyToClipboard'), 200)}>
-        <IconButton onClick={() => { navigator.clipboard.writeText(value); setCopyLabel('copied') }}>
+        <IconButton onClick={() => { navigator.clipboard.writeText(json ? JSON.stringify(value) : value); setCopyLabel('copied') }}>
           <ContentCopyIcon />
         </IconButton>
       </Tooltip>
