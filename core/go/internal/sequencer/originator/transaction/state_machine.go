@@ -157,7 +157,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Assembling: {
-		OnTransitionTo: action_AssembleAndSign,
+		OnTransitionTo: []ActionRule{{Action: action_AssembleAndSign}},
 		Events: map[EventType]EventHandler{
 			Event_ConfirmedSuccess: {
 				Transitions: []Transition{{
@@ -168,8 +168,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_AssembleAndSignSuccess}},
 				Transitions: []Transition{
 					{
-						To:     State_Endorsement_Gathering,
-						Action: action_SendAssembleSuccessResponse,
+						To:      State_Endorsement_Gathering,
+						Actions: []ActionRule{{Action: action_SendAssembleSuccessResponse}},
 					},
 				},
 			},
@@ -177,8 +177,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_AssembleRevert}},
 				Transitions: []Transition{
 					{
-						To:     State_Reverted,
-						Action: action_SendAssembleRevertResponse,
+						To:      State_Reverted,
+						Actions: []ActionRule{{Action: action_SendAssembleRevertResponse}},
 					},
 				},
 			},
@@ -186,8 +186,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_AssemblePark}},
 				Transitions: []Transition{
 					{
-						To:     State_Parked,
-						Action: action_SendAssembleParkResponse,
+						To:      State_Parked,
+						Actions: []ActionRule{{Action: action_SendAssembleParkResponse}},
 					},
 				},
 			},
@@ -255,8 +255,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions:   []ActionRule{{Action: action_PreDispatchRequestReceived}},
 				Transitions: []Transition{
 					{
-						To:     State_Prepared,
-						Action: action_SendPreDispatchResponse,
+						To:      State_Prepared,
+						Actions: []ActionRule{{Action: action_SendPreDispatchResponse}},
 					},
 				},
 			},
@@ -489,7 +489,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirmed: {
-		OnTransitionTo: action_QueueFinalizeEvent,
+		OnTransitionTo: []ActionRule{{Action: action_QueueFinalizeEvent}},
 		Events: map[EventType]EventHandler{
 			Event_Finalize: {
 				Transitions: []Transition{{
@@ -499,7 +499,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		OnTransitionTo: action_QueueFinalizeEvent,
+		OnTransitionTo: []ActionRule{{Action: action_QueueFinalizeEvent}},
 		Events: map[EventType]EventHandler{
 			Event_Finalize: {
 				Transitions: []Transition{{

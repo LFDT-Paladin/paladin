@@ -229,21 +229,25 @@ func TestActionsOnTransition(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
-							actionCalled = true
-							e.lastAction = "transition_action"
-							return nil
-						},
+						Actions: []ActionRule[*TestEntity]{{
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+								actionCalled = true
+								e.lastAction = "transition_action"
+								return nil
+							},
+						}},
 					}},
 				},
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
-				entryActionCalled = true
-				e.lastAction = "entry_action"
-				return nil
-			},
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					entryActionCalled = true
+					e.lastAction = "entry_action"
+					return nil
+				},
+			}},
 		},
 	}
 
@@ -257,6 +261,174 @@ func TestActionsOnTransition(t *testing.T) {
 	assert.True(t, entryActionCalled, "entry action should be called")
 	// Entry action runs after transition action
 	assert.Equal(t, "entry_action", entity.lastAction)
+}
+
+func TestTransitionAndEntryActionRules_OrderAndGuards(t *testing.T) {
+	steps := make([]string, 0, 6)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+						Actions: []ActionRule[*TestEntity]{
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-1")
+									return nil
+								},
+							},
+							{
+								If: func(ctx context.Context, e *TestEntity) bool { return false },
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-skipped")
+									return nil
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-2")
+									return nil
+								},
+							},
+						},
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-1")
+						return nil
+					},
+				},
+				{
+					If: func(ctx context.Context, e *TestEntity) bool { return false },
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-skipped")
+						return nil
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-2")
+						return nil
+					},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"transition-1", "transition-2", "entry-1", "entry-2"}, steps)
+}
+
+func TestTransitionActionRules_ErrorStopsRemainingRules(t *testing.T) {
+	transitionErr := errors.New("transition action failed")
+	steps := make([]string, 0, 4)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+						Actions: []ActionRule[*TestEntity]{
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-1")
+									return nil
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-error")
+									return transitionErr
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-after-error")
+									return nil
+								},
+							},
+						},
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					steps = append(steps, "entry-should-not-run")
+					return nil
+				},
+			}},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	assert.Equal(t, transitionErr, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"transition-1", "transition-error"}, steps)
+}
+
+func TestEntryActionRules_ErrorStopsRemainingRules(t *testing.T) {
+	entryErr := errors.New("entry action failed")
+	steps := make([]string, 0, 4)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-1")
+						return nil
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-error")
+						return entryErr
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-after-error")
+						return nil
+					},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	assert.Equal(t, entryErr, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"entry-1", "entry-error"}, steps)
 }
 
 func TestEventHandlerActions(t *testing.T) {
@@ -667,9 +839,11 @@ func TestTransitionOnActionError(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
-							return transitionErr
-						},
+						Actions: []ActionRule[*TestEntity]{{
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+								return transitionErr
+							},
+						}},
 					}},
 				},
 			},
@@ -698,9 +872,11 @@ func TestStateEntryActionError(t *testing.T) {
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
-				return entryErr
-			},
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					return entryErr
+				},
+			}},
 		},
 	}
 
@@ -1483,6 +1659,44 @@ func TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull(t *test
 
 	// Queue remains full with the original event; cancelled enqueue was dropped.
 	assert.Len(t, sel.events, 1)
+}
+
+// TestStateMachineEventLoop_QueuePriorityEvent_ContextCancelledWhenBufferFull verifies QueuePriorityEvent
+// returns when context is cancelled while the priority queue buffer is full.
+func TestStateMachineEventLoop_QueuePriorityEvent_ContextCancelledWhenBufferFull(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		PriorityEventQueueSize: 1,
+		Name:                   "queue-priority-event-cancelled-full-buffer-test",
+	})
+
+	// Do not start the loop: fill the single-slot queue so the next QueuePriorityEvent would block.
+	require.True(t, sel.TryQueuePriorityEvent(context.Background(), newTestEvent(Event_Start)))
+	require.Len(t, sel.eventsPriority, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// this will never return if it is waiting to queue the event
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+
+	// Queue remains full with the original event; cancelled enqueue was dropped.
+	assert.Len(t, sel.eventsPriority, 1)
 }
 
 // TestStateMachineEventLoop_Cancel_WhenAlreadyStopped verifies cancel is idempotent.

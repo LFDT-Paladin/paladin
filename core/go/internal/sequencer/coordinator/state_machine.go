@@ -116,7 +116,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Idle: {
-		OnTransitionTo: action_Idle,
+		OnTransitionTo: []ActionRule{{Action: action_Idle}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -179,7 +179,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Elect: {
-		OnTransitionTo: action_SendHandoverRequest,
+		OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -212,7 +212,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Active: {
-		OnTransitionTo: action_SelectTransaction,
+		OnTransitionTo: []ActionRule{{Action: action_SelectTransaction}},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
@@ -305,8 +305,8 @@ func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQ
 		EventQueueSize:         eventQueueSize,
 		PriorityEventQueueSize: priorityEventQueueSize,
 		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
-		TransitionCallback: c.onStateTransition,
-		PreProcess:         c.preProcessEvent,
+		TransitionCallback:     c.onStateTransition,
+		PreProcess:             c.preProcessEvent,
 	})
 }
 

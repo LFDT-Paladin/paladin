@@ -151,7 +151,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Pooled: {
-		OnTransitionTo: action_onTransitionToPooled,
+		OnTransitionTo: []ActionRule{{Action: action_onTransitionToPooled}},
 		Events: map[EventType]EventHandler{
 			Event_Selected: {
 				Transitions: []Transition{
@@ -179,7 +179,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Assembling: {
-		OnTransitionTo: action_OnTransitionToAssembling,
+		OnTransitionTo: []ActionRule{{Action: action_OnTransitionToAssembling}},
 		Events: map[EventType]EventHandler{
 			Event_Assemble_Success: {
 				Validator: validator_MatchesPendingAssembleRequest,
@@ -194,9 +194,9 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 				Transitions: []Transition{
 					{
-						To:     State_Endorsement_Gathering,
-						Action: action_NotifyDependentsOfAssembled,
-						If:     statemachine.Not(guard_AttestationPlanFulfilled),
+						To:      State_Endorsement_Gathering,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfAssembled}},
+						If:      statemachine.Not(guard_AttestationPlanFulfilled),
 					},
 					{
 						To: State_Confirming_Dispatchable,
@@ -211,8 +211,8 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_StateTimeoutInterval: {
 				Transitions: []Transition{{
-					To:     State_Pooled,
-					Action: action_IncrementErrors,
+					To:      State_Pooled,
+					Actions: []ActionRule{{Action: action_IncrementErrors}},
 				}},
 			},
 			Event_Assemble_Revert_Response: {
@@ -228,8 +228,8 @@ var stateDefinitionsMap = StateDefinitions{
 			// from memory on the originator after cleanup. The coordinator should clean up this transaction.
 			Event_TransactionUnknownByOriginator: {
 				Transitions: []Transition{{
-					To:     State_Final,
-					Action: action_FinalizeAsUnknownByOriginator,
+					To:      State_Final,
+					Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
 				}},
 			},
 			// We handle a confirmed event in every state so that work can stop if we've been confirmed on the base ledger.
@@ -247,7 +247,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Endorsement_Gathering: {
-		OnTransitionTo: action_OnTransitionToEndorsementGathering,
+		OnTransitionTo: []ActionRule{{Action: action_OnTransitionToEndorsementGathering}},
 		Events: map[EventType]EventHandler{
 			Event_Endorsed: {
 				Actions: []ActionRule{
@@ -277,8 +277,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_EndorsedRejected}},
 				Transitions: []Transition{
 					{
-						To:     State_Pooled,
-						Action: action_IncrementErrors,
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_IncrementErrors}},
 					},
 				},
 			},
@@ -291,8 +291,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_StateTimeoutInterval: {
 				Transitions: []Transition{
 					{
-						To:     State_Pooled,
-						Action: action_IncrementErrors,
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_IncrementErrors}},
 					},
 				},
 			},
@@ -348,7 +348,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirming_Dispatchable: {
-		OnTransitionTo: action_OnTransitionToConfirmingDispatchable,
+		OnTransitionTo: []ActionRule{{Action: action_OnTransitionToConfirmingDispatchable}},
 		Events: map[EventType]EventHandler{
 			Event_DispatchRequestApproved: {
 				Validator: validator_MatchesPendingPreDispatchRequest,
@@ -362,8 +362,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
 				Transitions: []Transition{
 					{
-						To:     State_Pooled,
-						Action: action_IncrementErrors,
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_IncrementErrors}},
 					},
 				},
 			},
@@ -376,8 +376,8 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_StateTimeoutInterval: {
 				Transitions: []Transition{
 					{
-						To:     State_Pooled,
-						Action: action_DispatchRequestRejected,
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
 					},
 				},
 			},
@@ -401,7 +401,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Ready_For_Dispatch: {
-		OnTransitionTo: action_NotifyDependentsOfReadiness,
+		OnTransitionTo: []ActionRule{{Action: action_NotifyDependentsOfReadiness}},
 		Events: map[EventType]EventHandler{
 			Event_Dispatched: {
 				Transitions: []Transition{
@@ -448,7 +448,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 					{
 						If: guard_HasRevertReason,
-						To:     State_Pooled,
+						To: State_Pooled,
 					},
 				},
 			},
@@ -475,7 +475,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirmed: {
-		OnTransitionTo: action_NotifyDependantsOfConfirmation,
+		OnTransitionTo: []ActionRule{{Action: action_NotifyDependantsOfConfirmation}},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{

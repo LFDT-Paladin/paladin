@@ -245,19 +245,19 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 			verifier:        pldtypes.RandAddress().String(),
 			keyHandle:       originatorName + "_KeyHandle",
 		},
-		domainSigningIdentity:     "",
+		domainSigningIdentity:      "",
 		coordinatorSigningIdentity: "coordinator-signer",
-		dispatchConfirmed:         false,
-		signerAddress:             nil,
-		latestSubmissionHash:      nil,
-		state:                     state,
-		sentMessageRecorder:       NewSentMessageRecorder(),
-		fakeClock:                 &common.FakeClockForTesting{},
-		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
-		stateTimeout:              5000,
-		requestTimeout:            100,
-		syncPoints:                &syncpoints.MockSyncPoints{},
-		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
+		dispatchConfirmed:          false,
+		signerAddress:              nil,
+		latestSubmissionHash:       nil,
+		state:                      state,
+		sentMessageRecorder:        NewSentMessageRecorder(),
+		fakeClock:                  &common.FakeClockForTesting{},
+		fakeEngineIntegration:      &common.FakeEngineIntegrationForTesting{},
+		stateTimeout:               5000,
+		requestTimeout:             100,
+		syncPoints:                 &syncpoints.MockSyncPoints{},
+		privateTransactionBuilder:  testutil.NewPrivateTransactionBuilderForTesting(),
 	}
 
 	switch state {
@@ -438,11 +438,16 @@ func (b *TransactionBuilderForTesting) Build() *CoordinatorTransaction {
 	}
 
 	//enter the current state
-	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
-	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn, nil)
-		if err != nil {
-			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
+	onTransitionRules := stateDefinitionsMap[b.state].OnTransitionTo
+	for _, rule := range onTransitionRules {
+		if rule.If == nil || rule.If(ctx, b.txn) {
+			if rule.Action == nil {
+				continue
+			}
+			err := rule.Action(ctx, b.txn, nil)
+			if err != nil {
+				panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
+			}
 		}
 	}
 

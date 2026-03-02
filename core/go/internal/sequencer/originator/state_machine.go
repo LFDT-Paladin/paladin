@@ -68,9 +68,14 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{To: State_Observing}},
 			},
 			Event_TransactionCreated: {
-				Validator:   validator_TransactionDoesNotExist,
-				Actions:     []ActionRule{{Action: action_TransactionCreated}},
-				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
+				Validator: validator_TransactionDoesNotExist,
+				Actions:   []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{
+					To: State_Sending,
+					Actions: []ActionRule{{
+						Action: action_SendDelegationRequest,
+					}},
+				}},
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
@@ -86,9 +91,14 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
 			},
 			Event_TransactionCreated: {
-				Validator:   validator_TransactionDoesNotExist,
-				Actions:     []ActionRule{{Action: action_TransactionCreated}},
-				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
+				Validator: validator_TransactionDoesNotExist,
+				Actions:   []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{
+					To: State_Sending,
+					Actions: []ActionRule{{
+						Action: action_SendDelegationRequest,
+					}},
+				}},
 			},
 			Event_NewBlock:          {},
 			Event_HeartbeatReceived: {Actions: []ActionRule{{Action: action_HeartbeatReceived}}},
