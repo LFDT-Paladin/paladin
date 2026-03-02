@@ -317,6 +317,9 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			common.Event_TransactionStateTransition: {
+				// TODO: these actions probably shouldn't be necessary in Closing state
+				// but this is closely related to many of the other TODO questions in this
+				// state machine definition and they need to be addressed together
 				Actions: []ActionRule{
 					{
 						Validator: validator_TransactionStateTransitionToPooled,
