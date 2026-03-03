@@ -21,9 +21,7 @@ import (
 )
 
 func Test_clearTimeoutSchedules_BothNil(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.cancelRequestTimeoutSchedule = nil
-	txn.cancelStateTimeoutSchedule = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	// Should not panic
 	txn.clearTimeoutSchedules()
@@ -33,15 +31,16 @@ func Test_clearTimeoutSchedules_BothNil(t *testing.T) {
 }
 
 func Test_clearTimeoutSchedules_BothSet(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	called1 := false
 	called2 := false
-	txn.cancelRequestTimeoutSchedule = func() {
-		called1 = true
-	}
-	txn.cancelStateTimeoutSchedule = func() {
-		called2 = true
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		CancelRequestTimeoutSchedule(func() {
+			called1 = true
+		}).
+		CancelStateTimeoutSchedule(func() {
+			called2 = true
+		}).
+		Build()
 
 	txn.clearTimeoutSchedules()
 

@@ -51,7 +51,7 @@ func TestGetSnapshot_IncludesPooledTransaction(t *testing.T) {
 		transaction.State_Blocked,
 		transaction.State_Confirming_Dispatchable,
 	} {
-		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
+		txn, _ := transaction.NewTransactionBuilderForTesting(t, state).Build()
 		c.transactionsByID[txn.GetID()] = txn
 	}
 
@@ -71,7 +71,7 @@ func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
 		transaction.State_Ready_For_Dispatch,
 		transaction.State_Dispatched,
 	} {
-		txn := transaction.NewTransactionBuilderForTesting(t, state).Build()
+		txn, _ := transaction.NewTransactionBuilderForTesting(t, state).Build()
 		c.transactionsByID[txn.GetID()] = txn
 	}
 
@@ -87,7 +87,7 @@ func TestGetSnapshot_ExcludesRevertedTransaction(t *testing.T) {
 	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -103,7 +103,7 @@ func TestGetSnapshot_IncludesDispatchedDetailsState(t *testing.T) {
 	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -117,7 +117,7 @@ func TestGetSnapshot_IncludesConfirmedTransaction(t *testing.T) {
 	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -134,12 +134,12 @@ func TestGetSnapshot_DispatchedTransactionWithNilSignerAddress(t *testing.T) {
 
 	// Create a transaction builder and manually set signerAddress to nil after building
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txnBuilder.Build()
+	txn, _ := txnBuilder.Build()
 	// Access the signerAddress field directly - we're in the same package as Transaction
 	// Use reflection to set it to nil since it's a private field
 	// Actually, let's check if we can create a transaction without a signer address
 	// by using a state that doesn't set it
-	txn = transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txn, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	// The transaction should have nil signerAddress for Ready_For_Dispatch state
 	c.transactionsByID[txn.GetID()] = txn
 
@@ -158,7 +158,7 @@ func TestGetSnapshot_ConfirmedTransactionWithNilSignerAddress(t *testing.T) {
 
 	// Create a confirmed transaction - it may or may not have a signer address
 	// We'll test the case where it doesn't by using reflection or checking the actual behavior
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	// For State_Confirmed, the builder may set signerAddress, but we want to test nil case
 	// We'll use a transaction that naturally has nil signerAddress
 	c.transactionsByID[txn.GetID()] = txn
@@ -201,7 +201,9 @@ func TestGetSnapshot_DispatchedTransactionWithSignerAddress(t *testing.T) {
 	defer done()
 
 	// Use State_Dispatched which sets signerAddress, nonce, and latestSubmissionHash
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		Originator(originator).
+		Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -236,7 +238,7 @@ func TestGetSnapshot_ConfirmedTransactionWithRevertReason(t *testing.T) {
 
 	// Build a confirmed transaction - this tests the code path that reads GetRevertReason()
 	// The actual value doesn't matter for coverage, we just need to ensure the line is executed
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	snapshot := c.getSnapshot(ctx)
@@ -323,7 +325,7 @@ func Test_heartbeatLoop_StartsAndSendsInitialHeartbeat(t *testing.T) {
 	c, mocks, done := builder.Build(ctx)
 	defer done()
 	c.updateOriginatorNodePool("node2")
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
 
@@ -349,7 +351,7 @@ func Test_heartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 	defer done()
 	c.heartbeatInterval = 10 * time.Millisecond
 	c.updateOriginatorNodePool("node2")
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hbDone := make(chan struct{})
@@ -370,7 +372,7 @@ func Test_heartbeatLoop_ExitsWhenHeartbeatCtxIsCancelled(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hbDone := make(chan struct{})
@@ -397,7 +399,7 @@ func Test_heartbeatLoop_ExitsWhenParentCtxIsCancelled(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hbDone := make(chan struct{})
@@ -440,7 +442,7 @@ func Test_heartbeatLoop_CreatesNewContextOnStart(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Active)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	require.Nil(t, c.heartbeatCtx, "heartbeatCtx should be nil initially")
 	require.Nil(t, c.heartbeatCancel, "heartbeatCancel should be nil initially")
@@ -490,7 +492,7 @@ func Test_heartbeatLoop_CanBeRestartedAfterCancellation(t *testing.T) {
 	c, mocks, done := builder.Build(ctx)
 	defer done()
 	c.updateOriginatorNodePool("node2")
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	done1 := make(chan struct{})

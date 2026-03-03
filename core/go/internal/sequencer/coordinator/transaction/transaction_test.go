@@ -16,41 +16,46 @@ package transaction
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T) {
 	ctx := context.Background()
-	transaction, _ := newTransactionForUnitTesting(t, nil)
+	transaction, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 	assert.False(t, transaction.hasDependenciesNotReady(ctx))
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
-	grapher := NewGrapher(context.Background())
+	grapher := NewGrapher(t.Context())
 
-	transaction1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	transaction1 := transaction1Builder.Build()
+		NumberOfEndorsements(2).
+		Build()
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
+		AddPendingAssembleRequest().
 		InputStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID)
-	transaction2 := transaction2Builder.Build()
+
+	transaction2, transaction2Mocks := transaction2Builder.Build()
+
+	transaction2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -60,26 +65,27 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 		PreAssembly:  transaction2Builder.BuildPreAssembly(),
 		RequestID:    transaction2.pendingAssembleRequest.IdempotencyKey(),
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.True(t, transaction2.hasDependenciesNotReady(context.Background()))
-
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testing.T) {
 	grapher := NewGrapher(context.Background())
 
-	transaction1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	transaction1 := transaction1Builder.Build()
+		NumberOfEndorsements(2).
+		Build()
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
+		AddPendingAssembleRequest().
 		ReadStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID)
-	transaction2 := transaction2Builder.Build()
+	transaction2, transaction2Mocks := transaction2Builder.Build()
+
+	transaction2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -89,8 +95,7 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 		PreAssembly:  transaction2Builder.BuildPreAssembly(),
 		RequestID:    transaction2.pendingAssembleRequest.IdempotencyKey(),
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.True(t, transaction2.hasDependenciesNotReady(context.Background()))
 
 }
@@ -103,20 +108,28 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	transaction1 := transaction1Builder.Build()
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest(2).
+		AddPendingPreDispatchRequest()
+	transaction1, _ := transaction1Builder.Build()
 
 	transaction2Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	transaction2 := transaction2Builder.Build()
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest(2).
+		AddPendingPreDispatchRequest()
+
+	transaction2, _ := transaction2Builder.Build()
 
 	transaction3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
+		AddPendingAssembleRequest().
 		InputStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID, transaction2.pt.PostAssembly.OutputStates[0].ID)
-	transaction3 := transaction3Builder.Build()
+	transaction3, transaction3Mocks := transaction3Builder.Build()
+
+	transaction3Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := transaction3.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -126,7 +139,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		PreAssembly:  transaction3Builder.BuildPreAssembly(),
 		RequestID:    transaction3.pendingAssembleRequest.IdempotencyKey(),
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
@@ -135,9 +148,9 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	//move both dependencies forward
 	err = transaction1.HandleEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	err = transaction2.HandleEvent(ctx, transaction2Builder.BuildEndorsedEvent(2))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
 	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.CurrentState)
@@ -151,7 +164,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		},
 		RequestID: transaction1.pendingPreDispatchRequest.IdempotencyKey(),
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
@@ -165,7 +178,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		},
 		RequestID: transaction2.pendingPreDispatchRequest.IdempotencyKey(),
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
@@ -175,96 +188,44 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 }
 
 func TestTransaction_HasDependenciesNotReady_FalseIfHasNoDependencies(t *testing.T) {
-
-	transaction1 := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Build()
 
 	assert.False(t, transaction1.hasDependenciesNotReady(context.Background()))
-
 }
 
 func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
-	transaction, _ := newTransactionForUnitTesting(t, grapher)
+	transaction, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
 
 	txn := grapher.TransactionByID(ctx, transaction.pt.ID)
-
 	assert.NotNil(t, txn)
-}
-
-type transactionDependencyMocks struct {
-	transportWriter   *transport.MockTransportWriter
-	clock             *common.FakeClockForTesting
-	engineIntegration *common.MockEngineIntegration
-	syncPoints        syncpoints.SyncPoints
-}
-
-func newTransactionForUnitTesting(t *testing.T, grapher Grapher) (*CoordinatorTransaction, *transactionDependencyMocks) {
-	if grapher == nil {
-		grapher = NewGrapher(context.Background())
-	}
-	mocks := &transactionDependencyMocks{
-		transportWriter:   transport.NewMockTransportWriter(t),
-		clock:             &common.FakeClockForTesting{},
-		engineIntegration: common.NewMockEngineIntegration(t),
-		syncPoints:        &syncpoints.MockSyncPoints{},
-	}
-	txn, err := NewTransaction(
-		context.Background(),
-		fmt.Sprintf("%s@%s", uuid.NewString(), uuid.NewString()),
-		&components.PrivateTransaction{
-			ID: uuid.New(),
-		},
-		false,
-		"coordinator-signer",
-		mocks.transportWriter,
-		mocks.clock,
-		func(ctx context.Context, event common.Event) {
-			// No-op event handler for tests
-		},
-		mocks.engineIntegration,
-		mocks.syncPoints,
-		mocks.clock.Duration(1000),
-		mocks.clock.Duration(5000),
-		5,
-		0,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		grapher,
-		nil,
-	)
-	require.NoError(t, err)
-
-	return txn, mocks
-
 }
 
 func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	transportWriter := transport.NewMockTransportWriter(t)
 	clock := &common.FakeClockForTesting{}
-	engineIntegration := common.NewMockEngineIntegration(t)
-	syncPoints := &syncpoints.MockSyncPoints{}
 
 	_, err := NewTransaction(
 		ctx,
 		"", // invalid: empty originator
+		"node1",
 		&components.PrivateTransaction{ID: uuid.New()},
-		false,
 		"coordinator-signer",
-		transportWriter,
+		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
-		engineIntegration,
-		syncPoints,
+		common.NewMockEngineIntegration(t),
+		&syncpoints.MockSyncPoints{},
+		componentsmocks.NewAllComponents(t),
+		componentsmocks.NewDomainSmartContract(t),
+		nil,
 		clock.Duration(1000),
 		clock.Duration(5000),
 		5,
 		0,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		NewGrapher(ctx),
 		nil,
 	)
@@ -272,113 +233,103 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 }
 
 func TestTransaction_GetSignerAddress_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	addr := pldtypes.RandAddress()
-	txn.signerAddress = addr
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).SignerAddress(addr).Build()
 
 	assert.Equal(t, addr, txn.GetSignerAddress())
 }
 
 func TestTransaction_GetNonce_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	nonce := uint64(42)
-	txn.nonce = &nonce
 
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Nonce(&nonce).Build()
 	assert.Equal(t, &nonce, txn.GetNonce())
 }
 
 func TestTransaction_GetLatestSubmissionHash_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txn.latestSubmissionHash = &hash
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).SubmissionHash(hash).Build()
 
 	assert.Equal(t, &hash, txn.GetLatestSubmissionHash())
 }
 
 func TestTransaction_GetRevertReason_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	reason := pldtypes.MustParseHexBytes("0x1234")
-	txn.revertReason = reason
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).RevertReason(reason).Build()
 
 	assert.Equal(t, reason, txn.GetRevertReason())
 }
 
 func TestTransaction_Originator_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.originator = "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Originator("sender@node1").Build()
 
 	assert.Equal(t, "sender@node1", txn.Originator())
 }
 
 func TestTransaction_GetErrorCount_ReturnsSetValue(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.errorCount = 3
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).ErrorCount(3).Build()
 
 	assert.Equal(t, 3, txn.GetErrorCount())
 }
 
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	id := txn.pt.ID
+	id := uuid.New()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).TransactionID(id).Build()
 
 	assert.Equal(t, id, txn.GetID())
 }
 
 func TestTransaction_GetDomain_ReturnsPrivateTransactionDomain(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.Domain = "test-domain"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Domain("test-domain").Build()
 
 	assert.Equal(t, "test-domain", txn.GetDomain())
 }
 
 func TestTransaction_GetCurrentState_ReturnsState(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
 }
 
 func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 	pt := txn.pt
 
 	assert.Same(t, pt, txn.GetPrivateTransaction())
 }
 
 func TestTransaction_GetContractAddress_ReturnsAddress(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	addr := *pldtypes.RandAddress()
-	txn.pt.Address = addr
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Address(addr).Build()
 
 	assert.Equal(t, addr, txn.GetContractAddress())
 }
 
 func TestTransaction_GetTransactionSpecification_ReturnsPreAssemblySpec(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	spec := &prototk.TransactionSpecification{}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{TransactionSpecification: spec}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		PreAssembly(&components.TransactionPreAssembly{TransactionSpecification: spec}).
+		Build()
 
 	assert.Same(t, spec, txn.GetTransactionSpecification())
 }
 
 func TestTransaction_GetOriginalSender_ReturnsFrom(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{
-		TransactionSpecification: &prototk.TransactionSpecification{From: "0xSender"},
-	}
-
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		PreAssembly(&components.TransactionPreAssembly{TransactionSpecification: &prototk.TransactionSpecification{From: "0xSender"}}).
+		Build()
 	assert.Equal(t, "0xSender", txn.GetOriginalSender())
 }
 
 func TestTransaction_GetOutputStateIDs_ReturnsOutputStateIDs(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	id1 := pldtypes.HexBytes("0x01")
 	id2 := pldtypes.HexBytes("0x02")
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		OutputStates: []*components.FullState{
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		PostAssembly(&components.TransactionPostAssembly{OutputStates: []*components.FullState{
 			{ID: id1},
 			{ID: id2},
-		},
-	}
+		}}).
+		Build()
 
 	ids := txn.GetOutputStateIDs()
 	require.Len(t, ids, 2)
@@ -387,44 +338,32 @@ func TestTransaction_GetOutputStateIDs_ReturnsOutputStateIDs(t *testing.T) {
 }
 
 func TestTransaction_HasPreparedPrivateTransaction_TrueWhenSet(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreparedPrivateTransaction = &pldapi.TransactionInput{}
-
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		Build()
 	assert.True(t, txn.HasPreparedPrivateTransaction())
 }
 
 func TestTransaction_HasPreparedPrivateTransaction_FalseWhenNil(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreparedPrivateTransaction = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.False(t, txn.HasPreparedPrivateTransaction())
 }
 
 func TestTransaction_HasPreparedPublicTransaction_TrueWhenSet(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreparedPublicTransaction = &pldapi.TransactionInput{}
-
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		PreparedPublicTransaction(&pldapi.TransactionInput{}).
+		Build()
 	assert.True(t, txn.HasPreparedPublicTransaction())
 }
 
 func TestTransaction_HasPreparedPublicTransaction_FalseWhenNil(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreparedPublicTransaction = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.False(t, txn.HasPreparedPublicTransaction())
 }
 
 func TestTransaction_GetSigner_ReturnsSigner(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.Signer = "signer-identity"
-
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Signer("signer-identity").Build()
 	assert.Equal(t, "signer-identity", txn.GetSigner())
 }
-
-//TODO add unit test for the guards and various different combinations of dependency not ready scenarios ( e.g. pre-assemble dependencies vs post-assemble dependencies) and for those dependencies being in various different states ( the state machine test only test for "not assembled" or "not ready" but each of these "not" states actually correspond to several possible finite states.)
-
-//TODO add unit tests to assert that if a dependency arrives after its dependent, then the dependency is correctly updated with a reference to the dependent so that we can notify the dependent when the dependency state changes ( e.g. is dispatched, is assembled)
-// . - or think about whether this should this be a state machine test?
-
-//TODO add unit test for notification function being called
-// - it should be able to cause a sequencer abend if it hits an error

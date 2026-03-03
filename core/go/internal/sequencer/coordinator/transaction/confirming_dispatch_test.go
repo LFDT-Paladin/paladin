@@ -16,16 +16,9 @@ package transaction
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -34,22 +27,17 @@ import (
 
 func Test_action_NudgePreDispatchRequest_NilPendingRequest_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingPreDispatchRequest = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 
 	err := action_NudgePreDispatchRequest(ctx, txn, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nudgePreDispatchRequest called with no pending request")
+	require.ErrorContains(t, err, "nudgePreDispatchRequest called with no pending request")
 }
 
 func Test_action_NudgePreDispatchRequest_WithPendingRequest_Success(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set up a real IdempotentRequest so Nudge can be called
-	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
 
 	err := action_NudgePreDispatchRequest(ctx, txn, nil)
 	require.NoError(t, err)
@@ -57,13 +45,10 @@ func Test_action_NudgePreDispatchRequest_WithPendingRequest_Success(t *testing.T
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Match(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	requestID := uuid.New()
-	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
-	// IdempotentRequest generates its own key; we need to match it
-	requestID = txn.pendingPreDispatchRequest.IdempotencyKey()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
+	requestID := txn.pendingPreDispatchRequest.IdempotencyKey()
 
 	event := &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -77,10 +62,9 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Mat
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NoMatch_WrongRequestID(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
 
 	event := &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -94,8 +78,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NoM
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NilPendingRequest(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingPreDispatchRequest = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 
 	event := &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -107,12 +90,58 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Nil
 	assert.False(t, matched)
 }
 
+func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestRejected_Match(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
+	requestID := txn.pendingPreDispatchRequest.IdempotencyKey()
+
+	event := &DispatchRequestRejectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            requestID,
+	}
+
+	matched, err := validator_MatchesPendingPreDispatchRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.True(t, matched)
+}
+
+func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestRejected_NoMatch_WrongRequestID(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
+
+	event := &DispatchRequestRejectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(), // different from pending request
+	}
+
+	matched, err := validator_MatchesPendingPreDispatchRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, matched)
+}
+
+func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestRejected_NilPendingRequest(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
+
+	event := &DispatchRequestRejectedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(),
+	}
+
+	matched, err := validator_MatchesPendingPreDispatchRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, matched)
+}
+
 func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest().
+		Build()
 
 	// Pass a different event type (e.g. ConfirmedEvent)
 	event := &ConfirmedEvent{
@@ -126,25 +155,33 @@ func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse
 
 func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
-	txn.cancelRequestTimeoutSchedule = func() {}
-	txn.cancelStateTimeoutSchedule = func() {}
+	var cancelRequest, cancelStateTimeout bool
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequestWithCallback(func(context.Context, uuid.UUID) error { return nil }).
+		CancelRequestTimeoutSchedule(func() {
+			cancelRequest = true
+		}).
+		CancelStateTimeoutSchedule(func() {
+			cancelStateTimeout = true
+		}).
+		Build()
 
 	err := action_DispatchRequestRejected(ctx, txn, nil)
 	require.NoError(t, err)
 	assert.Nil(t, txn.pendingPreDispatchRequest)
 	assert.Nil(t, txn.cancelRequestTimeoutSchedule)
 	assert.Nil(t, txn.cancelStateTimeoutSchedule)
+	assert.True(t, cancelRequest)
+	assert.True(t, cancelStateTimeout)
 }
 
 func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest(t *testing.T) {
 	ctx := context.Background()
-	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable)
-	txn, mocks := builder.BuildWithMocks()
+	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequest()
+	txn, mocks := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 
 	mocks.Clock.Advance(builder.GetStateTimeout() + 1)
 	err := txn.HandleEvent(ctx, &StateTimeoutIntervalEvent{
@@ -159,7 +196,7 @@ func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest
 
 func Test_hash_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 	txn.pt = nil
 
 	hash, err := txn.hash(ctx)
@@ -171,64 +208,27 @@ func Test_hash_NilPrivateTransaction_ReturnsError(t *testing.T) {
 
 func Test_sendPreDispatchRequest_RequestTimeoutSchedulesTimer_QueueEventCalled(t *testing.T) {
 	ctx := context.Background()
-	realClock := common.RealClock()
-	grapher := NewGrapher(ctx)
-	mockTransportWriter := transport.NewMockTransportWriter(t)
-	mockEngineIntegration := common.NewMockEngineIntegration(t)
-	mockSyncPoints := &syncpoints.MockSyncPoints{}
+	timeoutEventReceived := false
 
-	txn, err := NewTransaction(
-		ctx,
-		fmt.Sprintf("%s@%s", uuid.NewString(), uuid.NewString()),
-		&components.PrivateTransaction{
-			ID:     uuid.New(),
-			Domain: "test-domain",
-			PreAssembly: &components.TransactionPreAssembly{
-				TransactionSpecification: &prototk.TransactionSpecification{},
-			},
-			PostAssembly: &components.TransactionPostAssembly{
-				Signatures: []*prototk.AttestationResult{},
-			},
-		},
-		false,
-		"coordinator-signer",
-		mockTransportWriter,
-		realClock,
-		func(ctx context.Context, event common.Event) {},
-		mockEngineIntegration,
-		mockSyncPoints,
-		realClock.Duration(1), // Very short request timeout so timer fires quickly
-		realClock.Duration(5000),
-		5,
-		0,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		grapher,
-		nil,
-	)
-	require.NoError(t, err)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		UseMockTransportWriter().
+		QueueEventForCoordinator(func(ctx context.Context, event common.Event) {
+			if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
+				timeoutEventReceived = true
+			}
+		}).
+		RequestTimeout(1).
+		Build()
 
-	mockTransportWriter.EXPECT().SendPreDispatchRequest(
+	mocks.TransportWriter.EXPECT().SendPreDispatchRequest(
 		ctx, txn.originatorNode, mock.Anything, txn.pt.PreAssembly.TransactionSpecification, mock.Anything,
 	).Return(nil)
 
-	timeoutEventReceived := false
-	var mu sync.Mutex
-	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
-		if ev, ok := event.(*RequestTimeoutIntervalEvent); ok && ev.TransactionID == txn.pt.ID {
-			mu.Lock()
-			timeoutEventReceived = true
-			mu.Unlock()
-		}
-	}
-
-	err = txn.sendPreDispatchRequest(ctx)
+	err := txn.sendPreDispatchRequest(ctx)
 	require.NoError(t, err)
 
 	// Wait for the request timeout timer to fire (scheduled with 1ms duration)
-	time.Sleep(10 * time.Millisecond)
+	mocks.Clock.Advance(1)
 
-	mu.Lock()
 	assert.True(t, timeoutEventReceived, "queueEventForCoordinator should have been called with RequestTimeoutIntervalEvent")
-	mu.Unlock()
 }

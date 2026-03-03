@@ -133,6 +133,14 @@ func (t *CoordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	return nil
 }
 
+func action_AllocateSigningIdentity(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+	// Make sure we have a signer identity allocated if no endorsement constraint has defined one
+	if txn.pt.Signer == "" {
+		txn.allocateSigningIdentity(ctx)
+	}
+	return nil
+}
+
 func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
 	// Use the coordinator signing identity unless Paladin config asserts something specific to use
 	if t.domainSigningIdentity != "" {
@@ -146,47 +154,5 @@ func (t *CoordinatorTransaction) allocateSigningIdentity(ctx context.Context) {
 }
 
 func action_NotifyDependentsOfReadiness(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	// Make sure we have a signer identity allocated if no endorsement constraint has defined one
-	if txn.pt.Signer == "" {
-		txn.allocateSigningIdentity(ctx)
-	}
-
 	return txn.notifyDependentsOfReadiness(ctx)
-}
-
-// Function HasDependenciesNotIn checks if the transaction has any that are not in the provided ignoreList array.
-func (t *CoordinatorTransaction) hasDependenciesNotIn(ctx context.Context, ignoreList []*CoordinatorTransaction) bool {
-
-	var ignore = func(t *CoordinatorTransaction) bool {
-		for _, ignoreTxn := range ignoreList {
-			if ignoreTxn.pt.ID == t.pt.ID {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Dependencies calculated at the time of assembly based on the state(s) being spent
-	dependencies := t.dependencies
-
-	//augment with the dependencies explicitly declared in the pre-assembly
-
-	if t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies.DependsOn = append(dependencies.DependsOn, t.pt.PreAssembly.Dependencies.DependsOn...)
-	}
-
-	for _, dependencyID := range dependencies.DependsOn {
-		dependency := t.grapher.TransactionByID(ctx, dependencyID)
-		if dependency == nil {
-			//assume the dependency has been confirmed and no longer in memory
-			//hasUnknownDependencies guard will be used to explicitly ensure the correct thing happens
-			continue
-		}
-
-		if !ignore(dependency) {
-			return true
-		}
-	}
-
-	return false
 }

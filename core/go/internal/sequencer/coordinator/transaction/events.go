@@ -158,6 +158,7 @@ func (*DispatchRequestApprovedEvent) TypeString() string {
 // DispatchRequestRejectedEvent
 type DispatchRequestRejectedEvent struct {
 	BaseCoordinatorEvent
+	RequestID uuid.UUID
 }
 
 func (*DispatchRequestRejectedEvent) Type() EventType {

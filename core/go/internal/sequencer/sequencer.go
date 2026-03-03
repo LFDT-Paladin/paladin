@@ -350,6 +350,18 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 	return deployError
 }
 
+// HandleNewTransactions creates all validated transactions under a single database transaction.
+func (sMgr *sequencerManager) HandleNewTransactions(ctx context.Context, txis []*components.ValidatedTransaction) error {
+	return sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
+		for _, txi := range txis {
+			if err := sMgr.HandleNewTx(ctx, dbTx, txi); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Handling a new transaction. We don't need to persist anything under the DBTX but we do need to ensure the DBTX
 // has committed before passing any events to the sequencer to process the tranasction.
 func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
@@ -914,7 +926,7 @@ func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Co
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
-	return common.NewStateDistributionBuilder(sMgr.components, tx).Build(ctx)
+	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }
 
 func mapPreparedTransaction(tx *components.PrivateTransaction) *components.PreparedTransactionWithRefs {

@@ -99,6 +99,7 @@ func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) e
 	// dependencies from a previous version of the grapher.
 	t.pt.PostAssembly = nil
 	t.dependencies = &pldapi.TransactionDependencies{}
+	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)

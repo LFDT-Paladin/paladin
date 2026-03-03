@@ -19,11 +19,10 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,17 +31,19 @@ func Test_action_onTransitionToPooled_Success(t *testing.T) {
 	grapher := NewGrapher(ctx)
 
 	// Create the dependency transaction first and add it to grapher
-	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher)
-	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.pt.ID
+	dependencyID := uuid.New()
+	dependencyTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		TransactionID(dependencyID).
+		Build()
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(dependencyID)
-	txn := txnBuilder.Build()
+		PredefinedDependencies(dependencyID).
+		Build()
 
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 	// Verify PreAssembly exists
 	require.NotNil(t, txn.pt.PreAssembly)
 	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
@@ -60,7 +61,7 @@ func Test_action_onTransitionToPooled_Success(t *testing.T) {
 
 func Test_action_onTransitionToPooled_NoPreAssembly(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	// Remove PreAssembly to test error case
 	txn.pt.PreAssembly = nil
@@ -72,15 +73,14 @@ func Test_action_onTransitionToPooled_NoPreAssembly(t *testing.T) {
 
 func Test_action_onTransitionToPooled_MissingDependency(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
 
 	// Create a transaction with a dependency that doesn't exist in grapher
 	unknownDependencyID := uuid.New()
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher).
-		PredefinedDependencies(unknownDependencyID)
-	txn := txnBuilder.Build()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		PredefinedDependencies(unknownDependencyID).
+		Build()
 
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 	// Call action_onTransitionToPooled - should not error, just log
 	err := action_onTransitionToPooled(ctx, txn, nil)
 	require.NoError(t, err)
@@ -92,19 +92,22 @@ func Test_action_onTransitionToPooled_DependencyWithNilDependencies(t *testing.T
 
 	// Create the dependency transaction first and add it to grapher
 	// Make sure it has PreAssembly but PreAssembly.Dependencies is nil
-	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher)
-	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.pt.ID
+	dependencyID := uuid.New()
+	dependencyTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		TransactionID(dependencyID).
+		Build()
 
 	// Explicitly set PreAssembly.Dependencies to nil to test the nil check path
 	dependencyTxn.pt.PreAssembly.Dependencies = nil
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
-	txnBuilder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(dependencyID)
-	txn := txnBuilder.Build()
+		PredefinedDependencies(dependencyID).
+		Build()
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 
 	// Verify PreAssembly exists
 	require.NotNil(t, txn.pt.PreAssembly)
@@ -129,62 +132,59 @@ func Test_guard_HasUnassembledDependencies(t *testing.T) {
 	grapher := NewGrapher(ctx)
 
 	// Test 1: No dependencies - should return false
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	// Ensure PreAssembly exists (it should be set by newTransactionForUnitTesting)
-	if txn1.pt.PreAssembly == nil {
-		txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
-	}
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		Build()
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn1))
 
 	// Test 2: Has unassembled dependency in PreAssembly
-	dependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher)
-	dependencyTxn := dependencyBuilder.Build()
-	dependencyID := dependencyTxn.pt.ID
-
-	txn2Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	dependencyID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Assembling).
+		TransactionID(dependencyID).
 		Grapher(grapher).
-		PredefinedDependencies(dependencyID)
-	txn2 := txn2Builder.Build()
+		Build()
 
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(dependencyID).
+		Build()
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn2))
 
 	// Test 3: Has assembled dependency in PreAssembly
-	dependency3Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher)
-	dependency3Txn := dependency3Builder.Build()
-	dependency3ID := dependency3Txn.pt.ID
-
-	txn3Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	dependency3ID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		TransactionID(dependency3ID).
 		Grapher(grapher).
-		PredefinedDependencies(dependency3ID)
-	txn3 := txn3Builder.Build()
+		Build()
 
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(dependency3ID).
+		Build()
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn3))
 
 	// Test 4: Has missing dependency in PreAssembly (dependency not in grapher)
 	missingDependencyID := uuid.New()
-	txn4Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn4, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(missingDependencyID)
-	txn4 := txn4Builder.Build()
-
+		PredefinedDependencies(missingDependencyID).
+		Build()
 	// The missing dependency should not cause hasDependenciesNotAssembled to return true
 	// because the code assumes it's been confirmed and continues to the next dependency
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn4))
 
 	// Test 5: Has both missing and unassembled dependencies in PreAssembly
-	unassembledDependencyBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher)
-	unassembledDependencyTxn := unassembledDependencyBuilder.Build()
-	unassembledDependencyID := unassembledDependencyTxn.pt.ID
+	unassembledDependencyID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Assembling).
+		TransactionID(unassembledDependencyID).
+		Grapher(grapher).
+		Build()
 
 	// Create transaction with both missing and unassembled dependencies
-	txn5Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn5, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(missingDependencyID, unassembledDependencyID)
-	txn5 := txn5Builder.Build()
-
+		PredefinedDependencies(missingDependencyID, unassembledDependencyID).
+		Build()
 	// Should return true because one dependency is unassembled (missing one is skipped)
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn5))
 }
@@ -194,56 +194,59 @@ func Test_guard_HasUnknownDependencies(t *testing.T) {
 	grapher := NewGrapher(ctx)
 
 	// Test 1: No dependencies - should return false
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		Build()
 	assert.False(t, guard_HasUnknownDependencies(ctx, txn1))
 
 	// Test 2: Has unknown dependency in PreAssembly
 	unknownDependencyID := uuid.New()
-	txn2Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(unknownDependencyID)
-	txn2 := txn2Builder.Build()
-
+		PredefinedDependencies(unknownDependencyID).
+		Build()
 	assert.True(t, guard_HasUnknownDependencies(ctx, txn2))
 
 	// Test 3: Has known dependency in PreAssembly
-	knownDependencyBuilder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher)
-	knownDependencyTxn := knownDependencyBuilder.Build()
-	knownDependencyID := knownDependencyTxn.pt.ID
-
-	txn3Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	knownDependencyID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
+		TransactionID(knownDependencyID).
 		Grapher(grapher).
-		PredefinedDependencies(knownDependencyID)
-	txn3 := txn3Builder.Build()
+		Build()
 
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(knownDependencyID).
+		Build()
 	assert.False(t, guard_HasUnknownDependencies(ctx, txn3))
 
 	// Test 4: Has unknown dependency in dependencies field
-	txn4, _ := newTransactionForUnitTesting(t, grapher)
 	unknownID := uuid.New()
-	txn4.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{unknownID},
-	}
+	txn4, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{unknownID},
+		}).
+		Build()
 
 	assert.True(t, guard_HasUnknownDependencies(ctx, txn4))
 
 	// Test 5: Has both PreAssembly and dependencies field with mixed known/unknown
 	knownID1 := uuid.New()
-	knownTxn1Builder := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher)
-	knownTxn1 := knownTxn1Builder.Build()
-	knownID1 = knownTxn1.pt.ID
+	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
+		TransactionID(knownID1).
+		Grapher(grapher).
+		Build()
 
 	unknownID2 := uuid.New()
 
-	txn5Builder := NewTransactionBuilderForTesting(t, State_Initial).
+	txn5, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(unknownID2)
-	txn5 := txn5Builder.Build()
-	txn5.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{knownID1},
-	}
+		PredefinedDependencies(unknownID2).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{knownID1},
+		}).
+		Build()
 
 	// Should return true because one dependency is unknown
 	assert.True(t, guard_HasUnknownDependencies(ctx, txn5))
@@ -254,117 +257,121 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	grapher := NewGrapher(ctx)
 
 	// Test 1: No dependencies - should return false
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		Build()
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
 
 	// Test 2: Has dependency not ready
-	dep1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	dep1 := dep1Builder.Build()
+		NumberOfEndorsements(2).
+		Build()
 
 	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		InputStateIDs(dep1.pt.PostAssembly.OutputStates[0].ID)
-	txn2 := txn2Builder.Build()
+		AddPendingAssembleRequest().
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{dep2.pt.ID},
+		}).
+		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+	txn2, txn2Mocks := txn2Builder.Build()
 
-	err := txn2.HandleEvent(ctx, &AssembleSuccessEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn2.pt.ID,
-		},
-		PostAssembly: txn2Builder.BuildPostAssembly(),
-		PreAssembly:  txn2Builder.BuildPreAssembly(),
-		RequestID:    txn2.pendingAssembleRequest.IdempotencyKey(),
-	})
+	txn2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
-
 	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
 
 	// Test 3: Has dependency ready for dispatch
-	dep3Builder := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+	dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(3)
-	dep3 := dep3Builder.Build()
+		NumberOfEndorsements(3).
+		Build()
 
 	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
+		AddPendingAssembleRequest().
 		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
-	txn3 := txn3Builder.Build()
+	txn3, txn3Mocks := txn3Builder.Build()
 
-	err = txn3.HandleEvent(ctx, &AssembleSuccessEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn3.pt.ID,
-		},
-		PostAssembly: txn3Builder.BuildPostAssembly(),
-		PreAssembly:  txn3Builder.BuildPreAssembly(),
-		RequestID:    txn3.pendingAssembleRequest.IdempotencyKey(),
-	})
+	txn3Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err = txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
-
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
 func Test_guard_HasChainedTxInProgress(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
 
 	// Test 1: Initially false (hasChainedTransaction=false passed to NewTransaction via test utils)
-	assert.False(t, guard_HasChainedTxInProgress(ctx, txn))
-	assert.False(t, txn.chainedTxAlreadyDispatched)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	assert.False(t, guard_HasChainedTxInProgress(ctx, txn1))
 
 	// Test 2: When chainedTxAlreadyDispatched is true
-	txn.chainedTxAlreadyDispatched = true
-	assert.True(t, guard_HasChainedTxInProgress(ctx, txn))
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ChainedTxAlreadyDispatched(true).
+		Build()
+	assert.True(t, guard_HasChainedTxInProgress(ctx, txn2))
 }
 
 func Test_action_onTransitionToPooled_WithDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
-	// Create the main transaction
-	mainTxn, mainMocks := newTransactionForUnitTesting(t, grapher)
-	mainTxn.initializeStateMachine(State_Initial)
-	mainTxn.pt.PreAssembly = &components.TransactionPreAssembly{}
-	mainMocks.engineIntegration.EXPECT().ResetTransactions(ctx, mainTxn.pt.ID).Return()
-
 	// Create a dependent transaction
-	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher)
-	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.pt.ID
+	dependentID := uuid.New()
+	dependentTxn, dependentMocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		TransactionID(dependentID).
+		Grapher(grapher).
+		Build()
+	dependentMocks.EngineIntegration.EXPECT().ResetTransactions(ctx, dependentID).Return()
 
-	// Set up the main transaction to have the dependent as a PrereqOf
-	mainTxn.dependencies.PrereqOf = []uuid.UUID{dependentID}
+	// Create the main transaction
+	mainTxnID := uuid.New()
+	mainTxn, mainMocks := NewTransactionBuilderForTesting(t, State_Pooled).
+		TransactionID(mainTxnID).
+		Grapher(grapher).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
+		Build()
+
+	mainMocks.EngineIntegration.EXPECT().ResetTransactions(ctx, mainTxnID).Return()
 
 	// Call action_onTransitionToPooled - should re-pool dependents
 	err := action_onTransitionToPooled(ctx, mainTxn, nil)
 	require.NoError(t, err)
 
 	// Verify the dependent transaction received the event
-	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.CurrentState)
+	assert.Equal(t, State_Pooled, dependentTxn.GetCurrentState())
 }
 
 func Test_action_onTransitionToPooled_InitialTransitionHasNoDependents(t *testing.T) {
 	ctx := context.Background()
-	txn, txnMocks := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-	txnMocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
-	require.Empty(t, txn.dependencies.PrereqOf)
+	txn, txnMocks := NewTransactionBuilderForTesting(t, State_Pooled).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
+	txnMocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+
 	err := action_onTransitionToPooled(ctx, txn, nil)
 	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
 
 	err := txn.notifyDependentsOfRepool(ctx)
 	assert.NoError(t, err)
@@ -373,53 +380,57 @@ func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
 func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	dependentID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Assembling).
+		TransactionID(dependentID).
+		Grapher(grapher).
+		Build()
 
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txn2.pt.ID},
-		},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
 
-	err := txn1.notifyDependentsOfRepool(ctx)
+	err := txn.notifyDependentsOfRepool(ctx)
 	assert.NoError(t, err)
 }
 
 func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
 	missingID := uuid.New()
 
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{missingID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{missingID},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
 
-	err := txn1.notifyDependentsOfRepool(ctx)
+	err := txn.notifyDependentsOfRepool(ctx)
 	assert.NoError(t, err)
 }
 
 func Test_notifyDependentsOfRepool_WithDependent_HandleEventError(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
 
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
-	txn1.pt.PreAssembly = &components.TransactionPreAssembly{}
+	tx2ID := uuid.New()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		TransactionID(tx2ID).
+		Build()
 
-	if txn2.metrics == nil {
-		txn2.metrics = metrics.InitMetrics(ctx, prometheus.NewRegistry())
-	}
-
-	txn2.stateMachine.CurrentState = State_Blocked
+	// txn2.stateMachine.CurrentState = State_Blocked
 	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
 
 	// Call notifyDependentsOfRevert - it should return the error from HandleEvent

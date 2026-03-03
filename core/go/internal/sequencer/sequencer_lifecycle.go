@@ -187,7 +187,10 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			coordinator, err := coordinator.NewCoordinator(seqCtx,
 				&contractAddr,
 				domainAPI,
-				sMgr.components.TxManager(),
+				dCtx,
+				sMgr.components,
+				nil,
+				nil,
 				transportWriter,
 				common.RealClock(),
 				sMgr.engineIntegration,
@@ -344,7 +347,7 @@ func (sMgr *sequencerManager) dispatch(ctx context.Context, t *coordTransaction.
 		return
 	}
 
-	stateDistributionBuilder := common.NewStateDistributionBuilder(sMgr.components, t.GetPrivateTransaction())
+	stateDistributionBuilder := common.NewStateDistributionBuilder(sMgr.nodeName, t.GetPrivateTransaction())
 	sds, err := stateDistributionBuilder.Build(ctx)
 	if err != nil {
 		log.L(ctx).Errorf("error getting state distributions: %s", err)

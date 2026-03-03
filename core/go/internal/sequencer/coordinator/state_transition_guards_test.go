@@ -223,9 +223,9 @@ func TestGuard_FlushComplete_TransactionsInOtherStates(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -240,7 +240,7 @@ func TestGuard_FlushComplete_TransactionInReadyForDispatchState(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -253,7 +253,7 @@ func TestGuard_FlushComplete_TransactionInDispatchedState(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -266,7 +266,7 @@ func TestGuard_FlushComplete_TransactionInSubmittedState(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -279,9 +279,9 @@ func TestGuard_FlushComplete_MultipleTransactionsInFlushStates(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -296,8 +296,8 @@ func TestGuard_FlushComplete_MixOfFlushAndNonFlushStates(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -321,8 +321,8 @@ func TestGuard_HasTransactionsInflight_OnlyConfirmedTransactions(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -336,7 +336,7 @@ func TestGuard_HasTransactionsInflight_TransactionInPooledState(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -349,7 +349,7 @@ func TestGuard_HasTransactionsInflight_TransactionInAssemblingState(t *testing.T
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -362,7 +362,7 @@ func TestGuard_HasTransactionsInflight_TransactionInReadyForDispatchState(t *tes
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -375,7 +375,7 @@ func TestGuard_HasTransactionsInflight_TransactionInDispatchedState(t *testing.T
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -388,7 +388,7 @@ func TestGuard_HasTransactionsInflight_TransactionInSubmittedState(t *testing.T)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -401,8 +401,8 @@ func TestGuard_HasTransactionsInflight_MixOfConfirmedAndInflight(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -481,7 +481,7 @@ func TestGuard_HasTransactionAssembling_TransactionInAssemblingState(t *testing.
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx.GetID(): tx,
 	}
@@ -494,8 +494,8 @@ func TestGuard_HasTransactionAssembling_MultipleTransactionsInAssemblingState(t 
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -509,9 +509,9 @@ func TestGuard_HasTransactionAssembling_TransactionInOtherStates(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	tx3 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,
@@ -526,8 +526,8 @@ func TestGuard_HasTransactionAssembling_MixOfAssemblingAndOtherStates(t *testing
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	tx1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	tx2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID = map[uuid.UUID]*transaction.CoordinatorTransaction{
 		tx1.GetID(): tx1,
 		tx2.GetID(): tx2,

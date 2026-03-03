@@ -42,6 +42,7 @@ type CoordinatorTransaction struct {
 
 	originator                 string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode             string // The node the originator is running on e.g. "node1"
+	nodeName                   string // The local node coordinating this transaction
 	signerAddress              *pldtypes.EthAddress
 	domainSigningIdentity      string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	coordinatorSigningIdentity string
@@ -77,6 +78,9 @@ type CoordinatorTransaction struct {
 	grapher                  Grapher
 	engineIntegration        common.EngineIntegration
 	syncPoints               syncpoints.SyncPoints
+	components               components.AllComponents
+	domainAPI                components.DomainSmartContract
+	dCtx                     components.DomainContext
 	queueEventForCoordinator func(context.Context, common.Event)
 	metrics                  metrics.DistributedSequencerMetrics
 }
@@ -84,20 +88,21 @@ type CoordinatorTransaction struct {
 func NewTransaction(
 	ctx context.Context,
 	originator string,
+	nodeName string,
 	pt *components.PrivateTransaction,
-	hasChainedTransaction bool,
 	coordinatorSigningIdentity string,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
+	allComponents components.AllComponents,
+	domainAPI components.DomainSmartContract,
+	dCtx components.DomainContext,
 	requestTimeout,
 	stateTimeout common.Duration,
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
-	domainSigningIdentity string,
-	submitterSelection prototk.ContractConfig_SubmitterSelection,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*CoordinatorTransaction, error) {
@@ -107,17 +112,31 @@ func NewTransaction(
 		return nil, err
 	}
 
+	hasChainedTransaction, err := allComponents.TxManager().HasChainedTransaction(ctx, pt.ID)
+	if err != nil {
+		log.L(ctx).Errorf("error checking for chained transaction %s: %v", pt.ID, err)
+		return nil, err
+	}
+	if hasChainedTransaction {
+		log.L(ctx).Debugf("chained transaction %s found", pt.ID.String())
+	}
+
 	txn := &CoordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
+		nodeName:                          nodeName,
 		pt:                                pt,
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
 		engineIntegration:                 engineIntegration,
 		syncPoints:                        syncPoints,
-		domainSigningIdentity:             domainSigningIdentity,
+		components:                        allComponents,
+		domainAPI:                         domainAPI,
+		dCtx:                              dCtx,
+		domainSigningIdentity:             domainAPI.Domain().FixedSigningIdentity(),
 		coordinatorSigningIdentity:        coordinatorSigningIdentity,
+		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
 		requestTimeout:                    requestTimeout,
 		stateTimeout:                      stateTimeout,
 		finalizingGracePeriod:             finalizingGracePeriod,
@@ -128,7 +147,7 @@ func NewTransaction(
 		chainedTxAlreadyDispatched:        hasChainedTransaction,
 	}
 	txn.initializeStateMachine(State_Initial)
-	grapher.Add(context.Background(), txn)
+	grapher.Add(ctx, txn)
 	return txn, nil
 }
 

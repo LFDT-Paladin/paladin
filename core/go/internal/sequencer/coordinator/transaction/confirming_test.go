@@ -26,11 +26,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_guard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	// Initially revertReason should be nil (zero value for HexBytes)
 	// When nil, String() returns "", so guard returns false
@@ -42,7 +43,7 @@ func Test_guard_HasRevertReason_FalseWhenEmpty(t *testing.T) {
 
 func Test_guard_HasRevertReason_TrueWhenSet(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	// Set revertReason to a non-empty value
 	txn.revertReason = pldtypes.MustParseHexBytes("0x1234567890abcdef")
@@ -56,27 +57,23 @@ func Test_guard_HasRevertReason_TrueWhenSet(t *testing.T) {
 func Test_notifyDependentsOfConfirmation_NoDependents(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
 
 	err := txn.notifyDependentsOfConfirmation(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-	missingID := uuid.New()
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{missingID},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{uuid.New()}}).
+		Build()
 
 	err := txn.notifyDependentsOfConfirmation(ctx)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "PD012645"))
 }
 
@@ -89,63 +86,56 @@ func Test_notifyDependentsOfConfirmation_WithTraceEnabled(t *testing.T) {
 	log.SetLevel("trace")
 	defer log.SetLevel(originalLevel)
 
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.pt.PostAssembly = &components.TransactionPostAssembly{
-		Signatures: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		PostAssembly(&components.TransactionPostAssembly{
+			Signatures: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier1",
+					},
 				},
 			},
-		},
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier2",
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier2",
+					},
 				},
 			},
-		},
-	}
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+		}).
+		Build()
 
 	err := txn1.notifyDependentsOfConfirmation(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
+	tx2ID := uuid.New()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{tx2ID}}).
+		Build()
+	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
+		TransactionID(tx2ID).
+		Grapher(grapher).
+		TransactionID(tx2ID).
+		Build()
 
 	err := txn1.notifyDependentsOfConfirmation(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
-func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
-
-	// The function should complete without error in normal cases
-	err := txn1.notifyDependentsOfConfirmation(ctx)
-	assert.NoError(t, err)
-}
+// TODO: this test can be implemented when there is a way to mock the dependent transaction
+// func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {}
 
 func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		UseMockTransportWriter().
+		Build()
 
 	nonce := pldtypes.HexUint64(42)
 	revertReason := pldtypes.MustParseHexBytes("0x1234")
@@ -157,39 +147,64 @@ func Test_action_Confirmed_SetsRevertReasonAndSends(t *testing.T) {
 		RevertReason: revertReason,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, revertReason).
 		Return(nil)
 
 	err := action_Confirmed(ctx, txn, event)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Assert state: revertReason was set
 	assert.Equal(t, revertReason, txn.revertReason)
-	mocks.transportWriter.AssertExpectations(t)
+}
+
+func Test_action_NotifyDependantsOfConfirmation_Success(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.Len(t, txn.dependencies.PrereqOf, 0)
+}
+
+func Test_action_NotifyDependantsOfConfirmation_ResetLocksOnTransitionWhenRetentionNotConfigured(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		ConfirmedLockRetentionGracePeriod(0).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+
+	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, txn.confirmedLocksReleased)
 }
 
 func Test_action_NotifyDependantsOfConfirmation_DoesNotResetLocksOnTransitionWhenRetentionConfigured(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.confirmedLockRetentionGracePeriod = 2
-	txn.dependencies = &pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ConfirmedLockRetentionGracePeriod(2).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
 
 	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, txn.confirmedLocksReleased)
-	mocks.engineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
 }
 
 func Test_action_NotifyDependantsOfConfirmation_ResetsLocksImmediatelyWhenRetentionDisabled(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.confirmedLockRetentionGracePeriod = 0
-	txn.dependencies = &pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}
-	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		ConfirmedLockRetentionGracePeriod(0).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
 
 	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, txn.confirmedLocksReleased)
 }
 
@@ -209,7 +224,7 @@ func Test_EventConfirmed_NonTerminalStates_TransitionsToConfirmed_WhenNoRevertRe
 
 	for _, state := range nonTerminalStates {
 		t.Run(state.String(), func(t *testing.T) {
-			txn, _ := NewTransactionBuilderForTesting(t, state).BuildWithMocks()
+			txn, _ := NewTransactionBuilderForTesting(t, state).Build()
 			nonce := pldtypes.HexUint64(77)
 			event := &ConfirmedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -219,7 +234,7 @@ func Test_EventConfirmed_NonTerminalStates_TransitionsToConfirmed_WhenNoRevertRe
 			}
 
 			err := txn.HandleEvent(ctx, event)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, State_Confirmed, txn.GetCurrentState())
 		})
 	}
@@ -240,7 +255,7 @@ func Test_EventConfirmed_NonTerminalStates_RevertStaysInPlace_ForNewHandlers(t *
 
 	for _, state := range nonTerminalStates {
 		t.Run(state.String(), func(t *testing.T) {
-			txn, _ := NewTransactionBuilderForTesting(t, state).BuildWithMocks()
+			txn, _ := NewTransactionBuilderForTesting(t, state).Build()
 			nonce := pldtypes.HexUint64(88)
 			event := &ConfirmedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -251,7 +266,7 @@ func Test_EventConfirmed_NonTerminalStates_RevertStaysInPlace_ForNewHandlers(t *
 			}
 
 			err := txn.HandleEvent(ctx, event)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, state, txn.GetCurrentState())
 		})
 	}
@@ -259,7 +274,8 @@ func Test_EventConfirmed_NonTerminalStates_RevertStaysInPlace_ForNewHandlers(t *
 
 func Test_EventConfirmed_StateDispatched_RevertTransitionsToPooled(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).BuildWithMocks()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
 	nonce := pldtypes.HexUint64(88)
 	event := &ConfirmedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -270,6 +286,6 @@ func Test_EventConfirmed_StateDispatched_RevertTransitionsToPooled(t *testing.T)
 	}
 
 	err := txn.HandleEvent(ctx, event)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState())
 }

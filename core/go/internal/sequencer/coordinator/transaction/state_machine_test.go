@@ -18,53 +18,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStateMachine_InitializeOK(t *testing.T) {
-	ctx := context.Background()
-
-	transportWriter := transport.NewMockTransportWriter(t)
-	clock := &common.FakeClockForTesting{}
-	engineIntegration := common.NewMockEngineIntegration(t)
-	syncPoints := &syncpoints.MockSyncPoints{}
-	txn, err := NewTransaction(
-		ctx,
-		"sender@node1",
-		&components.PrivateTransaction{
-			ID: uuid.New(),
-		},
-		false,
-		"coordinator-signer",
-		transportWriter,
-		clock,
-		func(ctx context.Context, event common.Event) {
-			//don't expect any events during initialize
-			assert.Failf(t, "unexpected event", "%T", event)
-		},
-		engineIntegration,
-		syncPoints,
-		clock.Duration(1000),
-		clock.Duration(5000),
-		5,
-		0,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		NewGrapher(ctx),
-		nil,
-	)
-	assert.NoError(t, err)
-	assert.NotNil(t, txn)
-
-	assert.Equal(t, State_Initial, txn.stateMachine.CurrentState, "current state is %s", txn.stateMachine.CurrentState.String())
-}
 
 func Test_State_String_AllStates(t *testing.T) {
 	tests := []struct {
@@ -100,30 +57,29 @@ func Test_State_String_Unknown(t *testing.T) {
 
 func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.heartbeatIntervalsSinceStateChange = 2
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build()
 
 	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, txn, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 3, txn.heartbeatIntervalsSinceStateChange)
 }
 
 func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Confirmed
-	txn.confirmedLockRetentionGracePeriod = 2
-	txn.finalizingGracePeriod = 10
-	txn.confirmedLocksReleased = false
-	txn.heartbeatIntervalsSinceStateChange = 0
-	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		FinalizingGracePeriod(10).
+		Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
 	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
 	assert.False(t, txn.confirmedLocksReleased)
-	mocks.engineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+	mocks.EngineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
@@ -138,11 +94,10 @@ func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing
 
 func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
 	ctx := context.Background()
-	txn := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-	txn.confirmedLockRetentionGracePeriod = 100
-	txn.confirmedLocksReleased = true
-	txn.finalizingGracePeriod = 2
-	txn.heartbeatIntervalsSinceStateChange = 0
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(100).
+		FinalizingGracePeriod(2).
+		Build()
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)

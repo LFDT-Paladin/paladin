@@ -96,4 +96,5 @@ type SequencerManager interface {
 
 	// Only used for test bed
 	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
+	HandleNewTransactions(ctx context.Context, txis []*ValidatedTransaction) error
 }

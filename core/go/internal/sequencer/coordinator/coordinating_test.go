@@ -57,8 +57,8 @@ func Test_action_TransactionConfirmed_TransactionTracked_HandleEventSucceeds(t *
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn := txBuilder.Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -77,7 +77,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_NilSubmissionHash_Handl
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -96,7 +96,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_MatchingHash_HandleEven
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	submissionHash := txn.GetLatestSubmissionHash()
 	require.NotNil(t, submissionHash, "builder sets submission hash for State_Dispatched")
@@ -116,7 +116,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_DifferentHash_HandleEve
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 
@@ -136,7 +136,7 @@ func Test_action_TransactionConfirmed_TransactionTracked_PooledTransitionsToConf
 	defer done()
 
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
-	txn := txBuilder.Build()
+	txn, _ := txBuilder.Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -156,9 +156,9 @@ func Test_action_TransactionConfirmed_MultipleTransactions_EachHandleEventSuccee
 	defer done()
 
 	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn1 := txBuilder1.Build()
+	txn1, _ := txBuilder1.Build()
 	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn2 := txBuilder2.Build()
+	txn2, _ := txBuilder2.Build()
 	c.transactionsByID[txn1.GetID()] = txn1
 	c.transactionsByID[txn2.GetID()] = txn2
 
@@ -182,13 +182,6 @@ func Test_action_TransactionConfirmed_MultipleTransactions_EachHandleEventSuccee
 func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
-	mockDomain := componentsmocks.NewDomain(t)
-	mockDomain.On("FixedSigningIdentity").Return("")
-	builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
 	c, _, done := builder.Build(ctx)
 	defer done()
 
@@ -320,7 +313,7 @@ func Test_addTransactionToBackOfPool_WhenNotInPool_Appends(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 
 	c.addTransactionToBackOfPool(txn)
 
@@ -333,7 +326,7 @@ func Test_addTransactionToBackOfPool_WhenAlreadyInPool_DoesNotDuplicate(t *testi
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 
 	c.addTransactionToBackOfPool(txn)
 	c.addTransactionToBackOfPool(txn)
@@ -347,7 +340,7 @@ func Test_action_PoolTransaction(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_PoolTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
@@ -364,7 +357,7 @@ func Test_action_QueueTransactionForDispatch(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
@@ -379,7 +372,7 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
@@ -476,7 +469,9 @@ func Test_action_SelectTransaction_WhenNotSender_StartsHeartbeatLoop(t *testing.
 	builder.OverrideSequencerConfig(config)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0), nil)
 	c.transactionsByID[txn.GetID()] = txn
 	c.pooledTransactions = []*transaction.CoordinatorTransaction{txn}
 

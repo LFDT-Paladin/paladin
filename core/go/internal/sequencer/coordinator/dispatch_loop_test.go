@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,13 +41,13 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	defer done()
 
 	// Pre-populate inFlightTxns so the dispatch loop will enter the first Wait() when it pulls the tx
-	dummyTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	dummyTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.inFlightMutex.L.Lock()
 	c.inFlightTxns[dummyTxn.GetID()] = dummyTxn
 	c.inFlightMutex.L.Unlock()
 
 	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 	c.transactionsByID[txn.GetID()] = txn
 	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
@@ -89,13 +90,15 @@ func TestDispatchLoop_SkipsStaleQueuedTransaction(t *testing.T) {
 	}
 
 	// Pre-populate in-flight to force the dispatch loop to wait after pulling from queue.
-	inFlightTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	inFlightTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.inFlightMutex.L.Lock()
 	c.inFlightTxns[inFlightTxn.GetID()] = inFlightTxn
 	c.inFlightMutex.L.Unlock()
 
-	staleTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	validTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	staleTxn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, staleTxn.GetID()).Return()
+
+	validTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
 	c.transactionsByID[staleTxn.GetID()] = staleTxn
 	c.transactionsByID[validTxn.GetID()] = validTxn
 

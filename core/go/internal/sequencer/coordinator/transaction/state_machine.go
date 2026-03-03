@@ -366,7 +366,8 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 			},
 			Event_DispatchRequestRejected: {
-				Actions: []ActionRule{{Action: action_DispatchRequestRejected}},
+				Validator: validator_MatchesPendingPreDispatchRequest,
+				Actions:   []ActionRule{{Action: action_DispatchRequestRejected}},
 				Transitions: []Transition{
 					{
 						To:      State_Pooled,
@@ -407,7 +408,10 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Ready_For_Dispatch: {
-		OnTransitionTo: []ActionRule{{Action: action_NotifyDependentsOfReadiness}},
+		OnTransitionTo: []ActionRule{
+			{Action: action_AllocateSigningIdentity},
+			{Action: action_NotifyDependentsOfReadiness},
+		},
 		Events: map[EventType]EventHandler{
 			Event_Dispatched: {
 				Transitions: []Transition{

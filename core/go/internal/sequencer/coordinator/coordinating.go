@@ -52,34 +52,24 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
-		// The newly delegated TX might be after the restart of an originator, for which we've already
-		// instantiated a chained TX
-		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
-		if err != nil {
-			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
-			return err
-		}
-		if hasChainedTransaction {
-			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
-		}
-
 		newTransaction, err := transaction.NewTransaction(
 			ctx,
 			originator,
+			c.nodeName,
 			txn,
-			hasChainedTransaction,
 			c.signingIdentity,
 			c.transportWriter,
 			c.clock,
 			c.queueEventInternal,
 			c.engineIntegration,
 			c.syncPoints,
+			c.components,
+			c.domainAPI,
+			c.dCtx,
 			c.requestTimeout,
 			c.stateTimeout,
 			c.closingGracePeriod,
 			c.confirmedLockRetentionGracePeriod,
-			c.domainAPI.Domain().FixedSigningIdentity(),
-			c.domainAPI.ContractConfig().GetSubmitterSelection(),
 			c.grapher,
 			c.metrics,
 		)

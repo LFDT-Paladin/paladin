@@ -25,7 +25,7 @@ import (
 
 func Test_action_Collected_SetsSignerAddress(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	signerAddr := pldtypes.RandAddress()
 	event := &CollectedEvent{
@@ -45,7 +45,9 @@ func Test_action_Collected_SetsSignerAddress(t *testing.T) {
 
 func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	nonce := uint64(123)
 	event := &NonceAllocatedEvent{
@@ -55,7 +57,7 @@ func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 		Nonce: nonce,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, nonce).
 		Return(nil)
 
@@ -65,12 +67,13 @@ func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 	// Assert state: nonce was set
 	require.NotNil(t, txn.nonce)
 	assert.Equal(t, nonce, *txn.nonce)
-	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	event := &NonceAllocatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -79,12 +82,12 @@ func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 		Nonce: 1,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, uint64(1)).
 		Return(assert.AnError)
 
 	err := action_NonceAllocated(ctx, txn, event)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// State still updated even when send fails
 	require.NotNil(t, txn.nonce)
@@ -93,7 +96,9 @@ func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 
 func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -103,7 +108,7 @@ func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(nil)
 
@@ -113,12 +118,13 @@ func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 	// Assert state: latestSubmissionHash was set
 	require.NotNil(t, txn.latestSubmissionHash)
 	assert.Equal(t, submissionHash, *txn.latestSubmissionHash)
-	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_action_Submitted_PropagatesSendError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -128,12 +134,12 @@ func Test_action_Submitted_PropagatesSendError(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(assert.AnError)
 
 	err := action_Submitted(ctx, txn, event)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// State still updated
 	require.NotNil(t, txn.latestSubmissionHash)

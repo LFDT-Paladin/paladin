@@ -78,6 +78,7 @@ func (r *SentMessageRecorder) HasSentHeartbeat() bool {
 }
 
 type CoordinatorBuilderForTesting struct {
+	t                                        *testing.T
 	state                                    State
 	originatorIdentityPool                   []string
 	domainAPI                                *componentsmocks.DomainSmartContract
@@ -200,6 +201,7 @@ func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuil
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
 	txManager := componentsmocks.NewTXManager(t)
 	return &CoordinatorBuilderForTesting{
+		t:               t,
 		state:           state,
 		domainAPI:       domainAPI,
 		txManager:       txManager,
@@ -306,11 +308,21 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	}).Maybe()
 	buildCtx, cancel := context.WithCancel(ctx)
+
+	allComponents := componentsmocks.NewAllComponents(b.t)
+	transportManager := componentsmocks.NewTransportManager(b.t)
+	transportManager.On("LocalNodeName").Return("node1").Maybe()
+	allComponents.On("TransportManager").Return(transportManager).Maybe()
+	allComponents.On("TxManager").Return(b.txManager).Maybe()
+
 	coordinator, err := NewCoordinator(
 		buildCtx,
 		b.contractAddress, // Contract address,
 		b.domainAPI,
-		b.txManager,
+		nil,
+		allComponents,
+		nil,
+		nil,
 		mocks.SentMessageRecorder,
 		mocks.Clock,
 		mocks.EngineIntegration,

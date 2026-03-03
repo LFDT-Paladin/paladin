@@ -31,11 +31,11 @@ type StateDistributionBuilder interface {
 	Build(ctx context.Context, txn *components.PrivateTransaction) (sds *components.StateDistributionSet, err error)
 }
 
-func NewStateDistributionBuilder(c components.AllComponents, tx *components.PrivateTransaction) *stateDistributionBuilder {
+func NewStateDistributionBuilder(localNodeName string, tx *components.PrivateTransaction) *stateDistributionBuilder {
 	return &stateDistributionBuilder{
 		tx: tx,
 		StateDistributionSet: components.StateDistributionSet{
-			LocalNode: c.TransportManager().LocalNodeName(),
+			LocalNode: localNodeName,
 			Remote:    []*components.StateDistributionWithData{},
 			Local:     []*components.StateDistributionWithData{},
 		},
