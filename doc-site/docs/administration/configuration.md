@@ -18,6 +18,7 @@
 | nodeName | Node name for transport identification | `string` | - |
 | peerInactivityTimeout | Timeout for peer inactivity detection | `string` | - |
 | peerReaperInterval | Interval for peer reaper cleanup | `string` | - |
+| privateTxManager | Private transaction manager configuration | [`PrivateTxManagerConfig`](#privatetxmanager) | - |
 | publicTxManager | Public transaction manager configuration | [`PublicTxManagerConfig`](#publictxmanager) | - |
 | registries | Map of registry configurations | [`map[string][RegistryConfig]`](#registries) | - |
 | registryManager | Registry manager configuration | [`RegistryManagerConfig`](#registrymanager) | - |
@@ -405,6 +406,83 @@
 | shutdownTimeout | Shutdown timeout | `string` | `"10s"` |
 | tls | TLS configuration | [`TLSConfig`](#metricsservertls) | - |
 | writeTimeout | Write timeout | `string` | - |
+
+## privateTxManager
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| preparedTransactionDistributer | Prepared transaction distributer configuration | [`DistributerConfig`](#privatetxmanagerpreparedtransactiondistributer) | - |
+| requestTimeout | Request timeout | `string` | - |
+| sequencer | Sequencer configuration | [`PrivateTxManagerSequencerConfig`](#privatetxmanagersequencer) | - |
+| stateDistributer | State distributer configuration | [`DistributerConfig`](#privatetxmanagerstatedistributer) | - |
+| writer | Writer configuration | [`FlushWriterConfig`](#privatetxmanagerwriter) | - |
+
+## privateTxManager.preparedTransactionDistributer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| acknowledgementWriter | Acknowledgement writer configuration | [`FlushWriterConfig`](#privatetxmanagerpreparedtransactiondistributeracknowledgementwriter) | - |
+| receivedStateWriter | Received state writer configuration | [`FlushWriterConfig`](#privatetxmanagerpreparedtransactiondistributerreceivedstatewriter) | - |
+
+## privateTxManager.preparedTransactionDistributer.acknowledgementWriter
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | - |
+| batchTimeout | Timeout for batch operations | `string` | - |
+| workerCount | Number of worker threads | `int` | - |
+
+## privateTxManager.preparedTransactionDistributer.receivedStateWriter
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | - |
+| batchTimeout | Timeout for batch operations | `string` | - |
+| workerCount | Number of worker threads | `int` | - |
+
+## privateTxManager.sequencer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| assembleRequestTimeout | Assemble request timeout | `string` | - |
+| evalInterval | Evaluation interval | `string` | - |
+| maxConcurrentProcess | Maximum concurrent processes | `int` | - |
+| maxInflightTransactions | Maximum inflight transactions | `int` | - |
+| maxPendingEvents | Maximum pending events | `int` | - |
+| persistenceRetryTimeout | Persistence retry timeout | `string` | - |
+| roundRobinCoordinatorBlockRangeSize | Round robin coordinator block range size | `int` | - |
+| staleTimeout | Stale timeout | `string` | - |
+
+## privateTxManager.stateDistributer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| acknowledgementWriter | Acknowledgement writer configuration | [`FlushWriterConfig`](#privatetxmanagerstatedistributeracknowledgementwriter) | - |
+| receivedStateWriter | Received state writer configuration | [`FlushWriterConfig`](#privatetxmanagerstatedistributerreceivedstatewriter) | - |
+
+## privateTxManager.stateDistributer.acknowledgementWriter
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | - |
+| batchTimeout | Timeout for batch operations | `string` | - |
+| workerCount | Number of worker threads | `int` | - |
+
+## privateTxManager.stateDistributer.receivedStateWriter
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | - |
+| batchTimeout | Timeout for batch operations | `string` | - |
+| workerCount | Number of worker threads | `int` | - |
+
+## privateTxManager.writer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | - |
+| batchTimeout | Timeout for batch operations | `string` | - |
+| workerCount | Number of worker threads | `int` | - |
 
 ## publicTxManager
 
