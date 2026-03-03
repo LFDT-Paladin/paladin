@@ -117,13 +117,18 @@ export interface NotoLockParams {
   data: string;
 }
 
+export interface NotoCreateTransferLockParams {
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  data: string;
+}
+
 export interface NotoCreateMintLockParams {
   recipients: UnlockRecipient[];
   data: string;
 }
 
-export interface NotoPrepareBurnUnlockParams {
-  lockId: string;
+export interface NotoCreateBurnLockParams {
   from: PaladinVerifier;
   amount: string | number;
   data: string;
@@ -133,7 +138,29 @@ export interface NotoUnlockParams {
   lockId: string;
   from: PaladinVerifier;
   recipients: UnlockRecipient[];
-  unlockData?: string;
+  data: string;
+}
+
+export interface NotoPrepareUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareMintUnlockParams {
+  lockId: string;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareBurnUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  amount: string | number;
+  unlockData: string;
   data: string;
 }
 
@@ -341,6 +368,27 @@ export class NotoInstance {
     );
   }
 
+  createTransferLock(from: PaladinVerifier, data: NotoCreateTransferLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createTransferLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
   createMintLock(from: PaladinVerifier, data: NotoCreateMintLockParams) {
     return new TransactionFuture(
       this.paladin,
@@ -356,6 +404,23 @@ export class NotoInstance {
             to: recipient.to.lookup,
             amount: recipient.amount,
           })),
+        },
+      })
+    );
+  }
+
+  createBurnLock(from: PaladinVerifier, data: NotoCreateBurnLockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createBurnLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
         },
       })
     );
@@ -416,7 +481,7 @@ export class NotoInstance {
     );
   }
 
-  prepareUnlock(from: PaladinVerifier, data: NotoUnlockParams) {
+  prepareUnlock(from: PaladinVerifier, data: NotoPrepareUnlockParams) {
     return new TransactionFuture(
       this.paladin,
       this.paladin.sendTransaction({
@@ -428,6 +493,26 @@ export class NotoInstance {
         data: {
           ...data,
           from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  prepareMintUnlock(from: PaladinVerifier, data: NotoPrepareMintUnlockParams) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.sendTransaction({
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareMintUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
           recipients: data.recipients.map((recipient) => ({
             to: recipient.to.lookup,
             amount: recipient.amount,
@@ -480,6 +565,42 @@ export class NotoInstance {
       "cancelLock",
       [data.lockId, data.data]
     );
+  }
+
+  name(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "name",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  symbol(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "symbol",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  decimals(from: PaladinVerifier): Promise<number> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "decimals",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
   }
 
   balanceOf(
