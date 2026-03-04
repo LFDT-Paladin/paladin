@@ -27,7 +27,7 @@ func guard_HasRevertReason(ctx context.Context, txn *coordinatorTransaction) boo
 	return txn.revertReason.String() != ""
 }
 
-func action_recordConfirmationDetails(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+func action_RecordConfirmationDetails(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedEvent)
 	if t.latestSubmissionHash == nil {
 		// The transaction created a chained private transaction so there is no hash to compare

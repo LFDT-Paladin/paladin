@@ -131,7 +131,7 @@ func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 // TODO: this test can be implemented when there is a way to mock the dependent transaction
 // func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {}
 
-func Test_action_NotifyConfirmed_SetsRevertReasonAndSends(t *testing.T) {
+func Test_action_NotifyConfirmed_SendsToOrignator(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
 		UseMockTransportWriter().
@@ -153,51 +153,57 @@ func Test_action_NotifyConfirmed_SetsRevertReasonAndSends(t *testing.T) {
 
 	err := action_NotifyConfirmed(ctx, txn, event)
 	require.NoError(t, err)
+}
 
-	// Assert state: revertReason was set
+func Test_action_RecordConfirmationDetails_SetsRevertReason(t *testing.T) {
+	ctx := context.Background()
+	hash := pldtypes.RandBytes32()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		LatestSubmissionHash(&hash).
+		Build()
+	revertReason := pldtypes.MustParseHexBytes("0x1234")
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		RevertReason: revertReason,
+	}
+
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
 	assert.Equal(t, revertReason, txn.revertReason)
 }
 
-// TODO AM: add tests that cover the two logging branches
+func Test_action_RecordConfirmationDetails_NilHash(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Build()
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+	}
 
-// func Test_action_TransactionConfirmed_TransactionTracked_NilSubmissionHash_HandleEventSucceeds(t *testing.T) {
-// 	ctx := context.Background()
-// 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-// 	c, _, done := builder.Build(ctx)
-// 	defer done()
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
+}
 
-// 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-// 	c.transactionsByID[txn.GetID()] = txn
+func Test_action_RecordConfirmationDetails_DifferentHash(t *testing.T) {
+	ctx := context.Background()
+	hash := pldtypes.RandBytes32()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		LatestSubmissionHash(&hash).
+		Build()
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		Hash: pldtypes.RandBytes32(),
+	}
 
-// 	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-// 	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-// 		TxID: txn.GetID(),
-// 		Hash: hash,
-// 	})
-
-// 	require.NoError(t, err)
-// 	assert.Equal(t, transaction.State_Confirmed, txn.stateMachine.GetCurrentState())
-// }
-
-// func Test_action_TransactionConfirmed_TransactionTracked_MatchingHash_HandleEventSucceeds(t *testing.T) {
-// 	ctx := context.Background()
-// 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-// 	c, _, done := builder.Build(ctx)
-// 	defer done()
-
-// 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-// 	c.transactionsByID[txn.GetID()] = txn
-// 	submissionHash := txn.GetLatestSubmissionHash()
-// 	require.NotNil(t, submissionHash, "builder sets submission hash for State_Dispatched")
-
-// 	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-// 		TxID: txn.GetID(),
-// 		Hash: *submissionHash,
-// 	})
-
-// 	require.NoError(t, err)
-// 	assert.Equal(t, transaction.State_Confirmed, txn.stateMachine.GetCurrentState())
-// }
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
+}
 
 func Test_action_NotifyDependantsOfConfirmation_Success(t *testing.T) {
 	ctx := context.Background()
