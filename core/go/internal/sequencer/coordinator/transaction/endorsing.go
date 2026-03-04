@@ -207,11 +207,6 @@ func action_SendEndorsementRequests(ctx context.Context, txn *CoordinatorTransac
 	return txn.sendEndorsementRequests(ctx)
 }
 
-func action_OnTransitionToEndorsementGathering(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	txn.scheduleStateTimeout(ctx)
-	return action_SendEndorsementRequests(ctx, txn, event)
-}
-
 func action_NudgeEndorsementRequests(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.sendEndorsementRequests(ctx)
 }
@@ -219,24 +214,6 @@ func action_NudgeEndorsementRequests(ctx context.Context, txn *CoordinatorTransa
 func action_ResetEndorsementRequests(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	txn.resetEndorsementRequests(ctx)
 	return nil
-}
-
-func (t *CoordinatorTransaction) endorsementStateTimeoutExceeded(ctx context.Context) bool {
-	var pendingRequest *common.IdempotentRequest
-	for _, byParty := range t.pendingEndorsementRequests {
-		for _, req := range byParty {
-			pendingRequest = req
-			break
-		}
-		if pendingRequest != nil {
-			break
-		}
-	}
-	return t.stateTimeoutExceeded(ctx, pendingRequest, "endorsement gathering")
-}
-
-func guard_EndorsementStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.endorsementStateTimeoutExceeded(ctx)
 }
 
 // endorsed by all required endorsers

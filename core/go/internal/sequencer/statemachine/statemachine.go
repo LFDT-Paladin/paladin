@@ -94,7 +94,7 @@ type Lockable interface {
 // All actions receive the event so they can apply event-specific data or perform side effects.
 // Actions can be specified for:
 //   - Event handling (Actions field in EventHandler; first action often applies event data)
-//   - Specific transitions (Action field in Transition struct)
+//   - Specific transitions (Actions field in Transition struct)
 //   - Entry to a state (OnTransitionTo in StateDefinition)
 type Action[E any] func(ctx context.Context, entity E, event common.Event) error
 
@@ -103,21 +103,23 @@ type Action[E any] func(ctx context.Context, entity E, event common.Event) error
 type Guard[E any] func(ctx context.Context, entity E) bool
 
 // ActionRule pairs an action with an optional guard condition.
+// Validator is evaluated first for event-aware filtering.
 // If the guard (If) is nil, the action is always executed.
 // If the guard returns true, the action is executed.
 type ActionRule[E any] struct {
-	Action Action[E]
-	If     Guard[E]
+	Action    Action[E]
+	Validator Validator[E]
+	If        Guard[E]
 }
 
 // Transition defines a possible state transition.
 // To: The target state to transition to
 // If: Optional guard condition - if nil, transition is always taken (when matched)
-// Action: Optional action to execute during this specific transition
+// Actions: Optional transition-specific action rules to execute before state-entry actions
 type Transition[S State, E any] struct {
-	To     S         // Target state
-	If     Guard[E]  // Guard condition (optional)
-	Action Action[E] // Transition-specific action (optional)
+	To      S               // Target state
+	If      Guard[E]        // Guard condition (optional)
+	Actions []ActionRule[E] // Transition-specific action rules (optional)
 }
 
 // Validator is a function that validates whether an event is valid for the current
@@ -136,10 +138,10 @@ type EventHandler[S State, E any] struct {
 }
 
 // StateDefinition defines the behavior of a particular state.
-// OnTransitionTo: Action executed when entering this state (after transition-specific actions)
+// OnTransitionTo: Action rules executed when entering this state (after transition-specific actions)
 // Events: Map of event types to their handlers in this state
 type StateDefinition[S State, E any] struct {
-	OnTransitionTo Action[E]
+	OnTransitionTo []ActionRule[E]
 	Events         map[common.EventType]EventHandler[S, E]
 }
 
@@ -218,8 +220,9 @@ func (sm *StateMachine[S, E]) ProcessEvent(
 	}
 
 	// Execute Actions
-	err = sm.performActions(ctx, entity, event, *eventHandler)
+	err = sm.executeActionRules(ctx, entity, event, eventHandler.Actions)
 	if err != nil {
+		log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
 		return err
 	}
 
@@ -261,18 +264,26 @@ func (sm *StateMachine[S, E]) evaluateEvent(
 	return &eventHandler, nil
 }
 
-// performActions executes the actions defined in the event handler (in order).
-func (sm *StateMachine[S, E]) performActions(
+// executeActionRules executes guarded action rules in order.
+func (sm *StateMachine[S, E]) executeActionRules(
 	ctx context.Context,
 	entity E,
 	event common.Event,
-	eventHandler EventHandler[S, E],
+	actionRules []ActionRule[E],
 ) error {
-	for _, rule := range eventHandler.Actions {
+	for _, rule := range actionRules {
+		if rule.Validator != nil {
+			valid, err := rule.Validator(ctx, entity, event)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				continue
+			}
+		}
 		if rule.If == nil || rule.If(ctx, entity) {
 			err := rule.Action(ctx, entity, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
 				return err
 			}
 		}
@@ -295,19 +306,17 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 			sm.LatestEvent = event.TypeString()
 			sm.LastStateChange = time.Now()
 
-			// Execute transition-specific action first
-			if rule.Action != nil {
-				err := rule.Action(ctx, entity, event)
-				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
-					return err
-				}
+			// Execute transition-specific actions first
+			err := sm.executeActionRules(ctx, entity, event, rule.Actions)
+			if err != nil {
+				log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
+				return err
 			}
 
-			// Execute state entry action
+			// Execute state entry actions
 			newStateDefinition, exists := sm.definitions[sm.CurrentState]
-			if exists && newStateDefinition.OnTransitionTo != nil {
-				err := newStateDefinition.OnTransitionTo(ctx, entity, event)
+			if exists && len(newStateDefinition.OnTransitionTo) > 0 {
+				err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo)
 				if err != nil {
 					log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
 					return err

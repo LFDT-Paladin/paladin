@@ -116,7 +116,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Idle: {
-		OnTransitionTo: action_Idle,
+		OnTransitionTo: []ActionRule{{Action: action_Idle}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -179,7 +179,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Elect: {
-		OnTransitionTo: action_SendHandoverRequest,
+		OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -212,7 +212,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Active: {
-		OnTransitionTo: action_SelectTransaction,
+		OnTransitionTo: []ActionRule{{Action: action_SelectTransaction}},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
@@ -239,9 +239,25 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
-					{Action: action_TransactionStateTransition},
-					{Action: action_NudgeDispatchLoop},
-					{Action: action_SelectTransaction, If: guard_Not(guard_HasTransactionAssembling)},
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+					{
+						Action: action_NudgeDispatchLoop,
+					},
+					{
+						Action: action_SelectTransaction,
+						If:     guard_Not(guard_HasTransactionAssembling),
+					},
 				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
@@ -267,7 +283,20 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
+				Actions: []ActionRule{
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
@@ -288,7 +317,23 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
+				// TODO: these actions probably shouldn't be necessary in Closing state
+				// but this is closely related to many of the other TODO questions in this
+				// state machine definition and they need to be addressed together
+				Actions: []ActionRule{
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
@@ -305,8 +350,8 @@ func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQ
 		EventQueueSize:         eventQueueSize,
 		PriorityEventQueueSize: priorityEventQueueSize,
 		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
-		TransitionCallback: c.onStateTransition,
-		PreProcess:         c.preProcessEvent,
+		TransitionCallback:     c.onStateTransition,
+		PreProcess:             c.preProcessEvent,
 	})
 }
 

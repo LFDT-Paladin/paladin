@@ -114,19 +114,6 @@ func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransact
 	return txn.sendPreDispatchRequest(ctx)
 }
 
-func action_OnTransitionToConfirmingDispatchable(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	txn.scheduleStateTimeout(ctx)
-	return action_SendPreDispatchRequest(ctx, txn, event)
-}
-
 func action_NudgePreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
-}
-
-func (t *CoordinatorTransaction) dispatchConfirmationStateTimeoutExceeded(ctx context.Context) bool {
-	return t.stateTimeoutExceeded(ctx, t.pendingPreDispatchRequest, "dispatch confirmation")
-}
-
-func guard_DispatchConfirmationStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.dispatchConfirmationStateTimeoutExceeded(ctx)
 }

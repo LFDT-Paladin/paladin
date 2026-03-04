@@ -60,7 +60,6 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 					log.L(ctx).Error(msg)
 					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 				}
-				o.submittedTransactionsByHash[*dispatchedTransaction.LatestSubmissionHash] = &dispatchedTransaction.ID
 			} else if dispatchedTransaction.Nonce != nil {
 				//if the dispatched transaction has a nonce but no hash, then it is sequenced
 				err := txn.HandleEvent(ctx, &transaction.NonceAssignedEvent{

@@ -342,7 +342,7 @@ func Test_addTransactionToBackOfPool_WhenAlreadyInPool_DoesNotDuplicate(t *testi
 	assert.Equal(t, txn, c.pooledTransactions[0])
 }
 
-func Test_action_TransactionStateTransition_ToPooled_AddsToBackOfPool(t *testing.T) {
+func Test_action_PoolTransaction(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
@@ -350,7 +350,7 @@ func Test_action_TransactionStateTransition_ToPooled_AddsToBackOfPool(t *testing
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_PoolTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
 		To:            transaction.State_Pooled,
 	})
@@ -359,7 +359,7 @@ func Test_action_TransactionStateTransition_ToPooled_AddsToBackOfPool(t *testing
 	assert.Equal(t, txn, c.pooledTransactions[0])
 }
 
-func Test_action_TransactionStateTransition_ToReadyForDispatch_QueuesForDispatch(t *testing.T) {
+func Test_action_QueueTransactionForDispatch(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
@@ -367,14 +367,14 @@ func Test_action_TransactionStateTransition_ToReadyForDispatch_QueuesForDispatch
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
 		To:            transaction.State_Ready_For_Dispatch,
 	})
 	require.NoError(t, err)
 }
 
-func Test_action_TransactionStateTransition_ToFinal_RemovesFromMap(t *testing.T) {
+func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
@@ -382,13 +382,46 @@ func Test_action_TransactionStateTransition_ToFinal_RemovesFromMap(t *testing.T)
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
 		To:            transaction.State_Final,
 	})
 	require.NoError(t, err)
 	_, ok := c.transactionsByID[txn.GetID()]
 	assert.False(t, ok, "transaction should be removed from map")
+}
+
+func Test_validator_TransactionStateTransitionToPooled(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_TransactionStateTransitionToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_TransactionStateTransitionToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
+	require.NoError(t, err)
+	assert.False(t, valid)
+}
+
+func Test_validator_TransactionStateTransitionToReadyForDispatch(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_TransactionStateTransitionToReadyForDispatch(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Ready_For_Dispatch})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_TransactionStateTransitionToReadyForDispatch(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
+	require.NoError(t, err)
+	assert.False(t, valid)
+}
+
+func Test_validator_TransactionStateTransitionToFinal(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_TransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_TransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
+	require.NoError(t, err)
+	assert.False(t, valid)
 }
 
 func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *testing.T) {

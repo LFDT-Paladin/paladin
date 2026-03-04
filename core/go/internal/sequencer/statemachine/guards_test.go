@@ -42,78 +42,78 @@ func valueLessThan10(ctx context.Context, e *guardTestEntity) bool {
 	return e.value < 10
 }
 
-func TestNot(t *testing.T) {
+func TestGuardNot(t *testing.T) {
 	ctx := context.Background()
 	entity := &guardTestEntity{}
 
-	notTrue := Not(trueGuard)
-	notFalse := Not(falseGuard)
+	notTrue := GuardNot(trueGuard)
+	notFalse := GuardNot(falseGuard)
 
 	assert.False(t, notTrue(ctx, entity))
 	assert.True(t, notFalse(ctx, entity))
 }
 
-func TestAnd(t *testing.T) {
+func TestGuardAnd(t *testing.T) {
 	ctx := context.Background()
 	entity := &guardTestEntity{value: 7}
 
 	// All true
-	andAllTrue := And(trueGuard, trueGuard)
+	andAllTrue := GuardAnd(trueGuard, trueGuard)
 	assert.True(t, andAllTrue(ctx, entity))
 
 	// All false
-	andAllFalse := And(falseGuard, falseGuard)
+	andAllFalse := GuardAnd(falseGuard, falseGuard)
 	assert.False(t, andAllFalse(ctx, entity))
 
 	// Mixed
-	andMixed := And(trueGuard, falseGuard)
+	andMixed := GuardAnd(trueGuard, falseGuard)
 	assert.False(t, andMixed(ctx, entity))
 
 	// Empty (vacuous truth)
-	andEmpty := And[*guardTestEntity]()
+	andEmpty := GuardAnd[*guardTestEntity]()
 	assert.True(t, andEmpty(ctx, entity))
 
 	// Single
-	andSingle := And(trueGuard)
+	andSingle := GuardAnd(trueGuard)
 	assert.True(t, andSingle(ctx, entity))
 
 	// Conditional - value is 7, so > 5 and < 10 are both true
-	andConditional := And(valueGreaterThan5, valueLessThan10)
+	andConditional := GuardAnd(valueGreaterThan5, valueLessThan10)
 	assert.True(t, andConditional(ctx, entity))
 
 	// Conditional failing - value is 7, so > 5 is true but we negate it
-	andConditionalFail := And(Not(valueGreaterThan5), valueLessThan10)
+	andConditionalFail := GuardAnd(GuardNot(valueGreaterThan5), valueLessThan10)
 	assert.False(t, andConditionalFail(ctx, entity))
 }
 
-func TestOr(t *testing.T) {
+func TestGuardOr(t *testing.T) {
 	ctx := context.Background()
 	entity := &guardTestEntity{value: 7}
 
 	// All true
-	orAllTrue := Or(trueGuard, trueGuard)
+	orAllTrue := GuardOr(trueGuard, trueGuard)
 	assert.True(t, orAllTrue(ctx, entity))
 
 	// All false
-	orAllFalse := Or(falseGuard, falseGuard)
+	orAllFalse := GuardOr(falseGuard, falseGuard)
 	assert.False(t, orAllFalse(ctx, entity))
 
 	// Mixed - at least one true
-	orMixed := Or(trueGuard, falseGuard)
+	orMixed := GuardOr(trueGuard, falseGuard)
 	assert.True(t, orMixed(ctx, entity))
 
-	orMixed2 := Or(falseGuard, trueGuard)
+	orMixed2 := GuardOr(falseGuard, trueGuard)
 	assert.True(t, orMixed2(ctx, entity))
 
 	// Empty (vacuous false)
-	orEmpty := Or[*guardTestEntity]()
+	orEmpty := GuardOr[*guardTestEntity]()
 	assert.False(t, orEmpty(ctx, entity))
 
 	// Single
-	orSingle := Or(falseGuard)
+	orSingle := GuardOr(falseGuard)
 	assert.False(t, orSingle(ctx, entity))
 
-	orSingleTrue := Or(trueGuard)
+	orSingleTrue := GuardOr(trueGuard)
 	assert.True(t, orSingleTrue(ctx, entity))
 }
 
@@ -125,8 +125,8 @@ func TestComplexGuardComposition(t *testing.T) {
 		return e.value == 0
 	}
 
-	complexGuard := Or(
-		And(valueGreaterThan5, valueLessThan10),
+	complexGuard := GuardOr(
+		GuardAnd(valueGreaterThan5, valueLessThan10),
 		isZero,
 	)
 
@@ -166,13 +166,13 @@ func TestGuardShortCircuit(t *testing.T) {
 
 	// And should short-circuit on first false
 	callCount = 0
-	andShortCircuit := And(countingFalseGuard, countingTrueGuard)
+	andShortCircuit := GuardAnd(countingFalseGuard, countingTrueGuard)
 	assert.False(t, andShortCircuit(ctx, entity))
 	assert.Equal(t, 1, callCount) // Should only call the first guard
 
 	// Or should short-circuit on first true
 	callCount = 0
-	orShortCircuit := Or(countingTrueGuard, countingFalseGuard)
+	orShortCircuit := GuardOr(countingTrueGuard, countingFalseGuard)
 	assert.True(t, orShortCircuit(ctx, entity))
 	assert.Equal(t, 1, callCount) // Should only call the first guard
 }

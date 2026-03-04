@@ -15,11 +15,8 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -52,15 +49,4 @@ func Test_clearTimeoutSchedules_BothSet(t *testing.T) {
 	assert.True(t, called2)
 	assert.Nil(t, txn.cancelRequestTimeoutSchedule)
 	assert.Nil(t, txn.cancelStateTimeoutSchedule)
-}
-
-func Test_stateTimeoutExceeded_NoStartTime(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateEntryTime = nil
-	pendingRequest := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
-
-	assert.False(t, txn.stateTimeoutExceeded(ctx, pendingRequest, "test-state"))
 }

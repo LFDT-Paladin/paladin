@@ -17,7 +17,6 @@ package transaction
 import (
 	"context"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
@@ -62,20 +61,7 @@ func (t *CoordinatorTransaction) clearTimeoutSchedules() {
 	t.clearStateTimeoutSchedule()
 }
 
-func (t *CoordinatorTransaction) stateTimeoutExceeded(ctx context.Context, pendingRequest *common.IdempotentRequest, stateDescription string) bool {
-	if pendingRequest == nil {
-		log.L(ctx).Warnf("stateTimeoutExceeded called for %s on transaction %s with no pending request", stateDescription, t.pt.ID)
-		return false
-	}
-	log.L(ctx).Debugf("checking state timeout exceeded for %s on transaction %s request idempotency key %s", stateDescription, t.pt.ID.String(), pendingRequest.IdempotencyKey())
-	startTime := t.stateEntryTime
-	if startTime == nil {
-		log.L(ctx).Warnf("stateTimeoutExceeded called for %s on transaction %s with no start time", stateDescription, t.pt.ID)
-		return false
-	}
-	timedOut := t.clock.HasExpired(startTime, t.stateTimeout)
-	if timedOut {
-		log.L(ctx).Debugf("%s of TX %s timed out", stateDescription, t.pt.ID)
-	}
-	return timedOut
+func action_ScheduleStateTimeout(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+	txn.scheduleStateTimeout(ctx)
+	return nil
 }

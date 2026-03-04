@@ -203,42 +203,54 @@ func action_TransactionConfirmed(ctx context.Context, c *coordinator, event comm
 	return nil
 }
 
-func action_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
+func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Pooled, nil
+}
 
-	// If a transaction has transitioned to Pooled, add it to the pool queue
+func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction
 	// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
 	// node. If a transaction needs re-assembly after a revert, it will be processed after
 	// a new transaction that hasn't ever been assembled.
-	if e.To == transaction.State_Pooled {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			c.addTransactionToBackOfPool(txn)
+	txn := c.transactionsByID[e.TransactionID]
+	if txn != nil {
+		c.addTransactionToBackOfPool(txn)
+	}
+	return nil
+}
+
+func validator_TransactionStateTransitionToReadyForDispatch(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Ready_For_Dispatch, nil
+}
+
+func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	txn := c.transactionsByID[e.TransactionID]
+	if txn != nil {
+		select {
+		case c.dispatchQueue <- txn:
+		case <-ctx.Done():
 		}
 	}
+	return nil
+}
 
-	// If a transaction has transitioned to Ready_For_Dispatch, queue it for dispatch
-	if e.To == transaction.State_Ready_For_Dispatch {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			select {
-			case c.dispatchQueue <- txn:
-			case <-ctx.Done():
-			}
-		}
+func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Final, nil
+}
+
+func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	delete(c.transactionsByID, e.TransactionID)
+	c.metrics.DecCoordinatingTransactions()
+	err := c.grapher.Forget(e.TransactionID)
+	if err != nil {
+		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
 	}
-
-	// If a transaction has reached its final state, clean it up from the coordinator
-	if e.To == transaction.State_Final {
-		delete(c.transactionsByID, e.TransactionID)
-		c.metrics.DecCoordinatingTransactions()
-		err := c.grapher.Forget(e.TransactionID)
-		if err != nil {
-			log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
-		}
-		log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
-	}
-
+	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
 	return nil
 }

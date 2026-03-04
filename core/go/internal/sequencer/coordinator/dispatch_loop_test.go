@@ -48,7 +48,7 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
 	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 	c.transactionsByID[txn.GetID()] = txn
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
 		To:            transaction.State_Ready_For_Dispatch,
 	})
@@ -99,12 +99,12 @@ func TestDispatchLoop_SkipsStaleQueuedTransaction(t *testing.T) {
 	c.transactionsByID[staleTxn.GetID()] = staleTxn
 	c.transactionsByID[validTxn.GetID()] = validTxn
 
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: staleTxn.GetID(),
 		To:            transaction.State_Ready_For_Dispatch,
 	})
 	require.NoError(t, err)
-	err = action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err = action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: validTxn.GetID(),
 		To:            transaction.State_Ready_For_Dispatch,
 	})

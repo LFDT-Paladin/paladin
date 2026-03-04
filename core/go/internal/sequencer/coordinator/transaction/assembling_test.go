@@ -350,84 +350,6 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func Test_assembleStateTimeoutExceeded_NilPendingRequest(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingAssembleRequest = nil
-
-	result := txn.assembleStateTimeoutExceeded(ctx)
-	assert.False(t, result)
-}
-
-func Test_assembleStateTimeoutExceeded_NilFirstRequestTime(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.originatorNode = "node1"
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	// Create a pending request but don't send it (so FirstRequestTime is nil)
-	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
-	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
-	).Return(errors.New("send error")) // Error prevents FirstRequestTime from being set
-
-	_ = txn.sendAssembleRequest(ctx)
-
-	result := txn.assembleStateTimeoutExceeded(ctx)
-	assert.False(t, result)
-
-	// Advance clock past timeout; even without FirstRequestTime we should time out
-	// using state entry time as fallback.
-	mocks.clock.Advance(6000) // stateTimeout is 5000ms
-	result = txn.assembleStateTimeoutExceeded(ctx)
-	assert.True(t, result)
-}
-
-func Test_assembleStateTimeoutExceeded_NotExpired(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.originatorNode = "node1"
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	// Create a pending request and send it successfully
-	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
-	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
-	).Return(nil)
-
-	err := txn.sendAssembleRequest(ctx)
-	require.NoError(t, err)
-
-	// Timeout not exceeded yet
-	result := txn.assembleStateTimeoutExceeded(ctx)
-	assert.False(t, result)
-}
-
-func Test_assembleStateTimeoutExceeded_Expired(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.originatorNode = "node1"
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	// Create a pending request and send it successfully
-	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
-	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
-	).Return(nil)
-
-	err := txn.sendAssembleRequest(ctx)
-	require.NoError(t, err)
-
-	// Advance clock past timeout
-	mocks.clock.Advance(6000) // stateTimeout is 5000ms
-
-	result := txn.assembleStateTimeoutExceeded(ctx)
-	assert.True(t, result)
-}
-
 func Test_isNotAssembled_NotAssembledStates(t *testing.T) {
 	txn, _ := newTransactionForUnitTesting(t, nil)
 
@@ -874,49 +796,6 @@ func Test_action_IncrementAssembleErrors_Success(t *testing.T) {
 	assert.Equal(t, initialCount+1, txn.errorCount)
 }
 
-func Test_guard_AssembleStateTimeoutExceeded_NotExceeded(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.originatorNode = "node1"
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	// Create a pending request
-	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
-	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
-	).Return(nil)
-
-	err := txn.sendAssembleRequest(ctx)
-	require.NoError(t, err)
-
-	result := guard_AssembleStateTimeoutExceeded(ctx, txn)
-	assert.False(t, result)
-}
-
-func Test_guard_AssembleStateTimeoutExceeded_Exceeded(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.originatorNode = "node1"
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	// Create a pending request
-	mocks.engineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.engineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
-	mocks.transportWriter.EXPECT().SendAssembleRequest(
-		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
-	).Return(nil)
-
-	err := txn.sendAssembleRequest(ctx)
-	require.NoError(t, err)
-
-	// Advance clock past timeout
-	mocks.clock.Advance(6000)
-
-	result := guard_AssembleStateTimeoutExceeded(ctx, txn)
-	assert.True(t, result)
-}
-
 func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := newTransactionForUnitTesting(t, nil)
@@ -1147,7 +1026,9 @@ func Test_onTransitionToAssembling_AssembleTimeoutCallback(t *testing.T) {
 		}
 	}
 
-	err = action_OnTransitionToAssembling(ctx, txn, nil)
+	err = action_ScheduleStateTimeout(ctx, txn, nil)
+	require.NoError(t, err)
+	err = action_SendAssembleRequest(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Wait for timeout to fire
@@ -1204,7 +1085,9 @@ func Test_onTransitionToAssembling_AssembleTimeoutCallback_Error(t *testing.T) {
 		}
 	}
 
-	err = action_OnTransitionToAssembling(ctx, txn, nil)
+	err = action_ScheduleStateTimeout(ctx, txn, nil)
+	require.NoError(t, err)
+	err = action_SendAssembleRequest(ctx, txn, nil)
 	require.NoError(t, err)
 
 	// Wait for timeout to fire

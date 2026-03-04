@@ -56,14 +56,13 @@ type originator struct {
 	ctx context.Context
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop       *statemachine.StateMachineEventLoop[State, *originator]
-	activeCoordinatorNode       string
-	timeOfMostRecentHeartbeat   common.Time
-	transactionsByID            map[uuid.UUID]*transaction.OriginatorTransaction
-	submittedTransactionsByHash map[pldtypes.Bytes32]*uuid.UUID
-	transactionsOrdered         []*transaction.OriginatorTransaction
-	currentBlockHeight          uint64
-	latestCoordinatorSnapshot   *common.CoordinatorSnapshot
+	stateMachineEventLoop     *statemachine.StateMachineEventLoop[State, *originator]
+	activeCoordinatorNode     string
+	timeOfMostRecentHeartbeat common.Time
+	transactionsByID          map[uuid.UUID]*transaction.OriginatorTransaction
+	transactionsOrdered       []*transaction.OriginatorTransaction
+	currentBlockHeight        uint64
+	latestCoordinatorSnapshot *common.CoordinatorSnapshot
 
 	/* Config */
 	nodeName             string
@@ -95,19 +94,18 @@ func NewOriginator(
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
 	o := &originator{
-		ctx:                         ctx,
-		nodeName:                    nodeName,
-		transactionsByID:            make(map[uuid.UUID]*transaction.OriginatorTransaction),
-		submittedTransactionsByHash: make(map[pldtypes.Bytes32]*uuid.UUID),
-		transportWriter:             transportWriter,
-		blockRangeSize:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
-		contractAddress:             contractAddress,
-		clock:                       clock,
-		engineIntegration:           engineIntegration,
-		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
-		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
-		metrics:                     metrics,
-		delegateLoopStopped:         make(chan struct{}),
+		ctx:                  ctx,
+		nodeName:             nodeName,
+		transactionsByID:     make(map[uuid.UUID]*transaction.OriginatorTransaction),
+		transportWriter:      transportWriter,
+		blockRangeSize:       confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
+		contractAddress:      contractAddress,
+		clock:                clock,
+		engineIntegration:    engineIntegration,
+		heartbeatThresholdMs: clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
+		delegateTimeout:      confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
+		metrics:              metrics,
+		delegateLoopStopped:  make(chan struct{}),
 	}
 	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)

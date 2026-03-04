@@ -117,10 +117,6 @@ func (t *CoordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *CoordinatorTransaction) assembleStateTimeoutExceeded(ctx context.Context) bool {
-	return t.stateTimeoutExceeded(ctx, t.pendingAssembleRequest, "assembly")
-}
-
 func (t *CoordinatorTransaction) isNotAssembled() bool {
 	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
@@ -237,11 +233,6 @@ func action_SendAssembleRequest(ctx context.Context, txn *CoordinatorTransaction
 	return txn.sendAssembleRequest(ctx)
 }
 
-func action_OnTransitionToAssembling(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	txn.scheduleStateTimeout(ctx)
-	return action_SendAssembleRequest(ctx, txn, event)
-}
-
 func action_NudgeAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
@@ -254,8 +245,4 @@ func action_NotifyDependentsOfAssembled(ctx context.Context, txn *CoordinatorTra
 func action_IncrementErrors(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
 	txn.resetEndorsementRequests(ctx)
 	return txn.incrementErrors()
-}
-
-func guard_AssembleStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.assembleStateTimeoutExceeded(ctx)
 }

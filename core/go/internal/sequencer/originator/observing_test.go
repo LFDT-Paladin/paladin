@@ -128,14 +128,6 @@ func Test_applyHeartbeatReceived_DispatchedTransactionWithHashUpdatesSubmitted(t
 
 	err = o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	assert.NoError(t, err)
-
-	// Verify the transaction hash was added to submittedTransactionsByHash
-	// Note: The hash is only added if HandleEvent succeeds, which depends on the transaction's state
-	txIDPtr, exists := o.submittedTransactionsByHash[submissionHash]
-	if exists {
-		assert.Equal(t, txn.ID, *txIDPtr)
-	}
-	// If it doesn't exist, it means HandleEvent didn't process the event (transaction might be in wrong state)
 }
 
 func Test_applyHeartbeatReceived_DispatchedTransactionWithNonceOnlySendsNonceAssigned(t *testing.T) {

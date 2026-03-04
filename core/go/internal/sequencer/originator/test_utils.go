@@ -169,10 +169,6 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		txID := tx.GetID()
 		originator.transactionsByID[txID] = tx
 		originator.transactionsOrdered = append(originator.transactionsOrdered, tx)
-		switch tx.GetCurrentState() {
-		case transaction.State_Submitted:
-			originator.submittedTransactionsByHash[*tx.GetLatestSubmissionHash()] = &txID
-		}
 	}
 
 	if err != nil {
