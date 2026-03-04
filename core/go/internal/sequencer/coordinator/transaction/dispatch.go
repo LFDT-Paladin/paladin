@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -74,7 +75,9 @@ func (t *CoordinatorTransaction) dispatch(ctx context.Context) error {
 
 	if len(dispatchBatch.PrivateDispatches) > 0 {
 		for _, chained := range dispatchBatch.PrivateDispatches {
-			err := t.components.SequencerManager().HandleNewTx(ctx, t.components.Persistence().NOTX(), chained.NewTransaction)
+			err = t.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
+				return t.components.SequencerManager().HandleNewTx(ctx, dbTx, chained.NewTransaction)
+			})
 			if err != nil {
 				log.L(ctx).Errorf("error handling new private transaction: %v", err)
 				return err

@@ -403,6 +403,8 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 	mocks.DomainContext.On("UpsertNullifiers", mock.Anything).Return(nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.DB.ExpectBegin()
+	mocks.DB.ExpectCommit()
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -470,6 +472,8 @@ func Test_dispatch_PersistDispatchBatch_WithRemoteStateDistributions(t *testing.
 		}).
 		Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.DB.ExpectBegin()
+	mocks.DB.ExpectCommit()
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -493,6 +497,8 @@ func Test_dispatch_HandleNewTransactionsReturnsError(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new transactions failed"))
+	mocks.DB.ExpectBegin()
+	mocks.DB.ExpectRollback()
 
 	err := txn.dispatch(ctx)
 	require.Error(t, err)
@@ -540,6 +546,8 @@ func Test_dispatch_Success_ChainedPrivate(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.DB.ExpectBegin()
+	mocks.DB.ExpectCommit()
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
