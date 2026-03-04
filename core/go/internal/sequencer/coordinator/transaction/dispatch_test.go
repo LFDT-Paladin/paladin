@@ -402,7 +402,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
 	mocks.DomainContext.On("UpsertNullifiers", mock.Anything).Return(nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mocks.SequenceManager.On("HandleNewPrivateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -469,7 +469,7 @@ func Test_dispatch_PersistDispatchBatch_WithRemoteStateDistributions(t *testing.
 			assert.Equal(t, "receiver@node2", sd[0].IdentityLocator)
 		}).
 		Return(nil)
-	mocks.SequenceManager.On("HandleNewPrivateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -492,7 +492,7 @@ func Test_dispatch_HandleNewTransactionsReturnsError(t *testing.T) {
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mocks.SequenceManager.On("HandleNewPrivateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new transactions failed"))
+	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new transactions failed"))
 
 	err := txn.dispatch(ctx)
 	require.Error(t, err)
@@ -539,7 +539,7 @@ func Test_dispatch_Success_ChainedPrivate(t *testing.T) {
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
 	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mocks.SequenceManager.On("HandleNewPrivateTransaction", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
