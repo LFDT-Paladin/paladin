@@ -562,14 +562,6 @@ func Test_writeLockStates_Error(t *testing.T) {
 	require.Error(t, err)
 }
 
-func Test_incrementErrors_IncrementsErrorCount(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	err := txn.incrementErrors()
-	require.NoError(t, err)
-	assert.Equal(t, 1, txn.errorCount)
-}
-
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -727,15 +719,6 @@ func Test_action_NotifyDependentsOfAssembled_Success(t *testing.T) {
 	require.NoError(t, err)
 	// State: no dependents, so no HandleEvent calls; dependencies unchanged
 	assert.Len(t, txn.dependencies.PrereqOf, 0)
-}
-
-func Test_action_IncrementAssembleErrors_Success(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	err := action_IncrementErrors(ctx, txn, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, txn.errorCount)
 }
 
 func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {

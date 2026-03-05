@@ -764,7 +764,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransaction
 	defer done()
 
 	// Ensure transactionsByID is empty
-	c.transactionsByID = make(map[uuid.UUID]*transaction.CoordinatorTransaction)
+	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
 
 	event := &common.HeartbeatIntervalEvent{}
 	err := c.propagateEventToAllTransactions(ctx, event)
@@ -943,7 +943,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ProcessesTransactionsInMapI
 	defer done()
 
 	// Create multiple transactions
-	txns := make([]*transaction.CoordinatorTransaction, 5)
+	txns := make([]transaction.CoordinatorTransaction, 5)
 	for i := 0; i < 5; i++ {
 		txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
 		txns[i], _ = txBuilder.Build()

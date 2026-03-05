@@ -131,7 +131,7 @@ func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 // TODO: this test can be implemented when there is a way to mock the dependent transaction
 // func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {}
 
-func Test_action_NotifyConfirmed_SetsRevertReasonAndSends(t *testing.T) {
+func Test_action_NotifyConfirmed_SendsToOrignator(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
 		UseMockTransportWriter().
@@ -153,9 +153,56 @@ func Test_action_NotifyConfirmed_SetsRevertReasonAndSends(t *testing.T) {
 
 	err := action_NotifyConfirmed(ctx, txn, event)
 	require.NoError(t, err)
+}
 
-	// Assert state: revertReason was set
+func Test_action_RecordConfirmationDetails_SetsRevertReason(t *testing.T) {
+	ctx := context.Background()
+	hash := pldtypes.RandBytes32()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		LatestSubmissionHash(&hash).
+		Build()
+	revertReason := pldtypes.MustParseHexBytes("0x1234")
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		RevertReason: revertReason,
+	}
+
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
 	assert.Equal(t, revertReason, txn.revertReason)
+}
+
+func Test_action_RecordConfirmationDetails_NilHash(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Build()
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+	}
+
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
+}
+
+func Test_action_RecordConfirmationDetails_DifferentHash(t *testing.T) {
+	ctx := context.Background()
+	hash := pldtypes.RandBytes32()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		LatestSubmissionHash(&hash).
+		Build()
+	event := &ConfirmedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		Hash: pldtypes.RandBytes32(),
+	}
+
+	err := action_RecordConfirmationDetails(ctx, txn, event)
+	require.NoError(t, err)
 }
 
 func Test_action_NotifyDependantsOfConfirmation_Success(t *testing.T) {
@@ -235,7 +282,7 @@ func Test_EventConfirmed_NonTerminalStates_TransitionsToConfirmed_WhenNoRevertRe
 
 			err := txn.HandleEvent(ctx, event)
 			require.NoError(t, err)
-			assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+			assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 		})
 	}
 }
@@ -267,7 +314,7 @@ func Test_EventConfirmed_NonTerminalStates_RevertStaysInPlace_ForNewHandlers(t *
 
 			err := txn.HandleEvent(ctx, event)
 			require.NoError(t, err)
-			assert.Equal(t, state, txn.GetCurrentState())
+			assert.Equal(t, state, txn.stateMachine.GetCurrentState())
 		})
 	}
 }
@@ -287,5 +334,5 @@ func Test_EventConfirmed_StateDispatched_RevertTransitionsToPooled(t *testing.T)
 
 	err := txn.HandleEvent(ctx, event)
 	require.NoError(t, err)
-	assert.Equal(t, State_Pooled, txn.GetCurrentState())
+	assert.Equal(t, State_Pooled, txn.stateMachine.GetCurrentState())
 }

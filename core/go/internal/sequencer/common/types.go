@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type FlushPoint struct {
+type SnapshotFlushPoint struct {
 	From          pldtypes.EthAddress
 	Nonce         uint64
 	TransactionID uuid.UUID
@@ -29,39 +29,38 @@ type FlushPoint struct {
 	Confirmed     bool
 }
 
-func (f *FlushPoint) GetSignerNonce() string {
+func (f *SnapshotFlushPoint) GetSignerNonce() string {
 	return fmt.Sprintf("%s:%d", f.From.String(), f.Nonce)
 }
 
 type CoordinatorSnapshot struct {
-	FlushPoints            []*FlushPoint            `json:"flushPoints"`
-	DispatchedTransactions []*DispatchedTransaction `json:"dispatchedTransactions"`
-	PooledTransactions     []*Transaction           `json:"pooledTransactions"`
-	ConfirmedTransactions  []*ConfirmedTransaction  `json:"confirmedTransactions"`
-	CoordinatorState       string                   `json:"coordinatorState"`
-	BlockHeight            uint64                   `json:"blockHeight"`
+	FlushPoints            []*SnapshotFlushPoint            `json:"flushPoints"`
+	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
+	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
+	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`
+	CoordinatorState       string                           `json:"coordinatorState"`
+	BlockHeight            uint64                           `json:"blockHeight"`
 }
 
-type Transaction struct {
-	//components.PrivateTransaction
+type SnapshotPooledTransaction struct {
 	ID         uuid.UUID
 	Originator string
 }
 
-func (t *Transaction) GetID() string {
+func (t *SnapshotPooledTransaction) GetID() string {
 	return t.ID.String()
 }
 
-type DispatchedTransaction struct {
-	Transaction
+type SnapshotDispatchedTransaction struct {
+	SnapshotPooledTransaction
 	SignerLocator        string
 	Signer               pldtypes.EthAddress
 	LatestSubmissionHash *pldtypes.Bytes32
 	Nonce                *uint64
 }
 
-type ConfirmedTransaction struct {
-	DispatchedTransaction
+type SnapshotConfirmedTransaction struct {
+	SnapshotDispatchedTransaction
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
 }

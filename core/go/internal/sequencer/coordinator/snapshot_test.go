@@ -37,137 +37,29 @@ func TestGetSnapshot_OK(t *testing.T) {
 	assert.NotNil(t, snapshot)
 }
 
-func TestGetSnapshot_IncludesPooledTransaction(t *testing.T) {
+func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
 	defer done()
 
-	for _, state := range []transaction.State{
-		transaction.State_Pooled,
-		transaction.State_PreAssembly_Blocked,
-		transaction.State_Assembling,
-		transaction.State_Endorsement_Gathering,
-		transaction.State_Blocked,
-		transaction.State_Confirming_Dispatchable,
-	} {
-		txn, _ := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.GetID()] = txn
-	}
+	pooledTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	dispatchedTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	confirmedTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
+	excludedTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).Build()
+	c.transactionsByID[pooledTxn.GetID()] = pooledTxn
+	c.transactionsByID[dispatchedTxn.GetID()] = dispatchedTxn
+	c.transactionsByID[confirmedTxn.GetID()] = confirmedTxn
+	c.transactionsByID[excludedTxn.GetID()] = excludedTxn
 
 	snapshot := c.getSnapshot(ctx)
 	require.NotNil(t, snapshot)
-	assert.Equal(t, 6, len(snapshot.PooledTransactions))
-
-}
-
-func TestGetSnapshot_IncludesDispatchedTransaction(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	for _, state := range []transaction.State{
-		transaction.State_Ready_For_Dispatch,
-		transaction.State_Dispatched,
-	} {
-		txn, _ := transaction.NewTransactionBuilderForTesting(t, state).Build()
-		c.transactionsByID[txn.GetID()] = txn
-	}
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 2, len(snapshot.DispatchedTransactions))
-
-}
-
-func TestGetSnapshot_ExcludesRevertedTransaction(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Reverted).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 0, len(snapshot.PooledTransactions))
-	assert.Equal(t, 0, len(snapshot.DispatchedTransactions))
-	assert.Equal(t, 0, len(snapshot.ConfirmedTransactions))
-}
-
-func TestGetSnapshot_IncludesDispatchedDetailsState(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.DispatchedTransactions))
-}
-
-func TestGetSnapshot_IncludesConfirmedTransaction(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.ConfirmedTransactions))
-	assert.Equal(t, txn.GetID(), snapshot.ConfirmedTransactions[0].ID)
-}
-
-func TestGetSnapshot_DispatchedTransactionWithNilSignerAddress(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	// Create a transaction builder and manually set signerAddress to nil after building
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn, _ := txnBuilder.Build()
-	// Access the signerAddress field directly - we're in the same package as Transaction
-	// Use reflection to set it to nil since it's a private field
-	// Actually, let's check if we can create a transaction without a signer address
-	// by using a state that doesn't set it
-	txn, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	// The transaction should have nil signerAddress for Ready_For_Dispatch state
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.DispatchedTransactions))
-	// Transaction should still be included even without signer address
-	assert.Equal(t, txn.GetID(), snapshot.DispatchedTransactions[0].ID)
-}
-
-func TestGetSnapshot_ConfirmedTransactionWithNilSignerAddress(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	// Create a confirmed transaction - it may or may not have a signer address
-	// We'll test the case where it doesn't by using reflection or checking the actual behavior
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	// For State_Confirmed, the builder may set signerAddress, but we want to test nil case
-	// We'll use a transaction that naturally has nil signerAddress
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.ConfirmedTransactions))
-	// Transaction should still be included even without signer address
-	assert.Equal(t, txn.GetID(), snapshot.ConfirmedTransactions[0].ID)
+	assert.Len(t, snapshot.PooledTransactions, 1)
+	assert.Len(t, snapshot.DispatchedTransactions, 1)
+	assert.Len(t, snapshot.ConfirmedTransactions, 1)
+	assert.Equal(t, pooledTxn.GetID(), snapshot.PooledTransactions[0].ID)
+	assert.Equal(t, dispatchedTxn.GetID(), snapshot.DispatchedTransactions[0].ID)
+	assert.Equal(t, confirmedTxn.GetID(), snapshot.ConfirmedTransactions[0].ID)
 }
 
 func TestGetSnapshot_IncludesFlushPoints(t *testing.T) {
@@ -192,64 +84,6 @@ func TestGetSnapshot_IncludesCoordinatorStateAndBlockHeight(t *testing.T) {
 	require.NotNil(t, snapshot)
 	assert.Equal(t, c.GetCurrentState().String(), snapshot.CoordinatorState)
 	assert.Equal(t, blockHeight, snapshot.BlockHeight)
-}
-
-func TestGetSnapshot_DispatchedTransactionWithSignerAddress(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	// Use State_Dispatched which sets signerAddress, nonce, and latestSubmissionHash
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
-		Originator(originator).
-		Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.DispatchedTransactions))
-	dispatched := snapshot.DispatchedTransactions[0]
-	assert.Equal(t, txn.GetID(), dispatched.ID)
-	// State_Dispatched transactions should have signer address, nonce, and submission hash
-	signerAddr := txn.GetSignerAddress()
-	if signerAddr != nil {
-		assert.Equal(t, *signerAddr, dispatched.Signer)
-		nonce := txn.GetNonce()
-		if nonce != nil {
-			// Nonce is a pointer in DispatchedTransaction, so compare pointers
-			assert.Equal(t, nonce, dispatched.Nonce)
-		}
-		submissionHash := txn.GetLatestSubmissionHash()
-		if submissionHash != nil {
-			// LatestSubmissionHash is a pointer in DispatchedTransaction, so compare pointers
-			assert.Equal(t, submissionHash, dispatched.LatestSubmissionHash)
-		}
-	}
-	assert.Equal(t, originator, dispatched.Originator)
-	// Just verify the code path is executed - the actual values depend on the transaction builder
-}
-
-func TestGetSnapshot_ConfirmedTransactionWithRevertReason(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
-	defer done()
-
-	// Build a confirmed transaction - this tests the code path that reads GetRevertReason()
-	// The actual value doesn't matter for coverage, we just need to ensure the line is executed
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Equal(t, 1, len(snapshot.ConfirmedTransactions))
-	confirmed := snapshot.ConfirmedTransactions[0]
-	assert.Equal(t, txn.GetID(), confirmed.ID)
-	// Verify that RevertReason field exists in the snapshot - this ensures the code path is covered
-	// The GetRevertReason() call in snapshot.go line 117 is executed
-	// HexBytes can be nil/empty, so we just verify the field is accessible
-	_ = confirmed.RevertReason
 }
 
 func TestSendHeartbeat_Success(t *testing.T) {

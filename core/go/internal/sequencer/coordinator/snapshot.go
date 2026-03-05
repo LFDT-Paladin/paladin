@@ -21,7 +21,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -85,9 +84,9 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, contractAddress *pldtyp
 func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapshot {
 	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
 	// This function is called from the sequencer loop so is safe to read internal state
-	pooledTransactions := make([]*common.Transaction, 0, len(c.transactionsByID))
-	dispatchedTransactions := make([]*common.DispatchedTransaction, 0, len(c.transactionsByID))
-	confirmedTransactions := make([]*common.ConfirmedTransaction, 0, len(c.transactionsByID))
+	pooledTransactions := make([]*common.SnapshotPooledTransaction, 0, len(c.transactionsByID))
+	dispatchedTransactions := make([]*common.SnapshotDispatchedTransaction, 0, len(c.transactionsByID))
+	confirmedTransactions := make([]*common.SnapshotConfirmedTransaction, 0, len(c.transactionsByID))
 
 	//Snapshot contains a coarse grained view of transactions state.
 	// All known transactions fall into one of 3 categories
@@ -95,63 +94,18 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
 	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
 	for _, txn := range c.transactionsByID {
-		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.GetID().String(), txn.GetCurrentState().String())
-		switch txn.GetCurrentState() {
-		// pooled transactions are those that have been delegated but not yet dispatched, this includes the various states from being delegated up to being ready for dispatch
-		case transaction.State_Reverted:
-			//NOOP - this transaction is just waiting to be cleaned up so we don't include it in the snapshot
-		case transaction.State_Blocked:
-			fallthrough
-		case transaction.State_Confirming_Dispatchable:
-			fallthrough
-		case transaction.State_Endorsement_Gathering:
-			fallthrough
-		case transaction.State_PreAssembly_Blocked:
-			fallthrough
-		case transaction.State_Assembling:
-			fallthrough
-		case transaction.State_Pooled:
-			pooledTransactions = append(pooledTransactions, &common.Transaction{
-				ID: txn.GetID(),
-			})
-		case transaction.State_Ready_For_Dispatch:
-			//this is already past the point of no return.  It is as good as dispatched, just waiting for the the dispatcher thread to collect it so we include it in the dispatched transactions
-			// of the snapshot
-			fallthrough
-		case transaction.State_Dispatched:
-			dispatchedTransaction := &common.DispatchedTransaction{}
-			dispatchedTransaction.ID = txn.GetID()
-			dispatchedTransaction.Originator = txn.Originator()
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				dispatchedTransaction.Signer = *signerAddressPtr
-				dispatchedTransaction.Nonce = txn.GetNonce()
-				dispatchedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.GetID())
-			}
-
+		pooledTransaction, dispatchedTransaction, confirmedTransaction := txn.GetSnapshot(ctx)
+		if pooledTransaction != nil {
+			pooledTransactions = append(pooledTransactions, pooledTransaction)
+		}
+		if dispatchedTransaction != nil {
 			dispatchedTransactions = append(dispatchedTransactions, dispatchedTransaction)
-
-		case transaction.State_Confirmed:
-			log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", txn.GetID().String())
-			confirmedTransaction := &common.ConfirmedTransaction{}
-			confirmedTransaction.ID = txn.GetID()
-
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				confirmedTransaction.Signer = *signerAddressPtr
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.GetID())
-			}
-			confirmedTransaction.Nonce = txn.GetNonce()
-			confirmedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			confirmedTransaction.RevertReason = txn.GetRevertReason()
+		}
+		if confirmedTransaction != nil {
 			confirmedTransactions = append(confirmedTransactions, confirmedTransaction)
 		}
-
 	}
-	flushPoints := make([]*common.FlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
+	flushPoints := make([]*common.SnapshotFlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
 	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
 		flushPoints = append(flushPoints, flushPoint)
 	}

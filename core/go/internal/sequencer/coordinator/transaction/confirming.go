@@ -23,17 +23,32 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func guard_HasRevertReason(ctx context.Context, txn *CoordinatorTransaction) bool {
+func guard_HasRevertReason(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.revertReason.String() != ""
 }
 
-func action_NotifyConfirmed(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_RecordConfirmationDetails(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedEvent)
+	if t.latestSubmissionHash == nil {
+		// The transaction created a chained private transaction so there is no hash to compare
+		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", t.pt.ID.String(), e.Hash.String())
+	} else if *t.latestSubmissionHash != e.Hash {
+		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
+		// It is interesting so we log it but either way, this must be the transaction that we are looking for because the block indexer correlates with transaction IDs
+		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", t.pt.ID.String(), t.latestSubmissionHash, e.Hash.String())
+	}
+
 	t.revertReason = e.RevertReason
+	return nil
+}
+
+func action_NotifyConfirmed(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedEvent)
+
 	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason)
 }
 
-func action_NotifyDependantsOfConfirmation(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_NotifyDependantsOfConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("action_NotifyOfConfirmation - notifying dependents of confirmation for transaction %s", txn.pt.ID.String())
 	if txn.confirmedLockRetentionGracePeriod == 0 {
 		if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
@@ -43,7 +58,7 @@ func action_NotifyDependantsOfConfirmation(ctx context.Context, txn *Coordinator
 	return txn.notifyDependentsOfConfirmation(ctx)
 }
 
-func (t *CoordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Context) error {
+func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Context) error {
 	if log.IsTraceEnabled() {
 		t.traceDispatch(ctx)
 	}

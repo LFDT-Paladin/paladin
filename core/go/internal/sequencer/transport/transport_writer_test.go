@@ -1319,10 +1319,10 @@ func TestSendHeartbeat_Success(t *testing.T) {
 	coordinatorSnapshot := &common.CoordinatorSnapshot{
 		CoordinatorState:       "Idle",
 		BlockHeight:            100,
-		FlushPoints:            []*common.FlushPoint{},
-		PooledTransactions:     []*common.Transaction{},
-		DispatchedTransactions: []*common.DispatchedTransaction{},
-		ConfirmedTransactions:  []*common.ConfirmedTransaction{},
+		FlushPoints:            []*common.SnapshotFlushPoint{},
+		PooledTransactions:     []*common.SnapshotPooledTransaction{},
+		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
+		ConfirmedTransactions:  []*common.SnapshotConfirmedTransaction{},
 	}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)

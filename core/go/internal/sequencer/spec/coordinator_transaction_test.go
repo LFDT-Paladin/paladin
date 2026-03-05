@@ -176,7 +176,6 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 	assert.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-	assert.Equal(t, 1, txn.GetErrorCount(), "expected error count to be 1, but it was %d", txn.GetErrorCount())
 }
 
 func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t *testing.T) {
@@ -347,7 +346,6 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-	assert.Equal(t, 1, txn.GetErrorCount())
 }
 
 func TestCoordinatorTransaction_ConfirmingDispatch_NudgeRequest_OnRequestTimeout(t *testing.T) {

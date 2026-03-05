@@ -112,7 +112,7 @@ func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Even
 
 func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error {
 	log.L(ctx).Trace("selecting next transaction to assemble")
-	txn := c.popNextPooledTransaction(ctx)
+	txn := c.popNextPooledTransaction()
 	if txn == nil {
 		log.L(ctx).Info("no transaction found to process")
 		return nil
@@ -125,7 +125,7 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 
 }
 
-func (c *coordinator) addTransactionToBackOfPool(txn *transaction.CoordinatorTransaction) {
+func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTransaction) {
 	// Check if transaction is already in the pool
 	// This makes the function safe to call multiple times, albeit not strictly idempotently
 	for _, pooledTxn := range c.pooledTransactions {
@@ -136,7 +136,7 @@ func (c *coordinator) addTransactionToBackOfPool(txn *transaction.CoordinatorTra
 	c.pooledTransactions = append(c.pooledTransactions, txn)
 }
 
-func (c *coordinator) popNextPooledTransaction(ctx context.Context) *transaction.CoordinatorTransaction {
+func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransaction {
 	if len(c.pooledTransactions) == 0 {
 		return nil
 	}
@@ -167,15 +167,6 @@ func action_TransactionConfirmed(ctx context.Context, c *coordinator, event comm
 		return nil
 	}
 
-	if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-		// The transaction created a chained private transaction so there is no hash to compare
-		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), e.Hash.String())
-	} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != e.Hash {
-		// Is this not the transaction that we are looking for?
-		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-		// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), e.Hash.String())
-	}
 	txEvent := &transaction.ConfirmedEvent{
 		Hash:         e.Hash,
 		RevertReason: e.RevertReason,

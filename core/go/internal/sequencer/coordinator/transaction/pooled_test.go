@@ -352,7 +352,7 @@ func Test_action_NotifyDependentsOfRepool_WithDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the dependent transaction received the event
-	assert.Equal(t, State_Pooled, dependentTxn.GetCurrentState())
+	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.GetCurrentState())
 }
 
 func Test_action_NotifyDependentsOfRepool_InitialTransitionHasNoDependents(t *testing.T) {

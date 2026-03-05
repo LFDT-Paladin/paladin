@@ -28,25 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_EndorsedRejected_CompletesWithoutError(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Build()
-
-	event := &EndorsedRejectedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn.pt.ID,
-		},
-		RevertReason:           "rejected by endorser",
-		Party:                  "party1",
-		AttestationRequestName: "att1",
-		RequestID:              uuid.New(),
-	}
-
-	err := action_EndorsedRejected(ctx, txn, event)
-	require.NoError(t, err)
-	// applyEndorsementRejection is a no-op (returns nil); assert action completed
-}
-
 func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -233,7 +214,7 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirming_Dispatchable, txn.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
 }
 
@@ -260,7 +241,7 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
 	require.NoError(t, err)
-	require.Equal(t, State_Blocked, txn.GetCurrentState())
+	require.Equal(t, State_Blocked, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
 }
 

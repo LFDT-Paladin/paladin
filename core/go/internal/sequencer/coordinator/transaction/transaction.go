@@ -30,10 +30,18 @@ import (
 	"github.com/google/uuid"
 )
 
-// CoordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
+type CoordinatorTransaction interface {
+	HandleEvent(ctx context.Context, event common.Event) error
+	GetID() uuid.UUID
+	GetCurrentState() State
+	HasDispatchedPublicTransaction() bool
+	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
+}
+
+// coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 // It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications go through this package.
-type CoordinatorTransaction struct {
+type coordinatorTransaction struct {
 	sync.RWMutex
 
 	pt *components.PrivateTransaction
@@ -67,7 +75,6 @@ type CoordinatorTransaction struct {
 	//Configuration
 	requestTimeout                    common.Duration
 	stateTimeout                      common.Duration
-	errorCount                        int
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
 	confirmedLocksReleased            bool
@@ -85,7 +92,50 @@ type CoordinatorTransaction struct {
 	metrics                  metrics.DistributedSequencerMetrics
 }
 
-func NewTransaction(
+func NewTransaction(ctx context.Context,
+	originator string,
+	nodeName string,
+	pt *components.PrivateTransaction,
+	coordinatorSigningIdentity string,
+	transportWriter transport.TransportWriter,
+	clock common.Clock,
+	queueEventForCoordinator func(context.Context, common.Event),
+	engineIntegration common.EngineIntegration,
+	syncPoints syncpoints.SyncPoints,
+	allComponents components.AllComponents,
+	domainAPI components.DomainSmartContract,
+	dCtx components.DomainContext,
+	requestTimeout,
+	stateTimeout common.Duration,
+	finalizingGracePeriod int,
+	confirmedLockRetentionGracePeriod int,
+	grapher Grapher,
+	metrics metrics.DistributedSequencerMetrics,
+) (CoordinatorTransaction, error) {
+	return newTransaction(
+		ctx,
+		originator,
+		nodeName,
+		pt,
+		coordinatorSigningIdentity,
+		transportWriter,
+		clock,
+		queueEventForCoordinator,
+		engineIntegration,
+		syncPoints,
+		allComponents,
+		domainAPI,
+		dCtx,
+		requestTimeout,
+		stateTimeout,
+		finalizingGracePeriod,
+		confirmedLockRetentionGracePeriod,
+		grapher,
+		metrics,
+	)
+}
+
+func newTransaction(
 	ctx context.Context,
 	originator string,
 	nodeName string,
@@ -105,7 +155,7 @@ func NewTransaction(
 	confirmedLockRetentionGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) (*CoordinatorTransaction, error) {
+) (*coordinatorTransaction, error) {
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
@@ -121,7 +171,7 @@ func NewTransaction(
 		log.L(ctx).Debugf("chained transaction %s found", pt.ID.String())
 	}
 
-	txn := &CoordinatorTransaction{
+	txn := &coordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
 		nodeName:                          nodeName,
@@ -152,7 +202,7 @@ func NewTransaction(
 }
 
 // This function is external but doesn't not need a lock as ints are atomic
-func (t *CoordinatorTransaction) GetCurrentState() State {
+func (t *coordinatorTransaction) GetCurrentState() State {
 	t.RLock()
 	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
@@ -162,49 +212,13 @@ func (t *CoordinatorTransaction) GetCurrentState() State {
 // a read lock. A consumer could also take a read lock if they wanted to be certain that a group of
 // read functions are atomic
 
-func (t *CoordinatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
-	t.RLock()
-	defer t.RUnlock()
-	return t.signerAddress
-}
-
-func (t *CoordinatorTransaction) GetNonce() *uint64 {
-	t.RLock()
-	defer t.RUnlock()
-	return t.nonce
-}
-
-func (t *CoordinatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
-	t.RLock()
-	defer t.RUnlock()
-	return t.latestSubmissionHash
-}
-
-func (t *CoordinatorTransaction) GetRevertReason() pldtypes.HexBytes {
-	t.RLock()
-	defer t.RUnlock()
-	return t.revertReason
-}
-
-func (t *CoordinatorTransaction) Originator() string {
-	t.RLock()
-	defer t.RUnlock()
-	return t.originator
-}
-
-func (t *CoordinatorTransaction) GetErrorCount() int {
-	t.RLock()
-	defer t.RUnlock()
-	return t.errorCount
-}
-
-func (t *CoordinatorTransaction) GetID() uuid.UUID {
+func (t *coordinatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
 }
 
-func (t *CoordinatorTransaction) HasDispatchedPublicTransaction() bool {
+func (t *coordinatorTransaction) HasDispatchedPublicTransaction() bool {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.PreparedPublicTransaction != nil &&

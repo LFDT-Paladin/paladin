@@ -26,13 +26,13 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-func (t *CoordinatorTransaction) completePreDispatchRequest(_ context.Context) error {
+func (t *coordinatorTransaction) completePreDispatchRequest(_ context.Context) error {
 	t.pendingPreDispatchRequest = nil
 	t.clearTimeoutSchedules()
 	return nil
 }
 
-func (t *CoordinatorTransaction) sendPreDispatchRequest(ctx context.Context) error {
+func (t *coordinatorTransaction) sendPreDispatchRequest(ctx context.Context) error {
 
 	if t.pendingPreDispatchRequest == nil {
 		hash, err := t.hash(ctx)
@@ -59,7 +59,7 @@ func (t *CoordinatorTransaction) sendPreDispatchRequest(ctx context.Context) err
 }
 
 // Hash method of Transaction
-func (t *CoordinatorTransaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
+func (t *coordinatorTransaction) hash(ctx context.Context) (*pldtypes.Bytes32, error) {
 	if t.pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot hash transaction without PrivateTransaction")
 	}
@@ -86,7 +86,7 @@ func (t *CoordinatorTransaction) hash(ctx context.Context) (*pldtypes.Bytes32, e
 
 }
 
-func (t *CoordinatorTransaction) nudgePreDispatchRequest(ctx context.Context) error {
+func (t *coordinatorTransaction) nudgePreDispatchRequest(ctx context.Context) error {
 	if t.pendingPreDispatchRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgePreDispatchRequest called with no pending request")
 	}
@@ -94,7 +94,7 @@ func (t *CoordinatorTransaction) nudgePreDispatchRequest(ctx context.Context) er
 	return t.pendingPreDispatchRequest.Nudge(ctx)
 }
 
-func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, event common.Event) (bool, error) {
+func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
 	case *DispatchRequestApprovedEvent:
 		return txn.pendingPreDispatchRequest != nil && txn.pendingPreDispatchRequest.IdempotencyKey() == event.RequestID, nil
@@ -102,18 +102,18 @@ func validator_MatchesPendingPreDispatchRequest(ctx context.Context, txn *Coordi
 	return false, nil
 }
 
-func action_DispatchRequestApproved(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+func action_DispatchRequestApproved(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	return t.completePreDispatchRequest(ctx)
 }
 
-func action_DispatchRequestRejected(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+func action_DispatchRequestRejected(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	return t.completePreDispatchRequest(ctx)
 }
 
-func action_SendPreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_SendPreDispatchRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendPreDispatchRequest(ctx)
 }
 
-func action_NudgePreDispatchRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_NudgePreDispatchRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.nudgePreDispatchRequest(ctx)
 }

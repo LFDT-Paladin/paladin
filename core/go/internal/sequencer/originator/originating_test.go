@@ -59,7 +59,7 @@ func Test_guard_HasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *test
 	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
-		PooledTransactions: []*common.Transaction{},
+		PooledTransactions: []*common.SnapshotPooledTransaction{},
 	}
 
 	assert.True(t, guard_HasDroppedTransactions(ctx, o))
@@ -77,7 +77,7 @@ func Test_guard_HasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testin
 	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
-		PooledTransactions: []*common.Transaction{
+		PooledTransactions: []*common.SnapshotPooledTransaction{
 			{ID: txn.GetID(), Originator: originatorLocator},
 		},
 	}

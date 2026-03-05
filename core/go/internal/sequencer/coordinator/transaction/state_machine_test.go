@@ -76,20 +76,20 @@ func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
 	assert.False(t, txn.confirmedLocksReleased)
 	mocks.EngineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 	assert.Equal(t, 2, txn.heartbeatIntervalsSinceStateChange)
 	assert.True(t, txn.confirmedLocksReleased)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 }
 
 func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
@@ -101,9 +101,9 @@ func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testi
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
-	assert.Equal(t, State_Final, txn.GetCurrentState())
+	assert.Equal(t, State_Final, txn.stateMachine.GetCurrentState())
 }

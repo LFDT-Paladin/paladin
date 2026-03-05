@@ -71,45 +71,6 @@ func Test_action_TransactionConfirmed_TransactionTracked_HandleEventSucceeds(t *
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
 }
 
-func Test_action_TransactionConfirmed_TransactionTracked_NilSubmissionHash_HandleEventSucceeds(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn.GetID(),
-		Hash: hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
-}
-
-func Test_action_TransactionConfirmed_TransactionTracked_MatchingHash_HandleEventSucceeds(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID[txn.GetID()] = txn
-	submissionHash := txn.GetLatestSubmissionHash()
-	require.NotNil(t, submissionHash, "builder sets submission hash for State_Dispatched")
-
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn.GetID(),
-		Hash: *submissionHash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
-}
-
 func Test_action_TransactionConfirmed_TransactionTracked_DifferentHash_HandleEventSucceeds(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -473,7 +434,7 @@ func Test_action_SelectTransaction_WhenNotSender_StartsHeartbeatLoop(t *testing.
 	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0), nil)
 	c.transactionsByID[txn.GetID()] = txn
-	c.pooledTransactions = []*transaction.CoordinatorTransaction{txn}
+	c.pooledTransactions = []transaction.CoordinatorTransaction{txn}
 
 	err := action_SelectTransaction(ctx, c, nil)
 	require.NoError(t, err)

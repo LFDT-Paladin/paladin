@@ -94,7 +94,7 @@ type CoordinatorBuilderForTesting struct {
 	flushPointNonce                          *uint64
 	flushPointSignerAddress                  *pldtypes.EthAddress
 	emitFunction                             func(event common.Event)
-	transactions                             []*transaction.CoordinatorTransaction
+	transactions                             []transaction.CoordinatorTransaction
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
 	sequencerConfig                          *pldconf.SequencerConfig
@@ -238,7 +238,7 @@ func (b *CoordinatorBuilderForTesting) ActiveCoordinatorBlockHeight(activeCoordi
 	return b
 }
 
-func (b *CoordinatorBuilderForTesting) Transactions(transactions ...*transaction.CoordinatorTransaction) *CoordinatorBuilderForTesting {
+func (b *CoordinatorBuilderForTesting) Transactions(transactions ...transaction.CoordinatorTransaction) *CoordinatorBuilderForTesting {
 	b.transactions = transactions
 	return b
 }
@@ -392,7 +392,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 			b.flushPointSignerAddress = pldtypes.RandAddress()
 		}
 
-		coordinator.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.FlushPoint{
+		coordinator.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.SnapshotFlushPoint{
 			fmt.Sprintf("%s:%d", b.flushPointSignerAddress.String(), *b.flushPointNonce): {
 				TransactionID: *b.flushPointTransactionID,
 				Hash:          *b.flushPointHash,
@@ -410,7 +410,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 
 	// Actions like action_HeartbeatReceived write to this map; ensure it is never nil
 	if coordinator.activeCoordinatorsFlushPointsBySignerNonce == nil {
-		coordinator.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.FlushPoint)
+		coordinator.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.SnapshotFlushPoint)
 	}
 
 	done := func() {

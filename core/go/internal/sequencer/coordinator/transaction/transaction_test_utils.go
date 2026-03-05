@@ -235,7 +235,7 @@ type TransactionBuilderForTesting struct {
 	state                              State
 	useMockTransportWriter             bool
 	grapher                            Grapher
-	txn                                *CoordinatorTransaction
+	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
 	finalizingGracePeriod              int
@@ -567,7 +567,7 @@ type transactionDependencyMocks struct {
 	DB                  sqlmock.Sqlmock
 }
 
-func (b *TransactionBuilderForTesting) Build() (*CoordinatorTransaction, *transactionDependencyMocks) {
+func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
@@ -618,7 +618,7 @@ func (b *TransactionBuilderForTesting) Build() (*CoordinatorTransaction, *transa
 		transportWriter = mocks.SentMessageRecorder
 	}
 
-	txn, err := NewTransaction(
+	txn, err := newTransaction(
 		ctx,
 		b.originator,
 		b.nodeName,
@@ -652,7 +652,6 @@ func (b *TransactionBuilderForTesting) Build() (*CoordinatorTransaction, *transa
 	txn.confirmedLocksReleased = b.confirmedLocksReleased
 	txn.stateMachine.CurrentState = b.state
 	txn.revertReason = b.revertReason
-	txn.errorCount = b.errorCount
 
 	if b.dependencies != nil {
 		txn.dependencies = b.dependencies
@@ -693,7 +692,7 @@ func (b *TransactionBuilderForTesting) Build() (*CoordinatorTransaction, *transa
 func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSuccessEvent {
 	return &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.GetID(),
+			TransactionID: b.txn.pt.ID,
 		},
 		PostAssembly: b.BuildPostAssembly(),
 		PreAssembly:  b.BuildPreAssembly(),
@@ -704,7 +703,7 @@ func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSucc
 func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRevertResponseEvent {
 	return &AssembleRevertResponseEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.GetID(),
+			TransactionID: b.txn.pt.ID,
 		},
 		PostAssembly: b.BuildPostAssembly(),
 		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
@@ -715,7 +714,7 @@ func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *En
 
 	return &EndorsedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.GetID(),
+			TransactionID: b.txn.pt.ID,
 		},
 		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
 		Endorsement: b.privateTransactionBuilder.BuildEndorsement(endorserIndex),
@@ -728,7 +727,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 	attReqName := fmt.Sprintf("endorse-%d", endorserIndex)
 	return &EndorsedRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.GetID(),
+			TransactionID: b.txn.pt.ID,
 		},
 		RevertReason:           "some reason for rejection",
 		AttestationRequestName: attReqName,
@@ -741,7 +740,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 func (b *TransactionBuilderForTesting) BuildDispatchRequestApprovedEvent() *DispatchRequestApprovedEvent {
 	return &DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.GetID(),
+			TransactionID: b.txn.pt.ID,
 		},
 		RequestID: b.txn.pendingPreDispatchRequest.IdempotencyKey(),
 	}

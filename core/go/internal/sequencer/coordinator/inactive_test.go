@@ -80,7 +80,7 @@ func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
 	event.ContractAddress = &contractAddress
 	event.BlockHeight = 2000
 	signerAddr := pldtypes.RandAddress()
-	event.FlushPoints = []*common.FlushPoint{
+	event.FlushPoints = []*common.SnapshotFlushPoint{
 		{From: *signerAddr, Nonce: 42, Hash: pldtypes.Bytes32{}},
 	}
 

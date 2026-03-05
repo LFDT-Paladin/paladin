@@ -20,7 +20,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func (t *CoordinatorTransaction) scheduleRequestTimeout(ctx context.Context) {
+func (t *coordinatorTransaction) scheduleRequestTimeout(ctx context.Context) {
 	t.clearRequestTimeoutSchedule()
 	t.cancelRequestTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.requestTimeout, func() {
 		t.queueEventForCoordinator(ctx, &RequestTimeoutIntervalEvent{
@@ -31,7 +31,7 @@ func (t *CoordinatorTransaction) scheduleRequestTimeout(ctx context.Context) {
 	})
 }
 
-func (t *CoordinatorTransaction) scheduleStateTimeout(ctx context.Context) {
+func (t *coordinatorTransaction) scheduleStateTimeout(ctx context.Context) {
 	t.clearStateTimeoutSchedule()
 	t.cancelStateTimeoutSchedule = t.clock.ScheduleTimer(ctx, t.stateTimeout, func() {
 		t.queueEventForCoordinator(ctx, &StateTimeoutIntervalEvent{
@@ -42,26 +42,26 @@ func (t *CoordinatorTransaction) scheduleStateTimeout(ctx context.Context) {
 	})
 }
 
-func (t *CoordinatorTransaction) clearRequestTimeoutSchedule() {
+func (t *coordinatorTransaction) clearRequestTimeoutSchedule() {
 	if t.cancelRequestTimeoutSchedule != nil {
 		t.cancelRequestTimeoutSchedule()
 		t.cancelRequestTimeoutSchedule = nil
 	}
 }
 
-func (t *CoordinatorTransaction) clearStateTimeoutSchedule() {
+func (t *coordinatorTransaction) clearStateTimeoutSchedule() {
 	if t.cancelStateTimeoutSchedule != nil {
 		t.cancelStateTimeoutSchedule()
 		t.cancelStateTimeoutSchedule = nil
 	}
 }
 
-func (t *CoordinatorTransaction) clearTimeoutSchedules() {
+func (t *coordinatorTransaction) clearTimeoutSchedules() {
 	t.clearRequestTimeoutSchedule()
 	t.clearStateTimeoutSchedule()
 }
 
-func action_ScheduleStateTimeout(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_ScheduleStateTimeout(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	txn.scheduleStateTimeout(ctx)
 	return nil
 }

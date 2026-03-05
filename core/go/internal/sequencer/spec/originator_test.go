@@ -188,7 +188,7 @@ func TestStateMachine_Sending_DoDelegateTransactions_OnHeartbeatReceived_IfHasDr
 	heartbeatEvent.From = coordinatorLocator
 	ca := builder.GetContractAddress()
 	heartbeatEvent.ContractAddress = &ca
-	heartbeatEvent.PooledTransactions = []*common.Transaction{
+	heartbeatEvent.PooledTransactions = []*common.SnapshotPooledTransaction{
 		{
 			ID:         txn1.ID,
 			Originator: "sender@node1",

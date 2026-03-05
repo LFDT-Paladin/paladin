@@ -99,9 +99,9 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 	nonce := uint64(42)
 	// Originator must match the originator's nodeName so the heartbeat is applied
 	// (builder defaults nodeName to "member1@node1").
-	heartbeatEvent.DispatchedTransactions = []*common.DispatchedTransaction{
+	heartbeatEvent.DispatchedTransactions = []*common.SnapshotDispatchedTransaction{
 		{
-			Transaction: common.Transaction{
+			SnapshotPooledTransaction: common.SnapshotPooledTransaction{
 				ID:         txn.ID,
 				Originator: "member1@node1",
 			},
@@ -164,7 +164,7 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	heartbeatWithPooled := &HeartbeatReceivedEvent{}
 	heartbeatWithPooled.From = coordinatorLocator
 	heartbeatWithPooled.ContractAddress = &contractAddress
-	heartbeatWithPooled.PooledTransactions = []*common.Transaction{
+	heartbeatWithPooled.PooledTransactions = []*common.SnapshotPooledTransaction{
 		{
 			ID:         txn1.ID,
 			Originator: originatorLocator,

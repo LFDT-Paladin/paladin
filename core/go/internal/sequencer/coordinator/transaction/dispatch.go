@@ -31,12 +31,12 @@ import (
 )
 
 // action_Dispatch runs the full dispatch flow when handling Event_Dispatched in State_Ready_For_Dispatch.
-func action_Dispatch(ctx context.Context, t *CoordinatorTransaction, _ common.Event) error {
+func action_Dispatch(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	return t.dispatch(ctx)
 }
 
 // Dispatch runs the full dispatch flow: prepare, build batch, state distributions, nullifiers, persist, chained transactions.
-func (t *CoordinatorTransaction) dispatch(ctx context.Context) error {
+func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 	if err := t.domainAPI.PrepareTransaction(t.dCtx, t.components.Persistence().NOTX(), t.pt); err != nil {
 		log.L(ctx).Errorf("error preparing transaction %s: %s", t.pt.ID, err)
 		return err
@@ -88,7 +88,7 @@ func (t *CoordinatorTransaction) dispatch(ctx context.Context) error {
 }
 
 // buildDispatchBatch builds the dispatch batch for a transaction which has already been prepared via the domain
-func (t *CoordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncpoints.DispatchBatch, error) {
+func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncpoints.DispatchBatch, error) {
 	hasPublicTransaction := t.pt.PreparedPublicTransaction != nil
 	hasPrivateTransaction := t.pt.PreparedPrivateTransaction != nil
 	intent := t.pt.PreAssembly.TransactionSpecification.Intent
@@ -134,7 +134,7 @@ func (t *CoordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 	return nil, err
 }
 
-func (t *CoordinatorTransaction) buildPublicTxSubmission(ctx context.Context) (*components.PublicTxSubmission, error) {
+func (t *coordinatorTransaction) buildPublicTxSubmission(ctx context.Context) (*components.PublicTxSubmission, error) {
 	unqualifiedSigner, err := pldtypes.PrivateIdentityLocator(t.pt.Signer).Identity(ctx)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerInternalError, err)
@@ -174,7 +174,7 @@ func (t *CoordinatorTransaction) buildPublicTxSubmission(ctx context.Context) (*
 }
 
 // mapPreparedTransaction returns prepared transaction refs for distribution
-func (t *CoordinatorTransaction) mapPreparedTransaction() *components.PreparedTransactionWithRefs {
+func (t *coordinatorTransaction) mapPreparedTransaction() *components.PreparedTransactionWithRefs {
 	tx := t.pt
 	preparedTransaction := &components.PreparedTransactionWithRefs{
 		PreparedTransactionBase: &pldapi.PreparedTransactionBase{

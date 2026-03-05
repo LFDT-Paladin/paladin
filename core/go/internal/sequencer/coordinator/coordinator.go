@@ -71,10 +71,10 @@ type coordinator struct {
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
 	heartbeatInterval                          common.Duration
-	transactionsByID                           map[uuid.UUID]*transaction.CoordinatorTransaction
-	pooledTransactions                         []*transaction.CoordinatorTransaction
+	transactionsByID                           map[uuid.UUID]transaction.CoordinatorTransaction
+	pooledTransactions                         []transaction.CoordinatorTransaction
 	currentBlockHeight                         uint64
-	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.FlushPoint
+	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.SnapshotFlushPoint
 	grapher                                    transaction.Grapher
 	originatorNodePool                         []string // The (possibly changing) list of originator nodes
 
@@ -107,9 +107,9 @@ type coordinator struct {
 	metrics               metrics.DistributedSequencerMetrics
 
 	/* Dispatch loop */
-	dispatchQueue       chan *transaction.CoordinatorTransaction
+	dispatchQueue       chan transaction.CoordinatorTransaction
 	dispatchLoopStopped chan struct{}
-	inFlightTxns        map[uuid.UUID]*transaction.CoordinatorTransaction
+	inFlightTxns        map[uuid.UUID]transaction.CoordinatorTransaction
 	inFlightMutex       *sync.Cond
 }
 
@@ -135,7 +135,7 @@ func NewCoordinator(
 	c := &coordinator{
 		ctx:                                ctx,
 		heartbeatIntervalsSinceStateChange: 0,
-		transactionsByID:                   make(map[uuid.UUID]*transaction.CoordinatorTransaction),
+		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
 		dCtx:                               dCtx,
 		components:                         allComponents,
@@ -178,9 +178,9 @@ func NewCoordinator(
 	c.initializeStateMachineEventLoop(State_Initial, coordinatorEventQueueSize, coordinatorPriorityEventQueueSize)
 
 	c.inFlightMutex = sync.NewCond(&sync.Mutex{})
-	c.inFlightTxns = make(map[uuid.UUID]*transaction.CoordinatorTransaction, c.maxDispatchAhead)
-	c.pooledTransactions = make([]*transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
-	c.dispatchQueue = make(chan *transaction.CoordinatorTransaction, c.maxInflightTransactions)
+	c.inFlightTxns = make(map[uuid.UUID]transaction.CoordinatorTransaction, c.maxDispatchAhead)
+	c.pooledTransactions = make([]transaction.CoordinatorTransaction, 0, c.maxInflightTransactions)
+	c.dispatchQueue = make(chan transaction.CoordinatorTransaction, c.maxInflightTransactions)
 	context.AfterFunc(ctx, func() {
 		// the disptach loop may be waiting on this mutex when the context is cancelled- this wakes
 		// it up so it may exit
@@ -277,7 +277,7 @@ func (c *coordinator) propagateEventToAllTransactions(ctx context.Context, event
 	return nil
 }
 
-func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.CoordinatorTransaction {
+func (c *coordinator) getTransactionsInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	log.L(ctx).Debugf("getting transactions in states: %+v", states)
@@ -287,7 +287,7 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 	}
 
 	log.L(ctx).Tracef("checking %d transactions for those in states: %+v", len(c.transactionsByID), states)
-	matchingTxns := make([]*transaction.CoordinatorTransaction, 0, len(c.transactionsByID))
+	matchingTxns := make([]transaction.CoordinatorTransaction, 0, len(c.transactionsByID))
 	for _, txn := range c.transactionsByID {
 		if matchingStates[txn.GetCurrentState()] {
 			log.L(ctx).Debugf("found transaction %s in state %s", txn.GetID().String(), txn.GetCurrentState())

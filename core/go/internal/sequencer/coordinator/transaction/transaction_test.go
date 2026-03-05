@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -208,7 +207,7 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 	ctx := context.Background()
 	clock := &common.FakeClockForTesting{}
 
-	_, err := NewTransaction(
+	_, err := newTransaction(
 		ctx,
 		"", // invalid: empty originator
 		"node1",
@@ -230,46 +229,6 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 		nil,
 	)
 	require.Error(t, err)
-}
-
-func TestTransaction_GetSignerAddress_ReturnsSetValue(t *testing.T) {
-	addr := pldtypes.RandAddress()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).SignerAddress(addr).Build()
-
-	assert.Equal(t, addr, txn.GetSignerAddress())
-}
-
-func TestTransaction_GetNonce_ReturnsSetValue(t *testing.T) {
-	nonce := uint64(42)
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Nonce(&nonce).Build()
-	assert.Equal(t, &nonce, txn.GetNonce())
-}
-
-func TestTransaction_GetLatestSubmissionHash_ReturnsSetValue(t *testing.T) {
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).SubmissionHash(hash).Build()
-
-	assert.Equal(t, &hash, txn.GetLatestSubmissionHash())
-}
-
-func TestTransaction_GetRevertReason_ReturnsSetValue(t *testing.T) {
-	reason := pldtypes.MustParseHexBytes("0x1234")
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).RevertReason(reason).Build()
-
-	assert.Equal(t, reason, txn.GetRevertReason())
-}
-
-func TestTransaction_Originator_ReturnsSetValue(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Originator("sender@node1").Build()
-
-	assert.Equal(t, "sender@node1", txn.Originator())
-}
-
-func TestTransaction_GetErrorCount_ReturnsSetValue(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).ErrorCount(3).Build()
-
-	assert.Equal(t, 3, txn.GetErrorCount())
 }
 
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {
