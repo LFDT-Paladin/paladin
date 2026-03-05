@@ -45,40 +45,42 @@ type CoordinatorTransaction interface {
 type coordinatorTransaction struct {
 	sync.RWMutex
 
-	pt *components.PrivateTransaction
-
+	pt           *components.PrivateTransaction
 	stateMachine *StateMachine
 
+	// immutable properties of the transaction
 	originator                 string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode             string // The node the originator is running on e.g. "node1"
+	chainedTxAlreadyDispatched bool
 	nodeName                   string // The local node coordinating this transaction
-	signerAddress              *pldtypes.EthAddress
 	domainSigningIdentity      string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	coordinatorSigningIdentity string
 	submitterSelection         prototk.ContractConfig_SubmitterSelection // The selection of submitter for the transaction
-	latestSubmissionHash       *pldtypes.Bytes32
-	nonce                      *uint64
-	revertReason               pldtypes.HexBytes
 
-	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
+	// mutable fields that state machine actions will change
+	signerAddress                      *pldtypes.EthAddress
+	latestSubmissionHash               *pldtypes.Bytes32
+	nonce                              *uint64
+	revertReason                       pldtypes.HexBytes
+	confirmedLocksReleased             bool
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
-	pendingAssembleRequest             *common.IdempotentRequest
-	cancelRequestTimeoutSchedule       func()                                          // Short timeout for retry e.g. network blip
-	cancelStateTimeoutSchedule         func()                                          // Timeout for state completion before repooling
-	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	pendingEndorsementsMutex           sync.Mutex
-	pendingPreDispatchRequest          *common.IdempotentRequest
-	chainedTxAlreadyDispatched         bool
-	latestError                        string
-	dependencies                       *pldapi.TransactionDependencies
+	cancelRequestTimeoutSchedule       func() // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule         func()
 
-	//Configuration
+	// request tracking - used for nudging the same request multiple times until it succeeds or times out
+	pendingAssembleRequest     *common.IdempotentRequest                       // Timeout for state completion before repooling
+	pendingEndorsementRequests map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
+	pendingPreDispatchRequest  *common.IdempotentRequest
+
+	// Transaction dependencies - used for tracking assembly and dispatch order
+	dependencies *pldapi.TransactionDependencies
+
+	// Configuration
 	requestTimeout                    time.Duration
 	stateTimeout                      time.Duration
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
-	confirmedLocksReleased            bool
 
 	// Dependencies
 	clock                    common.Clock
