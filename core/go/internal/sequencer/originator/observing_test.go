@@ -293,11 +293,11 @@ func Test_guard_HeartbeatThresholdExceeded_NilTimeReturnsTrue(t *testing.T) {
 	// Ensure timeOfMostRecentHeartbeat is nil
 	o.timeOfMostRecentHeartbeat = nil
 
-	result := guard_HeartbeatThresholdExceeded(ctx, o)
+	result := guard_IdleThresholdExceeded(ctx, o)
 	assert.True(t, result, "Should return true when timeOfMostRecentHeartbeat is nil")
 }
 
-func Test_guard_HeartbeatThresholdExceeded_ThresholdExpiredReturnsTrue(t *testing.T) {
+func Test_guard_IdleThresholdExceeded_ThresholdExpiredReturnsTrue(t *testing.T) {
 	// Test that guard_HeartbeatThresholdExceeded returns true when threshold has expired
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -305,7 +305,7 @@ func Test_guard_HeartbeatThresholdExceeded_ThresholdExpiredReturnsTrue(t *testin
 
 	clock := common.NewMockClock(t)
 	initialTime := time.Now()
-	clock.On("HasExpired", initialTime, time.Duration(TestDefault_HeartbeatThreshold*TestDefault_HeartbeatIntervalMs)*time.Millisecond).Return(true).Once()
+	clock.On("HasExpired", initialTime, time.Duration(10000*10*time.Millisecond)).Return(true).Once()
 
 	builder := NewOriginatorBuilderForTesting(State_Observing).
 		Clock(clock).
@@ -315,7 +315,7 @@ func Test_guard_HeartbeatThresholdExceeded_ThresholdExpiredReturnsTrue(t *testin
 
 	o.timeOfMostRecentHeartbeat = &initialTime
 
-	result := guard_HeartbeatThresholdExceeded(ctx, o)
+	result := guard_IdleThresholdExceeded(ctx, o)
 	assert.True(t, result, "Should return true when threshold has expired")
 }
 
@@ -326,7 +326,7 @@ func Test_guard_HeartbeatThresholdExceeded_ThresholdNotExpiredReturnsFalse(t *te
 
 	clock := common.NewMockClock(t)
 	initialTime := time.Now()
-	clock.On("HasExpired", initialTime, time.Duration(TestDefault_HeartbeatThreshold*TestDefault_HeartbeatIntervalMs)*time.Millisecond).Return(false).Once()
+	clock.On("HasExpired", initialTime, time.Duration(10000*10*time.Millisecond)).Return(false).Once()
 
 	builder := NewOriginatorBuilderForTesting(State_Observing).
 		Clock(clock).
@@ -336,6 +336,6 @@ func Test_guard_HeartbeatThresholdExceeded_ThresholdNotExpiredReturnsFalse(t *te
 
 	o.timeOfMostRecentHeartbeat = &initialTime
 
-	result := guard_HeartbeatThresholdExceeded(ctx, o)
+	result := guard_IdleThresholdExceeded(ctx, o)
 	assert.False(t, result, "Should return false when threshold has not expired")
 }

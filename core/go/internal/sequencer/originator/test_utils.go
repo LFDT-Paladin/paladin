@@ -17,6 +17,7 @@ package originator
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -26,11 +27,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	uuid "github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-)
-
-const (
-	TestDefault_HeartbeatThreshold  int = 5
-	TestDefault_HeartbeatIntervalMs int = 100
 )
 
 type SentMessageRecorder struct {
@@ -77,6 +73,7 @@ type OriginatorBuilderForTesting struct {
 	metrics             metrics.DistributedSequencerMetrics
 	sequencerConfig     *pldconf.SequencerConfig
 	clock               common.Clock
+	heartbeatInterval   *time.Duration
 }
 
 type OriginatorDependencyMocks struct {
@@ -85,10 +82,11 @@ type OriginatorDependencyMocks struct {
 }
 
 func NewOriginatorBuilderForTesting(state State) *OriginatorBuilderForTesting {
+	defaults := pldconf.SequencerDefaults
 	return &OriginatorBuilderForTesting{
 		state:           state,
 		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
-		sequencerConfig: &pldconf.SequencerDefaults,
+		sequencerConfig: &defaults,
 		clock:           common.RealClock(),
 	}
 }
@@ -118,12 +116,13 @@ func (b *OriginatorBuilderForTesting) Clock(clock common.Clock) *OriginatorBuild
 	return b
 }
 
-func (b *OriginatorBuilderForTesting) GetContractAddress() pldtypes.EthAddress {
-	return *b.contractAddress
+func (b *OriginatorBuilderForTesting) HeartbeatInterval(interval time.Duration) *OriginatorBuilderForTesting {
+	b.heartbeatInterval = &interval
+	return b
 }
 
-func (b *OriginatorBuilderForTesting) GetCoordinatorHeartbeatThresholdMs() int {
-	return TestDefault_HeartbeatThreshold * TestDefault_HeartbeatIntervalMs
+func (b *OriginatorBuilderForTesting) GetContractAddress() pldtypes.EthAddress {
+	return *b.contractAddress
 }
 
 func (b *OriginatorBuilderForTesting) GetSequencerConfig() *pldconf.SequencerConfig {
@@ -163,11 +162,12 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		b.clock,
 		mocks.EngineIntegration,
 		b.contractAddress,
-		&pldconf.SequencerDefaults,
-		TestDefault_HeartbeatIntervalMs,
-		TestDefault_HeartbeatThreshold,
+		b.sequencerConfig,
 		b.metrics,
 	)
+	if b.heartbeatInterval != nil {
+		originator.heartbeatInterval = *b.heartbeatInterval
+	}
 
 	for _, txBuilder := range b.transactionBuilders {
 		tx := txBuilder.QueueEventsTo(originator.queueEventInternal).Build()

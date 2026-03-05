@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
@@ -128,14 +127,10 @@ func TestOriginator_SingleTransactionLifecycle(t *testing.T) {
 }
 
 func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
-
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers(originatorLocator, coordinatorLocator)
-	config := builder.GetSequencerConfig()
-	config.DelegateTimeout = confutil.P("100ms")
-	builder.OverrideSequencerConfig(config)
 	s, mocks, cleanup := builder.Build(ctx)
 	defer cleanup()
 
@@ -145,7 +140,10 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	heartbeatEvent.From = coordinatorLocator
 	heartbeatEvent.ContractAddress = &contractAddress
 	s.QueueEvent(ctx, heartbeatEvent)
-	require.Eventually(t, func() bool { return s.GetCurrentState() == State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "Originator should transition to Observing")
+	syncEvent := statemachine.NewSyncEvent()
+	s.QueueEvent(ctx, syncEvent)
+	<-syncEvent.Done
+	require.Equal(t, State_Observing, s.GetCurrentState(), "Originator should transition to Observing")
 
 	transactionBuilder1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn1 := transactionBuilder1.BuildSparse()
@@ -157,8 +155,11 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 	transactionBuilder2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originatorLocator).NumberOfRequiredEndorsers(1)
 	txn2 := transactionBuilder2.BuildSparse()
 	s.QueueEvent(ctx, &TransactionCreatedEvent{Transaction: txn2})
+	syncEvent = statemachine.NewSyncEvent()
+	s.QueueEvent(ctx, syncEvent)
+	<-syncEvent.Done
 	// Assert that a delegation request has been sent to the coordinator
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Delegation request should be sent")
+	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Delegation request should be sent")
 	mocks.SentMessageRecorder.Reset(ctx)
 
 	heartbeatWithPooled := &HeartbeatReceivedEvent{}
@@ -170,10 +171,11 @@ func TestOriginator_DelegateDroppedTransactions(t *testing.T) {
 			Originator: originatorLocator,
 		},
 	}
-	// Real-time wait for delegate timeout (100ms) to elapse so re-delegation can fire; sync events cannot advance the ticker
-	time.Sleep(110 * time.Millisecond)
 	s.QueueEvent(ctx, heartbeatWithPooled)
-	require.Eventually(t, func() bool { return mocks.SentMessageRecorder.HasSentDelegationRequest() }, 100*time.Millisecond, 1*time.Millisecond, "Delegation request should be sent after heartbeat")
+	syncEvent = statemachine.NewSyncEvent()
+	s.QueueEvent(ctx, syncEvent)
+	<-syncEvent.Done
+	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Delegation request should be sent after heartbeat")
 	require.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(txn1.ID))
 	require.True(t, mocks.SentMessageRecorder.HasDelegatedTransaction(txn2.ID))
 }
@@ -208,12 +210,13 @@ func TestOriginator_TransactionConfirmedViaTransactionEvent_AllStates(t *testing
 					TransactionID: txn.GetID(),
 				},
 			})
+			syncEvent := statemachine.NewSyncEvent()
+			s.QueueEvent(ctx, syncEvent)
+			<-syncEvent.Done
 
-			require.Eventually(t, func() bool {
-				state := txn.GetCurrentState()
-				return state == transaction.State_Confirmed || state == transaction.State_Final
-			}, 100*time.Millisecond, 1*time.Millisecond)
-			require.Eventually(t, func() bool { return s.GetCurrentState() == tc.expectedState }, 100*time.Millisecond, 1*time.Millisecond)
+			state := txn.GetCurrentState()
+			assert.True(t, state == transaction.State_Confirmed || state == transaction.State_Final, "Transaction should be confirmed or final")
+			assert.True(t, s.GetCurrentState() == tc.expectedState, "Originator should transition to the expected state")
 		})
 	}
 }
@@ -344,8 +347,6 @@ func TestOriginator_Stop_Completes(t *testing.T) {
 	cleanup()
 
 	require.True(t, s.stateMachineEventLoop.IsStopped(), "state machine event loop should be stopped")
-	_, ok := <-s.delegateLoopStopped
-	require.False(t, ok, "delegateLoopStopped channel should be closed")
 }
 
 // TestOriginator_Stop_Idempotent verifies that calling Stop() twice is safe and does not panic.
@@ -358,8 +359,6 @@ func TestOriginator_Stop_Idempotent(t *testing.T) {
 	cleanup()
 
 	require.True(t, s.stateMachineEventLoop.IsStopped(), "state machine event loop should be stopped")
-	_, ok := <-s.delegateLoopStopped
-	require.False(t, ok, "delegateLoopStopped channel should be closed")
 }
 
 // TestOriginator_Stop_AfterEventsProcessed verifies that after queuing events and waiting for
@@ -387,8 +386,6 @@ func TestOriginator_Stop_AfterEventsProcessed(t *testing.T) {
 	cleanup()
 
 	require.True(t, s.stateMachineEventLoop.IsStopped(), "state machine event loop should be stopped")
-	_, ok := <-s.delegateLoopStopped
-	require.False(t, ok, "delegateLoopStopped channel should be closed")
 }
 
 type mockFailingTransaction struct {
@@ -467,6 +464,66 @@ func Test_propagateEventToTransaction_UnknownTransaction_PreDispatchRequestSends
 	txID, coordinator := mocks.SentMessageRecorder.GetTransactionUnknownDetails()
 	assert.Equal(t, unknownTxID, txID)
 	assert.Equal(t, coordinatorLocator, coordinator)
+}
+
+func TestOriginator_heartbeatLoop_UsesInjectedQueueAndStops(t *testing.T) {
+	ctx := context.Background()
+	s, _, cleanup := NewOriginatorBuilderForTesting(State_Idle).
+		HeartbeatInterval(time.Millisecond).
+		Build(ctx)
+	defer cleanup()
+
+	heartbeatEvents := make(chan struct{}, 8)
+	queueEvent := func(_ context.Context, event common.Event) {
+		if _, isHeartbeatInterval := event.(*HeartbeatIntervalEvent); isHeartbeatInterval {
+			heartbeatEvents <- struct{}{}
+		}
+	}
+
+	go s.heartbeatLoop(ctx, queueEvent)
+
+	<-heartbeatEvents
+	<-heartbeatEvents
+
+	heartbeatCtx := s.heartbeatCtx
+	require.NotNil(t, heartbeatCtx)
+
+	action_StopHeartbeatLoop(ctx, s, nil)
+	<-heartbeatCtx.Done()
+}
+
+func TestOriginator_heartbeatLoop_DoesNothingWhenAlreadyRunning(t *testing.T) {
+	ctx := context.Background()
+	s, _, cleanup := NewOriginatorBuilderForTesting(State_Idle).Build(ctx)
+	defer cleanup()
+
+	existingCtx, existingCancel := context.WithCancel(ctx)
+	s.heartbeatCtx, s.heartbeatCancel = existingCtx, existingCancel
+
+	s.heartbeatLoop(ctx, func(_ context.Context, _ common.Event) {
+		t.Fatal("heartbeat loop should not be restarted when already running")
+	})
+
+	assert.Same(t, existingCtx, s.heartbeatCtx, "existing heartbeat context should remain unchanged")
+}
+
+func Test_action_StopHeartbeatLoop(t *testing.T) {
+	ctx := context.Background()
+
+	s, _, cleanup := NewOriginatorBuilderForTesting(State_Idle).Build(ctx)
+	defer cleanup()
+
+	s.heartbeatCancel = nil
+	err := action_StopHeartbeatLoop(ctx, s, nil)
+	require.NoError(t, err)
+
+	testCtx, testCancel := context.WithCancel(ctx)
+	s.heartbeatCtx, s.heartbeatCancel = testCtx, testCancel
+
+	err = action_StopHeartbeatLoop(ctx, s, nil)
+	require.NoError(t, err)
+
+	<-testCtx.Done()
 }
 
 // TODO: error not currently reachable without injectable transaction dependency

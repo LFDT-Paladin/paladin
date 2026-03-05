@@ -354,8 +354,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.StateTimeout = confutil.P("60s") // In this test we don't want to hit this
-	sequencerConfig.RequestTimeout = confutil.P("10s")  // Extend this enough to give the bob node enough time to restart
+	sequencerConfig.StateTimeout = confutil.P("60s")   // In this test we don't want to hit this
+	sequencerConfig.RequestTimeout = confutil.P("10s") // Extend this enough to give the bob node enough time to restart
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
@@ -446,8 +446,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.RequestTimeout = confutil.P("1s")   // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
-	sequencerConfig.StateTimeout = confutil.P("10s") // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
+	sequencerConfig.RequestTimeout = confutil.P("1s") // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
+	sequencerConfig.StateTimeout = confutil.P("10s")  // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
@@ -1149,10 +1149,11 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 	}
 
 	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial fire-and-forget delegate fails
-	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the delegate timeout.
+	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the RedelegateGracePeriod.
 	// Reduce it down a little here to speed up the test.
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.DelegateTimeout = confutil.P("2s")
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 
 	alice.OverrideSequencerConfig(&sequencerConfig)
 	bob.OverrideSequencerConfig(&sequencerConfig)

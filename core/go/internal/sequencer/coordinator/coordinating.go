@@ -96,8 +96,10 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
-	c.activeCoordinatorNode = c.nodeName
-	c.coordinatorActive(c.contractAddress, c.nodeName)
+	if c.activeCoordinatorNode != c.nodeName {
+		c.activeCoordinatorNode = c.nodeName
+		c.coordinatorActive(c.contractAddress, c.nodeName)
+	}
 
 	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
 	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required

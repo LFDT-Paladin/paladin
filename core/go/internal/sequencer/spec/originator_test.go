@@ -94,7 +94,10 @@ func TestStateMachine_Sending_ToObserving_OnTransactionConfirmed_IfNoTransaction
 			TransactionID: soleTransaction.GetID(),
 		},
 	})
-	assert.Eventually(t, func() bool { return o.GetCurrentState() == originator.State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "current state is %s", o.GetCurrentState().String())
+	sync := statemachine.NewSyncEvent()
+	o.QueueEvent(ctx, sync)
+	<-sync.Done
+	assert.Equal(t, originator.State_Observing, o.GetCurrentState(), "current state is %s", o.GetCurrentState().String())
 }
 
 func TestStateMachine_Sending_NoTransition_OnTransactionConfirmed_IfHasTransactionsInflight(t *testing.T) {

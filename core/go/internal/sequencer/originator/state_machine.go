@@ -37,13 +37,11 @@ const (
 )
 
 const (
-	Event_HeartbeatInterval                EventType = iota + 300 // the heartbeat interval has passed since the last time a heartbeat was received or the last time this event was received
-	Event_HeartbeatReceived                                       // a heartbeat message was received from the current active coordinator
-	Event_TransactionCreated                                      // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
-	Event_NewBlock                                                // a new block has been mined on the base ledger
-	Event_Base_Ledger_Transaction_Reverted                        // A transaction has moved from the dispatched to pending state because it was reverted on the base ledger
-	Event_Delegate_Timeout                                        // a regular interval to re-delegate transactions that have been delegated but not yet confirmed
-	Event_ActiveCoordinatorUpdated                                // a new active coordinator is available
+	Event_HeartbeatInterval        EventType = iota + 300 // the heartbeat interval has passed since the last time a heartbeat was received or the last time this event was received
+	Event_HeartbeatReceived                               // a heartbeat message was received from the current active coordinator
+	Event_TransactionCreated                              // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
+	Event_NewBlock                                        // a new block has been mined on the base ledger
+	Event_ActiveCoordinatorUpdated                        // a new active coordinator is available
 )
 
 // Type aliases for the generic statemachine types, specialized for originator
@@ -59,6 +57,7 @@ type (
 
 var stateDefinitionsMap = StateDefinitions{
 	State_Idle: {
+		OnTransitionTo: []ActionRule{{Action: action_StopHeartbeatLoop}},
 		Events: map[EventType]EventHandler{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
@@ -72,9 +71,6 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions:   []ActionRule{{Action: action_TransactionCreated}},
 				Transitions: []Transition{{
 					To: State_Sending,
-					Actions: []ActionRule{{
-						Action: action_SendDelegationRequest,
-					}},
 				}},
 			},
 			common.Event_TransactionStateTransition: {
@@ -95,24 +91,21 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Observing: {
+		OnTransitionTo: []ActionRule{{Action: action_StartHeartbeatLoop}}, // this is idempotent if we have already started the heartbeat loop in Observing state
 		Events: map[EventType]EventHandler{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
 			},
 			Event_HeartbeatInterval: {
-				Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
+				Transitions: []Transition{{To: State_Idle, If: guard_IdleThresholdExceeded}},
 			},
 			Event_TransactionCreated: {
 				Validator: validator_TransactionDoesNotExist,
 				Actions:   []ActionRule{{Action: action_TransactionCreated}},
 				Transitions: []Transition{{
 					To: State_Sending,
-					Actions: []ActionRule{{
-						Action: action_SendDelegationRequest,
-					}},
 				}},
 			},
-			Event_NewBlock:          {},
 			Event_HeartbeatReceived: {Actions: []ActionRule{{Action: action_HeartbeatReceived}}},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
@@ -132,6 +125,10 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Sending: {
+		OnTransitionTo: []ActionRule{
+			{Action: action_StartHeartbeatLoop}, // this is idempotent if we have already started the heartbeat loop in Observing state
+			{Action: action_SendDelegationRequest},
+		},
 		Events: map[EventType]EventHandler{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{
@@ -146,18 +143,23 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_SendDelegationRequest},
 				},
 			},
-			Event_NewBlock: {},
 			Event_HeartbeatReceived: {
 				Actions: []ActionRule{
 					{Action: action_HeartbeatReceived},
-					{If: guard_HasDroppedTransactions, Action: action_SendDroppedTXDelegationRequest},
+					{Action: action_SendDelegationRequest, If: guard_HasDroppedTransactions},
 				},
 			},
-			Event_Base_Ledger_Transaction_Reverted: {
-				Actions: []ActionRule{{Action: action_SendDelegationRequest}},
-			},
-			Event_Delegate_Timeout: {
-				Actions: []ActionRule{{Action: action_ResendTimedOutDelegationRequest}},
+			Event_HeartbeatInterval: {
+				Actions: []ActionRule{{
+					// Resend all the delegation requests if we have not seen a heartbeat in a while
+					// It could be that no one thinks they are coordinating, so this will nudge the node who
+					// we think should be the active coordinator.
+					// If we have been seeing heartbeats, the handling for Event_HeartbeatReceived will ensure we
+					// are resending delegation requests only if we have transactions that the active coordinator
+					// does not know about.
+					Action: action_SendDelegationRequest,
+					If:     guard_RedelegateThresholdExceeded,
+				}},
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
@@ -199,13 +201,6 @@ func (o *originator) preProcessEvent(ctx context.Context, entity *originator, ev
 		return true, o.propagateEventToTransaction(ctx, transactionEvent)
 	}
 	return false, nil
-}
-
-// GetCurrentCoordinator returns the current coordinator.
-func (o *originator) GetCurrentCoordinator() string {
-	o.RLock()
-	defer o.RUnlock()
-	return o.activeCoordinatorNode
 }
 
 func (o *originator) GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error) {

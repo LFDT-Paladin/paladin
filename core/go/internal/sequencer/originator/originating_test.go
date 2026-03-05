@@ -18,6 +18,7 @@ package originator
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
@@ -33,7 +34,7 @@ func Test_action_ActiveCoordinatorUpdated_Success(t *testing.T) {
 
 	err := o.stateMachineEventLoop.ProcessEvent(ctx, &ActiveCoordinatorUpdatedEvent{Coordinator: "node1"})
 	require.NoError(t, err)
-	assert.Equal(t, "node1", o.GetCurrentCoordinator())
+	assert.Equal(t, "node1", o.activeCoordinatorNode)
 }
 
 func Test_action_ActiveCoordinatorUpdated_EmptyCoordinatorReturnsError(t *testing.T) {
@@ -85,6 +86,46 @@ func Test_guard_HasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testin
 	assert.False(t, guard_HasDroppedTransactions(ctx, o))
 }
 
+func Test_guard_RedelegateThresholdExceeded_NoHeartbeatReturnsTrue(t *testing.T) {
+	ctx := context.Background()
+	o, _, cleanup := NewOriginatorBuilderForTesting(State_Sending).Build(ctx)
+	defer cleanup()
+
+	assert.True(t, guard_RedelegateThresholdExceeded(ctx, o))
+}
+
+func Test_guard_RedelegateThresholdExceeded_HeartbeatExpiredReturnsTrue(t *testing.T) {
+	ctx := context.Background()
+	clock := common.NewMockClock(t)
+	initialTime := time.Now()
+	clock.On("HasExpired", initialTime, time.Duration(10000*2*time.Millisecond)).Return(true).Once()
+
+	o, _, cleanup := NewOriginatorBuilderForTesting(State_Sending).
+		Clock(clock).
+		Build(ctx)
+	defer cleanup()
+
+	o.timeOfMostRecentHeartbeat = &initialTime
+
+	assert.True(t, guard_RedelegateThresholdExceeded(ctx, o))
+}
+
+func Test_guard_RedelegateThresholdExceeded_HeartbeatNotExpiredReturnsFalse(t *testing.T) {
+	ctx := context.Background()
+	clock := common.NewMockClock(t)
+	initialTime := time.Now()
+	clock.On("HasExpired", initialTime, time.Duration(10000*2*time.Millisecond)).Return(false).Once()
+
+	o, _, cleanup := NewOriginatorBuilderForTesting(State_Sending).
+		Clock(clock).
+		Build(ctx)
+	defer cleanup()
+
+	o.timeOfMostRecentHeartbeat = &initialTime
+
+	assert.False(t, guard_RedelegateThresholdExceeded(ctx, o))
+}
+
 func Test_sendDelegationRequest_NoActiveCoordinatorReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
@@ -92,7 +133,7 @@ func Test_sendDelegationRequest_NoActiveCoordinatorReturnsNil(t *testing.T) {
 	defer cleanup()
 
 	o.activeCoordinatorNode = ""
-	err := o.stateMachineEventLoop.ProcessEvent(ctx, &DelegateTimeoutEvent{})
+	err := o.stateMachineEventLoop.ProcessEvent(ctx, &HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 }
 

@@ -65,11 +65,12 @@ type originator struct {
 	latestCoordinatorSnapshot *common.CoordinatorSnapshot
 
 	/* Config */
-	nodeName           string
-	blockRangeSize     uint64
-	contractAddress    *pldtypes.EthAddress
-	heartbeatThreshold time.Duration
-	delegateTimeout    time.Duration
+	nodeName            string
+	blockRangeSize      uint64
+	contractAddress     *pldtypes.EthAddress
+	heartbeatInterval   time.Duration
+	idleThreshold       int // expressed as a multiple of heartbeat intervals
+	redelegateThreshold int // expressed as a multiple of heartbeat intervals
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -77,8 +78,9 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 
-	/* Delegate loop */
-	delegateLoopStopped chan struct{}
+	/* Heartbeat loop */
+	heartbeatCtx    context.Context
+	heartbeatCancel context.CancelFunc
 }
 
 func NewOriginator(
@@ -89,8 +91,6 @@ func NewOriginator(
 	engineIntegration common.EngineIntegration,
 	contractAddress *pldtypes.EthAddress,
 	configuration *pldconf.SequencerConfig,
-	heartbeatPeriodMs int,
-	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
 	o := &originator{
@@ -102,27 +102,22 @@ func NewOriginator(
 		contractAddress:     contractAddress,
 		clock:               clock,
 		engineIntegration:   engineIntegration,
-		heartbeatThreshold:  time.Duration(heartbeatPeriodMs*heartbeatThresholdIntervals) * time.Millisecond,
-		delegateTimeout:     confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:             metrics,
-		delegateLoopStopped: make(chan struct{}),
+		heartbeatInterval:   confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
+		idleThreshold:       confutil.IntMin(configuration.OriginatorIdleGracePeriod, pldconf.SequencerMinimum.OriginatorIdleGracePeriod, *pldconf.SequencerDefaults.OriginatorIdleGracePeriod),
+		redelegateThreshold: confutil.IntMin(configuration.RedelegateGracePeriod, pldconf.SequencerMinimum.RedelegateGracePeriod, *pldconf.SequencerDefaults.RedelegateGracePeriod),
 	}
+
 	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
 	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
 	go o.stateMachineEventLoop.Start(ctx)
-	go o.delegateLoop(ctx)
 
 	return o, nil
 }
 
 func (o *originator) WaitForDone(ctx context.Context) {
-	select {
-	case <-o.delegateLoopStopped:
-	case <-ctx.Done():
-		return
-	}
 	o.stateMachineEventLoop.WaitForDone(ctx)
 }
 
@@ -144,31 +139,41 @@ func (o *originator) queueEventInternal(ctx context.Context, event common.Event)
 	log.L(ctx).Tracef("Pushed internal originator event onto priority queue: %s", event.TypeString())
 }
 
-func (o *originator) delegateLoop(ctx context.Context) {
-	defer close(o.delegateLoopStopped)
-	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
+func (o *originator) heartbeatLoop(ctx context.Context, queueEvent func(context.Context, common.Event)) {
+	if o.heartbeatCtx == nil {
+		o.heartbeatCtx, o.heartbeatCancel = context.WithCancel(ctx)
+		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("orig    | %s   | Starting heartbeat loop", o.contractAddress.String()[0:8])
 
-	// Check for transactions still waiting to be delegated
-	ticker := time.NewTicker(o.delegateTimeout)
-	defer func() {
-		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
-		ticker.Stop()
-	}()
-	for {
-		select {
-		case <-ticker.C:
-			log.L(ctx).Debugf("delegate loop fired for contract %s", o.contractAddress.String())
-			delegateTimeoutEvent := &DelegateTimeoutEvent{}
-			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
-			delegateTimeoutEvent.EventTime = time.Now()
-			// TryQueueEvent is acceptable here as if the event cannot be queued, it will be retried on
-			// the next tick. Not blocking on a full channel also avoids stalling shutdown.
-			o.stateMachineEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
-		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
-			return
+		// Send an initial heartbeat interval event to be handled immediately
+		queueEvent(ctx, &HeartbeatIntervalEvent{})
+
+		// Then every N seconds
+		ticker := time.NewTicker(o.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				queueEvent(ctx, &HeartbeatIntervalEvent{})
+			case <-o.heartbeatCtx.Done():
+				log.L(ctx).Infof("Ending heartbeat loop for %s", o.contractAddress.String())
+				o.heartbeatCtx = nil
+				o.heartbeatCancel = nil
+				return
+			}
 		}
 	}
+}
+
+func action_StartHeartbeatLoop(ctx context.Context, o *originator, _ common.Event) error {
+	go o.heartbeatLoop(ctx, o.QueueEvent)
+	return nil
+}
+
+func action_StopHeartbeatLoop(ctx context.Context, o *originator, _ common.Event) error {
+	if o.heartbeatCancel != nil {
+		o.heartbeatCancel()
+	}
+	return nil
 }
 
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
