@@ -145,7 +145,7 @@ func (o *originator) heartbeatLoop(ctx context.Context, queueEvent func(context.
 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("orig    | %s   | Starting heartbeat loop", o.contractAddress.String()[0:8])
 
 		// Send an initial heartbeat interval event to be handled immediately
-		queueEvent(ctx, &HeartbeatIntervalEvent{})
+		queueEvent(ctx, &common.HeartbeatIntervalEvent{})
 
 		// Then every N seconds
 		ticker := time.NewTicker(o.heartbeatInterval)
@@ -153,7 +153,7 @@ func (o *originator) heartbeatLoop(ctx context.Context, queueEvent func(context.
 		for {
 			select {
 			case <-ticker.C:
-				queueEvent(ctx, &HeartbeatIntervalEvent{})
+				queueEvent(ctx, &common.HeartbeatIntervalEvent{})
 			case <-o.heartbeatCtx.Done():
 				log.L(ctx).Infof("Ending heartbeat loop for %s", o.contractAddress.String())
 				o.heartbeatCtx = nil

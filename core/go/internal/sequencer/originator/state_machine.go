@@ -37,8 +37,7 @@ const (
 )
 
 const (
-	Event_HeartbeatInterval        EventType = iota + 300 // the heartbeat interval has passed since the last time a heartbeat was received or the last time this event was received
-	Event_HeartbeatReceived                               // a heartbeat message was received from the current active coordinator
+	Event_HeartbeatReceived        EventType = iota + 300 // a heartbeat message was received from the current active coordinator
 	Event_TransactionCreated                              // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
 	Event_NewBlock                                        // a new block has been mined on the base ledger
 	Event_ActiveCoordinatorUpdated                        // a new active coordinator is available
@@ -96,7 +95,7 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
 			},
-			Event_HeartbeatInterval: {
+			common.Event_HeartbeatInterval: {
 				Transitions: []Transition{{To: State_Idle, If: guard_IdleThresholdExceeded}},
 			},
 			Event_TransactionCreated: {
@@ -149,7 +148,7 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_SendDelegationRequest, If: guard_HasDroppedTransactions},
 				},
 			},
-			Event_HeartbeatInterval: {
+			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{
 					// Resend all the delegation requests if we have not seen a heartbeat in a while
 					// It could be that no one thinks they are coordinating, so this will nudge the node who

@@ -21,8 +21,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO AM: revisit whether these can be package specific?
-
 type EventType int
 
 // function that can be used to emit events from the internals of the sequencer to feed back into the state machine

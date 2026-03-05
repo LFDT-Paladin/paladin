@@ -475,7 +475,7 @@ func TestOriginator_heartbeatLoop_UsesInjectedQueueAndStops(t *testing.T) {
 
 	heartbeatEvents := make(chan struct{}, 8)
 	queueEvent := func(_ context.Context, event common.Event) {
-		if _, isHeartbeatInterval := event.(*HeartbeatIntervalEvent); isHeartbeatInterval {
+		if _, isHeartbeatInterval := event.(*common.HeartbeatIntervalEvent); isHeartbeatInterval {
 			heartbeatEvents <- struct{}{}
 		}
 	}

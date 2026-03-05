@@ -133,7 +133,7 @@ func Test_sendDelegationRequest_NoActiveCoordinatorReturnsNil(t *testing.T) {
 	defer cleanup()
 
 	o.activeCoordinatorNode = ""
-	err := o.stateMachineEventLoop.ProcessEvent(ctx, &HeartbeatIntervalEvent{})
+	err := o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 }
 
