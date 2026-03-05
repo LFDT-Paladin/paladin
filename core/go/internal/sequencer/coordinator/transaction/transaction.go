@@ -74,7 +74,9 @@ type coordinatorTransaction struct {
 	pendingPreDispatchRequest  *common.IdempotentRequest
 
 	// Transaction dependencies - used for tracking assembly and dispatch order
-	dependencies *pldapi.TransactionDependencies
+	dependencies         *pldapi.TransactionDependencies
+	preAssemblePrereqOf  *uuid.UUID
+	preAssembleDependsOn *uuid.UUID
 
 	// Configuration
 	requestTimeout                    time.Duration
@@ -97,9 +99,12 @@ type coordinatorTransaction struct {
 
 func NewTransaction(ctx context.Context,
 	originator string,
+	originatorNode string,
+	hasChainedTransaction bool,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
+	preAssembleDependsOn *uuid.UUID,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
@@ -114,13 +119,16 @@ func NewTransaction(ctx context.Context,
 	confirmedLockRetentionGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) (CoordinatorTransaction, error) {
+) CoordinatorTransaction {
 	return newTransaction(
 		ctx,
 		originator,
+		originatorNode,
+		hasChainedTransaction,
 		nodeName,
 		pt,
 		coordinatorSigningIdentity,
+		preAssembleDependsOn,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
@@ -141,9 +149,12 @@ func NewTransaction(ctx context.Context,
 func newTransaction(
 	ctx context.Context,
 	originator string,
+	originatorNode string,
+	hasChainedTransaction bool,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
+	preAssembleDependsOn *uuid.UUID,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
@@ -158,18 +169,7 @@ func newTransaction(
 	confirmedLockRetentionGracePeriod int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) (*coordinatorTransaction, error) {
-	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
-	if err != nil {
-		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
-		return nil, err
-	}
-
-	hasChainedTransaction, err := allComponents.TxManager().HasChainedTransaction(ctx, pt.ID)
-	if err != nil {
-		log.L(ctx).Errorf("error checking for chained transaction %s: %v", pt.ID, err)
-		return nil, err
-	}
+) *coordinatorTransaction {
 	if hasChainedTransaction {
 		log.L(ctx).Debugf("chained transaction %s found", pt.ID.String())
 	}
@@ -198,10 +198,11 @@ func newTransaction(
 		grapher:                           grapher,
 		metrics:                           metrics,
 		chainedTxAlreadyDispatched:        hasChainedTransaction,
+		preAssembleDependsOn:              preAssembleDependsOn,
 	}
 	txn.initializeStateMachine(State_Initial)
 	grapher.Add(ctx, txn)
-	return txn, nil
+	return txn
 }
 
 // This function is external but doesn't not need a lock as ints are atomic

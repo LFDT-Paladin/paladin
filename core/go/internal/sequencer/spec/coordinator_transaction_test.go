@@ -45,20 +45,21 @@ func TestCoordinatorTransaction_Initial_ToPooled_OnReceived_IfNoInflightDependen
 }
 
 func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDependencyNotAssembled(t *testing.T) {
-
 	ctx := context.Background()
 
 	//we need 2 transactions to know about each other so they need to share a state index
 	grapher := transaction.NewGrapher(ctx)
 
-	//transaction2 depends on transaction 1 and transaction 1 gets reverted
+	//transaction2 depends on transaction 1
 	txn1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
 		Grapher(grapher).
 		Build()
 
+	txn1ID := txn1.GetID()
+
 	txn2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(txn1.GetID()).
+		PreAssembleDependsOn(&txn1ID).
 		Build()
 
 	err := txn2.HandleEvent(ctx, &transaction.DelegatedEvent{
@@ -68,21 +69,6 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 	})
 	require.NoError(t, err)
 	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
-}
-
-func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDependencyUnknown(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
-		PredefinedDependencies(uuid.New()).
-		Build()
-
-	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.GetID(),
-		},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
