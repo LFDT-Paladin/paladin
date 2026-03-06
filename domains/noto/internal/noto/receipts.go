@@ -253,12 +253,21 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 			lockInfo.Delegate = lt.newLockInfo.Spender
 		}
 
+		var lockedInputIDs []string
+		if lt.prevLockState == nil {
+			// create lock: locked coins are in OutputStates (they were just created)
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.OutputStates, []string{n.lockedCoinSchema.Id}))
+		} else {
+			// prepare unlock: locked coins are in ReadStates (they were created by a prior lock transaction)
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}))
+		}
+
 		// Encode the operation to spend the lock
 		var notoUnlockOpEncoded []byte
 		var unlockParamsJSON []byte
 		notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
 			TxId:    lt.newLockInfo.SpendTxId.String(),
-			Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+			Inputs:  lockedInputIDs,
 			Outputs: stringIDs(lt.newLockInfo.SpendOutputs),
 			Data:    lt.newLockInfo.SpendData,
 			Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
@@ -285,7 +294,7 @@ func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptR
 		if err == nil {
 			notoCancelOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
 				TxId:    lt.newLockInfo.SpendTxId.String(),
-				Inputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+				Inputs:  lockedInputIDs,
 				Outputs: stringIDs(lt.newLockInfo.CancelOutputs),
 				Data:    lt.newLockInfo.CancelData,
 				Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
