@@ -201,6 +201,7 @@ func newTestDomain(t *testing.T, realDB bool, domainConfig *prototk.DomainConfig
 	}, extraSetup...)
 
 	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mc.blockIndexer.On("GetIndexedBlockByNumber", mock.Anything, mock.Anything).Return(&pldapi.IndexedBlock{Timestamp: pldtypes.TimestampNow()}, nil).Maybe()
 
 	tp := newTestPlugin(nil)
 	tp.Functions = &plugintk.DomainAPIFunctions{
