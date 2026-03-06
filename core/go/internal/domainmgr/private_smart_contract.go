@@ -126,6 +126,12 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		return nil, i18n.WrapError(ctx, err, msgs.MsgDomainInvalidFunctionParams, fnDef.SolString())
 	}
 
+	// TOOD: get timestamp from the base confirmed block
+	latestConfirmedBlock, err := dc.dm.blockIndexer.GetIndexedBlockByNumber(ctx, confirmedBlockHeight.Uint64())
+	if err != nil {
+		return nil, err
+	}
+
 	return &prototk.TransactionSpecification{
 		ContractInfo: &prototk.ContractInfo{
 			ContractAddress:    dc.info.Address.String(),
@@ -137,6 +143,7 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		FunctionSignature:  fnDef.SolString(), // we use the proprietary "Solidity inspired" form that is very specific, including param names and nested struct defs
 		BaseBlock:          int64(confirmedBlockHeight),
 		Intent:             intent,
+		BaseBlockTimestamp: int64(latestConfirmedBlock.Timestamp.Time().Second()),
 	}, nil
 }
 
