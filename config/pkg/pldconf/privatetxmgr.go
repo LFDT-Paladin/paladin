@@ -16,6 +16,7 @@ package pldconf
 
 import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
+// Deprecated, this is ignored in Paladin v1
 type PrivateTxManagerConfig struct {
 	Writer                         FlushWriterConfig               `json:"writer"`
 	Sequencer                      PrivateTxManagerSequencerConfig `json:"sequencer"`

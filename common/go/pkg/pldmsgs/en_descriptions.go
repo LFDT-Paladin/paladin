@@ -383,6 +383,7 @@ var (
 	PaladinConfigBlockIndexer     = pdm("PaladinConfig.blockIndexer", "Block indexer configuration")
 	PaladinConfigTempDir          = pdm("PaladinConfig.tempDir", "Temporary directory path")
 	PaladinConfigTxManager        = pdm("PaladinConfig.txManager", "Transaction manager configuration")
+	PaladinConfigPrivateTxManager = pdm("PaladinConfig.privateTxManager", "Private transaction manager configuration")
 	PaladinConfigSequencerManager = pdm("PaladinConfig.sequencerManager", "Sequencer manager configuration")
 	PaladinConfigPublicTxManager  = pdm("PaladinConfig.publicTxManager", "Public transaction manager configuration")
 	PaladinConfigIdentityResolver = pdm("PaladinConfig.identityResolver", "Identity resolver configuration")
@@ -704,11 +705,19 @@ var (
 	IdentityResolverConfigVerifierCache = pdm("IdentityResolverConfig.verifierCache", "Verifier cache configuration")
 
 	// PrivateTxManagerConfig field descriptions
-	PrivateTxManagerConfigWriter                         = pdm("PrivateTxManagerConfig.writer", "Writer configuration")
-	PrivateTxManagerConfigSequencer                      = pdm("PrivateTxManagerConfig.sequencer", "Sequencer configuration")
-	PrivateTxManagerConfigStateDistributer               = pdm("PrivateTxManagerConfig.stateDistributer", "State distributer configuration")
-	PrivateTxManagerConfigPreparedTransactionDistributer = pdm("PrivateTxManagerConfig.preparedTransactionDistributer", "Prepared transaction distributer configuration")
-	PrivateTxManagerConfigRequestTimeout                 = pdm("PrivateTxManagerConfig.requestTimeout", "Request timeout")
+	PrivateTxManagerConfigWriter                                       = pdm("PrivateTxManagerConfig.writer", "Writer configuration")
+	PrivateTxManagerConfigSequencer                                    = pdm("PrivateTxManagerConfig.sequencer", "Sequencer configuration")
+	PrivateTxManagerConfigStateDistributer                             = pdm("PrivateTxManagerConfig.stateDistributer", "State distributer configuration")
+	PrivateTxManagerConfigPreparedTransactionDistributer               = pdm("PrivateTxManagerConfig.preparedTransactionDistributer", "Prepared transaction distributer configuration")
+	PrivateTxManagerConfigRequestTimeout                               = pdm("PrivateTxManagerConfig.requestTimeout", "Request timeout")
+	PrivateTxManagerSequencerConfigAssembleRequestTimeout              = pdm("PrivateTxManagerSequencerConfig.assembleRequestTimeout", "Assemble request timeout")
+	PrivateTxManagerSequencerConfigEvaluationInterval                  = pdm("PrivateTxManagerSequencerConfig.evalInterval", "Evaluation interval")
+	PrivateTxManagerSequencerConfigMaxConcurrentProcess                = pdm("PrivateTxManagerSequencerConfig.maxConcurrentProcess", "Maximum concurrent processes")
+	PrivateTxManagerSequencerConfigMaxInflightTransactions             = pdm("PrivateTxManagerSequencerConfig.maxInflightTransactions", "Maximum inflight transactions")
+	PrivateTxManagerSequencerConfigMaxPendingEvents                    = pdm("PrivateTxManagerSequencerConfig.maxPendingEvents", "Maximum pending events")
+	PrivateTxManagerSequencerConfigPersistenceRetryTimeout             = pdm("PrivateTxManagerSequencerConfig.persistenceRetryTimeout", "Persistence retry timeout")
+	PrivateTxManagerSequencerConfigRoundRobinCoordinatorBlockRangeSize = pdm("PrivateTxManagerSequencerConfig.roundRobinCoordinatorBlockRangeSize", "Round robin coordinator block range size")
+	PrivateTxManagerSequencerConfigStaleTimeout                        = pdm("PrivateTxManagerSequencerConfig.staleTimeout", "Stale timeout")
 
 	// DistributerConfig field descriptions
 	DistributerConfigAcknowledgementWriter = pdm("DistributerConfig.acknowledgementWriter", "Acknowledgement writer configuration")
