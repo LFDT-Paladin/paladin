@@ -34,13 +34,13 @@ type loadedLockInfo struct {
 	lockInfo *types.NotoLockInfo_V1
 }
 
-type lockTransitionType int
+type lockTransitionType string
 
 const (
-	LOCK_DECODE_ANY lockTransitionType = iota
-	LOCK_CREATE
-	LOCK_UPDATE
-	LOCK_SPEND
+	LOCK_DECODE_ANY lockTransitionType = "LOCK_DECODE_ANY"
+	LOCK_CREATE     lockTransitionType = "LOCK_CREATE"
+	LOCK_UPDATE     lockTransitionType = "LOCK_UPDATE"
+	LOCK_SPEND      lockTransitionType = "LOCK_SPEND"
 )
 
 type lockTransition struct {
@@ -152,6 +152,8 @@ func (n *Noto) validateV1LockTransition(ctx context.Context, transitionType lock
 			}
 		}
 	}
+
+	log.L(ctx).Debugf("Lock transition %s type=%s oldLockState=%s newLockState=%s", lt.newLockInfo.LockID, transitionType, lt.prevLockStateID, lt.newLockStateID)
 
 	return lt, nil
 }

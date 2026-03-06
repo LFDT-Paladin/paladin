@@ -412,11 +412,12 @@ func (h *unlockCommon) buildCreateLockParams(ctx context.Context, tx *types.Pars
 	if err == nil {
 		// The noto lock operation here is empty, as we are just modifying the lock
 		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
-			TxId:     tx.Transaction.TransactionId,
-			Inputs:   endorsableStateIDs(inputs),
-			Outputs:  append([]string{lockTransition.newLockState.Id}, endorsableStateIDs(additionalOutputs)...),
-			Contents: endorsableStateIDs(lockedOutputs),
-			Proof:    proof,
+			TxId:         tx.Transaction.TransactionId,
+			Inputs:       endorsableStateIDs(inputs),
+			Outputs:      endorsableStateIDs(additionalOutputs),
+			Contents:     endorsableStateIDs(lockedOutputs),
+			NewLockState: lockTransition.newLockStateID,
+			Proof:        proof,
 		})
 	}
 	if err != nil {
