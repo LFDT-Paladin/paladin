@@ -290,11 +290,12 @@ func TestCreateTransferLock(t *testing.T) {
 	// Validate the encoded noto parameters passed in
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, fnParams.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
-		TxId:     "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:   []string{inputCoinState.Id},
-		Outputs:  []string{*newLockInfoState.Id, *remainderCoinState.Id},
-		Contents: []string{*lockedCoinState.Id},
-		Proof:    signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{inputCoinState.Id},
+		Outputs:      []string{*remainderCoinState.Id},
+		Contents:     []string{*lockedCoinState.Id},
+		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Proof:        signatureBytes,
 	}, notoParams)
 
 	// Prepare again to test hook invoke
