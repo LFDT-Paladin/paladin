@@ -115,6 +115,7 @@ func (n *Noto) handleV1Event(ctx context.Context, ev *prototk.OnChainEvent, res 
 			}
 			n.recordTransactionInfo(ev, lockSpent.TxId, txData.InfoStates, res)
 			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Inputs)...)
+			res.SpentStates = append(res.SpentStates, n.parseStatesFromEvent(lockSpent.TxId, []pldtypes.Bytes32{lockSpent.OldLockState})...)
 			res.ConfirmedStates = append(res.ConfirmedStates, n.parseStatesFromEvent(lockSpent.TxId, lockSpent.Outputs)...)
 
 			if req.ContractInfo != nil {

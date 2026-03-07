@@ -707,7 +707,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
     }
 
     /**
-     * @dev Check the inputs are all locked.
+     * @dev Validate and finalize the state transition for the lock state
      */
     function _transitionLockState(
         bytes32 lockId,

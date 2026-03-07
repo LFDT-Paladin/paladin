@@ -301,16 +301,18 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 	spender := (*pldtypes.EthAddress)(pldtypes.RandAddress())
 	outerData := pldtypes.RandHex(32)
 	proof := pldtypes.RandHex(32)
+	oldLockState := pldtypes.RandBytes32()
 
 	event := &NotoLockSpentOrCancelled_Event{
-		TxId:    txId,
-		LockID:  lockId,
-		Spender: spender,
-		Inputs:  []pldtypes.Bytes32{lockedInput},
-		Outputs: []pldtypes.Bytes32{output},
-		TxData:  sampleV1Data(t, n),
-		Proof:   pldtypes.HexBytes(proof),
-		Data:    pldtypes.HexBytes(outerData),
+		TxId:         txId,
+		LockID:       lockId,
+		Spender:      spender,
+		Inputs:       []pldtypes.Bytes32{lockedInput},
+		Outputs:      []pldtypes.Bytes32{output},
+		OldLockState: oldLockState,
+		TxData:       sampleV1Data(t, n),
+		Proof:        pldtypes.HexBytes(proof),
+		Data:         pldtypes.HexBytes(outerData),
 	}
 	notoEventJson, err := json.Marshal(event)
 	require.NoError(t, err)
@@ -332,8 +334,9 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 	res, err := n.HandleEventBatch(ctx, req)
 	require.NoError(t, err)
 	require.Len(t, res.TransactionsComplete, 1)
-	require.Len(t, res.SpentStates, 1)
+	require.Len(t, res.SpentStates, 2)
 	assert.Equal(t, lockedInput.String(), res.SpentStates[0].Id)
+	assert.Equal(t, oldLockState.String(), res.SpentStates[1].Id)
 	require.Len(t, res.ConfirmedStates, 1)
 	assert.Equal(t, output.String(), res.ConfirmedStates[0].Id)
 	require.Len(t, res.InfoStates, 1)
