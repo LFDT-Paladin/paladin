@@ -75,29 +75,27 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	}
 
 	// Load the existing lock
+	var lockedInputStates []*prototk.StateRef // V0 only
 	var existingLock *loadedLockInfo
-	minAmount := big.NewInt(0)
 	if tx.DomainConfig.IsV0() {
 		// In V0 at least one locked input was always present here, to confirm lock ownership - not required in V1 due to lock state check.
-		minAmount = big.NewInt(1)
+		lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, big.NewInt(1), false)
+		if err != nil {
+			if revert {
+				message := err.Error()
+				return &prototk.AssembleTransactionResponse{
+					AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+					RevertReason:   &message,
+				}, nil
+			}
+			return nil, err
+		}
+		lockedInputStates = lockedInputs.states
 	} else {
 		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	// Prepare the locked inputs.
-	lockedInputs, revert, err := h.noto.prepareLockedInputs(ctx, req.StateQueryContext, params.LockID, senderID.address, minAmount, false)
-	if err != nil {
-		if revert {
-			message := err.Error()
-			return &prototk.AssembleTransactionResponse{
-				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
-				RevertReason:   &message,
-			}, nil
-		}
-		return nil, err
 	}
 
 	infoDistribution := identityList{notaryID, senderID}
@@ -151,7 +149,7 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 	return &prototk.AssembleTransactionResponse{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
 		AssembledTransaction: &prototk.AssembledTransaction{
-			ReadStates:   lockedInputs.states,
+			ReadStates:   lockedInputStates,
 			InputStates:  inputStates,
 			OutputStates: outputStates,
 			InfoStates:   infoStates,
@@ -257,11 +255,10 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 
 		var delegateInputsEncoded pldtypes.HexBytes
 		delegateInputsEncoded, err = h.noto.encodeNotoDelegateOperation(ctx, &types.NotoDelegateOperation{
-			TxId:        req.Transaction.TransactionId,
-			LockStateID: lt.newLockStateID,
-			Inputs:      endorsableStateIDs(req.InputStates),
-			Outputs:     endorsableStateIDs(req.OutputStates),
-			Proof:       signature.Payload,
+			TxId:         req.Transaction.TransactionId,
+			OldLockState: lt.prevLockStateID,
+			NewLockState: lt.newLockStateID,
+			Proof:        signature.Payload,
 		})
 		if err == nil {
 			params := &DelegateLockParams{

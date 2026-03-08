@@ -54,6 +54,7 @@ func TestCreateMintLock(t *testing.T) {
 				"to": "receiver@node2",
 				"amount": 100
 			}],
+			"unlockData": "0x9999",
 			"data": "0x1234"
 		}`,
 	}
@@ -90,20 +91,24 @@ func TestCreateMintLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 0)
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1) // lock
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + spend-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + unlock-data-info + data-info + spend-coin
 
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	spendCoinState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
+	dataState := assembleRes.AssembledTransaction.InfoStates[2]
+	spendCoinState := assembleRes.AssembledTransaction.InfoStates[3]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 
 	spendCoin, err := n.unmarshalCoin(spendCoinState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, receiverAddress, spendCoin.Owner.String())
 	assert.Equal(t, "100", spendCoin.Amount.Int().String())
-	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
+	unlockDataInfo, err := n.unmarshalInfo(unlockDataState.StateDataJson)
 	require.NoError(t, err)
-	assert.Equal(t, "0x1234", outputInfo.Data.String())
+	assert.Equal(t, "0x9999", unlockDataInfo.Data.String())
+	dataInfo, err := n.unmarshalInfo(dataState.StateDataJson)
+	require.NoError(t, err)
+	assert.Equal(t, "0x1234", dataInfo.Data.String())
 
 	lockInfo, err := n.unmarshalLockV1(newLockInfoState.StateDataJson)
 	require.NoError(t, err)
@@ -206,24 +211,25 @@ func TestCreateMintLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	emptyTxData, err := n.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
 	require.NoError(t, err)
 	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, endorsableStateIDs(infoStates[1:2]), emptyTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, endorsableStateIDs(infoStates[1:2]), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, []string{}, emptyTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), []string{}, []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
 
 	// Validate the encoded noto parameters passed in
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, fnParams.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
-		TxId:     "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:   []string{},
-		Outputs:  []string{*newLockInfoState.Id},
-		Contents: []string{},
-		Proof:    signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{},
+		Outputs:      []string{},
+		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Contents:     []string{},
+		Proof:        signatureBytes,
 	}, notoParams)
 
 	// Prepare again to test hook invoke
@@ -293,9 +299,12 @@ func TestCreateMintLock(t *testing.T) {
 	mt.withMissingNewStates(manifestState, dataState).
 		incompleteForIdentity(notaryKey.Address.String()).
 		incompleteForIdentity(receiverAddress)
+	mt.withMissingNewStates(unlockDataState).
+		incompleteForIdentity(notaryKey.Address.String()).
+		incompleteForIdentity(receiverAddress)
 	mt.withMissingNewStates(dataState).
 		incompleteForIdentity(notaryKey.Address.String()).
-		completeForIdentity(receiverAddress) // receivers don't get the data
+		incompleteForIdentity(receiverAddress)
 	mt.withMissingNewStates(newLockInfoState).
 		incompleteForIdentity(notaryKey.Address.String()).
 		completeForIdentity(receiverAddress) // receivers don't get the lock

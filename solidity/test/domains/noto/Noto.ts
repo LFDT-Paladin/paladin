@@ -119,7 +119,7 @@ describe("Noto", function () {
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
     const lockStateId1 = randomBytes32();
-    const options = createLockOptions(ZeroHash, lockStateId1);
+    const options = createLockOptions(ZeroHash);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
@@ -132,6 +132,7 @@ describe("Noto", function () {
       inputs: [txo1, txo2],
       outputs: [txo3],
       contents: [locked1],
+      newLockState: lockStateId1,
       proof: "0x",
     } as NotoCreateLockOperation;
     const lockId = await doLock(notary, noto, params1, unpreparedLockParams, "0x");
@@ -142,6 +143,7 @@ describe("Noto", function () {
       inputs: [],
       outputs: [],
       contents: [locked1],
+      newLockState: lockStateId1,
       proof: "0x",
     };
     await expect(
@@ -171,6 +173,7 @@ describe("Noto", function () {
       noto,
       lockId,
       unlockTxId,
+      lockStateId1,
       lockStateId2,
       spendHash,
       cancelHash,
@@ -184,6 +187,7 @@ describe("Noto", function () {
       notary,
       noto,
       lockId,
+      lockStateId2,
       lockStateId3,
       delegate.address,
       randomBytes32()
@@ -231,6 +235,9 @@ describe("Noto", function () {
       ) // wrong delegate
     ).to.be.revertedWithCustomError(noto, "LockUnauthorized");
 
+    // Check the lock is in the state we expect before the unlock
+    expect(await noto.connect(notary).getLockState(lockId)).to.equal(lockStateId3);
+
     // Perform the prepared unlock
     await doUnlock(
       unlockTxId,
@@ -256,6 +263,10 @@ describe("Noto", function () {
         randomBytes32()
       )
     ).to.be.revertedWithCustomError(noto, "LockNotActive");
+
+    // And is removed afterwards
+    expect(await noto.connect(notary).getLockState(lockId)).to.equal(ZeroHash);
+
   });
 
   it("Duplicate TXID reverts transfer", async function () {
@@ -292,7 +303,7 @@ describe("Noto", function () {
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
     const lockStateId1 = randomBytes32();
-    const options = createLockOptions(ZeroHash, lockStateId1);
+    const options = createLockOptions(ZeroHash);
     const unpreparedLockParams = {
       spendHash: ZeroHash,
       cancelHash: ZeroHash,
@@ -308,6 +319,7 @@ describe("Noto", function () {
       inputs: [txo1, txo2],
       outputs: [txo3],
       contents: [locked1],
+      newLockState: lockStateId1,
       proof: "0x",
     } as NotoCreateLockOperation;
     await expect(
@@ -321,6 +333,7 @@ describe("Noto", function () {
       inputs: [txo1, txo2],
       outputs: [txo3],
       contents: [locked1],
+      newLockState: lockStateId1,
       proof: "0x",
     };
     const lockId = await doLock(notary, noto, params2, unpreparedLockParams, "0x");
@@ -328,7 +341,7 @@ describe("Noto", function () {
     // Prepare unlock operations (both spend and cancel) using the same TX ID as the transfer - should fail
     const unlockTxId = txId1; // Use same txId as transfer to test duplicate
     const unlockData = randomBytes32();
-    const lockStateId = randomBytes32();
+    const lockStateId2 = randomBytes32();
     const spendHash = await newUnlockHash(
       noto,
       unlockTxId,
@@ -344,7 +357,8 @@ describe("Noto", function () {
         noto,
         lockId,
         unlockTxId,
-        lockStateId,
+        lockStateId1,
+        lockStateId2,
         spendHash,
         cancelHash,
         unlockData,

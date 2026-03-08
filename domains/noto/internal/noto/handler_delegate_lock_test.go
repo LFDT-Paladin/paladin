@@ -143,11 +143,10 @@ func TestDelegateLock(t *testing.T) {
 	assert.Equal(t, prototk.AssembleTransactionResponse_OK, assembleRes.AssemblyResult)
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // old info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1) // new info
-	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 1)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + txData
+	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)   // in V1 there are no read states (the lockState is consumed as an input)
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2)   // manifest + txData
 	assert.Equal(t, inputLockInfo.Id, assembleRes.AssembledTransaction.InputStates[0].Id)
 	assert.Equal(t, hashName("lockInfo_v1"), assembleRes.AssembledTransaction.OutputStates[0].SchemaId)
-	assert.Equal(t, inputLockedCoin.ID.String(), assembleRes.AssembledTransaction.ReadStates[0].Id)
 	outputInfo, err := n.unmarshalInfo(assembleRes.AssembledTransaction.InfoStates[1].StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())
@@ -246,11 +245,10 @@ func TestDelegateLock(t *testing.T) {
 	params := decodeFnParams[DelegateLockParams](t, delegateLockABI, prepareRes.Transaction.ParamsJson)
 	notoParams := decodeSingleABITuple[types.NotoDelegateOperation](t, types.NotoDelegateOperationABI, params.DelegateInputs)
 	require.Equal(t, &types.NotoDelegateOperation{
-		TxId:        "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		LockStateID: pldtypes.MustParseBytes32(*lockInfoState.Id),
-		Inputs:      []string{"0xa7c7fa6677f6938bb90f9f0ccb3487707fe6a93c527d899f09af497ece2e603b"},
-		Outputs:     []string{*lockInfoState.Id},
-		Proof:       signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
+		NewLockState: pldtypes.MustParseBytes32(*lockInfoState.Id),
+		Proof:        signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
 	require.NoError(t, err)

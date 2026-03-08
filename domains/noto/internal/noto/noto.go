@@ -263,50 +263,52 @@ type LockStates struct {
 
 // INoto.NotoLockCreated event JSON schema - describes the UTXO transaction that accompanies a lock create
 type NotoLockCreated_Event struct {
-	TxId     pldtypes.Bytes32     `json:"txId"`
-	LockID   pldtypes.Bytes32     `json:"lockId"`
-	Owner    *pldtypes.EthAddress `json:"owner"`
-	Inputs   []pldtypes.Bytes32   `json:"inputs"`
-	Outputs  []pldtypes.Bytes32   `json:"outputs"`
-	Contents []pldtypes.Bytes32   `json:"contents"`
-	Proof    pldtypes.HexBytes    `json:"proof"`
-	Data     pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Owner        *pldtypes.EthAddress `json:"owner"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	Contents     []pldtypes.Bytes32   `json:"contents"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockSpent and INoto.NotoLockCancelled event JSON schema
 type NotoLockSpentOrCancelled_Event struct {
-	TxId    pldtypes.Bytes32     `json:"txId"`
-	LockID  pldtypes.Bytes32     `json:"lockId"`
-	Spender *pldtypes.EthAddress `json:"spender"`
-	Inputs  []pldtypes.Bytes32   `json:"inputs"`
-	Outputs []pldtypes.Bytes32   `json:"outputs"`
-	TxData  pldtypes.HexBytes    `json:"txData"`
-	Proof   pldtypes.HexBytes    `json:"proof"`
-	Data    pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Spender      *pldtypes.EthAddress `json:"spender"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	TxData       pldtypes.HexBytes    `json:"txData"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock update
 type NotoLockUpdated_Event struct {
-	TxId     pldtypes.Bytes32     `json:"txId"`
-	LockID   pldtypes.Bytes32     `json:"lockId"`
-	Operator *pldtypes.EthAddress `json:"operator"`
-	Inputs   []pldtypes.Bytes32   `json:"inputs"`
-	Outputs  []pldtypes.Bytes32   `json:"outputs"`
-	Contents []pldtypes.Bytes32   `json:"contents"`
-	Proof    pldtypes.HexBytes    `json:"proof"`
-	Data     pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Operator     *pldtypes.EthAddress `json:"operator"`
+	Contents     []pldtypes.Bytes32   `json:"contents"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
-	TxId    pldtypes.Bytes32     `json:"txId"`
-	LockID  pldtypes.Bytes32     `json:"lockId"`
-	From    *pldtypes.EthAddress `json:"from"`
-	To      *pldtypes.EthAddress `json:"to"`
-	Inputs  []pldtypes.Bytes32   `json:"inputs"`
-	Outputs []pldtypes.Bytes32   `json:"outputs"`
-	Proof   pldtypes.HexBytes    `json:"proof"`
-	Data    pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	From         *pldtypes.EthAddress `json:"from"`
+	To           *pldtypes.EthAddress `json:"to"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 type parsedCoins struct {

@@ -72,6 +72,7 @@ func TestCreateBurnLock(t *testing.T) {
 		FunctionParamsJson: `{
 			"from": "sender@node1",
 			"amount": 100,
+			"unlockData": "0x9999",
 			"data": "0x1234"
 		}`,
 	}
@@ -108,12 +109,13 @@ func TestCreateBurnLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // the input coin
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 3) // lock + locked-coin + remainder-coin
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + data + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 4) // manifest + unlock-data-info + data-info + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.InputStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
+	dataState := assembleRes.AssembledTransaction.InfoStates[2]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[3]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 	lockedCoinState := assembleRes.AssembledTransaction.OutputStates[1]
 	remainderCoinState := assembleRes.AssembledTransaction.OutputStates[2]
@@ -129,9 +131,12 @@ func TestCreateBurnLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, senderKey.Address.String(), cancelCoin.Owner.String())
 	assert.Equal(t, "100", cancelCoin.Amount.Int().String())
-	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
+	unlockDataInfo, err := n.unmarshalInfo(unlockDataState.StateDataJson)
 	require.NoError(t, err)
-	assert.Equal(t, "0x1234", outputInfo.Data.String())
+	assert.Equal(t, "0x9999", unlockDataInfo.Data.String())
+	dataInfo, err := n.unmarshalInfo(dataState.StateDataJson)
+	require.NoError(t, err)
+	assert.Equal(t, "0x1234", dataInfo.Data.String())
 
 	lockInfo, err := n.unmarshalLockV1(newLockInfoState.StateDataJson)
 	require.NoError(t, err)
@@ -250,24 +255,25 @@ func TestCreateBurnLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	emptyTxData, err := n.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
+	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
 	require.NoError(t, err)
 	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, emptyTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), []string{}, unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), emptyTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
 
 	// Validate the encoded noto parameters passed in
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, fnParams.CreateInputs)
 	require.Equal(t, &types.NotoCreateLockOperation{
-		TxId:     "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
-		Inputs:   []string{inputCoinState.Id},
-		Outputs:  []string{*newLockInfoState.Id, *remainderCoinState.Id},
-		Contents: []string{*lockedCoinState.Id},
-		Proof:    signatureBytes,
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{inputCoinState.Id},
+		Outputs:      []string{*remainderCoinState.Id},
+		Contents:     []string{*lockedCoinState.Id},
+		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Proof:        signatureBytes,
 	}, notoParams)
 
 	// Prepare again to test hook invoke
@@ -329,6 +335,9 @@ func TestCreateBurnLock(t *testing.T) {
 		completeForIdentity(notaryAddress).
 		completeForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(manifestState, dataState).
+		incompleteForIdentity(notaryAddress).
+		incompleteForIdentity(senderKey.Address.String())
+	mt.withMissingNewStates(unlockDataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String())
 	mt.withMissingNewStates(dataState).

@@ -154,7 +154,7 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 		return nil, err
 	}
 
-	// Prepare unlock with no outputs (for burning)
+	// Prepare unlock with no inputs (for minting)
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, outputs.coins)
 	if err != nil {
 		return nil, err
@@ -228,7 +228,7 @@ func (h *prepareMintUnlockHandler) Endorse(ctx context.Context, tx *types.Parsed
 	}
 
 	// Notary checks the signature from the sender, then submits the transaction
-	// No outputs - this will burn when unlocked
+	// No inputs - this will mint when unlocked
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, nil, nil, parsedSpendOutputs.coins)
 	if err != nil {
 		return nil, err
