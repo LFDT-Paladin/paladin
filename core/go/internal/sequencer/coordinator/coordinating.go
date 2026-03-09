@@ -248,11 +248,12 @@ func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordin
 	})
 	if len(assemblingTransactions) > 0 {
 		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
-		assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+		err := assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
 			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 				TransactionID: assemblingTransactions[0].GetID(),
 			},
 		})
+		return err
 	}
 	return nil
 }
