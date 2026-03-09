@@ -40,7 +40,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	//TODO this need to become an ultra low latency, non blocking, handover to the event loop thread.
 	// need some thought on how to handle errors, retries, buffering, swapping idle sequencers in and out of memory etc...
 
-	sMgr.logPaladinMessage(ctx, message)
+	log.L(ctx).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 
 	//Send the event to the sequencer handler
 	switch message.MessageType {
@@ -79,10 +79,6 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	default:
 		log.L(ctx).Errorf("Unknown message type: %s", message.MessageType)
 	}
-}
-
-func (sMgr *sequencerManager) logPaladinMessage(ctx context.Context, message *components.ReceivedMessage) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGRX)).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {

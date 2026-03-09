@@ -133,8 +133,9 @@ func NewCoordinator(
 	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
 	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
+	coordCtx := log.WithLogField(ctx, "role", "coordinator")
 	c := &coordinator{
-		ctx:                                ctx,
+		ctx:                                coordCtx,
 		heartbeatIntervalsSinceStateChange: 0,
 		transactionsByID:                   make(map[uuid.UUID]transaction.CoordinatorTransaction),
 		domainAPI:                          domainAPI,
@@ -144,7 +145,7 @@ func NewCoordinator(
 		newPrivateTransaction:              newPrivateTransaction,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
-		grapher:                            transaction.NewGrapher(ctx),
+		grapher:                            transaction.NewGrapher(coordCtx),
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
@@ -190,21 +191,21 @@ func NewCoordinator(
 		c.inFlightMutex.L.Unlock()
 	})
 
-	if err := c.initializeOriginatorNodePoolFromContractConfig(ctx); err != nil {
+	if err := c.initializeOriginatorNodePoolFromContractConfig(coordCtx); err != nil {
 		return nil, err
 	}
 
 	// Start the state machine event loop
-	go c.stateMachineEventLoop.Start(ctx)
+	go c.stateMachineEventLoop.Start(coordCtx)
 
 	// Start dispatch queue loop
-	go c.dispatchLoop(ctx)
+	go c.dispatchLoop(coordCtx)
 
 	// Handle loopback messages to the same node without blocking the event loop
 	transportWriter.StartLoopbackWriter()
 
 	// Trigger the initial transition out of State_Initial
-	c.QueueEvent(ctx, &CoordinatorCreatedEvent{})
+	c.QueueEvent(coordCtx, &CoordinatorCreatedEvent{})
 
 	return c, nil
 }

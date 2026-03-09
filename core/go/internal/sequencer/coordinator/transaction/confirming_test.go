@@ -26,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -223,7 +224,7 @@ func Test_action_NotifyDependantsOfConfirmation_ResetLocksOnTransitionWhenRetent
 		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
 
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
 	require.NoError(t, err)
@@ -248,7 +249,7 @@ func Test_action_NotifyDependantsOfConfirmation_ResetsLocksImmediatelyWhenRetent
 		ConfirmedLockRetentionGracePeriod(0).
 		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
 
 	err := action_NotifyDependantsOfConfirmation(ctx, txn, nil)
 	require.NoError(t, err)
@@ -322,7 +323,7 @@ func Test_EventConfirmed_NonTerminalStates_RevertStaysInPlace_ForNewHandlers(t *
 func Test_EventConfirmed_StateDispatched_RevertTransitionsToPooled(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 	nonce := pldtypes.HexUint64(88)
 	event := &ConfirmedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

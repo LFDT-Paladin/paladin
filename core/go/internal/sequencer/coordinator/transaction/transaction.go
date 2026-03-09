@@ -157,19 +157,20 @@ func newTransaction(
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*coordinatorTransaction, error) {
-	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
+	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
+	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(txCtx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
 		return nil, err
 	}
 
-	hasChainedTransaction, err := allComponents.TxManager().HasChainedTransaction(ctx, pt.ID)
+	hasChainedTransaction, err := allComponents.TxManager().HasChainedTransaction(txCtx, pt.ID)
 	if err != nil {
-		log.L(ctx).Errorf("error checking for chained transaction %s: %v", pt.ID, err)
+		log.L(txCtx).Errorf("error checking for chained transaction %s: %v", pt.ID, err)
 		return nil, err
 	}
 	if hasChainedTransaction {
-		log.L(ctx).Debugf("chained transaction %s found", pt.ID.String())
+		log.L(txCtx).Debugf("chained transaction %s found", pt.ID.String())
 	}
 
 	txn := &coordinatorTransaction{
@@ -198,7 +199,7 @@ func newTransaction(
 		chainedTxAlreadyDispatched:        hasChainedTransaction,
 	}
 	txn.initializeStateMachine(State_Initial)
-	grapher.Add(ctx, txn)
+	grapher.Add(txCtx, txn)
 	return txn, nil
 }
 

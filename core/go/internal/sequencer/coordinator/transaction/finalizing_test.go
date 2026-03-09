@@ -199,7 +199,7 @@ func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *te
 func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
 
 	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 	require.NoError(t, err)

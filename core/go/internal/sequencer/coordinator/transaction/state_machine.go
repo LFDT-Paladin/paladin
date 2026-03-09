@@ -574,8 +574,10 @@ func (t *coordinatorTransaction) initializeStateMachine(initialState State) {
 }
 
 func (t *coordinatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
-	log.L(ctx).Infof("transaction state machine handling new event (TX ID %s, TX originator %s, TX address %+v)", t.pt.ID.String(), t.originator, t.pt.Address.HexString())
-	return t.stateMachine.ProcessEvent(ctx, t, event)
+	// Adding the log field here means every function called by the transaction state machine will have the txID field
+	// in addition to the fields of the parent context
+	txCtx := log.WithLogField(ctx, "txID", t.pt.ID.String())
+	return t.stateMachine.ProcessEvent(txCtx, t, event)
 }
 
 func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {

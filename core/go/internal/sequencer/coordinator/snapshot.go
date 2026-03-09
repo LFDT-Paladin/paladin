@@ -29,7 +29,7 @@ func (c *coordinator) heartbeatLoop(ctx context.Context) {
 		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
 		defer c.heartbeatCancel()
 
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
+		log.L(ctx).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
 
 		// Send an initial heartbeat interval event to be handled immediately
 		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})

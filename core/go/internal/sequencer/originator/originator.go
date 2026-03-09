@@ -93,8 +93,9 @@ func NewOriginator(
 	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
+	origCtx := log.WithLogField(ctx, "role", "originator")
 	o := &originator{
-		ctx:                 ctx,
+		ctx:                 origCtx,
 		nodeName:            nodeName,
 		transactionsByID:    make(map[uuid.UUID]*transaction.OriginatorTransaction),
 		transportWriter:     transportWriter,
@@ -111,8 +112,8 @@ func NewOriginator(
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
 	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
-	go o.stateMachineEventLoop.Start(ctx)
-	go o.delegateLoop(ctx)
+	go o.stateMachineEventLoop.Start(origCtx)
+	go o.delegateLoop(origCtx)
 
 	return o, nil
 }

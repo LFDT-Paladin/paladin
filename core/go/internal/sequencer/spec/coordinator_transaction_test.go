@@ -89,8 +89,8 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 	ctx := context.Background()
 
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	err := txn.HandleEvent(ctx, &transaction.SelectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -112,7 +112,7 @@ func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *tes
 
 	successEvent := txnBuilder.BuildAssembleSuccessEvent()
 	outputState := successEvent.PostAssembly.OutputStates[0]
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, mock.Anything).Run(func(ctx context.Context, txn *components.PrivateTransaction) {
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Run(func(ctx context.Context, txn *components.PrivateTransaction) {
 		assert.Equal(t, outputState.ID, txn.PostAssembly.OutputStates[0].ID)
 	}).Return(nil)
 
@@ -164,7 +164,7 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
 		StateTimeout(1).
 		Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.GetID()).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
 	err := txn.HandleEvent(ctx, &transaction.StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -339,7 +339,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 		AddPendingEndorsementRequest(2)
 
 	txn, mocks := builder.Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.GetID()).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	require.NoError(t, err)
@@ -540,7 +540,7 @@ func TestCoordinatorTransaction_Dispatched_NoTransition_OnSubmitted(t *testing.T
 func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmed_IfRevert(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.GetID()).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
