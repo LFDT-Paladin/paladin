@@ -69,6 +69,7 @@ type BlockIndexer interface {
 	WaitForTransactionAnyResult(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.IndexedTransaction, error)
 	GetBlockListenerHeight(ctx context.Context) (highest uint64, err error)
 	GetConfirmedBlockHeight(ctx context.Context) (confirmed pldtypes.HexUint64, err error)
+	GetLatestConfirmedBlock(ctx context.Context) (block *BlockInfoJSONRPC, err error)
 	GetEventStreamStatus(ctx context.Context, id uuid.UUID) (*EventStreamStatus, error)
 	RPCModule() *rpcserver.RPCModule
 }
@@ -258,6 +259,24 @@ func (bi *blockIndexer) GetConfirmedBlockHeight(ctx context.Context) (highest pl
 		return 0, i18n.NewError(ctx, msgs.MsgBlockIndexerNoBlocksIndexed)
 	}
 	return pldtypes.HexUint64(highestConfirmedBlock), nil
+}
+
+func (bi *blockIndexer) GetLatestConfirmedBlock(ctx context.Context) (block *BlockInfoJSONRPC, err error) {
+	blockNumber, err := bi.GetConfirmedBlockHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err = bi.blockListener.getBlockInfoByNumber(ctx, ethtypes.HexUint64(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+
+	if block == nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgBlockIndexerGetBlockByNumberNotFound, blockNumber)
+	}
+
+	return block, nil
 }
 
 func (bi *blockIndexer) GetBlockListenerHeight(ctx context.Context) (confirmed uint64, err error) {

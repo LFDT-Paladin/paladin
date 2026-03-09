@@ -395,7 +395,8 @@ public class PenteDomainTests {
                                                                 }
                                                         });
                                                 }
-                                        });
+                                        })
+                                ;
                         var setReceipt = waitForReceipt(testbed, setTx, 5000);
                         assertEquals(true, setReceipt.get("success"));
                 }
