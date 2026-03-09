@@ -22,7 +22,7 @@ import i18next from "i18next";
 
 export const fetchKeys = async (parent: string | undefined, limit: number, sortByPathFirst: boolean, sortOrder: 'asc' | 'desc', filters: IFilter[], refEntry?: IKeyEntry): Promise<IKeyEntry[]> => {
 
-  let translatedFilters = translateFilters(filters);
+  const translatedFilters = translateFilters(filters);
 
   if (parent !== undefined) {
     if (translatedFilters.equal === undefined) {
@@ -34,7 +34,7 @@ export const fetchKeys = async (parent: string | undefined, limit: number, sortB
     });
   }
 
-  let requestPayload: any = {
+  const requestPayload: any = {
     jsonrpc: "2.0",
     id: Date.now(),
     method: RpcMethods.keymgr_queryKeys,

@@ -42,7 +42,7 @@ export const TimestampDialog: React.FC<Props> = ({
   const date = new Date(timestamp);
 
   const getEpoch = () => {
-    let epoch = date.getTime().toString();
+    const epoch = date.getTime().toString();
     const length = timestamp.length;
     switch (length) {
       case 30:

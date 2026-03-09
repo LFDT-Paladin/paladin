@@ -19,7 +19,7 @@ import { generatePostReq, returnResponse } from "./common";
 import { RpcEndpoint, RpcMethods } from "./rpcMethods";
 
 export const uploadABI = async (
-  abi: Object
+  abi: object
 ): Promise<ABIUploadResponse> => {
   const payload = {
     jsonrpc: "2.0",

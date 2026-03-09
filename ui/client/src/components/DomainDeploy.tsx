@@ -55,7 +55,7 @@ export const DomainDeploy: React.FC<Props> = ({ domainName }) => {
   return (
     <>
       <Grid2>
-        {button && (
+        {button && domainName !== 'pente' && (
           <Button
             size="large"
             variant="outlined"
