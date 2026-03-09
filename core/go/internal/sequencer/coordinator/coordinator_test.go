@@ -353,6 +353,118 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	}
 }
 
+func TestCoordinator_GetTransactionsInStates_EmptyMapReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
+
+	result := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	assert.Empty(t, result)
+}
+
+func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsMatching(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txn.GetID(): txn,
+	}
+
+	result := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	require.Len(t, result, 1)
+	assert.Equal(t, txn.GetID(), result[0].GetID())
+	assert.Equal(t, transaction.State_Ready_For_Dispatch, result[0].GetCurrentState())
+}
+
+func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsEmptyWhenNoMatch(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txn.GetID(): txn,
+	}
+
+	result := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	assert.Empty(t, result)
+}
+
+func TestCoordinator_GetTransactionsInStates_MultipleStatesFilter_ReturnsAllMatching(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txReady, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txDispatched, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txPooled, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txReady.GetID():      txReady,
+		txDispatched.GetID(): txDispatched,
+		txPooled.GetID():     txPooled,
+	}
+
+	result := c.getTransactionsInStates(ctx, []transaction.State{
+		transaction.State_Ready_For_Dispatch,
+		transaction.State_Dispatched,
+	})
+	require.Len(t, result, 2)
+	ids := make(map[uuid.UUID]bool)
+	for _, txn := range result {
+		ids[txn.GetID()] = true
+		assert.Contains(t, []transaction.State{transaction.State_Ready_For_Dispatch, transaction.State_Dispatched}, txn.GetCurrentState())
+	}
+	assert.True(t, ids[txReady.GetID()])
+	assert.True(t, ids[txDispatched.GetID()])
+	assert.False(t, ids[txPooled.GetID()])
+}
+
+func TestCoordinator_GetTransactionsInStates_MultipleTransactionsInSameState(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
+		tx3.GetID(): tx3,
+	}
+
+	result := c.getTransactionsInStates(ctx, []transaction.State{transaction.State_Assembling})
+	require.Len(t, result, 2)
+	ids := make(map[uuid.UUID]bool)
+	for _, txn := range result {
+		ids[txn.GetID()] = true
+		assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState())
+	}
+	assert.True(t, ids[tx1.GetID()])
+	assert.True(t, ids[tx2.GetID()])
+	assert.False(t, ids[tx3.GetID()])
+}
+
+func TestCoordinator_GetTransactionsInStates_EmptyStatesFilter_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txn.GetID(): txn,
+	}
+
+	result := c.getTransactionsInStates(ctx, nil)
+	assert.Empty(t, result)
+	result = c.getTransactionsInStates(ctx, []transaction.State{})
+	assert.Empty(t, result)
+}
+
 func TestCoordinator_NewCoordinator_EndorserMode_AllowsNoConfiguredCandidates(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
