@@ -189,6 +189,11 @@ func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordi
 	return e.To == transaction.State_Pooled, nil
 }
 
+func validator_TransactionStateTransitionDispatchedToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.From == transaction.State_Dispatched && e.To == transaction.State_Pooled, nil
+}
+
 func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction
@@ -233,5 +238,21 @@ func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common
 		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
 	}
 	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+	return nil
+}
+
+func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
+	log.L(ctx).Debug("cancelling any transaction currently being assembled")
+	assemblingTransactions := c.getTransactionsInStates(ctx, []transaction.State{
+		transaction.State_Assembling,
+	})
+	if len(assemblingTransactions) > 0 {
+		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
+		assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+				TransactionID: assemblingTransactions[0].GetID(),
+			},
+		})
+	}
 	return nil
 }

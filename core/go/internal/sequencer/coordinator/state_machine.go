@@ -240,6 +240,11 @@ var stateDefinitionsMap = StateDefinitions{
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
+						Validator: validator_TransactionStateTransitionDispatchedToPooled,
+						If:        guard_HasTransactionAssembling,
+						Action:    action_cancelCurrentlyAssemblingTransaction, // This TX is being re-pooled, cancel the one we're already assembling
+					},
+					{
 						Validator: validator_TransactionStateTransitionToPooled,
 						Action:    action_PoolTransaction,
 					},

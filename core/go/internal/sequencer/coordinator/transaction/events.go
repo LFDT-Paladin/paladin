@@ -65,6 +65,19 @@ func (*SelectedEvent) TypeString() string {
 	return "Event_Selected"
 }
 
+// AssembleCancelledEvent
+type AssembleCancelledEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*AssembleCancelledEvent) Type() EventType {
+	return Event_Assemble_Cancelled
+}
+
+func (*AssembleCancelledEvent) TypeString() string {
+	return "Event_Assemble_Cancelled"
+}
+
 // AssembleRequestSentEvent
 type AssembleRequestSentEvent struct {
 	BaseCoordinatorEvent

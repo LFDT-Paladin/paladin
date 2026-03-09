@@ -155,10 +155,3 @@ func (t *coordinatorTransaction) notifyDependentsOfRepool(ctx context.Context) e
 
 	return nil
 }
-
-func action_ResetAssembleRequests(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	// Ignore all assemble responses, we're resetting to begin assembly of the next pooled transaction from scratch
-	t.pendingAssembleRequest = nil
-	t.clearTimeoutSchedules()
-	return nil
-}

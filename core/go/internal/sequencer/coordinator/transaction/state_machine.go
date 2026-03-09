@@ -50,6 +50,7 @@ const (
 	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
 	Event_Assemble_Success                                                                     // assemble response received from the originator
 	Event_Assemble_Revert_Response                                                             // assemble response received from the originator with a revert reason
+	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
 	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
@@ -66,7 +67,6 @@ const (
 	Event_RequestTimeoutInterval                                                               // event emitted by the state machine on a regular period while we have pending requests
 	Event_StateTimeoutInterval                                                                 // event emitted when a state has exceeded its maximum allowed duration
 	Event_StateTransition                                                                      // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
-	Event_AssembleTimeout                                                                      // the assemble timeout period has passed since we sent the first assemble request
 	Event_TransactionUnknownByOriginator                                                       // originator has reported that it doesn't recognize this transaction
 )
 
@@ -224,6 +224,11 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_StateTimeoutInterval: {
+				Transitions: []Transition{{
+					To: State_Pooled,
+				}},
+			},
+			Event_Assemble_Cancelled: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -491,9 +496,8 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Confirmed,
 					},
 					{
-						If:      guard_HasRevertReason,
-						Actions: []ActionRule{{Action: action_ResetAssembleRequests}}, // TODO - temporary coarse approach to force re-assembly without stale state
-						To:      State_Pooled,
+						If: guard_HasRevertReason,
+						To: State_Pooled,
 					},
 				},
 			},
