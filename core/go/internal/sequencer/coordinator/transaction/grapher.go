@@ -24,22 +24,27 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
-// Interface Grapher allows transactions to link to each other in a dependency graph
-// Transactions may know about their dependencies either explicitly via transactions IDs specified on the pre-assembly spec
-// or implicitly via the post assembly input and read state IDs .
-// In the former case, the Grapher helps to resolve a transaction ID to a pointer to the in-memory state machine for that transaction object
-// In the latter case the Grapher helps to resolve a state ID to a pointer to the in-memory state machine for the transaction object that produced that state
-// Transactions register themselves with the Grapher and can use the Grapher to look up each other
-// The Grapher is not a graph data structure, but a simple index of transactions by ID and by state ID
-// the actual graph is the emergent data structure of the transactions maintaining links to each other
+// Interface Grapher allows transactions to link to each other in a bi-directional dependency graph. It is owned by the coordinator for a given sequencer.
+// Transactions can query the grapher to understand their relationships to previous and subsequent transactions. For example:
+//  - Did it create a state that another TX now depends on?
+//  - Did it consume/lock a state that another TX created?
+//  - A base-ledger revert has occurred, who else will need to be re-pooled and re-assembled? Which states should be unlocked and which ones removed?
+//  - A base-ledger confirmation has occurred, which states and locks can be removed?
+
+// There are 3 ordering guarantees that Paladin enforces:
+//   - Explicit transaction dependencies. These are specified by the application and tracked at the originator. The grapher is not related to explicit dependencies.
+//   - Implicit transaction dependencies. These come about as a result of assembling transactions and are tracked through this grapher.
+//   - First-assemble dependencies. A transaction arriving at an originator from an application is guaranteed to have its FIRST assemble request take place
+//     before any transaction that arrived at the originator after it. Re-assembly order (e.g. if a base ledger TX reverts) is not guaranteed.
 type Grapher interface {
 	Add(context.Context, *CoordinatorTransaction)
-	AddMinter(ctx context.Context, state *components.FullState, transaction *CoordinatorTransaction) error
+	AddMinter(ctx context.Context, state []*components.FullState, transaction *CoordinatorTransaction) error
 	ExportMints(ctx context.Context) ([]byte, error)
 	Forget(transactionID uuid.UUID) error
 	ForgetMints(transactionID uuid.UUID)
@@ -53,7 +58,7 @@ type Grapher interface {
 type grapher struct {
 	transactionByOutputState  map[string]*CoordinatorTransaction
 	transactionByID           map[uuid.UUID]*CoordinatorTransaction
-	outputStatesByMinter      map[uuid.UUID][]*components.StateUpsert //used for reverse lookup to cleanup transactionByOutputState
+	outputStatesByMinter      map[uuid.UUID][]*components.StateUpsert // used for reverse lookup to cleanup transactionByOutputState
 	lockedStatesByTransaction map[uuid.UUID][]*stateLock              // states locked by a given tranasction
 }
 
@@ -61,7 +66,7 @@ type grapher struct {
 // It must only be called from the state machine loop to ensure assembly of a TX is based on completion of
 // any updates made by a previous change in the state machine (e.g. removing states from a previously
 // reverted transaction)
-func NewGrapher(ctx context.Context) Grapher {
+func NewGrapher(ctx context.Context, metrics metrics.DistributedSequencerMetrics) Grapher {
 	return &grapher{
 		transactionByOutputState:  make(map[string]*CoordinatorTransaction),
 		transactionByID:           make(map[uuid.UUID]*CoordinatorTransaction),
@@ -98,33 +103,35 @@ func (s *grapher) Add(ctx context.Context, txn CoordinatorTransaction) {
 	s.transactionByID[txn.GetID()] = txn
 }
 
-func (s *grapher) AddMinter(ctx context.Context, state *components.FullState, transaction *CoordinatorTransaction) error {
-	if txn, ok := s.transactionByOutputState[state.ID.String()]; ok {
-		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", state.ID.String(), txn.pt.ID.String(), transaction.pt.ID.String())
-		log.L(ctx).Error(msg)
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-	}
-	s.transactionByOutputState[state.ID.String()] = transaction
+// Define a state as having been produced by the specified transaction.
+func (s *grapher) AddMinter(ctx context.Context, states []*components.FullState, transaction *CoordinatorTransaction) error {
+	for _, state := range states {
+		if txn, ok := s.transactionByOutputState[state.ID.String()]; ok {
+			return i18n.NewError(ctx, msgs.MsgSequencerAddMinterAlreadyExistsError, transaction.pt.ID.String(), state.ID.String(), txn.pt.ID.String())
+		}
+		s.transactionByOutputState[state.ID.String()] = transaction
 
-	if s.outputStatesByMinter[transaction.pt.ID] == nil {
-		s.outputStatesByMinter[transaction.pt.ID] = []*components.StateUpsert{
-			&components.StateUpsert{
+		if s.outputStatesByMinter[transaction.pt.ID] == nil {
+			s.outputStatesByMinter[transaction.pt.ID] = []*components.StateUpsert{
+				&components.StateUpsert{
+					ID:     state.ID,
+					Schema: state.Schema,
+					Data:   state.Data,
+				},
+			}
+		} else {
+			s.outputStatesByMinter[transaction.pt.ID] = append(s.outputStatesByMinter[transaction.pt.ID], &components.StateUpsert{
 				ID:     state.ID,
 				Schema: state.Schema,
 				Data:   state.Data,
-			},
+			})
 		}
-	} else {
-		s.outputStatesByMinter[transaction.pt.ID] = append(s.outputStatesByMinter[transaction.pt.ID], &components.StateUpsert{
-			ID:     state.ID,
-			Schema: state.Schema,
-			Data:   state.Data,
-		})
 	}
 
 	return nil
 }
 
+// Forget about a transaction from the grapher, including any states it produced and any locks it held.
 func (s *grapher) Forget(transactionID uuid.UUID) error {
 	txn := s.transactionByID[transactionID]
 	if txn != nil {

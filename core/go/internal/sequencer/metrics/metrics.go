@@ -34,6 +34,11 @@ type DistributedSequencerMetrics interface {
 	SetActiveSequencers(numberOfActiveSequencers int)
 	IncCoordinatingTransactions()
 	DecCoordinatingTransactions()
+	IncStateTimeoutCount()
+	IncEndorsementRejectedCount()
+
+	// Grapher metrics
+	SetTransactions(numberOfTransactions int)
 }
 
 var METRICS_SUBSYSTEM = "distributed_sequencer"
@@ -49,6 +54,11 @@ type distributedSequencerMetrics struct {
 	activeCoordinators       prometheus.Gauge
 	activeSequencers         prometheus.Gauge
 	coordinatingTransactions prometheus.Gauge
+	stateTimeoutCount        prometheus.Counter
+	endorsementRejectedCount prometheus.Counter
+
+	// Grapher metrics
+	grapherTransactions prometheus.Gauge
 }
 
 func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distributedSequencerMetrics {
@@ -74,6 +84,12 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 		Help: "Distributed sequencer active sequencers", Subsystem: METRICS_SUBSYSTEM})
 	metrics.coordinatingTransactions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "coordinating_txns",
 		Help: "Distributed sequencer coordinating transactions", Subsystem: METRICS_SUBSYSTEM})
+	metrics.stateTimeoutCount = prometheus.NewCounter(prometheus.CounterOpts{Name: "state_timeout_count",
+		Help: "Distributed sequencer state timeout count", Subsystem: METRICS_SUBSYSTEM})
+	metrics.endorsementRejectedCount = prometheus.NewCounter(prometheus.CounterOpts{Name: "endorsement_rejected_count",
+		Help: "Distributed sequencer endorsement rejected count", Subsystem: METRICS_SUBSYSTEM})
+	metrics.grapherTransactions = prometheus.NewGauge(prometheus.GaugeOpts{Name: "grapher_transactions",
+		Help: "Distributed sequencer transactions being managed by the grapher", Subsystem: METRICS_SUBSYSTEM})
 	registry.MustRegister(metrics.acceptedTransactions)
 	registry.MustRegister(metrics.assembledTransactions)
 	registry.MustRegister(metrics.endorsedTransactions)
@@ -84,6 +100,9 @@ func InitMetrics(ctx context.Context, registry *prometheus.Registry) *distribute
 	registry.MustRegister(metrics.activeCoordinators)
 	registry.MustRegister(metrics.activeSequencers)
 	registry.MustRegister(metrics.coordinatingTransactions)
+	registry.MustRegister(metrics.stateTimeoutCount)
+	registry.MustRegister(metrics.endorsementRejectedCount)
+	registry.MustRegister(metrics.grapherTransactions)
 	return metrics
 }
 
@@ -128,4 +147,17 @@ func (dtm *distributedSequencerMetrics) IncCoordinatingTransactions() {
 }
 func (dtm *distributedSequencerMetrics) DecCoordinatingTransactions() {
 	dtm.coordinatingTransactions.Dec()
+}
+
+func (dtm *distributedSequencerMetrics) IncStateTimeoutCount() {
+	dtm.stateTimeoutCount.Inc()
+}
+
+func (dtm *distributedSequencerMetrics) IncEndorsementRejectedCount() {
+	dtm.endorsementRejectedCount.Inc()
+}
+
+// Grapher
+func (dtm *distributedSequencerMetrics) SetTransactions(numberOfTransactions int) {
+	dtm.grapherTransactions.Set(float64(numberOfTransactions))
 }

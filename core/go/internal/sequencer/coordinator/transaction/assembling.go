@@ -65,7 +65,11 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return nil
 	}
 
-	err := t.writeLockStates(ctx)
+	// MRW TODO - this writes to the domain context. We don't need to do this any more?
+	err := t.writeAndLockStates(ctx)
+
+	t.grapher.AddMinter(ctx, t.pt.PostAssembly.OutputStatesPotential, t)
+
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
 		seqRevertEvent := &AssembleRevertResponseEvent{}

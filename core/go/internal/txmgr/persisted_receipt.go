@@ -99,6 +99,9 @@ var transactionReceiptFilters = filters.FieldMap{
 func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.DBTX, info []*components.ReceiptInput) error {
 	ctx = log.WithComponent(ctx, "txmanager")
 	log.L(ctx).Debugf("FinalizeTransactions: %v receipt infos", len(info))
+	for _, ri := range info {
+		log.L(ctx).Debugf("FinalizeTransactions: receipt info for TX ID %s %+v", ri.TransactionID, ri)
+	}
 
 	if len(info) == 0 {
 		log.L(ctx).Debugf("FinalizeTransactions: No receipts received to finalise - returning")
@@ -115,7 +118,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			Indexed:         pldtypes.TimestampNow(),
 			ContractAddress: ri.ContractAddress,
 		}
-		log.L(ctx).Debugf("FinalizeTransactions: created receipt object %v, receipt type %+v", receipt, ri.ReceiptType)
+		log.L(ctx).Debugf("FinalizeTransactions: created receipt object %v for TX ID %s, receipt type %+v", receipt, ri.TransactionID, ri.ReceiptType)
 		if ri.OnChain.Type != pldtypes.NotOnChain {
 			receipt.TransactionHash = &ri.OnChain.TransactionHash
 			receipt.BlockNumber = &ri.OnChain.BlockNumber

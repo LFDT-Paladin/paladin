@@ -39,7 +39,7 @@ type Hooks interface {
 
 type EngineIntegration interface {
 	// WriteLockStatesForTransaction is a method that writes a lock to the states for a transaction
-	WriteLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
+	WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 
 	// Provides a hook for the coordinator transaction state machine to invoke the equivalent function on the DomainContext on TX completion
 	ResetTransactions(ctx context.Context, transactionID uuid.UUID)
@@ -78,7 +78,7 @@ type FakeEngineIntegrationForTesting struct {
 	mock.Mock
 }
 
-func (f *FakeEngineIntegrationForTesting) WriteLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+func (f *FakeEngineIntegrationForTesting) WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 	return nil
 }
 
@@ -111,7 +111,7 @@ type engineIntegration struct {
 	environment           Hooks
 }
 
-func (e *engineIntegration) WriteLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+func (e *engineIntegration) WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
 	// Write output states
 	if (txn.PostAssembly.OutputStatesPotential != nil && txn.PostAssembly.OutputStates == nil) || (txn.PostAssembly.InfoStatesPotential != nil && txn.PostAssembly.InfoStates == nil) {
