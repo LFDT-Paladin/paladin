@@ -6,13 +6,15 @@ interface IFailableTarget {
 }
 
 contract FailableTarget is IFailableTarget {
-    bool public shouldFail;
+    uint256 public failEvery;
 
-    function setFail(bool _shouldFail) external {
-        shouldFail = _shouldFail;
+    constructor(uint256 _failEvery) {
+        failEvery = _failEvery;
     }
 
     function check() external view override {
-        require(!shouldFail, "Configured to fail");
+        if (failEvery > 0 && block.number % failEvery == 0) {
+            revert("Configured to fail");
+        }
     }
 }

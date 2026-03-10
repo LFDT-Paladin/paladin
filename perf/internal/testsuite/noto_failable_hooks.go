@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/perf/internal/conf"
@@ -55,14 +57,16 @@ var notoConstructorABI = abi.ABI{
 	}},
 }
 
+const notoFailableHooksFailEvery = 7
+
 type notoFailableHooksSuite struct {
 	ctx                 context.Context
 	runner              Runner
 	notoContractAddress *pldtypes.EthAddress
 	failableAddress     *pldtypes.EthAddress
-	failableABI         abi.ABI
 	notary              string
 	sub                 rpcclient.Subscription
+	submissions         atomic.Int64
 }
 
 func NewNotoFailableHooksSuite(ctx context.Context, runner Runner) *notoFailableHooksSuite {
@@ -83,13 +87,12 @@ func (s *notoFailableHooksSuite) Setup() error {
 	if err != nil {
 		return err
 	}
-	s.failableABI = failableTarget.ABI
-
-	log.Info("Deploying FailableTarget as public transaction...")
+	log.Infof("Deploying FailableTarget (failEvery=%d) as public transaction...", notoFailableHooksFailEvery)
 	failableDeployTxID, err := nodes[0].HTTPClient.PTX().SendTransaction(s.ctx, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			Type: pldapi.TransactionTypePublic.Enum(),
 			From: "deploy",
+			Data: pldtypes.RawJSON(fmt.Sprintf(`[%d]`, notoFailableHooksFailEvery)),
 		},
 		ABI:      failableTarget.ABI,
 		Bytecode: failableTarget.Bytecode,
@@ -207,7 +210,7 @@ func (s *notoFailableHooksSuite) Setup() error {
 				"publicAddress":  penteAddress.String(),
 				"privateAddress": hooksPrivateAddress.String(),
 				"privateGroup": map[string]any{
-					"salt":    group.GenesisSalt.String(),
+					"salt":    group.ID.String(),
 					"members": members,
 				},
 			},
@@ -231,38 +234,7 @@ func (s *notoFailableHooksSuite) Setup() error {
 	s.notoContractAddress = notoDeployResult.Receipt().ContractAddress
 	log.Infof("Noto deployed at address: %s", *s.notoContractAddress)
 
-	// --- Step 5: Set FailableTarget to fail ---
-	log.Info("Setting FailableTarget to fail...")
-	abiRef, err := nodes[0].HTTPClient.PTX().StoreABI(s.ctx, s.failableABI)
-	if err != nil {
-		return fmt.Errorf("failed to store FailableTarget ABI: %w", err)
-	}
-
-	setFailTxID, err := nodes[0].HTTPClient.PTX().SendTransaction(s.ctx, &pldapi.TransactionInput{
-		TransactionBase: pldapi.TransactionBase{
-			Type:         pldapi.TransactionTypePublic.Enum(),
-			Function:     "setFail",
-			To:           s.failableAddress,
-			From:         "deploy",
-			Data:         pldtypes.RawJSON(`[true]`),
-			ABIReference: &abiRef,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to send setFail transaction: %w", err)
-	}
-
-	log.Info("Waiting for setFail receipt...")
-	setFailReceipt, err := util.WaitForTransactionReceipt(s.ctx, nodes[0].HTTPClient, *setFailTxID, 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to get setFail receipt: %w", err)
-	}
-	if !setFailReceipt.Success {
-		return fmt.Errorf("setFail transaction failed: %s", setFailReceipt.FailureMessage)
-	}
-	log.Info("FailableTarget configured to fail")
-
-	// --- Step 6: Create receipt listener for Noto ---
+	// --- Step 5: Create receipt listener for Noto ---
 	var latestSequence *uint64
 	qb := query.NewQueryBuilder().Equal("domain", "noto").Sort("-sequence").Limit(1)
 	receipts, err := nodes[0].HTTPClient.PTX().QueryTransactionReceipts(s.ctx, qb.Query())
@@ -339,6 +311,7 @@ func (s *notoFailableHooksSuite) NewWorker(startTime int64, workerID int) TestCa
 			startTime: startTime,
 			workerID:  workerID,
 		},
+		suite:               s,
 		notoContractAddress: s.notoContractAddress,
 		notary:              s.notary,
 		runner:              s.runner,
@@ -356,10 +329,16 @@ func (s *notoFailableHooksSuite) PostRun() error {
 
 	log.Infof("Running post-run analysis for noto failable hooks test (contract %s)", *s.notoContractAddress)
 
+	// The failure message is the raw hex-encoded ABI revert data, so match
+	// against the hex encoding of the expected reason string.
+	const expectedRevertReason = "Configured to fail"
+	expectedRevertReasonHex := fmt.Sprintf("%x", expectedRevertReason)
+
+	totalSubmissions := int(s.submissions.Load())
 	totalReceipts := 0
-	failedWithRevertData := 0
-	failedWithoutRevertData := 0
-	succeededUnexpectedly := 0
+	succeeded := 0
+	failedWithExpectedRevert := 0
+	var unexpectedResults []string
 
 	var createdCursor pldtypes.Timestamp
 	for {
@@ -384,18 +363,31 @@ func (s *notoFailableHooksSuite) PostRun() error {
 			if tx == nil || tx.ID == nil {
 				continue
 			}
-			receipt, err := nodes[0].HTTPClient.PTX().GetTransactionReceipt(s.ctx, *tx.ID)
+			receipt, err := nodes[0].HTTPClient.PTX().GetTransactionReceiptFull(s.ctx, *tx.ID)
 			if err != nil || receipt == nil {
 				continue
 			}
 			totalReceipts++
-			if receipt.Success {
-				succeededUnexpectedly++
-			} else if receipt.FailureMessage != "" {
-				failedWithRevertData++
-			} else {
-				failedWithoutRevertData++
+			var blockNum int64
+			if receipt.TransactionReceiptDataOnchain != nil {
+				blockNum = receipt.TransactionReceiptDataOnchain.BlockNumber
 			}
+			if receipt.Success {
+				succeeded++
+				shouldHaveSucceeded := blockNum > 0 && blockNum%int64(notoFailableHooksFailEvery) != 0
+				if !shouldHaveSucceeded {
+					unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: succeeded at block %d but expected failure (block %% %d == 0)", tx.ID, blockNum, notoFailableHooksFailEvery))
+				}
+			} else if strings.Contains(receipt.FailureMessage, expectedRevertReasonHex) {
+				failedWithExpectedRevert++
+		} else {
+			txFull, txErr := nodes[0].HTTPClient.PTX().GetTransactionFull(s.ctx, *tx.ID)
+			if txErr == nil && txFull != nil {
+				txJSON, _ := json.MarshalIndent(txFull, "", "  ")
+				log.Errorf("Unexpected failure for tx %s (full transaction):\n%s", tx.ID, string(txJSON))
+			}
+			unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: unexpected failure: %s", tx.ID, receipt.FailureMessage))
+		}
 		}
 
 		createdCursor = txs[len(txs)-1].Created
@@ -405,26 +397,36 @@ func (s *notoFailableHooksSuite) PostRun() error {
 	}
 
 	log.Infof(
-		"Post-run analysis complete: %d total receipts, %d failed with revert data, %d failed without revert data, %d succeeded unexpectedly",
-		totalReceipts, failedWithRevertData, failedWithoutRevertData, succeededUnexpectedly,
+		"Post-run analysis complete: %d submissions, %d receipts, %d succeeded, %d reverted with %q, %d unexpected",
+		totalSubmissions, totalReceipts, succeeded, failedWithExpectedRevert, expectedRevertReason, len(unexpectedResults),
 	)
 
-	if succeededUnexpectedly > 0 {
-		return fmt.Errorf("%d transactions succeeded unexpectedly (expected all to fail)", succeededUnexpectedly)
-	}
-	if failedWithoutRevertData > 0 {
-		return fmt.Errorf("%d transactions failed without revert data", failedWithoutRevertData)
-	}
 	if totalReceipts == 0 {
 		return fmt.Errorf("no transaction receipts found for post-run analysis")
 	}
+	if totalReceipts != totalSubmissions {
+		return fmt.Errorf("receipt count %d does not match submission count %d", totalReceipts, totalSubmissions)
+	}
+	if len(unexpectedResults) > 0 {
+		for _, msg := range unexpectedResults {
+			log.Errorf("Unexpected result: %s", msg)
+		}
+		return fmt.Errorf("%d/%d transactions had unexpected results (only expected success or revert with %q)", len(unexpectedResults), totalReceipts, expectedRevertReason)
+	}
+	if failedWithExpectedRevert == 0 {
+		return fmt.Errorf("no transactions reverted - expected some failures with failEvery=%d", notoFailableHooksFailEvery)
+	}
+	if succeeded == 0 {
+		return fmt.Errorf("no transactions succeeded - expected some successes with failEvery=%d", notoFailableHooksFailEvery)
+	}
 
-	log.Infof("All %d receipts contain failure messages as expected", failedWithRevertData)
+	log.Infof("All assertions passed: %d succeeded, %d reverted with %q", succeeded, failedWithExpectedRevert, expectedRevertReason)
 	return nil
 }
 
 type notoFailableHooksWorker struct {
 	testBase
+	suite               *notoFailableHooksSuite
 	notoContractAddress *pldtypes.EthAddress
 	notary              string
 	runner              Runner
@@ -464,6 +466,7 @@ func (tc *notoFailableHooksWorker) RunOnce(iterationCount int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to send noto mint transaction: %w", err)
 	}
+	tc.suite.submissions.Add(1)
 
 	return txID.String(), nil
 }

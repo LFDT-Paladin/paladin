@@ -22,12 +22,12 @@ contract NotoHooksFailable is INotoHooks {
         PreparedTransaction calldata prepared
     ) internal {
         emit PenteExternalCall(
-            failableTarget,
-            abi.encodeCall(IFailableTarget.check, ())
-        );
-        emit PenteExternalCall(
             prepared.contractAddress,
             prepared.encodedCall
+        );
+        emit PenteExternalCall(
+            failableTarget,
+            abi.encodeCall(IFailableTarget.check, ())
         );
     }
 
