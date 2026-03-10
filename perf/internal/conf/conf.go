@@ -90,4 +90,6 @@ const (
 	PerfTestPrivacyGroupContractDeploy TestName = "privacy_group_contract_deploy"
 	// PerfTestPrivateTransactionNodeRestart drives pente transactions across nodes, kills a node, and verifies recovery
 	PerfTestPrivateTransactionNodeRestart TestName = "private_transaction_node_restart"
+	// PerfTestNotoFailableHooks deploys Noto with Pente hooks that include a failable external call, verifying receipts contain revert data
+	PerfTestNotoFailableHooks TestName = "noto_failable_hooks"
 )

@@ -31,6 +31,8 @@ func GetTestSuite(name conf.TestName, ctx context.Context, runner Runner) TestSu
 		return NewPrivateTransactionNodeRestartSuite(ctx, runner)
 	case conf.PerfTestPrivacyGroupContractDeploy:
 		return NewPrivacyGroupContractDeploySuite(ctx, runner)
+	case conf.PerfTestNotoFailableHooks:
+		return NewNotoFailableHooksSuite(ctx, runner)
 	default:
 		return nil
 	}

@@ -29,6 +29,8 @@ task copySolidity(type: Copy, dependsOn: [":solidity:compile"]) {
     inputs.files(configurations.compiledContracts)
     from fileTree(configurations.compiledContracts.asPath) {
         include 'contracts/testcontracts/SimpleStorage.sol/SimpleStorage.json'
+        include 'contracts/testcontracts/FailableTarget.sol/FailableTarget.json'
+        include 'contracts/testcontracts/NotoHooksFailable.sol/NotoHooksFailable.json'
     }
 
     // Flatten all paths into the destination folder

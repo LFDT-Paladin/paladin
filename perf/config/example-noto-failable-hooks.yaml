@@ -1,0 +1,20 @@
+# Noto failable hooks test
+# Deploys Noto with Pente hooks that include a failable external call on the
+# base ledger, then submits mint transactions that are expected to revert.
+# Validates that every receipt comes back with revert/failure data.
+
+nodes:
+  - name: node1
+    httpEndpoint: http://127.0.0.1:31548
+    wsEndpoint: ws://127.0.0.1:31549
+
+instances:
+  - name: noto-failable-hooks-test
+    test:
+      name: noto_failable_hooks
+      workers: 1
+      actionsPerLoop: 1
+    length: 1m
+    maxActions: 10
+logLevel: info
+logEvents: true
