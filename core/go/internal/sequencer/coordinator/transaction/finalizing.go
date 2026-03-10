@@ -19,6 +19,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -56,8 +57,13 @@ func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Conte
 
 	var tryFinalize func()
 	tryFinalize = func() {
-		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID,
-			"originator reported transaction as unknown",
+		t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
+			Domain:          t.pt.Domain,
+			ContractAddress: pldtypes.EthAddress{},
+			Originator:      t.originator,
+			TransactionID:   t.pt.ID,
+			FailureMessage:  "originator reported transaction as unknown",
+		},
 			func(ctx context.Context) {
 				log.L(ctx).Debugf("finalized transaction %s after unknown response from originator", t.pt.ID)
 			},

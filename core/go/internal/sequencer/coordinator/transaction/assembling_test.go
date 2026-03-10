@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -39,18 +40,13 @@ func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	revertReason := "test revert reason"
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
 
-	// Call the function - it should queue a finalize
-	// Note: This function uses a recursive retry mechanism in onRollback,
-	// but we're just testing the initial call path for coverage
 	txn.revertTransactionFailedAssembly(ctx, revertReason)
 }
 
@@ -67,11 +63,9 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
@@ -92,11 +86,9 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
@@ -136,16 +128,9 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		mock.Anything,
-		mock.Anything, // onCommit callback
-		mock.Anything, // onRollback callback
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
-	// Mock engine integration to return error so we hit the writeLockStates error path
 	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
 
 	postAssembly := &components.TransactionPostAssembly{
@@ -732,15 +717,9 @@ func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
 	onCommitCalled := false
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
-		mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(args mock.Arguments) {
-		onCommit := args[6].(func(context.Context))
+		onCommit := args.Get(2).(func(context.Context))
 		onCommit(ctx)
 		onCommitCalled = true
 	}).Return()
@@ -759,20 +738,14 @@ func Test_revertTransactionFailedAssembly_OnRollbackRetry(t *testing.T) {
 	maxCalls := 2
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
-		mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		callCount++
 		if callCount < maxCalls {
-			onRollback := args[7].(func(context.Context, error))
+			onRollback := args.Get(3).(func(context.Context, error))
 			onRollback(ctx, errors.New("rollback error"))
 		} else {
-			onCommit := args[6].(func(context.Context))
+			onCommit := args.Get(2).(func(context.Context))
 			onCommit(ctx)
 		}
 	}).Return()

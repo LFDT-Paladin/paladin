@@ -98,13 +98,23 @@ func TestFinalizeTransactionsFailedWithRevertDataWithMessage(t *testing.T) {
 	txID := uuid.New()
 	ctx, txm, done := newTestTransactionManager(t, false,
 		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.db.ExpectBegin()
+			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
+			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectCommit()
+		},
 	)
 	defer done()
 
-	err := txm.FinalizeTransactions(ctx, txm.p.NOTX(), []*components.ReceiptInput{
-		{TransactionID: txID, ReceiptType: components.RT_FailedOnChainWithRevertData,
-			FailureMessage: "not empty"}})
-	assert.Regexp(t, "PD012213", err)
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{TransactionID: txID, ReceiptType: components.RT_FailedOnChainWithRevertData,
+				FailureMessage: "domain decoded error"},
+		})
+	})
+	assert.NoError(t, err)
 
 }
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -416,7 +417,6 @@ func Test_ConfirmedRevert_NonTerminalStates_NonRetryable_TransitionsToConfirmed(
 			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 			mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 			).Return()
 			nonce := pldtypes.HexUint64(88)
 			event := &ConfirmedRevertedEvent{
@@ -465,7 +465,6 @@ func Test_ConfirmedRevert_StateDispatched_NonRetryable_TransitionsToConfirmed(t 
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 	nonce := pldtypes.HexUint64(88)
 	event := &ConfirmedRevertedEvent{
@@ -492,7 +491,6 @@ func Test_ConfirmedRevert_StateDispatched_RetryableRevert_ExceedsThreshold_Trans
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 	nonce := pldtypes.HexUint64(88)
@@ -644,8 +642,15 @@ func Test_action_FinalizeNonRetryableRevert(t *testing.T) {
 		Build()
 
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
-		mock.Anything, txn.pt.Domain, mock.Anything, txn.originator,
-		txn.pt.ID, txn.revertReason.String(), mock.Anything, mock.Anything,
+		mock.Anything,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.Domain == txn.pt.Domain &&
+				req.Originator == txn.originator &&
+				req.TransactionID == txn.pt.ID &&
+				req.FailureMessage == txn.revertReason.String() &&
+				req.RevertData.String() == txn.revertReason.String()
+		}),
+		mock.Anything, mock.Anything,
 	).Return()
 
 	err := action_FinalizeNonRetryableRevert(ctx, txn, nil)

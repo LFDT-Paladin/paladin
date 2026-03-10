@@ -60,6 +60,7 @@ type coordinatorTransaction struct {
 	nonce                      *uint64
 	revertReason               pldtypes.HexBytes
 	decodedRevertReason        string
+	revertOnChain              *pldtypes.OnChainLocation
 	revertCount                int
 	lastCanRetryRevert         bool
 

@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -83,14 +83,14 @@ func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
 
-	// Set up the mock to verify QueueTransactionFinalize is called with correct parameters
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.Domain == txn.pt.Domain &&
+				req.Originator == txn.originator &&
+				req.TransactionID == txn.pt.ID &&
+				req.FailureMessage == "originator reported transaction as unknown"
+		}),
 		mock.Anything, // onSuccess callback
 		mock.Anything, // onError callback
 	).Return(nil)
@@ -107,10 +107,8 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
 		Build()
 
-	// Set up the mock
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
 
@@ -129,15 +127,11 @@ func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
 	var onSuccessCalled bool
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 	).Run(func(args mock.Arguments) {
-		onSuccess := args.Get(6).(func(context.Context))
+		onSuccess := args.Get(2).(func(context.Context))
 		onSuccess(ctx)
 		onSuccessCalled = true
 	}).Return(nil)
@@ -154,17 +148,13 @@ func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
 	callCount := 0
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
+		mock.Anything,
 		mock.Anything,
 		mock.Anything,
 	).Run(func(args mock.Arguments) {
 		callCount++
 		if callCount == 1 {
-			onError := args.Get(7).(func(context.Context, error))
+			onError := args.Get(3).(func(context.Context, error))
 			onError(ctx, assert.AnError)
 		}
 	}).Return(nil)

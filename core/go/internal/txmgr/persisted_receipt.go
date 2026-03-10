@@ -142,13 +142,13 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			failureMsg = ri.FailureMessage
 			receipt.FailureMessage = &ri.FailureMessage
 		case components.RT_FailedOnChainWithRevertData:
-			if ri.FailureMessage != "" {
-				return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))
-			}
 			receipt.Success = false
 			receipt.RevertData = ri.RevertData
-			// We calculate the failure message - all errors handled mapped internally here
-			failureMsg = tm.CalculateRevertError(ctx, dbTX, ri.RevertData).Error()
+			if ri.FailureMessage != "" {
+				failureMsg = ri.FailureMessage
+			} else {
+				failureMsg = tm.CalculateRevertError(ctx, dbTX, ri.RevertData).Error()
+			}
 			receipt.FailureMessage = &failureMsg
 		default:
 			return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))

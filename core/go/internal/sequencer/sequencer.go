@@ -335,7 +335,13 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 
 	var tryFinalize func()
 	tryFinalize = func() {
-		sMgr.syncPoints.QueueTransactionFinalize(ctx, tx.Domain, pldtypes.EthAddress{}, tx.From, tx.ID, deployError.Error(),
+		sMgr.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
+			Domain:          tx.Domain,
+			ContractAddress: pldtypes.EthAddress{},
+			Originator:      tx.From,
+			TransactionID:   tx.ID,
+			FailureMessage:  deployError.Error(),
+		},
 			func(ctx context.Context) {
 				log.L(ctx).Debugf("finalized deployment transaction: %s", tx.ID)
 			},
@@ -668,6 +674,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedDirect(ctx context.Conte
 			},
 			Hash:         confirmedTxn.OnChain.TransactionHash,
 			RevertReason: confirmedTxn.RevertData,
+			OnChain:      confirmedTxn.OnChain,
 			Nonce:        nonce,
 		})
 		return nil
@@ -729,6 +736,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmedByChainedTransaction(ctx
 			},
 			Hash:         confirmedTxn.OnChain.TransactionHash,
 			RevertReason: confirmedTxn.RevertData,
+			OnChain:      confirmedTxn.OnChain,
 		})
 		return nil
 	}
@@ -796,7 +804,13 @@ func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX 
 			},
 			Hash:         tx.Hash,
 			RevertReason: tx.RevertReason,
-			Nonce:        &nonceVal,
+			OnChain: pldtypes.OnChainLocation{
+				Type:             pldtypes.OnChainTransaction,
+				TransactionHash:  tx.Hash,
+				BlockNumber:      tx.BlockNumber,
+				TransactionIndex: tx.TransactionIndex,
+			},
+			Nonce: &nonceVal,
 		})
 	}
 

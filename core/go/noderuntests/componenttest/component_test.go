@@ -1699,6 +1699,9 @@ func TestBaseLedgerRevertRetryable_ExceedsThreshold(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.False(t, tx.Receipt().Success)
 	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenRetryableError")
+	assert.NotNil(t, tx.Receipt().TransactionReceiptDataOnchain)
+	assert.NotNil(t, tx.Receipt().TransactionHash)
+	assert.Greater(t, tx.Receipt().BlockNumber, int64(0))
 }
 
 func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
@@ -1739,6 +1742,9 @@ func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.False(t, tx.Receipt().Success)
 	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenNonRetryableError")
+	assert.NotNil(t, tx.Receipt().TransactionReceiptDataOnchain)
+	assert.NotNil(t, tx.Receipt().TransactionHash)
+	assert.Greater(t, tx.Receipt().BlockNumber, int64(0))
 
 	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)

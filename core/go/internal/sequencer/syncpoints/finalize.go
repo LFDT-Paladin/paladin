@@ -27,27 +27,33 @@ import (
 	"github.com/google/uuid"
 )
 
+// TransactionFinalizeRequest contains the information needed to finalize a failed transaction.
+// For off-chain failures (e.g. assembly reverts), only FailureMessage is set.
+// For on-chain failures (base ledger reverts), OnChain and RevertData are set.
+type TransactionFinalizeRequest struct {
+	Domain          string
+	ContractAddress pldtypes.EthAddress
+	Originator      string
+	TransactionID   uuid.UUID
+	FailureMessage  string                   // pre-formatted message for off-chain failures
+	RevertData      pldtypes.HexBytes        // raw revert data for on-chain failures
+	OnChain         *pldtypes.OnChainLocation // populated when the failure was on-chain
+}
+
 // a transaction finalization operation is an update to the transaction managers tables
 // to record a failed transaction.  nothing gets written to any tables owned by the private transaction manager
 // but the write is coordinated by our flush writer to minimize the number of database transactions
 type finalizeOperation struct {
-	Domain         string
-	TransactionID  uuid.UUID
-	FailureMessage string
-	Originator     string
+	TransactionFinalizeRequest
 }
 
-// QueueTransactionFinalize
-func (s *syncPoints) QueueTransactionFinalize(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error)) {
+func (s *syncPoints) QueueTransactionFinalize(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error)) {
 
 	op := s.writer.Queue(ctx, &syncPointOperation{
 		domainContext:   nil, // finalize does not depend on the flushing of any states
-		contractAddress: contractAddress,
+		contractAddress: req.ContractAddress,
 		finalizeOperation: &finalizeOperation{
-			Domain:         domain,
-			TransactionID:  transactionID,
-			FailureMessage: failureMessage,
-			Originator:     originator,
+			TransactionFinalizeRequest: *req,
 		},
 	})
 	go func() {
@@ -69,7 +75,19 @@ func (s *syncPoints) writeFailureOperations(ctx context.Context, dbTX persistenc
 	// so that all states are stored, before we clear out the transaction from the in-memory Domain Context.
 	receiptsToDistribute := make([]*components.ReceiptInputWithOriginator, 0, len(finalizeOperations))
 	for _, op := range finalizeOperations {
-		if op.FailureMessage != "" {
+		if op.OnChain != nil {
+			receiptsToDistribute = append(receiptsToDistribute, &components.ReceiptInputWithOriginator{
+				Originator: op.Originator,
+				ReceiptInput: components.ReceiptInput{
+					ReceiptType:    components.RT_FailedOnChainWithRevertData,
+					Domain:         op.Domain,
+					TransactionID:  op.TransactionID,
+					OnChain:        *op.OnChain,
+					RevertData:     op.RevertData,
+					FailureMessage: op.FailureMessage,
+				},
+			})
+		} else if op.FailureMessage != "" {
 			receiptsToDistribute = append(receiptsToDistribute, &components.ReceiptInputWithOriginator{
 				Originator: op.Originator,
 				ReceiptInput: components.ReceiptInput{

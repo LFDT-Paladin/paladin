@@ -184,7 +184,7 @@ func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t
 
 	txn, mocks := txnBuilder.Build()
 
-	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleRevertEvent())
 	require.NoError(t, err)
@@ -566,7 +566,6 @@ func TestCoordinatorTransaction_Dispatched_ToConfirmed_OnConfirmedRevert_IfNonRe
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
@@ -590,7 +589,6 @@ func TestCoordinatorTransaction_Dispatched_ToConfirmed_OnConfirmedRevert_IfThres
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
@@ -648,7 +646,7 @@ func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOrigina
 	ctx := context.Background()
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 
-	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.TransactionUnknownByOriginatorEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{

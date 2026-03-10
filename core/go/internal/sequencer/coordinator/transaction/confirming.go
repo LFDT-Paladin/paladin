@@ -21,6 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -37,13 +38,14 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 	switch e := event.(type) {
 	case *ConfirmedSuccessEvent:
 		hash = e.Hash
-		// we might have had a previous revert that we've been reporting in snapshots so unset these values
 		t.revertReason = nil
 		t.decodedRevertReason = ""
+		t.revertOnChain = nil
 		t.lastCanRetryRevert = false
 	case *ConfirmedRevertedEvent:
 		hash = e.Hash
 		t.revertReason = e.RevertReason
+		t.revertOnChain = &e.OnChain
 		t.revertCount++
 
 		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
@@ -90,7 +92,15 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 		failureMessage = t.revertReason.String()
 	}
 	log.L(ctx).Infof("finalizing transaction %s as reverted (revertCount=%d): %s", t.pt.ID.String(), t.revertCount, failureMessage)
-	t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID, failureMessage,
+	t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
+		Domain:          t.pt.Domain,
+		ContractAddress: pldtypes.EthAddress{},
+		Originator:      t.originator,
+		TransactionID:   t.pt.ID,
+		FailureMessage:  failureMessage,
+		RevertData:      t.revertReason,
+		OnChain:         t.revertOnChain,
+	},
 		func(ctx context.Context) {
 			log.L(ctx).Debugf("finalized non-retryable revert for transaction %s", t.pt.ID)
 		},
