@@ -34,14 +34,9 @@ abstract class PaladinWebSocketClientBase<
   }
 
   private connect() {
-    // Clean up any old socket completely (including all listeners)
+    // Clean up any old socket completely
     if (this.socket) {
-      this.socket.removeAllListeners();
-      try {
-        this.socket.close();
-      } catch (e: any) {
-        this.logger.warn(`Failed to close old socket: ${e.message}`);
-      }
+      this.safeClose(this.socket);
       this.socket = undefined;
     }
 
@@ -131,6 +126,18 @@ abstract class PaladinWebSocketClientBase<
       });
   }
 
+  private safeClose(socket: WebSocket) {
+    socket.removeAllListeners();
+    // Re-attach a no-op error listener to squash any async errors emitted by close()
+    // (otherwise they would be uncaught and crash the process)
+    socket.on("error", () => {});
+    try {
+      socket.close();
+    } catch (e: any) {
+      this.logger.warn(`Failed to close socket: ${e.message}`);
+    }
+  }
+
   getSubscriptionName(subscriptionId: string) {
     return this.activeSubscriptions.get(subscriptionId);
   }
@@ -172,12 +179,7 @@ abstract class PaladinWebSocketClientBase<
       // Reconnection disabled - just clean up
       this.clearPingTimers();
       if (this.socket) {
-        this.socket.removeAllListeners();
-        try {
-          this.socket.close();
-        } catch (e: any) {
-          this.logger.warn(`Failed to close websocket: ${e.message}`);
-        }
+        this.safeClose(this.socket);
         this.socket = undefined;
       }
       return;
@@ -226,11 +228,10 @@ abstract class PaladinWebSocketClientBase<
     const socket = this.socket;
     this.socket = undefined;
 
-    // Remove all listeners (disables reconnect on close, etc)
-    socket.removeAllListeners();
-
     if (wait) {
       // Add a one-time listener just for this close
+      socket.removeAllListeners();
+      socket.on("error", () => {});
       return new Promise<void>((resolve) => {
         socket.once("close", () => {
           this.logger.log("Closed");
@@ -244,11 +245,8 @@ abstract class PaladinWebSocketClientBase<
         }
       });
     } else {
-      try {
-        socket.close();
-      } catch (e: any) {
-        this.logger.warn(`Failed to close websocket: ${e.message}`);
-      }
+      // Clean up any old socket completely (including all listeners)
+      this.safeClose(socket);
     }
   }
 
