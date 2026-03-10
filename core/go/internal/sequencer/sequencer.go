@@ -150,26 +150,52 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 		}
 
 		for {
+			pageSize := confutil.IntMin(sMgr.config.TransactionResumePageSize, pldconf.SequencerMinimum.TransactionResumePageSize, *pldconf.SequencerDefaults.TransactionResumePageSize)
+			maxTransactions := *pldconf.SequencerDefaults.TransactionResumeMaxTransactions
+			if sMgr.config.TransactionResumeMaxTransactions != nil {
+				maxTransactions = *sMgr.config.TransactionResumeMaxTransactions
+			}
+
 			resumedTransactions := 0
+			offset := 0
 
 			// Originators are responsible for resuming and re-delegating their own transactions.
-			pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(sMgr.ctx, query.NewQueryBuilder().Limit(1000).NotEqual("submitMode", string(pldapi.SubmitModeRemote)).Query(), sMgr.components.Persistence().NOTX(), true)
-			if err != nil {
-				log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
-			}
-			resumedTransactions += len(pendingTx)
-			log.L(sMgr.ctx).Infof("Resuming %d transactions", resumedTransactions)
-			for _, tx := range pendingTx {
-				log.L(sMgr.ctx).Debugf("Resuming pending transaction %s", tx.Transaction.ID)
-				err = sMgr.HandleTxResume(sMgr.ctx, &components.ValidatedTransaction{
-					ResolvedTransaction: *tx,
-				})
-				if err != nil {
-					log.L(sMgr.ctx).Errorf("Error resuming pending transaction %s: %s", tx.Transaction.ID, err)
+			// Paginate through all pending transactions with configurable page size and optional upper limit.
+			for {
+				if maxTransactions > 0 && resumedTransactions >= maxTransactions {
+					break
 				}
+				limit := pageSize
+				if maxTransactions > 0 && resumedTransactions+limit > maxTransactions {
+					limit = maxTransactions - resumedTransactions
+				}
+				q := query.NewQueryBuilder().
+					Limit(limit).
+					Offset(offset).
+					Query()
+				pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(sMgr.ctx, q, sMgr.components.Persistence().NOTX(), true)
+				if err != nil {
+					log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
+					break
+				}
+				resumedTransactions += len(pendingTx)
+				for _, tx := range pendingTx {
+					log.L(sMgr.ctx).Tracef("Resuming pending transaction %s", tx.Transaction.ID)
+					err = sMgr.HandleTxResume(sMgr.ctx, &components.ValidatedTransaction{
+						ResolvedTransaction: *tx,
+					})
+					if err != nil {
+						log.L(sMgr.ctx).Errorf("Error resuming pending transaction %s: %s", tx.Transaction.ID, err)
+					}
+				}
+				if len(pendingTx) < pageSize {
+					break
+				}
+				offset += len(pendingTx)
 			}
+			log.L(sMgr.ctx).Infof("Resuming %d transactions (%d to %d)", resumedTransactions, offset, offset+resumedTransactions)
 
-			// Repeat DB poll every 5 minutes to check for incomplete transactions to resume
+			// Repeat DB poll every N minutes to check for incomplete transactions to resume
 			timeoutCtx, cancel := context.WithTimeout(sMgr.ctx, rePollInterval)
 			defer cancel()
 

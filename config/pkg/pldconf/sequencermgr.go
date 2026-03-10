@@ -39,6 +39,8 @@ type SequencerConfig struct {
 	TargetActiveCoordinators          *int              `json:"targetActiveCoordinators"`
 	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
 	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
+	TransactionResumePageSize         *int              `json:"transactionResumePageSize"`
+	TransactionResumeMaxTransactions  *int              `json:"transactionResumeMaxTransactions"`
 	Writer                            FlushWriterConfig `json:"writer"`
 }
 
@@ -60,6 +62,8 @@ type SequencerMinimumConfig struct {
 	TargetActiveCoordinators          int
 	TargetActiveSequencers            int
 	TransactionResumePollInterval     time.Duration
+	TransactionResumePageSize         int
+	TransactionResumeMaxTransactions  int
 }
 
 var SequencerDefaults = SequencerConfig{
@@ -85,6 +89,8 @@ var SequencerDefaults = SequencerConfig{
 	TargetActiveCoordinators:          confutil.P(50),
 	TargetActiveSequencers:            confutil.P(50),
 	TransactionResumePollInterval:     confutil.P("5m"),
+	TransactionResumePageSize:         confutil.P(1000),
+	TransactionResumeMaxTransactions:  confutil.P(0),
 }
 
 var SequencerMinimum = SequencerMinimumConfig{
@@ -105,4 +111,6 @@ var SequencerMinimum = SequencerMinimumConfig{
 	TargetActiveCoordinators:          10,
 	TargetActiveSequencers:            10,
 	TransactionResumePollInterval:     10 * time.Second,
+	TransactionResumePageSize:         1,
+	TransactionResumeMaxTransactions:  0,
 }

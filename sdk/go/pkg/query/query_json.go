@@ -24,8 +24,9 @@ import (
 
 type QueryJSON struct {
 	Statements
-	Limit *int     `docstruct:"QueryJSON" json:"limit,omitempty"`
-	Sort  []string `docstruct:"QueryJSON" json:"sort,omitempty"`
+	Limit  *int     `docstruct:"QueryJSON" json:"limit,omitempty"`
+	Offset *int     `docstruct:"QueryJSON" json:"offset,omitempty"`
+	Sort   []string `docstruct:"QueryJSON" json:"sort,omitempty"`
 }
 
 // Note if ItemsResultTyped below might be preferred for new APIs (if you are able to adopt always-return {items:[]} style)

@@ -34,6 +34,9 @@ type QueryBuilder interface {
 	// Limit sets the limit of the query
 	Limit(limit int) QueryBuilder
 
+	// Offset sets the offset of the query (for pagination)
+	Offset(offset int) QueryBuilder
+
 	// Sort adds a sort filter to the query
 	Sort(fields ...string) QueryBuilder
 
@@ -96,6 +99,12 @@ func NewQueryBuilder() QueryBuilder {
 // Limit sets the limit of the query
 func (qb *queryBuilderImpl) Limit(limit int) QueryBuilder {
 	qb.rootQuery.Limit = &limit
+	return qb
+}
+
+// Offset sets the offset of the query (for pagination)
+func (qb *queryBuilderImpl) Offset(offset int) QueryBuilder {
+	qb.rootQuery.Offset = &offset
 	return qb
 }
 

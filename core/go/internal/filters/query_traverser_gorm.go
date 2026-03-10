@@ -69,6 +69,11 @@ func (t *gormTraverser) Limit(l int) Traverser[*gormTraverser] {
 	return t
 }
 
+func (t *gormTraverser) Offset(o int) Traverser[*gormTraverser] {
+	t.db = t.db.Offset(o)
+	return t
+}
+
 func (t *gormTraverser) Order(order string) Traverser[*gormTraverser] {
 	t.db = t.db.Order(order)
 	return t

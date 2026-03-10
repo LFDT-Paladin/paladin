@@ -34,6 +34,7 @@ type Traverser[T any] interface {
 	Error() error
 	WithError(err error) Traverser[T]
 	Limit(l int) Traverser[T]
+	Offset(o int) Traverser[T]
 	Order(f string) Traverser[T]
 	And(ot T) Traverser[T]
 	BuildOr(ot ...T) Traverser[T]
@@ -98,6 +99,9 @@ func (qt *queryTraverser[T]) traverse(t Traverser[T]) Traverser[T] {
 	t = qt.BuildAndFilter(t, &jf.Statements)
 	if jf.Limit != nil && *jf.Limit > 0 {
 		t = t.Limit(*jf.Limit)
+	}
+	if jf.Offset != nil && *jf.Offset > 0 {
+		t = t.Offset(*jf.Offset)
 	}
 	for _, s := range jf.Sort {
 		tSortField, err := resolveSortField(qt.ctx, qt.fieldSet, s)
