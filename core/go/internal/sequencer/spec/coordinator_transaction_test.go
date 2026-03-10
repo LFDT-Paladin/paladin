@@ -644,9 +644,7 @@ func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOrigina
 	// it reverted during assembly but the response was lost and the transaction has since
 	// been cleaned up on the originator), the coordinator transitions to State_Final
 	ctx := context.Background()
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-
-	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.TransactionUnknownByOriginatorEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{

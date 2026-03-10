@@ -18,7 +18,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -79,38 +78,12 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatInte
 	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-
-	mocks.SyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
-			return req.Domain == txn.pt.Domain &&
-				req.Originator == txn.originator &&
-				req.TransactionID == txn.pt.ID &&
-				req.FailureMessage == "originator reported transaction as unknown"
-		}),
-		mock.Anything, // onSuccess callback
-		mock.Anything, // onError callback
-	).Return(nil)
-
-	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-}
-
 func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
 	cancelCalled := false
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
 		Build()
-
-	mocks.SyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
 
 	// Call action_FinalizeAsUnknownByOriginator
 	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
@@ -118,50 +91,6 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 
 	// Verify the cancel function was called
 	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
-}
-
-func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-
-	var onSuccessCalled bool
-	mocks.SyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-	).Run(func(args mock.Arguments) {
-		onSuccess := args.Get(2).(func(context.Context))
-		onSuccess(ctx)
-		onSuccessCalled = true
-	}).Return(nil)
-
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, onSuccessCalled)
-}
-
-func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-
-	callCount := 0
-	mocks.SyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-	).Run(func(args mock.Arguments) {
-		callCount++
-		if callCount == 1 {
-			onError := args.Get(3).(func(context.Context, error))
-			onError(ctx, assert.AnError)
-		}
-	}).Return(nil)
-
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, callCount, 1)
 }
 
 func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
