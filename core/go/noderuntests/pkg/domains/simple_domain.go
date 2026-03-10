@@ -826,6 +826,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 
 				// Basic special case for revert testing:
 				// If the amount is set to 1001 we will revert in the domain at assembly time
+				// Other error modes we handle in other functions are:
 				// If the amount is set to 1002 we will use a fixed, known salt and revert the domain at endorsement time (see EndorseTransaction)
 				// If the amount is set to 1003 we will trigger a retryable base ledger error on the first attempt, then succeed on retry
 				// If the amount is set to 1004 we will trigger a retryable base ledger error every time (will exceed retry threshold)
