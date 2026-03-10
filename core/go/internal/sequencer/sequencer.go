@@ -163,7 +163,7 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 			// Paginate through all pending transactions with configurable page size and optional upper limit.
 			for maxTransactions > 0 && resumedTransactions < maxTransactions {
 				limit := pageSize
-				if maxTransactions > 0 && resumedTransactions+limit > maxTransactions {
+				if resumedTransactions+limit > maxTransactions {
 					limit = maxTransactions - resumedTransactions
 				}
 
