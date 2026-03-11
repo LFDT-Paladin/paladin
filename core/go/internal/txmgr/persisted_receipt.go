@@ -205,7 +205,6 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 					if receipt.TransactionID == cr.ChainedTransaction {
 						log.L(ctx).Infof("Propagating chained transaction receipt from %s to %s", receipt.TransactionID, cr.Transaction)
 
-						// TODO AM: careful review of this new if block
 						// When a chained transaction fails with on-chain revert data, route the failure
 						// to the original transaction's coordinator for retryability evaluation instead
 						// of immediately finalizing the original transaction.
@@ -215,12 +214,13 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 								log.L(ctx).Errorf("Failed to parse contract address %s for chained TX propagation: %s", cr.ContractAddress, parseErr)
 							} else {
 								origTxID := cr.Transaction
+								// TODO AM: why this copying?
 								revertBytes := make(pldtypes.HexBytes, len(receipt.RevertData))
 								copy(revertBytes, receipt.RevertData)
 								onChainCopy := receipt.OnChain
 								log.L(ctx).Infof("Routing chained TX on-chain revert to coordinator for original TX %s (contract %s)", origTxID, cr.ContractAddress)
 								dbTX.AddPostCommit(func(ctx context.Context) {
-									tm.sequencerMgr.HandleChainedTransactionConfirmation(ctx, *contractAddr, origTxID, revertBytes, onChainCopy)
+									tm.sequencerMgr.HandleChainedTransactionRevert(ctx, *contractAddr, origTxID, revertBytes, onChainCopy)
 								})
 							}
 							continue

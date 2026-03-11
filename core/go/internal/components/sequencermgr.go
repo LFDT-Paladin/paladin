@@ -92,23 +92,21 @@ type SequencerManager interface {
 	// Synchronous function to return the data needed for rpc_debugTransactionStatus
 	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
 
-	// Synchronous function to write receipts to the database and distribute them to the correct location.
-	// Filters out on-chain reverts, which are handled by the coordinator's retry logic.
-	WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
-
 	// Synchronous function to write receipts for chained transaction propagation.
-	// Unlike WriteOrDistributeReceiptsPostSubmit, does not filter on-chain reverts because
-	// the chained transaction's coordinator has already made a final decision.
+	// Chained transaction receipts are final outcomes and should be written/distributed as-is.
+	// TODO AM: can this be consolidated into syncPoints.WriteOrDistributeReceipts
 	WriteOrDistributeChainedTransactionReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
 
 	// Events from the public transaction manager
 	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error
 	HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error
 	HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txSubmission *pldapi.PublicTxWithBinding) error
-	HandleTransactionFailed(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
 
-	// HandleChainedTransactionConfirmation routes a chained transaction's on-chain revert to the
+	// HandleDirectTransactionRevert handles on-chain reverts discovered from direct public transaction matches.
+	HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
+
+	// HandleChainedTransactionRevert routes a chained transaction's on-chain revert to the
 	// original transaction's coordinator for retryability evaluation. If the sequencer for the
 	// contract is not currently loaded, this is a no-op (the originator will eventually re-delegate).
-	HandleChainedTransactionConfirmation(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)
+	HandleChainedTransactionRevert(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)
 }

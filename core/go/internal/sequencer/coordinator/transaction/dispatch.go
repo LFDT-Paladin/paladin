@@ -112,10 +112,14 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 
 	if intent == prototk.TransactionSpecification_SEND_TRANSACTION && hasPrivateTransaction && !hasPublicTransaction {
 		log.L(ctx).Debugf("Result of transaction %s is a chained private transaction", t.pt.ID)
-		if t.revertCount > 0 && t.pt.PreparedPrivateTransaction.IdempotencyKey != "" {
-			t.pt.PreparedPrivateTransaction.IdempotencyKey = fmt.Sprintf("%s_%d", t.pt.PreparedPrivateTransaction.IdempotencyKey, t.revertCount)
+		preparedPrivateTransaction := *t.pt.PreparedPrivateTransaction
+		if preparedPrivateTransaction.IdempotencyKey != "" {
+			// We can't rely on just the idempotency key from the domain is it will be the same if we retry a private dispatch.
+			// The domain needs to have its own way of detecting duplicate transactions beyond the idempotency key in paladin, as
+			// a single private transaction with a unqiue idempotency key can still result in multiple base ledger submissions.
+			preparedPrivateTransaction.IdempotencyKey = fmt.Sprintf("%s_%d_%d", preparedPrivateTransaction.IdempotencyKey, t.clock.Now().UnixNano(), t.revertCount)
 		}
-		validatedPrivateTx, err := t.components.TxManager().PrepareChainedPrivateTransaction(ctx, t.components.Persistence().NOTX(), t.pt.PreAssembly.TransactionSpecification.From, t.pt.ID, t.pt.Domain, &t.pt.Address, t.pt.PreparedPrivateTransaction, pldapi.SubmitModeAuto)
+		validatedPrivateTx, err := t.components.TxManager().PrepareChainedPrivateTransaction(ctx, t.components.Persistence().NOTX(), t.pt.PreAssembly.TransactionSpecification.From, t.pt.ID, t.pt.Domain, &t.pt.Address, &preparedPrivateTransaction, pldapi.SubmitModeAuto)
 		if err != nil {
 			log.L(ctx).Errorf("error preparing chained transaction %s: %s", t.pt.ID, err)
 			return nil, err

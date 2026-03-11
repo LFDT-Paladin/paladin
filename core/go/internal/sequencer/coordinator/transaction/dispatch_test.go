@@ -17,6 +17,8 @@ package transaction
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -58,6 +60,104 @@ func Test_buildDispatchBatch_ChainedPrivateBranch(t *testing.T) {
 	assert.Len(t, batch.PrivateDispatches, 1)
 	assert.Nil(t, batch.PublicDispatches)
 	assert.Nil(t, batch.PreparedTransactions)
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch_AlwaysUsesUniqueIdempotencyKey(t *testing.T) {
+	ctx := t.Context()
+	baseIdempotencyKey := "child_txn"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				IdempotencyKey: baseIdempotencyKey,
+			},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		RevertCount(2).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(tx *pldapi.TransactionInput) bool {
+			if tx == nil {
+				return false
+			}
+			prefix := baseIdempotencyKey + "_"
+			if !strings.HasPrefix(tx.IdempotencyKey, prefix) {
+				return false
+			}
+			tail := strings.TrimPrefix(tx.IdempotencyKey, prefix)
+			lastUnderscore := strings.LastIndex(tail, "_")
+			if lastUnderscore <= 0 {
+				return false
+			}
+			timestampComponent := tail[:lastUnderscore]
+			attemptComponent := tail[lastUnderscore+1:]
+			if attemptComponent != "2" {
+				return false
+			}
+			_, err := strconv.ParseInt(timestampComponent, 10, 64)
+			return err == nil
+		}),
+		mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, baseIdempotencyKey, txn.pt.PreparedPrivateTransaction.IdempotencyKey)
+}
+
+func Test_buildDispatchBatch_ChainedPrivateBranch_FirstAttemptUsesAttemptZero(t *testing.T) {
+	ctx := t.Context()
+	baseIdempotencyKey := "child_txn"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{
+			TransactionBase: pldapi.TransactionBase{
+				IdempotencyKey: baseIdempotencyKey,
+			},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		RevertCount(0).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.MatchedBy(func(tx *pldapi.TransactionInput) bool {
+			if tx == nil {
+				return false
+			}
+			prefix := baseIdempotencyKey + "_"
+			if !strings.HasPrefix(tx.IdempotencyKey, prefix) {
+				return false
+			}
+			tail := strings.TrimPrefix(tx.IdempotencyKey, prefix)
+			lastUnderscore := strings.LastIndex(tail, "_")
+			if lastUnderscore <= 0 {
+				return false
+			}
+			timestampComponent := tail[:lastUnderscore]
+			attemptComponent := tail[lastUnderscore+1:]
+			if attemptComponent != "0" {
+				return false
+			}
+			_, err := strconv.ParseInt(timestampComponent, 10, 64)
+			return err == nil
+		}),
+		mock.Anything).
+		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	assert.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, baseIdempotencyKey, txn.pt.PreparedPrivateTransaction.IdempotencyKey)
 }
 
 func Test_buildDispatchBatch_ChainedPrivateBranch_PrepareChainedReturnsError(t *testing.T) {
