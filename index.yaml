@@ -14,6 +14,29 @@ entries:
     version: 0.0.0
   paladin-operator:
   - apiVersion: v2
+    appVersion: v1.0.0-rc.6
+    created: "2026-03-11T16:58:49.043191876Z"
+    dependencies:
+    - condition: installCRDs
+      name: paladin-operator-crd
+      repository: file://../paladin-operator-crd/
+      version: 1.0.0-rc.6
+    - condition: prometheus.enabled
+      name: prometheus-namespace
+      repository: file://../prometheus-namespace/
+      version: 0.0.0
+    - condition: prometheus.enabled
+      name: prometheus
+      repository: https://prometheus-community.github.io/helm-charts
+      version: 15.8.0
+    description: A Helm chart for Kubernetes
+    digest: 8edf0b8fe28ff108b34337ff547c8d92f9e6684e7061d059726802392ee4ba50
+    name: paladin-operator
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-1.0.0-rc.6/paladin-operator-1.0.0-rc.6.tgz
+    version: 1.0.0-rc.6
+  - apiVersion: v2
     appVersion: v1.0.0-rc.5
     created: "2026-03-10T19:39:26.913287033Z"
     dependencies:
@@ -1541,6 +1564,16 @@ entries:
     version: 0.0.0
   paladin-operator-crd:
   - apiVersion: v2
+    appVersion: v1.0.0-rc.6
+    created: "2026-03-11T16:58:49.244702499Z"
+    description: A Helm chart for Kubernetes
+    digest: d976ee8f14f8a24f902ac3dc07c5e64473860ed76f52da97f7cbbdf99ae92c14
+    name: paladin-operator-crd
+    type: application
+    urls:
+    - https://github.com/LFDT-Paladin/paladin/releases/download/paladin-operator-crd-1.0.0-rc.6/paladin-operator-crd-1.0.0-rc.6.tgz
+    version: 1.0.0-rc.6
+  - apiVersion: v2
     appVersion: v1.0.0-rc.5
     created: "2026-03-10T19:39:27.218418285Z"
     description: A Helm chart for Kubernetes
@@ -2082,4 +2115,4 @@ entries:
     urls:
     - https://github.com/LF-Decentralized-Trust-labs/paladin/releases/download/prometheus-namespace-0.0.0/prometheus-namespace-0.0.0.tgz
     version: 0.0.0
-generated: "2026-03-10T19:39:27.21890812Z"
+generated: "2026-03-11T16:58:49.245209795Z"
