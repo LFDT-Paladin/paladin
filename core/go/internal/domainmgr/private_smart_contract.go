@@ -304,7 +304,10 @@ func (dc *domainContract) WritePotentialStates(dCtx components.DomainContext, re
 		postAssembly.InfoStates, err = dc.upsertPotentialStates(dCtx, readTX, tx, postAssembly.InfoStatesPotential, false)
 	}
 	return err
+}
 
+func (dc *domainContract) MapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, outputStates bool, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
+	return dc.d.mapPotentialStates(dCtx, potentialStates, outputStates, createdByTX)
 }
 
 func (dc *domainContract) upsertPotentialStates(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, potentialStates []*prototk.NewState, isOutput bool) (writtenStates []*components.FullState, err error) {
@@ -358,6 +361,7 @@ func (dc *domainContract) LockStates(dCtx components.DomainContext, readTX persi
 	stateLocks := make([]*pldapi.StateLock, 0, len(postAssembly.InputStates)+len(postAssembly.ReadStates))
 	inputIDs := make([]string, len(postAssembly.InputStates))
 	for i, s := range postAssembly.InputStates {
+		// MRW TODO
 		stateLocks = append(stateLocks, &pldapi.StateLock{
 			StateID:     s.ID,
 			DomainName:  domainName,
@@ -374,6 +378,7 @@ func (dc *domainContract) LockStates(dCtx components.DomainContext, readTX persi
 	}
 	readIDs := make([]string, len(postAssembly.ReadStates))
 	for i, s := range postAssembly.ReadStates {
+		// MRW TODO
 		stateLocks = append(stateLocks, &pldapi.StateLock{
 			StateID:     s.ID,
 			DomainName:  domainName,

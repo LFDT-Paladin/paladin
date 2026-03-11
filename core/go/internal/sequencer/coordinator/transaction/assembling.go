@@ -65,10 +65,11 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return nil
 	}
 
-	// MRW TODO - this writes to the domain context. We don't need to do this any more?
-	err := t.writeAndLockStates(ctx)
+	// MRW TODO - this writes to the domain context. We need to do the WRITE part of this,
+	// and then record locks in the grapher
 
-	t.grapher.AddMinter(ctx, t.pt.PostAssembly.OutputStatesPotential, t)
+	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
+	err := t.writeStates(ctx)
 
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
@@ -81,22 +82,27 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return err
 	}
 
-	// Once we've written the lock states we have output states which must be added to the grapher
-	for _, state := range postAssembly.OutputStates {
-		err := t.grapher.AddMinter(ctx, state, t)
-		if err != nil {
-			errMsg := i18n.NewError(ctx, msgs.MsgSequencerAddMinterError, t.pt.ID.String(), state.ID.String(), err)
-			log.L(ctx).Error(errMsg)
-			return errMsg
-		}
-		// If we created the state it must be locked until the transaction is confirmed
-		err = t.grapher.LockMintOnCreate(ctx, state.ID, t.pt.ID)
-		if err != nil {
-			msg := fmt.Sprintf("error locking state %s for transaction %s: %s", state.ID.String(), t.pt.ID.String(), err)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
+	// Add output states to the grapher for other transactions to use
+	err = t.grapher.AddMinter(ctx, postAssembly.OutputStates, t)
+	if err != nil {
+		return err
 	}
+
+	// Add a lock for every output we create
+	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, postAssembly.OutputStatesPotential, t.pt)
+	if err != nil {
+		return err
+	}
+
+	// Add a lock for every output we create
+	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
+
+	// Add a lock for every read state
+	t.grapher.LockMintsOnRead(ctx, postAssembly.ReadStates, t.pt.ID)
+
+	// Add a lock for every input state to prevent other transactions using them
+	t.grapher.LockMintsOnSpend(ctx, postAssembly.InputStates, t.pt.ID)
+
 	return t.calculatePostAssembleDependencies(ctx)
 }
 
@@ -130,7 +136,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStateLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, stateLocks, blockHeight)
 	})
 
 	t.scheduleRequestTimeout(ctx)
@@ -204,8 +210,8 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 	return nil
 }
 
-func (t *coordinatorTransaction) writeLockStates(ctx context.Context) error {
-	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.pt)
+func (t *CoordinatorTransaction) writeStates(ctx context.Context) error {
+	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
 }
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {

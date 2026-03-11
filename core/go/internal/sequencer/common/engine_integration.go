@@ -38,11 +38,15 @@ type Hooks interface {
 }
 
 type EngineIntegration interface {
-	// WriteLockStatesForTransaction is a method that writes a lock to the states for a transaction
-	WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
+	// WriteStatesForTransaction is a method that writes the states for a transaction
+	// MRW TODO - need to confirm if this is still needed
+	WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 
 	// Provides a hook for the coordinator transaction state machine to invoke the equivalent function on the DomainContext on TX completion
+	// MRW TODO - no longer needed?
 	ResetTransactions(ctx context.Context, transactionID uuid.UUID)
+
+	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error)
 
 	GetStateLocks(ctx context.Context) ([]byte, error)
 
@@ -78,8 +82,12 @@ type FakeEngineIntegrationForTesting struct {
 	mock.Mock
 }
 
-func (f *FakeEngineIntegrationForTesting) WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+func (f *FakeEngineIntegrationForTesting) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 	return nil
+}
+
+func (f *FakeEngineIntegrationForTesting) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
+	return nil, nil
 }
 
 func (f *FakeEngineIntegrationForTesting) GetStateLocks(ctx context.Context) ([]byte, error) {
@@ -111,9 +119,14 @@ type engineIntegration struct {
 	environment           Hooks
 }
 
-func (e *engineIntegration) WriteAndLockStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
+	return e.domainSmartContract.MapPotentialStates(e.domainContext, potentialStates, true, createdByTX)
+}
+
+func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
 	// Write output states
+	// MRW TODO
 	if (txn.PostAssembly.OutputStatesPotential != nil && txn.PostAssembly.OutputStates == nil) || (txn.PostAssembly.InfoStatesPotential != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
 		err := e.domainSmartContract.WritePotentialStates(e.domainContext, readTX, txn)
@@ -128,7 +141,9 @@ func (e *engineIntegration) WriteAndLockStatesForTransaction(ctx context.Context
 		}
 	}
 
-	// Lock input states
+	// Lock input states (out of date)
+	// MRW TODO
+	// Write states before we then lock them
 	if len(txn.PostAssembly.InputStates) > 0 && txn.Intent == prototk.TransactionSpecification_SEND_TRANSACTION {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
 		err := e.domainSmartContract.LockStates(e.domainContext, readTX, txn)

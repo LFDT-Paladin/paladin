@@ -344,6 +344,13 @@ task loadImages(type: Exec) {
         args "PALADIN_IMAGE_TAG=${paladinImageTag}"
 }
 
+// When updatePaladinImage is requested, only build Paladin (not operator) and load images.
+// Must run at configuration time so promoteKindImages sees the right flags.
+if (gradle.startParameter.taskNames.any { it.endsWith('updatePaladinImage') }) {
+    ext.buildOperator = false
+    ext.buildPaladin = true
+}
+
 // Task to load images into the Kind cluster
 task promoteKindImages {
     dependsOn startKindCluster
@@ -519,11 +526,7 @@ task build {
 
 // Task to update the Paladin image in the Kind cluster
 task updatePaladinImage(type: Exec) {
-    doFirst {
-        buildOperator = false
-        buildPaladin = true
-    }
-    dependsOn promoteKindImages 
+    dependsOn promoteKindImages
     executable 'kubectl'
     args "rollout" 
     args "restart" 

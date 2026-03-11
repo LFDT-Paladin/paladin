@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -50,8 +49,9 @@ type Grapher interface {
 	ForgetMints(transactionID uuid.UUID)
 	ForgetLocks(transactionID uuid.UUID)
 	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error)
-	LockMintOnCreate(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error
-	LockMintOnSpend(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error
+	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
+	LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
+	LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
 	TransactionByID(ctx context.Context, transactionID uuid.UUID) *CoordinatorTransaction
 }
 
@@ -66,7 +66,7 @@ type grapher struct {
 // It must only be called from the state machine loop to ensure assembly of a TX is based on completion of
 // any updates made by a previous change in the state machine (e.g. removing states from a previously
 // reverted transaction)
-func NewGrapher(ctx context.Context, metrics metrics.DistributedSequencerMetrics) Grapher {
+func NewGrapher(ctx context.Context) Grapher {
 	return &grapher{
 		transactionByOutputState:  make(map[string]*CoordinatorTransaction),
 		transactionByID:           make(map[uuid.UUID]*CoordinatorTransaction),
@@ -103,7 +103,7 @@ func (s *grapher) Add(ctx context.Context, txn CoordinatorTransaction) {
 	s.transactionByID[txn.GetID()] = txn
 }
 
-// Define a state as having been produced by the specified transaction.
+// Define states as having been produced by the specified transaction.
 func (s *grapher) AddMinter(ctx context.Context, states []*components.FullState, transaction *CoordinatorTransaction) error {
 	for _, state := range states {
 		if txn, ok := s.transactionByOutputState[state.ID.String()]; ok {
@@ -231,72 +231,45 @@ func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) 
 	return s.transactionByID[transactionID]
 }
 
-// SortTransactions sorts the transactions based on their dependencies.
-// It ensures that transactions are sequenced in such a way that all dependencies are resolved before the transaction itself is processed.
-// It returns an error if a circular dependency is detected or if any transaction has dependencies that are not in the input list.
-// This function is used to ensure that transactions are processed in the correct order, respecting their dependencies.
-// It assumes that the transactions are provided in a state where they are ready to be sequenced.
-func SortTransactions(ctx context.Context, transactions []*CoordinatorTransaction) ([]*CoordinatorTransaction, error) {
-	sortedTransactions := make([]*CoordinatorTransaction, 0, len(transactions))
-	// Ensure the returned array is sorted according to the dependency graph
-
-	// continue to loop through all transactions picking off any who have no dependencies
-	//  other than transactions that have already been sequenced
-	for len(transactions) > 0 {
-
-		//assume we don't find any transaction with no dependencies in this iteration
-		found := false
-
-		// Find the next transaction that has no dependencies
-		for i, txn := range transactions {
-			// If the transaction has no dependencies, we can sequence it
-			if !txn.hasDependenciesNotIn(ctx, sortedTransactions) {
-				// Add the transaction to the sequenced transactions
-				sortedTransactions = append(sortedTransactions, txn)
-
-				// Remove the transaction from the transactions array
-				transactions = append(transactions[:i], transactions[i+1:]...)
-				found = true
-				break // Restart the loop to check for more transactions
+func (s *grapher) lockMints(ctx context.Context, states []*components.FullState, transactionID uuid.UUID, lockType pldapi.StateLockType) {
+	for _, state := range states {
+		if s.lockedStatesByTransaction[transactionID] == nil {
+			s.lockedStatesByTransaction[transactionID] = []*stateLock{
+				&stateLock{
+					State:       state.ID,
+					Transaction: transactionID,
+					Type:        lockType.Enum(),
+				},
 			}
-		}
-		if !found {
-			// If we didn't find any transaction with no dependencies, it means we have a circular dependency
-			// or some transactions are not in the input list, which should not happen in normal usage
-			msg := "Circular dependency detected or some transactions are not in the input list"
-			log.L(ctx).Error(msg)
-			return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	}
-	return sortedTransactions, nil
-}
-
-func (s *grapher) lockMint(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID, lockType pldapi.StateLockType) error {
-	if s.lockedStatesByTransaction[transactionID] == nil {
-		s.lockedStatesByTransaction[transactionID] = []*stateLock{
-			&stateLock{
-				State:       stateID,
+		} else {
+			s.lockedStatesByTransaction[transactionID] = append(s.lockedStatesByTransaction[transactionID], &stateLock{
+				State:       state.ID,
 				Transaction: transactionID,
-				Type:        pldapi.StateLockTypeCreate.Enum(),
-			},
+				Type:        lockType.Enum(),
+			})
 		}
-	} else {
-		s.lockedStatesByTransaction[transactionID] = append(s.lockedStatesByTransaction[transactionID], &stateLock{
-			State:       stateID,
-			Transaction: transactionID,
-			Type:        pldapi.StateLockTypeCreate.Enum(),
-		})
 	}
-
-	return nil
 }
 
-func (s *grapher) LockMintOnCreate(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error {
-	return s.lockMint(ctx, stateID, transactionID, pldapi.StateLockTypeCreate)
+func (s *grapher) LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID) {
+	createLocks := make([]*components.FullState, 0, len(states))
+	for i, ps := range upserts {
+		if ps.CreatedBy != nil {
+			log.L(ctx).Debugf("LockMintsOnCreate: creating lock for potential state %s, it's full state ID is %s", ps.ID.String(), states[i].ID.String())
+			createLocks = append(createLocks, &components.FullState{
+				ID: states[i].ID,
+			})
+		}
+	}
+	s.lockMints(ctx, createLocks, transactionID, pldapi.StateLockTypeCreate)
 }
 
-func (s *grapher) LockMintOnSpend(ctx context.Context, stateID pldtypes.HexBytes, transactionID uuid.UUID) error {
-	return s.lockMint(ctx, stateID, transactionID, pldapi.StateLockTypeSpend)
+func (s *grapher) LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
+	s.lockMints(ctx, states, transactionID, pldapi.StateLockTypeRead)
+}
+
+func (s *grapher) LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
+	s.lockMints(ctx, states, transactionID, pldapi.StateLockTypeSpend)
 }
 
 func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error) {
@@ -304,13 +277,16 @@ func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (
 }
 
 func (s *grapher) ExportMints(ctx context.Context) ([]byte, error) {
+	log.L(ctx).Debugf("ExportMints: exporting %d output states and %d locked states", len(s.outputStatesByMinter), len(s.lockedStatesByTransaction))
 	exportableStates := exportableStates{}
 	exportableStates.OutputState = make([]*components.StateUpsert, 0, len(s.outputStatesByMinter))
 	for _, states := range s.outputStatesByMinter {
+		log.L(ctx).Debugf("ExportMints: exporting %d output states", len(states))
 		exportableStates.OutputState = append(exportableStates.OutputState, states...)
 	}
 	exportableStates.LockedState = make([]*stateLock, 0, len(s.lockedStatesByTransaction))
 	for _, locks := range s.lockedStatesByTransaction {
+		log.L(ctx).Debugf("ExportMints: exporting %d locked states", len(locks))
 		exportableStates.LockedState = append(exportableStates.LockedState, locks...)
 	}
 	jsonStr, err := json.Marshal(exportableStates)
@@ -318,6 +294,6 @@ func (s *grapher) ExportMints(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 
-	fmt.Printf("ExportMints: JSON string:   %s\n", jsonStr)
+	fmt.Printf("ExportMints: JSON string: %s\n", jsonStr)
 	return jsonStr, nil
 }
