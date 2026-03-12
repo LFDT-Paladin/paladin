@@ -53,7 +53,7 @@ type lockTransition struct {
 	newLockInfo     types.NotoLockInfo_V1
 }
 
-func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (*loadedLockInfo, error) {
+func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, lockID pldtypes.Bytes32) (info *loadedLockInfo, revert bool, err error) {
 	queryBuilder := query.NewQueryBuilder().
 		Limit(1).
 		Sort("-.created").
@@ -61,10 +61,10 @@ func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, loc
 	log.L(ctx).Debugf("Lock query: %s", queryBuilder.Query())
 	states, err := n.findAvailableStates(ctx, stateQueryContext, n.lockInfoSchemaV1.Id, queryBuilder.Query().String())
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(states) == 0 {
-		return nil, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
+		return nil, true, i18n.NewError(ctx, msgs.MsgLockIDNotFound)
 	}
 	var lockState = states[0]
 	var lockInfo types.NotoLockInfo_V1
@@ -73,13 +73,13 @@ func (n *Noto) loadLockInfoV1(ctx context.Context, stateQueryContext string, loc
 		err = json.Unmarshal([]byte(lockState.DataJson), &lockInfo)
 	}
 	if err != nil {
-		return nil, i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lockState.Id)
+		return nil, false, i18n.WrapError(ctx, err, msgs.MsgInvalidLockState, lockState.Id)
 	}
 	return &loadedLockInfo{
 		id:       lockStateID,
 		stateRef: &prototk.StateRef{Id: lockState.Id, SchemaId: lockState.SchemaId},
 		lockInfo: &lockInfo,
-	}, nil
+	}, false, nil
 }
 
 // takes an assembled V1 lock transition (including a new lock), does basic validation & parsing,

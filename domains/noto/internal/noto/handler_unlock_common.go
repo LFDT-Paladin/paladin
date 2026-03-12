@@ -132,8 +132,16 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	// Load the existing lock
 	var existingLock *loadedLockInfo
 	if !tx.DomainConfig.IsV0() {
-		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		var revert bool
+		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
 		if err != nil {
+			if revert {
+				message := err.Error()
+				return &prototk.AssembleTransactionResponse{
+					AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+					RevertReason:   &message,
+				}, nil, nil, nil
+			}
 			return nil, nil, nil, err
 		}
 	}

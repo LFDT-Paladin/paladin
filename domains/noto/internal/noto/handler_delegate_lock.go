@@ -92,8 +92,16 @@ func (h *delegateLockHandler) Assemble(ctx context.Context, tx *types.ParsedTran
 		}
 		lockedInputStates = lockedInputs.states
 	} else {
-		existingLock, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
+		var revert bool
+		existingLock, revert, err = h.noto.loadLockInfoV1(ctx, req.StateQueryContext, params.LockID)
 		if err != nil {
+			if revert {
+				message := err.Error()
+				return &prototk.AssembleTransactionResponse{
+					AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+					RevertReason:   &message,
+				}, nil
+			}
 			return nil, err
 		}
 	}

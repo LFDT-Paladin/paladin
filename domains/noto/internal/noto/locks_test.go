@@ -45,8 +45,9 @@ func TestLoadLockInfoOk(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	lock, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	lock, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.NoError(t, err)
+	require.False(t, revert)
 	require.Equal(t, lockID, lock.lockInfo.LockID)
 	require.Equal(t, existingState.Id, lock.id.String())
 	require.Equal(t, existingState.Id, lock.stateRef.Id)
@@ -72,8 +73,9 @@ func TestLoadLockInfoBadData(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "PD200040", err)
+	require.False(t, revert)
 }
 
 func TestLoadLockInfoNotFound(t *testing.T) {
@@ -88,8 +90,9 @@ func TestLoadLockInfoNotFound(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "PD200028", err)
+	require.True(t, revert)
 }
 
 func TestLoadLockInfoLoadFail(t *testing.T) {
@@ -104,8 +107,9 @@ func TestLoadLockInfoLoadFail(t *testing.T) {
 	}
 	ctx := t.Context()
 
-	_, err := n.loadLockInfoV1(ctx, "query-context", lockID)
+	_, revert, err := n.loadLockInfoV1(ctx, "query-context", lockID)
 	require.Regexp(t, "pop", err)
+	require.False(t, revert)
 }
 
 func newValidV1LockTransition(t *testing.T, transitionType lockTransitionType, mods ...func(sender *identityPair, in *types.NotoLockInfo_V1, out *types.NotoLockInfo_V1)) (*lockTransition, error) {

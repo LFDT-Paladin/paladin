@@ -161,14 +161,19 @@ abstract class PaladinWebSocketClientBase<
       Math.ceil(heartbeatInterval * 1.5) // 50% grace period
     );
     this.pingTimer = setTimeout(() => {
+      if (this.socket?.readyState !== WebSocket.OPEN) {
+        return;
+      }
       this.logger.debug && this.logger.debug(`WS sending ping`);
-      this.socket?.ping("ping", true, (err) => {
+      this.socket.ping("ping", true, (err) => {
         if (err) this.reconnect(err.message);
       });
     }, heartbeatInterval);
   }
 
   private reconnect(msg: string) {
+    this.clearPingTimers();
+
     if (this.reconnectTimer) {
       // Reconnect already scheduled
       return;
@@ -177,7 +182,6 @@ abstract class PaladinWebSocketClientBase<
     this.logger.error(`Websocket closed: ${msg}`);
     if (this.options.reconnectDelay === -1) {
       // Reconnection disabled - just clean up
-      this.clearPingTimers();
       if (this.socket) {
         this.safeClose(this.socket);
         this.socket = undefined;
