@@ -6,10 +6,11 @@ import {IFailableTarget} from "./FailableTarget.sol";
 
 /**
  * @title NotoHooksFailable
- * @dev Minimal INotoHooks implementation for testing. Each hook emits a
+ * @dev Minimal INotoHooks implementation for testing. Most hooks emit a
  *      PenteExternalCall to a configurable FailableTarget contract (which can
  *      be set to revert), followed by the standard Noto prepared transaction.
- *      No ERC20 tracking or other state is maintained.
+ *      Mint only emits the prepared transaction (no failable call), so that
+ *      initial funding cannot be disrupted by the failure mechanism.
  */
 contract NotoHooksFailable is INotoHooks {
     address public failableTarget;
@@ -18,13 +19,19 @@ contract NotoHooksFailable is INotoHooks {
         failableTarget = _failableTarget;
     }
 
-    function _emitCalls(
+    function _emitPrepared(
         PreparedTransaction calldata prepared
     ) internal {
         emit PenteExternalCall(
             prepared.contractAddress,
             prepared.encodedCall
         );
+    }
+
+    function _emitFailableAndPrepared(
+        PreparedTransaction calldata prepared
+    ) internal {
+        _emitPrepared(prepared);
         emit PenteExternalCall(
             failableTarget,
             abi.encodeCall(IFailableTarget.check, ())
@@ -38,7 +45,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitPrepared(prepared);
     }
 
     function onTransfer(
@@ -49,7 +56,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onBurn(
@@ -59,7 +66,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onLock(
@@ -70,7 +77,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onCreateMintLock(
@@ -80,7 +87,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onPrepareBurnUnlock(
@@ -91,7 +98,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onUnlock(
@@ -101,7 +108,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onPrepareUnlock(
@@ -111,7 +118,7 @@ contract NotoHooksFailable is INotoHooks {
         bytes calldata,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function onDelegateLock(
@@ -120,7 +127,7 @@ contract NotoHooksFailable is INotoHooks {
         address,
         PreparedTransaction calldata prepared
     ) external override {
-        _emitCalls(prepared);
+        _emitFailableAndPrepared(prepared);
     }
 
     function handleDelegateUnlock(

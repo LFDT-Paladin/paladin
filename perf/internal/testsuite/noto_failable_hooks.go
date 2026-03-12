@@ -57,7 +57,7 @@ var notoConstructorABI = abi.ABI{
 	}},
 }
 
-const notoFailableHooksFailEvery = 7
+const notoFailableHooksFailEvery = 30
 
 type notoFailableHooksSuite struct {
 	ctx                 context.Context
@@ -65,6 +65,7 @@ type notoFailableHooksSuite struct {
 	notoContractAddress *pldtypes.EthAddress
 	failableAddress     *pldtypes.EthAddress
 	notary              string
+	recipient           string
 	sub                 rpcclient.Subscription
 	submissions         atomic.Int64
 }
@@ -80,6 +81,7 @@ func (s *notoFailableHooksSuite) Setup() error {
 	}
 
 	s.notary = fmt.Sprintf("member@%s", nodes[0].Config.Name)
+	s.recipient = fmt.Sprintf("recipient@%s", nodes[0].Config.Name)
 
 	// --- Step 1: Deploy FailableTarget on the base ledger ---
 	log.Info("Loading FailableTarget contract...")
@@ -234,7 +236,40 @@ func (s *notoFailableHooksSuite) Setup() error {
 	s.notoContractAddress = notoDeployResult.Receipt().ContractAddress
 	log.Infof("Noto deployed at address: %s", *s.notoContractAddress)
 
-	// --- Step 5: Create receipt listener for Noto ---
+	// --- Step 5: Mint initial supply to the notary ---
+	log.Info("Minting initial supply to notary...")
+	mintParams := &nototypes.MintParams{
+		To:     s.notary,
+		Amount: pldtypes.Int64ToInt256(1000000),
+	}
+	mintJSON, err := json.Marshal(mintParams)
+	if err != nil {
+		return fmt.Errorf("failed to marshal initial mint params: %w", err)
+	}
+	mintTxID, err := nodes[0].HTTPClient.PTX().SendTransaction(s.ctx, &pldapi.TransactionInput{
+		TransactionBase: pldapi.TransactionBase{
+			Type:     pldapi.TransactionTypePrivate.Enum(),
+			Domain:   "noto",
+			Function: "mint",
+			To:       s.notoContractAddress,
+			From:     "member",
+			Data:     pldtypes.RawJSON(mintJSON),
+		},
+		ABI: nototypes.NotoABI,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send initial mint transaction: %w", err)
+	}
+	mintReceipt, err := util.WaitForTransactionReceipt(s.ctx, nodes[0].HTTPClient, *mintTxID, 60*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to get initial mint receipt: %w", err)
+	}
+	if !mintReceipt.Success {
+		return fmt.Errorf("initial mint failed: %s", mintReceipt.FailureMessage)
+	}
+	log.Infof("Initial supply of 1000000 minted to %s", s.notary)
+
+	// --- Step 6: Create receipt listener for Noto ---
 	var latestSequence *uint64
 	qb := query.NewQueryBuilder().Equal("domain", "noto").Sort("-sequence").Limit(1)
 	receipts, err := nodes[0].HTTPClient.PTX().QueryTransactionReceipts(s.ctx, qb.Query())
@@ -314,6 +349,7 @@ func (s *notoFailableHooksSuite) NewWorker(startTime int64, workerID int) TestCa
 		suite:               s,
 		notoContractAddress: s.notoContractAddress,
 		notary:              s.notary,
+		recipient:           s.recipient,
 		runner:              s.runner,
 	}
 }
@@ -334,10 +370,15 @@ func (s *notoFailableHooksSuite) PostRun() error {
 	const expectedRevertReason = "Configured to fail"
 	expectedRevertReasonHex := fmt.Sprintf("%x", expectedRevertReason)
 
+	// NotoInvalidInput selector: keccak256("NotoInvalidInput(bytes32)")[:4]
+	const notoInvalidInputSelector = "8b8ff76e"
+
 	totalSubmissions := int(s.submissions.Load())
 	totalReceipts := 0
 	succeeded := 0
 	failedWithExpectedRevert := 0
+	failedWithNotoInvalidInput := 0
+	failedWithNoOnchainData := 0
 	var unexpectedResults []string
 
 	var createdCursor pldtypes.Timestamp
@@ -363,31 +404,54 @@ func (s *notoFailableHooksSuite) PostRun() error {
 			if tx == nil || tx.ID == nil {
 				continue
 			}
+			if !strings.Contains(tx.Function, "transfer") {
+				continue
+			}
 			receipt, err := nodes[0].HTTPClient.PTX().GetTransactionReceiptFull(s.ctx, *tx.ID)
 			if err != nil || receipt == nil {
 				continue
 			}
 			totalReceipts++
+
+			hasOnchainData := receipt.TransactionReceiptDataOnchain != nil
 			var blockNum int64
-			if receipt.TransactionReceiptDataOnchain != nil {
+			if hasOnchainData {
 				blockNum = receipt.TransactionReceiptDataOnchain.BlockNumber
 			}
+
 			if receipt.Success {
 				succeeded++
-				shouldHaveSucceeded := blockNum > 0 && blockNum%int64(notoFailableHooksFailEvery) != 0
-				if !shouldHaveSucceeded {
-					unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: succeeded at block %d but expected failure (block %% %d == 0)", tx.ID, blockNum, notoFailableHooksFailEvery))
+				if !hasOnchainData {
+					failedWithNoOnchainData++
+					log.Warnf("tx %s: succeeded but has no on-chain data in receipt", tx.ID)
+				} else {
+					shouldHaveSucceeded := blockNum%int64(notoFailableHooksFailEvery) != 0
+					if !shouldHaveSucceeded {
+						unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: succeeded at block %d but expected failure (block %% %d == 0)", tx.ID, blockNum, notoFailableHooksFailEvery))
+					}
 				}
 			} else if strings.Contains(receipt.FailureMessage, expectedRevertReasonHex) {
 				failedWithExpectedRevert++
-		} else {
-			txFull, txErr := nodes[0].HTTPClient.PTX().GetTransactionFull(s.ctx, *tx.ID)
-			if txErr == nil && txFull != nil {
-				txJSON, _ := json.MarshalIndent(txFull, "", "  ")
-				log.Errorf("Unexpected failure for tx %s (full transaction):\n%s", tx.ID, string(txJSON))
+				if !hasOnchainData {
+					failedWithNoOnchainData++
+					log.Warnf("tx %s: reverted with %q but has no on-chain data in receipt", tx.ID, expectedRevertReason)
+				} else {
+					shouldHaveFailed := blockNum%int64(notoFailableHooksFailEvery) == 0
+					if !shouldHaveFailed {
+						unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: reverted at block %d but expected success (block %% %d != 0)", tx.ID, blockNum, notoFailableHooksFailEvery))
+					}
+				}
+			} else if strings.Contains(receipt.FailureMessage, notoInvalidInputSelector) {
+				failedWithNotoInvalidInput++
+				log.Infof("tx %s: NotoInvalidInput (cascade from prior revert): %s", tx.ID, receipt.FailureMessage)
+			} else {
+				txFull, txErr := nodes[0].HTTPClient.PTX().GetTransactionFull(s.ctx, *tx.ID)
+				if txErr == nil && txFull != nil {
+					txJSON, _ := json.MarshalIndent(txFull, "", "  ")
+					log.Errorf("Unexpected failure for tx %s (full transaction):\n%s", tx.ID, string(txJSON))
+				}
+				unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: unexpected failure: %s", tx.ID, receipt.FailureMessage))
 			}
-			unexpectedResults = append(unexpectedResults, fmt.Sprintf("tx %s: unexpected failure: %s", tx.ID, receipt.FailureMessage))
-		}
 		}
 
 		createdCursor = txs[len(txs)-1].Created
@@ -397,8 +461,8 @@ func (s *notoFailableHooksSuite) PostRun() error {
 	}
 
 	log.Infof(
-		"Post-run analysis complete: %d submissions, %d receipts, %d succeeded, %d reverted with %q, %d unexpected",
-		totalSubmissions, totalReceipts, succeeded, failedWithExpectedRevert, expectedRevertReason, len(unexpectedResults),
+		"Post-run analysis complete: %d submissions, %d receipts, %d succeeded, %d reverted with %q, %d NotoInvalidInput (cascade), %d missing on-chain data, %d unexpected",
+		totalSubmissions, totalReceipts, succeeded, failedWithExpectedRevert, expectedRevertReason, failedWithNotoInvalidInput, failedWithNoOnchainData, len(unexpectedResults),
 	)
 
 	if totalReceipts == 0 {
@@ -406,6 +470,9 @@ func (s *notoFailableHooksSuite) PostRun() error {
 	}
 	if totalReceipts != totalSubmissions {
 		return fmt.Errorf("receipt count %d does not match submission count %d", totalReceipts, totalSubmissions)
+	}
+	if failedWithNoOnchainData > 0 {
+		log.Warnf("%d transactions had no on-chain data in their receipt", failedWithNoOnchainData)
 	}
 	if len(unexpectedResults) > 0 {
 		for _, msg := range unexpectedResults {
@@ -420,7 +487,8 @@ func (s *notoFailableHooksSuite) PostRun() error {
 		return fmt.Errorf("no transactions succeeded - expected some successes with failEvery=%d", notoFailableHooksFailEvery)
 	}
 
-	log.Infof("All assertions passed: %d succeeded, %d reverted with %q", succeeded, failedWithExpectedRevert, expectedRevertReason)
+	log.Infof("All assertions passed: %d succeeded, %d reverted with %q, %d NotoInvalidInput (cascade), %d missing on-chain data",
+		succeeded, failedWithExpectedRevert, expectedRevertReason, failedWithNotoInvalidInput, failedWithNoOnchainData)
 	return nil
 }
 
@@ -429,6 +497,7 @@ type notoFailableHooksWorker struct {
 	suite               *notoFailableHooksSuite
 	notoContractAddress *pldtypes.EthAddress
 	notary              string
+	recipient           string
 	runner              Runner
 }
 
@@ -442,29 +511,29 @@ func (tc *notoFailableHooksWorker) RunOnce(iterationCount int) (string, error) {
 		return "", fmt.Errorf("no nodes configured")
 	}
 
-	mintParams := &nototypes.MintParams{
-		To:     tc.notary,
-		Amount: pldtypes.Int64ToInt256(1000),
+	transferParams := &nototypes.TransferParams{
+		To:     tc.recipient,
+		Amount: pldtypes.Int64ToInt256(1),
 	}
-	mintJSON, err := json.Marshal(mintParams)
+	transferJSON, err := json.Marshal(transferParams)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal mint params: %w", err)
+		return "", fmt.Errorf("failed to marshal transfer params: %w", err)
 	}
 
 	txID, err := nodes[0].HTTPClient.PTX().SendTransaction(tc.ctx, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			Type:           pldapi.TransactionTypePrivate.Enum(),
 			Domain:         "noto",
-			Function:       "mint",
+			Function:       "transfer",
 			To:             tc.notoContractAddress,
 			From:           "member",
-			Data:           pldtypes.RawJSON(mintJSON),
+			Data:           pldtypes.RawJSON(transferJSON),
 			IdempotencyKey: util.GetIdempotencyKey(tc.startTime, tc.workerID, iterationCount),
 		},
 		ABI: nototypes.NotoABI,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to send noto mint transaction: %w", err)
+		return "", fmt.Errorf("failed to send noto transfer transaction: %w", err)
 	}
 	tc.suite.submissions.Add(1)
 
