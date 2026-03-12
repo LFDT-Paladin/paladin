@@ -65,6 +65,19 @@ func (*SelectedEvent) TypeString() string {
 	return "Event_Selected"
 }
 
+// AssembleCancelledEvent
+type AssembleCancelledEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*AssembleCancelledEvent) Type() EventType {
+	return Event_Assemble_Cancelled
+}
+
+func (*AssembleCancelledEvent) TypeString() string {
+	return "Event_Assemble_Cancelled"
+}
+
 // AssembleRequestSentEvent
 type AssembleRequestSentEvent struct {
 	BaseCoordinatorEvent
@@ -212,20 +225,34 @@ func (*SubmittedEvent) TypeString() string {
 	return "Event_Submitted"
 }
 
-// ConfirmedEvent
-type ConfirmedEvent struct {
+type ConfirmedSuccessEvent struct {
 	BaseCoordinatorEvent
-	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
+	Nonce *pldtypes.HexUint64
+	Hash  pldtypes.Bytes32
+}
+
+func (*ConfirmedSuccessEvent) Type() EventType {
+	return Event_ConfirmedSuccess
+}
+
+func (*ConfirmedSuccessEvent) TypeString() string {
+	return "Event_ConfirmedSuccess"
+}
+
+type ConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+	Nonce        *pldtypes.HexUint64
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
+	OnChain      pldtypes.OnChainLocation
 }
 
-func (*ConfirmedEvent) Type() EventType {
-	return Event_Confirmed
+func (*ConfirmedRevertedEvent) Type() EventType {
+	return Event_ConfirmedReverted
 }
 
-func (*ConfirmedEvent) TypeString() string {
-	return "Event_Confirmed"
+func (*ConfirmedRevertedEvent) TypeString() string {
+	return "Event_ConfirmedReverted"
 }
 
 type DependencySelectedForAssemblyEvent struct {
@@ -250,6 +277,18 @@ func (*DependencyRepooledEvent) Type() EventType {
 
 func (*DependencyRepooledEvent) TypeString() string {
 	return "Event_DependencyRepooled"
+}
+
+type DependencyConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*DependencyConfirmedRevertedEvent) Type() EventType {
+	return Event_DependencyConfirmedReverted
+}
+
+func (*DependencyConfirmedRevertedEvent) TypeString() string {
+	return "Event_DependencyConfirmedReverted"
 }
 
 type DependencyReadyEvent struct {

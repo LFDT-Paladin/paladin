@@ -888,6 +888,13 @@ func TestGetCallHandler(t *testing.T) {
 	}
 }
 
+func TestIsBaseLedgerRevertRetryable(t *testing.T) {
+	z := &Zeto{}
+	res, err := z.IsBaseLedgerRevertRetryable(context.Background(), nil)
+	assert.NoError(t, err)
+	assert.True(t, res.Retryable)
+}
+
 func TestUnimplementedMethods(t *testing.T) {
 	z := &Zeto{}
 	_, err := z.BuildReceipt(context.Background(), nil)

@@ -196,6 +196,23 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 			},
 			RegistryAddress: domainRegistryAddress.String(),
 		}
+	case *domains.SimpleDomainPairConfig:
+		domainPlugin := pldconf.PluginConfig{
+			Type:    string(pldtypes.LibraryTypeCShared),
+			Library: "loaded/via/unit/test/loader",
+		}
+		i.conf.Domains["domain1"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			RegistryAddress: domainConfig.Domain1RegistryAddress,
+		}
+		i.conf.Domains["domain2"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			RegistryAddress: domainConfig.Domain2RegistryAddress,
+		}
 	}
 
 	if identity := getFixedSigningIdentity(); identity != "" {
@@ -269,6 +286,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 
 	loaderMap := map[string]plugintk.Plugin{
 		"domain1":             domains.SimpleTokenDomain(t, i.ctx),
+		"domain2":             domains.SimpleTokenDomain(t, i.ctx),
 		"simpleStorageDomain": domains.SimpleStorageDomain(t, i.ctx),
 		"grpc":                grpc.NewPlugin(i.ctx),
 		"registry1":           static.NewPlugin(i.ctx),

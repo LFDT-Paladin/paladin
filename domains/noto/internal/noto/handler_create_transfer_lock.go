@@ -142,23 +142,24 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 		spendOutputs.coins = spendOutputs.coins[0 : len(spendOutputs.coins)-1]
 	}
 
-	// Build the info for the initiating transaction
-	infoDistribution := identityList{notaryID, senderID, fromID}
-	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	// Build and encode the unlock data (separate to the data for this TX)
+	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData)
 	if err != nil {
 		return nil, err
 	}
+
+	// Build the info for the initiating transaction
+	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	if err != nil {
+		return nil, err
+	}
+	infoStates = append(infoStates, createDataInfo...)
 
 	// We build the cancel outputs
 	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(requiredTotal), identityList{notaryID, senderID, fromID})
 	// ... and allocate ids to all the new outputs, so we can build the transaction we need to hash
 	if err == nil {
 		err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, spendOutputs.states, cancelOutputs.states)
-	}
-	// ... and the txData that would be emitted for either cancel or spend
-	var txData pldtypes.HexBytes
-	if err == nil {
-		txData, err = h.noto.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
 	}
 	// ... and the new lock state as an output
 	var lock *preparedLockInfo
@@ -169,9 +170,9 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 			Owner:         senderID.address,
 			Spender:       senderID.address,
 			SpendOutputs:  newStateAllocatedIDs(spendOutputs.states),
-			SpendData:     txData,
+			SpendData:     encodedUnlockData,
 			CancelOutputs: newStateAllocatedIDs(cancelOutputs.states),
-			CancelData:    txData,
+			CancelData:    encodedUnlockData,
 			SpendTxId:     spendTxId,
 		}, identityList{notaryID, senderID, fromID})
 	}

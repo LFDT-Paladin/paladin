@@ -27,118 +27,11 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-func Test_action_TransactionConfirmed_TransactionNotTracked_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	nonExistentTxID := uuid.New()
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: nonExistentTxID,
-		From: pldtypes.RandAddress(),
-	})
-
-	require.NoError(t, err)
-	assert.Empty(t, c.transactionsByID)
-}
-
-func Test_action_TransactionConfirmed_TransactionTracked_HandleEventSucceeds(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
-		Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn.GetID(),
-		Hash: hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
-}
-
-func Test_action_TransactionConfirmed_TransactionTracked_DifferentHash_HandleEventSucceeds(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.transactionsByID[txn.GetID()] = txn
-	differentHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn.GetID(),
-		Hash: differentHash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
-}
-
-func Test_action_TransactionConfirmed_TransactionTracked_PooledTransitionsToConfirmed(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled)
-	txn, _ := txBuilder.Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	hash := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn.GetID(),
-		Hash: hash,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState())
-}
-
-func Test_action_TransactionConfirmed_MultipleTransactions_EachHandleEventSucceeds(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	txBuilder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn1, _ := txBuilder1.Build()
-	txBuilder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched)
-	txn2, _ := txBuilder2.Build()
-	c.transactionsByID[txn1.GetID()] = txn1
-	c.transactionsByID[txn2.GetID()] = txn2
-
-	err := action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID: txn1.GetID(),
-		Hash: pldtypes.Bytes32(pldtypes.RandBytes(32)),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn1.GetCurrentState())
-
-	err = action_TransactionConfirmed(ctx, c, &TransactionConfirmedEvent{
-		TxID:  txn2.GetID(),
-		From:  nil,
-		Nonce: nil,
-		Hash:  pldtypes.Bytes32(pldtypes.RandBytes(32)),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, transaction.State_Confirmed, txn2.GetCurrentState())
-}
 
 func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing.T) {
 	ctx := context.Background()
@@ -186,7 +79,7 @@ func Test_addToDelegatedTransactions_WithChainedTransaction_AddsTransactionInSub
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(true, nil)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(true, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -215,7 +108,7 @@ func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionIn
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -239,7 +132,7 @@ func Test_addToDelegatedTransactions_DuplicateTransaction_SkipsAndReturnsNoError
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.On("FixedSigningIdentity").Return("")
 	builder.GetDomainAPI().On("Domain").Return(mockDomain)
@@ -392,7 +285,7 @@ func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *test
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", ctx, mock.Anything).Return(false, nil)
+	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	c, _, done := builder.Build(ctx)
 	defer done()
 

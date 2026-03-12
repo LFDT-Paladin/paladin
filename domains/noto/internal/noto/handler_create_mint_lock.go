@@ -111,19 +111,21 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		return nil, err
 	}
 
-	// Build the info for the initiating transaction
-	infoDistribution := identityList{notaryID, senderID}
-	infoStates, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	// Build and encode the unlock data (separate to the data for this TX)
+	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create the txData that would be emitted for either cancel or spend
-	err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, spendOutputs.states)
-	var txData pldtypes.HexBytes
-	if err == nil {
-		txData, err = h.noto.encodeTransactionDataV1(ctx, []*prototk.EndorsableState{})
+	// Build the info for the initiating transaction
+	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
+	if err != nil {
+		return nil, err
 	}
+	infoStates = append(infoStates, createDataInfo...)
+
+	// Allocate ids to all the new outputs, so we can build the transaction we need to hash
+	err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, spendOutputs.states)
 	// ... and the new lock state as an output
 	var lock *preparedLockInfo
 	if err == nil {
@@ -133,9 +135,9 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 			Owner:         senderID.address,
 			Spender:       senderID.address,
 			SpendOutputs:  newStateAllocatedIDs(spendOutputs.states),
-			SpendData:     txData,
+			SpendData:     encodedUnlockData,
 			CancelOutputs: []pldtypes.Bytes32{ /* nothing to return */ },
-			CancelData:    txData,
+			CancelData:    encodedUnlockData,
 			SpendTxId:     spendTxId,
 		}, identityList{notaryID, senderID})
 	}

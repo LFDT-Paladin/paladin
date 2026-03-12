@@ -92,8 +92,14 @@ type SequencerManager interface {
 	// Synchronous function to return the data needed for rpc_debugTransactionStatus
 	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
 
-	// Synchronous function to write receipts to the database and distribute them to the correct location
+	// Synchronous function to write receipts to the database and distribute them to the correct location.
+	// Filters out on-chain reverts, which are handled by the coordinator's retry logic.
 	WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
+
+	// Synchronous function to write receipts for chained transaction propagation.
+	// Unlike WriteOrDistributeReceiptsPostSubmit, does not filter on-chain reverts because
+	// the chained transaction's coordinator has already made a final decision.
+	WriteOrDistributeChainedTransactionReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
 
 	// Events from the public transaction manager
 	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error

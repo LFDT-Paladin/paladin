@@ -49,7 +49,6 @@ const (
 	Event_Closed
 	Event_CoordinatorCreated
 	Event_TransactionsDelegated
-	Event_TransactionConfirmed
 	Event_TransactionDispatchConfirmed
 	Event_HeartbeatReceived
 	Event_NewBlock
@@ -229,9 +228,6 @@ var stateDefinitionsMap = StateDefinitions{
 				// don't select a transaction here since events must to move into pooled state before
 				// they can be selected and there is a separate event for that
 			},
-			Event_TransactionConfirmed: {
-				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
-			},
 			Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 				Transitions: []Transition{{
 					To: State_Flush,
@@ -239,6 +235,11 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
+					{
+						Validator: validator_TransactionStateTransitionDispatchedToPooled,
+						If:        guard_HasTransactionAssembling,
+						Action:    action_cancelCurrentlyAssemblingTransaction, // This TX is being re-pooled, cancel the one we're already assembling
+					},
 					{
 						Validator: validator_TransactionStateTransitionToPooled,
 						Action:    action_PoolTransaction,
@@ -275,13 +276,6 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_SendHeartbeat},
 				},
 			},
-			Event_TransactionConfirmed: {
-				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
-				Transitions: []Transition{{
-					To: State_Closing,
-					If: guard_FlushComplete,
-				}},
-			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
@@ -297,6 +291,10 @@ var stateDefinitionsMap = StateDefinitions{
 						Action:    action_CleanUpTransaction,
 					},
 				},
+				Transitions: []Transition{{
+					To: State_Closing,
+					If: guard_FlushComplete,
+				}},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},

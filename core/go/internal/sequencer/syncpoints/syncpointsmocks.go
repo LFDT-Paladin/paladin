@@ -10,7 +10,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/google/uuid"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -207,8 +206,8 @@ func (_c *MockSyncPoints_PersistDispatchBatch_Call) RunAndReturn(run func(dCtx c
 }
 
 // QueueTransactionFinalize provides a mock function for the type MockSyncPoints
-func (_mock *MockSyncPoints) QueueTransactionFinalize(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error)) {
-	_mock.Called(ctx, domain, contractAddress, originator, transactionID, failureMessage, onCommit, onRollback)
+func (_mock *MockSyncPoints) QueueTransactionFinalize(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error)) {
+	_mock.Called(ctx, req, onCommit, onRollback)
 	return
 }
 
@@ -219,60 +218,36 @@ type MockSyncPoints_QueueTransactionFinalize_Call struct {
 
 // QueueTransactionFinalize is a helper method to define mock.On call
 //   - ctx context.Context
-//   - domain string
-//   - contractAddress pldtypes.EthAddress
-//   - originator string
-//   - transactionID uuid.UUID
-//   - failureMessage string
+//   - req *TransactionFinalizeRequest
 //   - onCommit func(context.Context)
 //   - onRollback func(context.Context, error)
-func (_e *MockSyncPoints_Expecter) QueueTransactionFinalize(ctx interface{}, domain interface{}, contractAddress interface{}, originator interface{}, transactionID interface{}, failureMessage interface{}, onCommit interface{}, onRollback interface{}) *MockSyncPoints_QueueTransactionFinalize_Call {
-	return &MockSyncPoints_QueueTransactionFinalize_Call{Call: _e.mock.On("QueueTransactionFinalize", ctx, domain, contractAddress, originator, transactionID, failureMessage, onCommit, onRollback)}
+func (_e *MockSyncPoints_Expecter) QueueTransactionFinalize(ctx interface{}, req interface{}, onCommit interface{}, onRollback interface{}) *MockSyncPoints_QueueTransactionFinalize_Call {
+	return &MockSyncPoints_QueueTransactionFinalize_Call{Call: _e.mock.On("QueueTransactionFinalize", ctx, req, onCommit, onRollback)}
 }
 
-func (_c *MockSyncPoints_QueueTransactionFinalize_Call) Run(run func(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error))) *MockSyncPoints_QueueTransactionFinalize_Call {
+func (_c *MockSyncPoints_QueueTransactionFinalize_Call) Run(run func(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error))) *MockSyncPoints_QueueTransactionFinalize_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 string
+		var arg1 *TransactionFinalizeRequest
 		if args[1] != nil {
-			arg1 = args[1].(string)
+			arg1 = args[1].(*TransactionFinalizeRequest)
 		}
-		var arg2 pldtypes.EthAddress
+		var arg2 func(context.Context)
 		if args[2] != nil {
-			arg2 = args[2].(pldtypes.EthAddress)
+			arg2 = args[2].(func(context.Context))
 		}
-		var arg3 string
+		var arg3 func(context.Context, error)
 		if args[3] != nil {
-			arg3 = args[3].(string)
-		}
-		var arg4 uuid.UUID
-		if args[4] != nil {
-			arg4 = args[4].(uuid.UUID)
-		}
-		var arg5 string
-		if args[5] != nil {
-			arg5 = args[5].(string)
-		}
-		var arg6 func(context.Context)
-		if args[6] != nil {
-			arg6 = args[6].(func(context.Context))
-		}
-		var arg7 func(context.Context, error)
-		if args[7] != nil {
-			arg7 = args[7].(func(context.Context, error))
+			arg3 = args[3].(func(context.Context, error))
 		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
-			arg4,
-			arg5,
-			arg6,
-			arg7,
 		)
 	})
 	return _c
@@ -283,7 +258,7 @@ func (_c *MockSyncPoints_QueueTransactionFinalize_Call) Return() *MockSyncPoints
 	return _c
 }
 
-func (_c *MockSyncPoints_QueueTransactionFinalize_Call) RunAndReturn(run func(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error))) *MockSyncPoints_QueueTransactionFinalize_Call {
+func (_c *MockSyncPoints_QueueTransactionFinalize_Call) RunAndReturn(run func(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error))) *MockSyncPoints_QueueTransactionFinalize_Call {
 	_c.Run(run)
 	return _c
 }

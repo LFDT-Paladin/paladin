@@ -15,6 +15,7 @@
 package domains
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -378,6 +379,12 @@ type SimpleDomainConfig struct {
 	SubmitMode string `json:"submitMode"`
 }
 
+type SimpleDomainPairConfig struct {
+	SubmitMode              string
+	Domain1RegistryAddress  string
+	Domain2RegistryAddress  string
+}
+
 // ABI for the config field in the PaladinRegisterSmartContract_V0 event
 // this must match the type and order of arguments passed to the abi.encode function call in the solidity contract
 var contractDataABI = &abi.ParameterArray{
@@ -589,7 +596,6 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 		return &plugintk.DomainAPIBase{Functions: &plugintk.DomainAPIFunctions{
 
 			ConfigureDomain: func(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
-				assert.Equal(t, "domain1", req.Name)
 				domainConfig := &SimpleDomainConfig{}
 				err := json.Unmarshal([]byte(req.ConfigJson), domainConfig)
 				require.NoError(t, err)
@@ -825,8 +831,11 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 
 				// Basic special case for revert testing:
 				// If the amount is set to 1001 we will revert in the domain at assembly time
+				// Other error modes we handle in other functions are:
 				// If the amount is set to 1002 we will use a fixed, known salt and revert the domain at endorsement time (see EndorseTransaction)
-				// If the amount is set to 1003 we will use a fixed, known salt and the baseledger contract will check for the known input UTXO and revert
+				// If the amount is set to 1003 we will trigger a retryable base ledger error on the first attempt, then succeed on retry
+				// If the amount is set to 1004 we will trigger a retryable base ledger error every time (will exceed retry threshold)
+				// If the amount is set to 1005 we will trigger a non-retryable base ledger error (fails immediately)
 				if config.HookAddress == "" {
 					if amount.Cmp(big.NewInt(1001)) == 0 {
 						revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
@@ -834,11 +843,6 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 							AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 							RevertReason:   &revertMessage,
 						}, nil
-					}
-					if amount.Cmp(big.NewInt(1003)) == 0 && !revertedOnce[req.Transaction.TransactionId] {
-						// Don't revert, but set the UTXO to a special value that will cause revert on the base ledger
-						salt = pldtypes.MustParseHexBytes("0x1212121212121212121212121212121212121212121212121212121212121212")
-						revertedOnce[req.Transaction.TransactionId] = true
 					}
 				}
 				toKeep := new(big.Int)
@@ -1136,6 +1140,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						"inputs":    spentStateIds,
 						"outputs":   newStateIds,
 						"signature": signerSignature,
+						"errorMode": big.NewInt(0),
 					}
 
 					if config.AmountVisible {
@@ -1154,6 +1159,18 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					if params.OriginTxId != "" {
 						smartContractFunction = "executeNotarizedHook"
 						args["originTxId"] = params.OriginTxId
+					}
+
+					amount := params.Amount.BigInt()
+					if amount.Cmp(big.NewInt(1003)) == 0 {
+						if !revertedOnce[req.Transaction.TransactionId] {
+							revertedOnce[req.Transaction.TransactionId] = true
+							args["errorMode"] = big.NewInt(1) // retryable
+						}
+					} else if amount.Cmp(big.NewInt(1004)) == 0 {
+						args["errorMode"] = big.NewInt(1) // retryable
+					} else if amount.Cmp(big.NewInt(1005)) == 0 {
+						args["errorMode"] = big.NewInt(2) // non-retryable
 					}
 
 					transactionType := prototk.PreparedTransaction_PUBLIC
@@ -1206,6 +1223,30 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					}
 				}
 				return &res, nil
+			},
+			IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+				if len(req.RevertData) < 4 {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: false}, nil
+				}
+				params := fmt.Sprintf("%x", req.RevertData[4:])
+				// SimpleTokenRetryableError(bytes32) selector = 0x88b57ed9
+				if bytes.Equal(req.RevertData[:4], []byte{0x88, 0xb5, 0x7e, 0xd9}) {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{
+						Retryable:     true,
+						DecodedReason: fmt.Sprintf("SimpleTokenRetryableError(%s)", params),
+					}, nil
+				}
+				// SimpleTokenNonRetryableError(bytes32) selector = 0x246682a2
+				if bytes.Equal(req.RevertData[:4], []byte{0x24, 0x66, 0x82, 0xa2}) {
+					return &prototk.IsBaseLedgerRevertRetryableResponse{
+						Retryable:     false,
+						DecodedReason: fmt.Sprintf("SimpleTokenNonRetryableError(%s)", params),
+					}, nil
+				}
+				return &prototk.IsBaseLedgerRevertRetryableResponse{
+					Retryable:     false,
+					DecodedReason: fmt.Sprintf("0x%x", req.RevertData),
+				}, nil
 			},
 		}}
 	})

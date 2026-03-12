@@ -184,7 +184,7 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes) error {
+func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
 	return nil
 }
 
@@ -253,6 +253,8 @@ type TransactionBuilderForTesting struct {
 	nodeName                           string
 	preAssemblePrereqOf                *uuid.UUID
 	preAssembleDependsOn               *uuid.UUID
+	baseLedgerRevertRetryThreshold     int
+	revertCount                        int
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
@@ -492,6 +494,16 @@ func (b *TransactionBuilderForTesting) ConfirmedLocksReleased(released bool) *Tr
 	return b
 }
 
+func (b *TransactionBuilderForTesting) BaseLedgerRevertRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.baseLedgerRevertRetryThreshold = threshold
+	return b
+}
+
+func (b *TransactionBuilderForTesting) RevertCount(count int) *TransactionBuilderForTesting {
+	b.revertCount = count
+	return b
+}
+
 func (b *TransactionBuilderForTesting) SubmitterSelection(selection prototk.ContractConfig_SubmitterSelection) *TransactionBuilderForTesting {
 	b.submitterSelection = selection
 	return b
@@ -663,6 +675,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		time.Duration(b.stateTimeout),
 		b.finalizingGracePeriod,
 		b.confirmedLockRetentionGracePeriod,
+		b.baseLedgerRevertRetryThreshold,
 		b.grapher,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
@@ -678,6 +691,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.stateMachine.CurrentState = b.state
 	txn.revertReason = b.revertReason
 	txn.preAssemblePrereqOf = b.preAssemblePrereqOf
+	txn.revertCount = b.revertCount
 
 	if b.dependencies != nil {
 		txn.dependencies = b.dependencies

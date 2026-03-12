@@ -701,6 +701,125 @@ func TestInitTransactionBadSignature(t *testing.T) {
 	assert.ErrorContains(t, err, "PD200002")
 }
 
+func TestIsBaseLedgerRevertRetryable_ShortData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{0x01, 0x02},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_EmptyData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_NilData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: nil,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_RetryableError_NotoInvalidInput(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoInvalidInput"]
+	require.NotNil(t, errorEntry)
+	idBytes := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"id": "%s"}`, idBytes)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoInvalidInput")
+	assert.Contains(t, res.DecodedReason, idBytes.String())
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_NotNotary(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoNotNotary"]
+	require.NotNil(t, errorEntry)
+	addr := pldtypes.RandAddress()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"sender": "%s"}`, addr)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoNotNotary")
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_DuplicateTransaction(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoDuplicateTransaction"]
+	require.NotNil(t, errorEntry)
+	txId := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"txId": "%s"}`, txId)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoDuplicateTransaction")
+}
+
+func TestIsBaseLedgerRevertRetryable_UnrecognizedSelector(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Equal(t, pldtypes.HexBytes(revertData).String(), res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_ExactlyFourBytes(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xab, 0xcd, 0xef, 0x01}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Equal(t, pldtypes.HexBytes(revertData).String(), res.DecodedReason)
+}
+
 func TestAssembleTransactionBadAbi(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}

@@ -62,6 +62,10 @@ type coordinatorTransaction struct {
 	latestSubmissionHash               *pldtypes.Bytes32
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
+	decodedRevertReason                string
+	revertOnChain                      *pldtypes.OnChainLocation
+	revertCount                        int
+	lastCanRetryRevert                 bool
 	confirmedLocksReleased             bool
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
@@ -83,6 +87,7 @@ type coordinatorTransaction struct {
 	stateTimeout                      time.Duration
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
+	baseLedgerRevertRetryThreshold    int
 
 	// Dependencies
 	clock                    common.Clock
@@ -117,6 +122,7 @@ func NewTransaction(ctx context.Context,
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
+	baseLedgerRevertRetryThreshold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
@@ -141,6 +147,7 @@ func NewTransaction(ctx context.Context,
 		stateTimeout,
 		finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod,
+		baseLedgerRevertRetryThreshold,
 		grapher,
 		metrics,
 	)
@@ -167,11 +174,13 @@ func newTransaction(
 	stateTimeout time.Duration,
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
+	baseLedgerRevertRetryThreshold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
+	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
 	if hasChainedTransaction {
-		log.L(ctx).Debugf("chained transaction %s found", pt.ID.String())
+		log.L(txCtx).Debugf("chained transaction %s found", pt.ID.String())
 	}
 
 	txn := &coordinatorTransaction{
@@ -194,6 +203,7 @@ func newTransaction(
 		stateTimeout:                      stateTimeout,
 		finalizingGracePeriod:             finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
+		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		dependencies:                      &pldapi.TransactionDependencies{},
 		grapher:                           grapher,
 		metrics:                           metrics,
@@ -201,7 +211,7 @@ func newTransaction(
 		preAssembleDependsOn:              preAssembleDependsOn,
 	}
 	txn.initializeStateMachine(State_Initial)
-	grapher.Add(ctx, txn)
+	grapher.Add(txCtx, txn)
 	return txn
 }
 

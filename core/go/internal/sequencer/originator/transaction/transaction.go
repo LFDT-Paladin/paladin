@@ -58,6 +58,7 @@ type OriginatorTransaction struct {
 	latestSubmissionHash             *pldtypes.Bytes32
 	nonce                            *uint64
 	metrics                          metrics.DistributedSequencerMetrics
+	lastReceivedWillRetry            bool
 }
 
 func NewTransaction(

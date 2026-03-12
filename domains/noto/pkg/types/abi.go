@@ -132,18 +132,21 @@ type UnlockParams struct {
 type CreateTransferLockParams struct {
 	From       string             `json:"from"`
 	Recipients []*UnlockRecipient `json:"recipients"`
+	UnlockData pldtypes.HexBytes  `json:"unlockData"`
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
 type CreateMintLockParams struct {
 	Recipients []*UnlockRecipient `json:"recipients"`
+	UnlockData pldtypes.HexBytes  `json:"unlockData"`
 	Data       pldtypes.HexBytes  `json:"data"`
 }
 
 type CreateBurnLockParams struct {
-	From   string               `json:"from"`
-	Amount *pldtypes.HexUint256 `json:"amount"`
-	Data   pldtypes.HexBytes    `json:"data"`
+	From       string               `json:"from"`
+	Amount     *pldtypes.HexUint256 `json:"amount"`
+	UnlockData pldtypes.HexBytes    `json:"unlockData"`
+	Data       pldtypes.HexBytes    `json:"data"`
 }
 
 type PrepareMintUnlockParams struct {
@@ -199,19 +202,20 @@ type BalanceOfResult struct {
 
 // Encoded params for Noto implementation of ILockableCapability.createLock()
 type NotoCreateLockOperation struct {
-	TxId     string            `json:"txId"`
-	Inputs   []string          `json:"inputs"`
-	Outputs  []string          `json:"outputs"`
-	Contents []string          `json:"contents"`
-	Proof    pldtypes.HexBytes `json:"proof"`
+	TxId         string            `json:"txId"`
+	Inputs       []string          `json:"inputs"`
+	Outputs      []string          `json:"outputs"`
+	Contents     []string          `json:"contents"`
+	NewLockState pldtypes.Bytes32  `json:"newLockState"`
+	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
 // Encoded params for Noto implementation of ILockableCapability.updateLock()
 type NotoUpdateLockOperation struct {
-	TxId    string            `json:"txId"`
-	Inputs  []string          `json:"inputs"`
-	Outputs []string          `json:"outputs"`
-	Proof   pldtypes.HexBytes `json:"proof"`
+	TxId         string            `json:"txId"`
+	OldLockState pldtypes.Bytes32  `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32  `json:"newLockState"`
+	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
 // Encoded params for Noto implementation of ILockableCapability.spendLock() / ILockableCapability.cancelLock()
@@ -225,11 +229,10 @@ type NotoUnlockOperation struct {
 
 // Encoded params for Noto implementation of ILockableCapability.delegateLock()
 type NotoDelegateOperation struct {
-	TxId        string            `json:"txId"`
-	LockStateID pldtypes.Bytes32  `json:"lockStateId"`
-	Inputs      []string          `json:"inputs"`
-	Outputs     []string          `json:"outputs"`
-	Proof       pldtypes.HexBytes `json:"proof"`
+	TxId         string            `json:"txId"`
+	OldLockState pldtypes.Bytes32  `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32  `json:"newLockState"`
+	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
 var NotoCreateLockOperationABI = abi.ParameterArray{
@@ -241,6 +244,7 @@ var NotoCreateLockOperationABI = abi.ParameterArray{
 			{Name: "inputs", Type: "bytes32[]"},
 			{Name: "outputs", Type: "bytes32[]"},
 			{Name: "contents", Type: "bytes32[]"},
+			{Name: "newLockState", Type: "bytes32"},
 			{Name: "proof", Type: "bytes"},
 		},
 	},
@@ -252,8 +256,8 @@ var NotoUpdateLockOperationABI = abi.ParameterArray{
 		InternalType: "struct NotoUpdateLockOperation",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
-			{Name: "inputs", Type: "bytes32[]"},
-			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "oldLockState", Type: "bytes32"},
+			{Name: "newLockState", Type: "bytes32"},
 			{Name: "proof", Type: "bytes"},
 		},
 	},
@@ -265,9 +269,8 @@ var NotoDelegateOperationABI = abi.ParameterArray{
 		InternalType: "struct NotoDelegateOperation",
 		Components: abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
-			{Name: "lockStateId", Type: "bytes32"},
-			{Name: "inputs", Type: "bytes32[]"},
-			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "oldLockState", Type: "bytes32"},
+			{Name: "newLockState", Type: "bytes32"},
 			{Name: "proof", Type: "bytes"},
 		},
 	},
@@ -288,8 +291,7 @@ var NotoUnlockOperationABI = abi.ParameterArray{
 }
 
 type NotoLockOptions struct {
-	SpendTxId   pldtypes.Bytes32 `json:"spendTxId"`
-	LockStateId pldtypes.Bytes32 `json:"lockStateId"`
+	SpendTxId pldtypes.Bytes32 `json:"spendTxId"`
 }
 
 var NotoLockOptionsABI = abi.ParameterArray{
@@ -298,7 +300,6 @@ var NotoLockOptionsABI = abi.ParameterArray{
 		InternalType: "struct NotoLockOptions",
 		Components: abi.ParameterArray{
 			{Name: "spendTxId", Type: "bytes32"},
-			{Name: "lockStateId", Type: "bytes32"},
 		},
 	},
 }

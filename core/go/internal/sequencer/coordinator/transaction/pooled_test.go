@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,7 +37,7 @@ func Test_action_ReinitializeForNewAssembly_Success(t *testing.T) {
 		PreparedPublicTransaction(&pldapi.TransactionInput{}).
 		Build()
 
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
@@ -84,7 +85,7 @@ func Test_action_NotifyDependentsOfRepool_WithDependents(t *testing.T) {
 		TransactionID(dependentID).
 		Grapher(grapher).
 		Build()
-	dependentMocks.EngineIntegration.EXPECT().ResetTransactions(ctx, dependentID).Return()
+	dependentMocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentID).Return()
 
 	// Create the main transaction
 	mainTxnID := uuid.New()

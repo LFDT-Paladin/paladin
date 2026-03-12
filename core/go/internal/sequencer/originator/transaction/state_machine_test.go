@@ -102,6 +102,50 @@ func Test_initializeStateMachine_InvokesTransitionCallback(t *testing.T) {
 	require.True(t, ok)
 }
 
+func Test_HandleEvent_ConfirmedReverted_WillRetry_TransitionsToDelegated(t *testing.T) {
+	ctx := context.Background()
+	states := []State{
+		State_Dispatched,
+		State_Sequenced,
+		State_Submitted,
+	}
+
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			builder := NewTransactionBuilderForTesting(t, state)
+			txn, _ := builder.BuildWithMocks()
+			err := txn.HandleEvent(ctx, &ConfirmedRevertedEvent{
+				BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+				WillRetry: true,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, State_Delegated, txn.GetCurrentState())
+		})
+	}
+}
+
+func Test_HandleEvent_ConfirmedReverted_WillNotRetry_TransitionsToConfirmed(t *testing.T) {
+	ctx := context.Background()
+	states := []State{
+		State_Dispatched,
+		State_Sequenced,
+		State_Submitted,
+	}
+
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			builder := NewTransactionBuilderForTesting(t, state)
+			txn, _ := builder.BuildWithMocks()
+			err := txn.HandleEvent(ctx, &ConfirmedRevertedEvent{
+				BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+				WillRetry: false,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, State_Confirmed, txn.GetCurrentState())
+		})
+	}
+}
+
 func Test_HandleEvent_ConfirmedSuccess_AllNonFinalStates(t *testing.T) {
 	ctx := context.Background()
 	states := []State{

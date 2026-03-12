@@ -279,6 +279,15 @@ message CheckStateCompletionResponse {
   optional string next_missing_state_id = 1; // if set, then this transaction is considered incomplete until this state is available - at which point the completion check will run again with the new set of states available at that time
 }
 
+message IsBaseLedgerRevertRetryableRequest {
+  bytes revert_data = 1; // The raw revert data from the failed base ledger transaction
+}
+
+message IsBaseLedgerRevertRetryableResponse {
+  bool retryable = 1; // If true, the transaction may be retried after reassembly
+  string decoded_reason = 2; // Human-readable decoded revert reason from the domain's ABI
+}
+
 message DomainConfig {
   bool custom_hash_function = 1; // If true then the ValidateStateHashes function must be implemented, and all states must come with a pre-calculated ID
   repeated string abi_state_schemas_json = 2; // A list of Schema definitions (in ABI parameter format) the domain requires for all state types it interacts with

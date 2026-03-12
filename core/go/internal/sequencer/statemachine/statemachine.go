@@ -324,8 +324,7 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 			}
 
 			// Transition logging (state machine is sequencer-only; uses state category)
-			logCtx := log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)
-			log.L(logCtx).Debugf("%s | %s | %s | transition to state %s",
+			log.L(ctx).Debugf("%s | %s | %s | transition to state %s",
 				sm.name,
 				previousState.String(),
 				event.TypeString(),

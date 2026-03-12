@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -39,18 +40,13 @@ func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	revertReason := "test revert reason"
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
 
-	// Call the function - it should queue a finalize
-	// Note: This function uses a recursive retry mechanism in onRollback,
-	// but we're just testing the initial call path for coverage
 	txn.revertTransactionFailedAssembly(ctx, revertReason)
 }
 
@@ -67,11 +63,9 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
@@ -92,11 +86,9 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.FailureMessage == revertReason
+		}),
 		mock.Anything, // onCommit callback
 		mock.Anything, // onRollback callback
 	).Return()
@@ -136,17 +128,10 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		mock.Anything,
-		mock.Anything, // onCommit callback
-		mock.Anything, // onRollback callback
+		mock.Anything, mock.Anything, mock.Anything,
 	).Return()
 
-	// Mock engine integration to return error so we hit the writeLockStates error path
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(errors.New("write lock error"))
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write lock error"))
 
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -169,8 +154,8 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 	stateID := pldtypes.HexBytes(uuid.New().String())
 	// Mock grapher to return error when adding minter
 	mockGrapher := NewMockGrapher(t)
-	mockGrapher.EXPECT().Add(ctx, mock.Anything).Return()
-	mockGrapher.EXPECT().AddMinter(ctx, stateID, mock.Anything).Return(errors.New("add minter error"))
+	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return()
+	mockGrapher.EXPECT().AddMinter(mock.Anything, stateID, mock.Anything).Return(errors.New("add minter error"))
 
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
 	postAssembly := &components.TransactionPostAssembly{
@@ -181,7 +166,7 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 	}
 
 	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.applyPostAssembly(ctx, postAssembly, uuid.New())
 	assert.Error(t, err)
@@ -191,7 +176,7 @@ func Test_applyPostAssembly_Success_CalculateDependenciesError(t *testing.T) {
 	ctx := context.Background()
 	stateID := pldtypes.HexBytes(uuid.New().String())
 	mockGrapher := NewMockGrapher(t)
-	mockGrapher.EXPECT().Add(ctx, mock.Anything).Return()
+	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return()
 	// calculatePostAssembleDependencies looks up minters for InputStates; return error to trigger failure path
 	mockGrapher.EXPECT().LookupMinter(ctx, stateID).Return(nil, errors.New("lookup minter error"))
 
@@ -200,7 +185,7 @@ func Test_applyPostAssembly_Success_CalculateDependenciesError(t *testing.T) {
 		Build()
 
 	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	// The function will try to look up minters for InputStates and ReadStates
 	// Since we have empty arrays, it won't call LookupMinter, so we need to add a state
@@ -220,7 +205,7 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration to succeed
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_OK,
@@ -239,8 +224,8 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	// Mock transport writer - use mock.Anything for idempotency key since it's generated dynamically
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
@@ -258,7 +243,7 @@ func Test_sendAssembleRequest_GetStateLocksError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration to return error
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return(nil, errors.New("state locks error"))
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return(nil, errors.New("state locks error"))
 
 	err := txn.sendAssembleRequest(ctx)
 	require.Error(t, err)
@@ -269,8 +254,8 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(0), errors.New("block height error"))
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0), errors.New("block height error"))
 
 	err := txn.sendAssembleRequest(ctx)
 	assert.Error(t, err)
@@ -281,8 +266,8 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).UseMockTransportWriter().Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	// Mock transport writer to return error - use mock.Anything for idempotency key
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
@@ -309,8 +294,8 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 		Build()
 
 	// Create a pending request first
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -319,8 +304,8 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now nudge it - should succeed since request exists
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -338,7 +323,7 @@ func Test_notifyPreAssembleDependentOfSelection_NoDependents(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func Test_notifyDependentsOfAssembled_WithDependents(t *testing.T) {
+func Test_notifyPreAssembleDependentOfSelection_WithDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 	txn2ID := uuid.New()
@@ -352,14 +337,14 @@ func Test_notifyDependentsOfAssembled_WithDependents(t *testing.T) {
 		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
-	mocks2.EngineIntegration.EXPECT().ResetTransactions(ctx, txn2ID).Return()
+	mocks2.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn2ID).Return()
 
 	err := txn1.notifyPreAssembleDependentOfSelection(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, State_Pooled, txn2.stateMachine.CurrentState)
 }
 
-func Test_notifyDependentsOfAssembled_DependentNotFound(t *testing.T) {
+func Test_notifyPreAssembleDependentOfSelection_DependentNotFound(t *testing.T) {
 	ctx := context.Background()
 	missingID := uuid.New()
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -454,7 +439,7 @@ func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
 
 	// Use a mock grapher that returns an error
 	mockGrapher := NewMockGrapher(t)
-	mockGrapher.EXPECT().Add(ctx, mock.Anything).Return()
+	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return()
 	mockGrapher.EXPECT().LookupMinter(ctx, stateID).Return(nil, errors.New("lookup error"))
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).
@@ -501,7 +486,7 @@ func Test_writeLockStates_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(nil)
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, txn.pt).Return(nil)
 
 	err := txn.writeLockStates(ctx)
 	require.NoError(t, err)
@@ -511,7 +496,7 @@ func Test_writeLockStates_Error(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(ctx, txn.pt).Return(errors.New("write error"))
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write error"))
 
 	err := txn.writeLockStates(ctx)
 	require.Error(t, err)
@@ -524,8 +509,8 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -550,8 +535,8 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -588,8 +573,8 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Ma
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -624,8 +609,8 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 		UseMockTransportWriter().
 		Build()
 
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -644,8 +629,8 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	// Create a pending request first
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -654,8 +639,8 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now nudge it
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)
@@ -674,15 +659,9 @@ func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
 	onCommitCalled := false
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
-		mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(args mock.Arguments) {
-		onCommit := args[6].(func(context.Context))
+		onCommit := args.Get(2).(func(context.Context))
 		onCommit(ctx)
 		onCommitCalled = true
 	}).Return()
@@ -701,20 +680,14 @@ func Test_revertTransactionFailedAssembly_OnRollbackRetry(t *testing.T) {
 	maxCalls := 2
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		revertReason,
-		mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		callCount++
 		if callCount < maxCalls {
-			onRollback := args[7].(func(context.Context, error))
+			onRollback := args.Get(3).(func(context.Context, error))
 			onRollback(ctx, errors.New("rollback error"))
 		} else {
-			onCommit := args[6].(func(context.Context))
+			onCommit := args.Get(2).(func(context.Context))
 			onCommit(ctx)
 		}
 	}).Return()
@@ -744,8 +717,8 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 		callback()
 	})
 
-	mocks.EngineIntegration.EXPECT().GetStateLocks(ctx).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(ctx).Return(int64(100), nil)
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
 	).Return(nil)

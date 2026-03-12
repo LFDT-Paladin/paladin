@@ -47,6 +47,7 @@ message TransactionConfirmed {
     string transaction_id = 3;
     int64 nonce = 4;
     bytes revert_reason = 5;
+    bool will_retry = 6;
 }
 
 message EndorsementRequest {

@@ -664,6 +664,7 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
 		RevertReason:    revertReason,
+		WillRetry:       true,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
 
@@ -685,7 +686,7 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason)
+		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.WillRetry
 	})).Once()
 
 	sm.handleTransactionConfirmed(ctx, message)

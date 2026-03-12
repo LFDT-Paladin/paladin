@@ -45,6 +45,7 @@ type DomainAPI interface {
 	ConfigurePrivacyGroup(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
 	InitPrivacyGroup(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
+	IsBaseLedgerRevertRetryable(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
 }
 
 type DomainCallbacks interface {
@@ -220,6 +221,10 @@ func (dp *domainHandler) RequestToPlugin(ctx context.Context, iReq PluginMessage
 		resMsg := &prototk.DomainMessage_CheckStateCompletionRes{}
 		resMsg.CheckStateCompletionRes, err = dp.api.CheckStateCompletion(ctx, input.CheckStateCompletion)
 		res.ResponseFromDomain = resMsg
+	case *prototk.DomainMessage_IsBaseLedgerRevertRetryable:
+		resMsg := &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}
+		resMsg.IsBaseLedgerRevertRetryableRes, err = dp.api.IsBaseLedgerRevertRetryable(ctx, input.IsBaseLedgerRevertRetryable)
+		res.ResponseFromDomain = resMsg
 	default:
 		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
 	}
@@ -350,7 +355,8 @@ type DomainAPIFunctions struct {
 	ConfigurePrivacyGroup func(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
 	InitPrivacyGroup      func(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX func(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
-	CheckStateCompletion  func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
+	CheckStateCompletion          func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
+	IsBaseLedgerRevertRetryable   func(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
 }
 
 type DomainAPIBase struct {
@@ -435,4 +441,8 @@ func (db *DomainAPIBase) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk
 
 func (db *DomainAPIBase) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 	return callPluginImpl(ctx, req, db.Functions.CheckStateCompletion)
+}
+
+func (db *DomainAPIBase) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+	return callPluginImpl(ctx, req, db.Functions.IsBaseLedgerRevertRetryable)
 }

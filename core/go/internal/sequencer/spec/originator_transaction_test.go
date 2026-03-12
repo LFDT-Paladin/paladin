@@ -676,6 +676,7 @@ func TestOriginatorTransaction_Dispatched_ToDelegated_OnConfirmedReverted(t *tes
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.GetID(),
 		},
+		WillRetry: true,
 	})
 	assert.NoError(t, err)
 
@@ -759,6 +760,7 @@ func TestOriginatorTransaction_Sequenced_ToDelegated_OnConfirmedReverted(t *test
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.GetID(),
 		},
+		WillRetry: true,
 	})
 	assert.NoError(t, err)
 
@@ -803,6 +805,7 @@ func TestOriginatorTransaction_Submitted_ToDelegated_OnConfirmedReverted(t *test
 		BaseEvent: transaction.BaseEvent{
 			TransactionID: txn.GetID(),
 		},
+		WillRetry: true,
 	})
 	assert.NoError(t, err)
 

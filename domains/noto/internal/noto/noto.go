@@ -127,6 +127,10 @@ var allSchemas = []*abi.Parameter{
 
 var schemasJSON = mustParseSchemas(allSchemas)
 
+var retryableNotoErrors = map[string]bool{
+	"NotoInvalidInput": true,
+}
+
 type Noto struct {
 	Callbacks plugintk.DomainCallbacks
 
@@ -263,50 +267,52 @@ type LockStates struct {
 
 // INoto.NotoLockCreated event JSON schema - describes the UTXO transaction that accompanies a lock create
 type NotoLockCreated_Event struct {
-	TxId     pldtypes.Bytes32     `json:"txId"`
-	LockID   pldtypes.Bytes32     `json:"lockId"`
-	Owner    *pldtypes.EthAddress `json:"owner"`
-	Inputs   []pldtypes.Bytes32   `json:"inputs"`
-	Outputs  []pldtypes.Bytes32   `json:"outputs"`
-	Contents []pldtypes.Bytes32   `json:"contents"`
-	Proof    pldtypes.HexBytes    `json:"proof"`
-	Data     pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Owner        *pldtypes.EthAddress `json:"owner"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	Contents     []pldtypes.Bytes32   `json:"contents"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockSpent and INoto.NotoLockCancelled event JSON schema
 type NotoLockSpentOrCancelled_Event struct {
-	TxId    pldtypes.Bytes32     `json:"txId"`
-	LockID  pldtypes.Bytes32     `json:"lockId"`
-	Spender *pldtypes.EthAddress `json:"spender"`
-	Inputs  []pldtypes.Bytes32   `json:"inputs"`
-	Outputs []pldtypes.Bytes32   `json:"outputs"`
-	TxData  pldtypes.HexBytes    `json:"txData"`
-	Proof   pldtypes.HexBytes    `json:"proof"`
-	Data    pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Spender      *pldtypes.EthAddress `json:"spender"`
+	Inputs       []pldtypes.Bytes32   `json:"inputs"`
+	Outputs      []pldtypes.Bytes32   `json:"outputs"`
+	TxData       pldtypes.HexBytes    `json:"txData"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockUpdated event JSON schema - describes the UTXO transaction that accompanies a lock update
 type NotoLockUpdated_Event struct {
-	TxId     pldtypes.Bytes32     `json:"txId"`
-	LockID   pldtypes.Bytes32     `json:"lockId"`
-	Operator *pldtypes.EthAddress `json:"operator"`
-	Inputs   []pldtypes.Bytes32   `json:"inputs"`
-	Outputs  []pldtypes.Bytes32   `json:"outputs"`
-	Contents []pldtypes.Bytes32   `json:"contents"`
-	Proof    pldtypes.HexBytes    `json:"proof"`
-	Data     pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	Operator     *pldtypes.EthAddress `json:"operator"`
+	Contents     []pldtypes.Bytes32   `json:"contents"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 // INoto.NotoLockDelegated event JSON schema
 type NotoLockDelegated_Event struct {
-	TxId    pldtypes.Bytes32     `json:"txId"`
-	LockID  pldtypes.Bytes32     `json:"lockId"`
-	From    *pldtypes.EthAddress `json:"from"`
-	To      *pldtypes.EthAddress `json:"to"`
-	Inputs  []pldtypes.Bytes32   `json:"inputs"`
-	Outputs []pldtypes.Bytes32   `json:"outputs"`
-	Proof   pldtypes.HexBytes    `json:"proof"`
-	Data    pldtypes.HexBytes    `json:"data"`
+	TxId         pldtypes.Bytes32     `json:"txId"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	From         *pldtypes.EthAddress `json:"from"`
+	To           *pldtypes.EthAddress `json:"to"`
+	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32     `json:"newLockState"`
+	Proof        pldtypes.HexBytes    `json:"proof"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 type parsedCoins struct {
@@ -1324,6 +1330,23 @@ func (n *Noto) encodeNotoDelegateOperation(ctx context.Context, notoDelegateOp *
 		encoded, err = types.NotoDelegateOperationABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
 	}
 	return encoded, err
+}
+
+func (n *Noto) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+	if len(req.RevertData) < 4 {
+		return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true}, nil
+	}
+	entry, cv, ok := errorsBuild.ABI.ParseErrorCtx(ctx, req.RevertData)
+	if ok {
+		return &prototk.IsBaseLedgerRevertRetryableResponse{
+			Retryable:     retryableNotoErrors[entry.Name],
+			DecodedReason: abi.FormatErrorStringCtx(ctx, entry, cv),
+		}, nil
+	}
+	return &prototk.IsBaseLedgerRevertRetryableResponse{
+		Retryable:     false,
+		DecodedReason: pldtypes.HexBytes(req.RevertData).String(),
+	}, nil
 }
 
 func (n *Noto) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTransaction, notaryID *identityPair) (pldtypes.Bytes32, error) {

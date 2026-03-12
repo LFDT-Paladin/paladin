@@ -447,3 +447,18 @@ func (br *domainBridge) CheckStateCompletion(ctx context.Context, req *prototk.C
 	)
 	return
 }
+
+func (br *domainBridge) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (res *prototk.IsBaseLedgerRevertRetryableResponse, err error) {
+	err = br.toPlugin.RequestReply(ctx,
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) {
+			dm.Message().RequestToDomain = &prototk.DomainMessage_IsBaseLedgerRevertRetryable{IsBaseLedgerRevertRetryable: req}
+		},
+		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
+			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_IsBaseLedgerRevertRetryableRes); ok {
+				res = r.IsBaseLedgerRevertRetryableRes
+			}
+			return res != nil
+		},
+	)
+	return
+}

@@ -19,7 +19,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
@@ -53,19 +52,5 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *coordinatorT
 
 func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
 	t.clearTimeoutSchedules()
-
-	var tryFinalize func()
-	tryFinalize = func() {
-		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID,
-			"originator reported transaction as unknown",
-			func(ctx context.Context) {
-				log.L(ctx).Debugf("finalized transaction %s after unknown response from originator", t.pt.ID)
-			},
-			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing transaction %s: %s", t.pt.ID, err)
-				tryFinalize()
-			})
-	}
-	tryFinalize()
 	return nil
 }

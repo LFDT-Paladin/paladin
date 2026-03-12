@@ -142,13 +142,15 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			failureMsg = ri.FailureMessage
 			receipt.FailureMessage = &ri.FailureMessage
 		case components.RT_FailedOnChainWithRevertData:
-			if ri.FailureMessage != "" {
-				return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))
-			}
 			receipt.Success = false
 			receipt.RevertData = ri.RevertData
-			// We calculate the failure message - all errors handled mapped internally here
-			failureMsg = tm.CalculateRevertError(ctx, dbTX, ri.RevertData).Error()
+			if ri.FailureMessage != "" {
+				// Use the decoded failure message if we've been passed one
+				failureMsg = ri.FailureMessage
+			} else {
+				// We calculate the failure message - all errors handled mapped internally here
+				failureMsg = tm.CalculateRevertError(ctx, dbTX, ri.RevertData).Error()
+			}
 			receipt.FailureMessage = &failureMsg
 		default:
 			return i18n.NewError(ctx, msgs.MsgTxMgrInvalidReceiptNotification, pldtypes.JSONString(ri))
@@ -214,7 +216,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 				}
 			}
 			if len(receiptsToWrite) > 0 {
-				err = tm.sequencerMgr.WriteOrDistributeReceiptsPostSubmit(ctx, dbTX, receiptsToWrite)
+				err = tm.sequencerMgr.WriteOrDistributeChainedTransactionReceipts(ctx, dbTX, receiptsToWrite)
 			}
 		}
 		if err != nil {

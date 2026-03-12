@@ -89,3 +89,37 @@ func Test_action_QueueFinalizeEvent_QueuesFinalizeEvent(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, txn.pt.ID, finalizeEv.TransactionID)
 }
+
+func Test_action_RecordWillRetry(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Dispatched)
+	txn, _ := builder.BuildWithMocks()
+
+	event := &ConfirmedRevertedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		WillRetry: true,
+	}
+	err := action_RecordWillRetry(ctx, txn, event)
+	require.NoError(t, err)
+	assert.True(t, txn.lastReceivedWillRetry)
+
+	event2 := &ConfirmedRevertedEvent{
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		WillRetry: false,
+	}
+	err = action_RecordWillRetry(ctx, txn, event2)
+	require.NoError(t, err)
+	assert.False(t, txn.lastReceivedWillRetry)
+}
+
+func Test_guard_WillRetry(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Dispatched)
+	txn, _ := builder.BuildWithMocks()
+
+	txn.lastReceivedWillRetry = true
+	assert.True(t, guard_WillRetry(ctx, txn))
+
+	txn.lastReceivedWillRetry = false
+	assert.False(t, guard_WillRetry(ctx, txn))
+}

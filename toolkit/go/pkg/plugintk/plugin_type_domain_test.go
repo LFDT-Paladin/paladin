@@ -528,3 +528,19 @@ func TestDomainFunction_CheckStateCompletion(t *testing.T) {
 		assert.IsType(t, &prototk.DomainMessage_CheckStateCompletionRes{}, res.ResponseFromDomain)
 	})
 }
+
+func TestDomainFunction_IsBaseLedgerRevertRetryable(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	funcs.IsBaseLedgerRevertRetryable = func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+		return &prototk.IsBaseLedgerRevertRetryableResponse{}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_IsBaseLedgerRevertRetryable{
+			IsBaseLedgerRevertRetryable: &prototk.IsBaseLedgerRevertRetryableRequest{},
+		}
+	}, func(res *prototk.DomainMessage) {
+		assert.IsType(t, &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}, res.ResponseFromDomain)
+	})
+}

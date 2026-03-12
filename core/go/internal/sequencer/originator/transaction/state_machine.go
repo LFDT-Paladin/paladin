@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
@@ -326,9 +327,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -387,9 +396,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -429,9 +446,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -532,7 +557,10 @@ func (t *OriginatorTransaction) initializeStateMachine(initialState State) {
 }
 
 func (t *OriginatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
-	return t.stateMachine.ProcessEvent(ctx, t, event)
+	// Adding the log field here means every function called by the transaction state machine will have the txID field
+	// in addition to the fields of the parent context
+	txCtx := log.WithLogField(ctx, "txID", t.pt.ID.String())
+	return t.stateMachine.ProcessEvent(txCtx, t, event)
 }
 
 func action_CoordinatorChanged(ctx context.Context, t *OriginatorTransaction, event common.Event) error {

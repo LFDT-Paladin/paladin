@@ -1171,7 +1171,7 @@ func TestSendTransactionConfirmed_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1206,7 +1206,7 @@ func TestSendTransactionConfirmed_WithoutNonce(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nil, revertReason)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nil, revertReason, false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1229,7 +1229,7 @@ func TestSendTransactionConfirmed_NilContractAddress(t *testing.T) {
 		contractAddress:   nil,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, nil, nonce, revertReason)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, nil, nonce, revertReason, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract address")
 	mockTransportManager.AssertNotCalled(t, "Send")
@@ -1257,7 +1257,7 @@ func TestSendTransactionConfirmed_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
 	require.Error(t, err)
 	assert.Equal(t, sendError, err)
 	mockTransportManager.AssertExpectations(t)
@@ -1286,7 +1286,7 @@ func TestSendTransactionConfirmed_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, true)
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -1302,12 +1302,171 @@ func TestSendTransactionConfirmed_Loopback(t *testing.T) {
 		assert.Equal(t, contractAddress.HexString(), txConfirmed.ContractAddress)
 		assert.Equal(t, int64(*nonce), txConfirmed.Nonce)
 		assert.Equal(t, revertReason, pldtypes.HexBytes(txConfirmed.RevertReason))
+		assert.True(t, txConfirmed.WillRetry)
 	default:
 		t.Fatal("Expected message in loopback queue")
 	}
 
 	mockTransportManager.AssertExpectations(t)
 	mockLoopbackTransport.AssertExpectations(t)
+}
+
+func TestSendTransactionConfirmed_WillRetryTrue(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	nonceVal := pldtypes.HexUint64(42)
+	nonce := &nonceVal
+	revertReason := pldtypes.HexBytes([]byte("revert reason"))
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		var txConfirmed engineProto.TransactionConfirmed
+		err := proto.Unmarshal(msg.Payload, &txConfirmed)
+		if err != nil {
+			return false
+		}
+		if txConfirmed.TransactionId != txID.String() {
+			return false
+		}
+		if !txConfirmed.WillRetry {
+			return false
+		}
+		if string(txConfirmed.RevertReason) != string(revertReason) {
+			return false
+		}
+		return true
+	})).Return(nil)
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, true)
+	require.NoError(t, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendTransactionConfirmed_WillRetryFalse(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	nonceVal := pldtypes.HexUint64(42)
+	nonce := &nonceVal
+	revertReason := pldtypes.HexBytes([]byte("revert reason"))
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		var txConfirmed engineProto.TransactionConfirmed
+		err := proto.Unmarshal(msg.Payload, &txConfirmed)
+		if err != nil {
+			return false
+		}
+		if txConfirmed.WillRetry {
+			return false
+		}
+		return true
+	})).Return(nil)
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	require.NoError(t, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendTransactionConfirmed_NilRevertReason(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	originatorNode := "originator-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	nonceVal := pldtypes.HexUint64(42)
+	nonce := &nonceVal
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		var txConfirmed engineProto.TransactionConfirmed
+		err := proto.Unmarshal(msg.Payload, &txConfirmed)
+		if err != nil {
+			return false
+		}
+		if txConfirmed.TransactionId != txID.String() {
+			return false
+		}
+		if len(txConfirmed.RevertReason) != 0 {
+			return false
+		}
+		if txConfirmed.WillRetry {
+			return false
+		}
+		return true
+	})).Return(nil)
+
+	tw := &transportWriter{
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, nil, false)
+	require.NoError(t, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendTransactionConfirmed_Loopback_WillRetryFalse(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	originatorNode := "local-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+	nonceVal := pldtypes.HexUint64(42)
+	nonce := &nonceVal
+	revertReason := pldtypes.HexBytes([]byte("revert reason"))
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	loopbackQueue := make(chan *components.FireAndForgetMessageSend, 1)
+	mockLoopbackTransport.On("LoopbackQueue").Return(loopbackQueue).Maybe()
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+
+	tw := &transportWriter{
+		ctx:               ctx,
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-loopbackQueue:
+		var txConfirmed engineProto.TransactionConfirmed
+		err := proto.Unmarshal(msg.Payload, &txConfirmed)
+		require.NoError(t, err)
+		assert.Equal(t, txID.String(), txConfirmed.TransactionId)
+		assert.Equal(t, revertReason, pldtypes.HexBytes(txConfirmed.RevertReason))
+		assert.False(t, txConfirmed.WillRetry)
+	default:
+		t.Fatal("Expected message in loopback queue")
+	}
 }
 
 // ===== SendHeartbeat Tests =====

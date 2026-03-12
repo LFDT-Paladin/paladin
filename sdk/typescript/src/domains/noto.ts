@@ -117,13 +117,18 @@ export interface NotoLockParams {
   data: string;
 }
 
+export interface NotoCreateTransferLockParams {
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  data: string;
+}
+
 export interface NotoCreateMintLockParams {
   recipients: UnlockRecipient[];
   data: string;
 }
 
-export interface NotoPrepareBurnUnlockParams {
-  lockId: string;
+export interface NotoCreateBurnLockParams {
   from: PaladinVerifier;
   amount: string | number;
   data: string;
@@ -133,7 +138,29 @@ export interface NotoUnlockParams {
   lockId: string;
   from: PaladinVerifier;
   recipients: UnlockRecipient[];
-  unlockData?: string;
+  data: string;
+}
+
+export interface NotoPrepareUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareMintUnlockParams {
+  lockId: string;
+  recipients: UnlockRecipient[];
+  unlockData: string;
+  data: string;
+}
+
+export interface NotoPrepareBurnUnlockParams {
+  lockId: string;
+  from: PaladinVerifier;
+  amount: string | number;
+  unlockData: string;
   data: string;
 }
 
@@ -190,10 +217,11 @@ export class NotoFactory {
     return new NotoFactory(paladin, this.domain);
   }
 
-  newNoto(from: PaladinVerifier, data: NotoConstructorParams) {
+  newNoto(from: PaladinVerifier, data: NotoConstructorParams, idempotencyKey?: string) {
     return new NotoFuture(
       this.paladin,
       this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         domain: this.domain,
         abi: [notoConstructorABI(!!data.options?.hooks)],
@@ -229,10 +257,11 @@ export class NotoInstance {
     return new NotoInstance(paladin, this.address);
   }
 
-  mint(from: PaladinVerifier, data: NotoMintParams) {
+  mint(from: PaladinVerifier, data: NotoMintParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "mint",
@@ -246,10 +275,11 @@ export class NotoInstance {
     );
   }
 
-  transfer(from: PaladinVerifier, data: NotoTransferParams) {
+  transfer(from: PaladinVerifier, data: NotoTransferParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "transfer",
@@ -263,10 +293,11 @@ export class NotoInstance {
     );
   }
 
-  transferFrom(from: PaladinVerifier, data: NotoTransferFromParams) {
+  transferFrom(from: PaladinVerifier, data: NotoTransferFromParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "transferFrom",
@@ -281,10 +312,11 @@ export class NotoInstance {
     );
   }
 
-  burn(from: PaladinVerifier, data: NotoBurnParams) {
+  burn(from: PaladinVerifier, data: NotoBurnParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "burn",
@@ -295,10 +327,11 @@ export class NotoInstance {
     );
   }
 
-  burnFrom(from: PaladinVerifier, data: NotoBurnFromParams) {
+  burnFrom(from: PaladinVerifier, data: NotoBurnFromParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "burnFrom",
@@ -313,10 +346,11 @@ export class NotoInstance {
   }
 
   // @deprecated - use createLock instead
-  lock(from: PaladinVerifier, data: NotoLockParams) {
+  lock(from: PaladinVerifier, data: NotoLockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "lock",
@@ -327,10 +361,11 @@ export class NotoInstance {
     );
   }
 
-  createLock(from: PaladinVerifier, data: NotoLockParams) {
+  createLock(from: PaladinVerifier, data: NotoLockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "createLock",
@@ -341,10 +376,33 @@ export class NotoInstance {
     );
   }
 
-  createMintLock(from: PaladinVerifier, data: NotoCreateMintLockParams) {
+  createTransferLock(from: PaladinVerifier, data: NotoCreateTransferLockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createTransferLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  createMintLock(from: PaladinVerifier, data: NotoCreateMintLockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "createMintLock",
@@ -361,10 +419,29 @@ export class NotoInstance {
     );
   }
 
-  unlock(from: PaladinVerifier, data: NotoUnlockParams) {
+  createBurnLock(from: PaladinVerifier, data: NotoCreateBurnLockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "createBurnLock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          from: data.from.lookup,
+        },
+      })
+    );
+  }
+
+  unlock(from: PaladinVerifier, data: NotoUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "unlock",
@@ -384,11 +461,13 @@ export class NotoInstance {
 
   spendLock(
     from: PaladinVerifier,
-    data: SpendLockPublicParams
+    data: SpendLockPublicParams,
+    idempotencyKey?: string,
   ) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PUBLIC,
         abi: notoJSON.abi,
         function: "spendLock",
@@ -401,11 +480,13 @@ export class NotoInstance {
 
   cancelLock(
     from: PaladinVerifier,
-    data: SpendLockPublicParams
+    data: SpendLockPublicParams,
+    idempotencyKey?: string,
   ) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PUBLIC,
         abi: notoJSON.abi,
         function: "cancelLock",
@@ -416,10 +497,11 @@ export class NotoInstance {
     );
   }
 
-  prepareUnlock(from: PaladinVerifier, data: NotoUnlockParams) {
+  prepareUnlock(from: PaladinVerifier, data: NotoPrepareUnlockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "prepareUnlock",
@@ -437,10 +519,32 @@ export class NotoInstance {
     );
   }
 
-  prepareBurnUnlock(from: PaladinVerifier, data: NotoPrepareBurnUnlockParams) {
+  prepareMintUnlock(from: PaladinVerifier, data: NotoPrepareMintUnlockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
+        type: TransactionType.PRIVATE,
+        abi: notoPrivateJSON.abi,
+        function: "prepareMintUnlock",
+        to: this.address,
+        from: from.lookup,
+        data: {
+          ...data,
+          recipients: data.recipients.map((recipient) => ({
+            to: recipient.to.lookup,
+            amount: recipient.amount,
+          })),
+        },
+      })
+    );
+  }
+
+  prepareBurnUnlock(from: PaladinVerifier, data: NotoPrepareBurnUnlockParams, idempotencyKey?: string) {
+    return new TransactionFuture(
+      this.paladin,
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "prepareBurnUnlock",
@@ -454,10 +558,11 @@ export class NotoInstance {
     );
   }
 
-  delegateLock(from: PaladinVerifier, data: NotoDelegateLockParams) {
+  delegateLock(from: PaladinVerifier, data: NotoDelegateLockParams, idempotencyKey?: string) {
     return new TransactionFuture(
       this.paladin,
-      this.paladin.sendTransaction({
+      this.paladin.ptx.sendTransaction({
+        idempotencyKey,
         type: TransactionType.PRIVATE,
         abi: notoPrivateJSON.abi,
         function: "delegateLock",
@@ -480,6 +585,42 @@ export class NotoInstance {
       "cancelLock",
       [data.lockId, data.data]
     );
+  }
+
+  name(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "name",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  symbol(from: PaladinVerifier): Promise<string> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "symbol",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
+  }
+
+  decimals(from: PaladinVerifier): Promise<number> {
+    return this.paladin.call({
+      type: TransactionType.PRIVATE,
+      domain: "noto",
+      abi: notoPrivateJSON.abi,
+      function: "decimals",
+      to: this.address,
+      from: from.lookup,
+      data: {},
+    });
   }
 
   balanceOf(

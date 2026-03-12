@@ -93,8 +93,9 @@ func NewOriginator(
 	configuration *pldconf.SequencerConfig,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
+	origCtx := log.WithLogField(ctx, "role", "originator")
 	o := &originator{
-		ctx:                 ctx,
+		ctx:                 origCtx,
 		nodeName:            nodeName,
 		transactionsByID:    make(map[uuid.UUID]*transaction.OriginatorTransaction),
 		transportWriter:     transportWriter,
@@ -112,8 +113,7 @@ func NewOriginator(
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
 	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
-	go o.stateMachineEventLoop.Start(ctx)
-
+	go o.stateMachineEventLoop.Start(origCtx)
 	return o, nil
 }
 
@@ -142,7 +142,7 @@ func (o *originator) queueEventInternal(ctx context.Context, event common.Event)
 func (o *originator) heartbeatLoop(ctx context.Context, queueEvent func(context.Context, common.Event)) {
 	if o.heartbeatCtx == nil {
 		o.heartbeatCtx, o.heartbeatCancel = context.WithCancel(ctx)
-		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("orig    | %s   | Starting heartbeat loop", o.contractAddress.String()[0:8])
+		log.L(ctx).Debugf("orig    | %s   | Starting heartbeat loop", o.contractAddress.String()[0:8])
 
 		// Send an initial heartbeat interval event to be handled immediately
 		queueEvent(ctx, &common.HeartbeatIntervalEvent{})

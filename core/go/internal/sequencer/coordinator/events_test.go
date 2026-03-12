@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestCoordinatorCreatedEvent_Type(t *testing.T) {
@@ -106,51 +105,6 @@ func TestCoordinatorFlushedEvent_Type(t *testing.T) {
 func TestCoordinatorFlushedEvent_TypeString(t *testing.T) {
 	event := &CoordinatorFlushedEvent{}
 	assert.Equal(t, "Event_Flushed", event.TypeString())
-}
-
-func TestTransactionConfirmedEvent_Type(t *testing.T) {
-	event := &TransactionConfirmedEvent{}
-	assert.Equal(t, Event_TransactionConfirmed, event.Type())
-}
-
-func TestTransactionConfirmedEvent_TypeString(t *testing.T) {
-	event := &TransactionConfirmedEvent{}
-	assert.Equal(t, "Event_TransactionConfirmed", event.TypeString())
-}
-
-func TestTransactionConfirmedEvent_GetEventTime(t *testing.T) {
-	event := &TransactionConfirmedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestTransactionConfirmedEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-	from := pldtypes.RandAddress()
-	nonce := pldtypes.HexUint64(42)
-	hash := pldtypes.RandBytes32()
-	revertReason := pldtypes.HexBytes{0x01, 0x02, 0x03}
-
-	event := &TransactionConfirmedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Now(),
-		},
-		TxID:         txID,
-		From:         from,
-		Nonce:        &nonce,
-		Hash:         hash,
-		RevertReason: revertReason,
-	}
-
-	assert.Equal(t, txID, event.TxID)
-	assert.Equal(t, from, event.From)
-	require.NotNil(t, event.Nonce, "Nonce should be set")
-	assert.Equal(t, uint64(42), event.Nonce.Uint64())
-	assert.Equal(t, hash, event.Hash)
-	assert.Equal(t, revertReason, event.RevertReason)
 }
 
 func TestTransactionDispatchConfirmedEvent_Type(t *testing.T) {
@@ -358,7 +312,6 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	events := []Event{
 		&TransactionsDelegatedEvent{},
 		&CoordinatorClosedEvent{},
-		&TransactionConfirmedEvent{},
 		&TransactionDispatchConfirmedEvent{},
 		&EndorsementRequestedEvent{},
 		&HeartbeatReceivedEvent{},

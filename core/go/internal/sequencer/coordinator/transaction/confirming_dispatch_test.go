@@ -97,8 +97,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse
 		AddPendingPreDispatchRequest().
 		Build()
 
-	// Pass a different event type (e.g. ConfirmedEvent)
-	event := &ConfirmedEvent{
+	event := &ConfirmedSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 	}
 
@@ -135,7 +134,7 @@ func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest
 		AddPendingPreDispatchRequest()
 	txn, mocks := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
-	mocks.EngineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := txn.HandleEvent(ctx, &StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

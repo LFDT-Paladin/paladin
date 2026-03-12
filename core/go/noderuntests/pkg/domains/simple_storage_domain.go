@@ -19,6 +19,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 	"testing"
 
@@ -711,6 +712,7 @@ func SimpleStorageDomain(t *testing.T, ctx context.Context) plugintk.PluginBase 
 							"inputs":    spentStateIds,
 							"outputs":   newStateIds,
 							"signature": signerSignature,
+							"errorMode": big.NewInt(0),
 						}),
 					},
 				}, nil
