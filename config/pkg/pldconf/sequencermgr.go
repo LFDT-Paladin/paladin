@@ -32,11 +32,11 @@ type SequencerConfig struct {
 	ClosingGracePeriod                *int              `json:"closingGracePeriod"`
 	ConfirmedLockRetentionGracePeriod *int              `json:"confirmedLockRetentionGracePeriod"`
 	BaseLedgerRevertRetryThreshold    *int              `json:"baseLedgerRevertRetryThreshold"`
-	DelegateTimeout                   *string           `json:"delegateTimeout"`
 	HeartbeatInterval                 *string           `json:"heartbeatInterval"`
-	HeartbeatThreshold                *int              `json:"heartbeatThreshold"`
 	MaxInflightTransactions           *int              `json:"maxInflightTransactions"`
 	MaxDispatchAhead                  *int              `json:"maxDispatchAhead"`
+	OriginatorIdleGracePeriod         *int              `json:"originatorIdleGracePeriod"`
+	RedelegateGracePeriod             *int              `json:"redelegateGracePeriod"`
 	TargetActiveCoordinators          *int              `json:"targetActiveCoordinators"`
 	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
 	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
@@ -57,10 +57,11 @@ type SequencerMinimumConfig struct {
 	ClosingGracePeriod                int
 	ConfirmedLockRetentionGracePeriod int
 	BaseLedgerRevertRetryThreshold    int
-	DelegateTimeout                   time.Duration
 	HeartbeatInterval                 time.Duration
 	MaxInflightTransactions           int
 	MaxDispatchAhead                  int
+	OriginatorIdleGracePeriod         int
+	RedelegateGracePeriod             int
 	TargetActiveCoordinators          int
 	TargetActiveSequencers            int
 	TransactionResumePollInterval     time.Duration
@@ -85,10 +86,11 @@ var SequencerDefaults = SequencerConfig{
 	ClosingGracePeriod:                confutil.P(1),
 	ConfirmedLockRetentionGracePeriod: confutil.P(1),
 	BaseLedgerRevertRetryThreshold:    confutil.P(3),
-	DelegateTimeout:                   confutil.P("5s"),
 	HeartbeatInterval:                 confutil.P("10s"),
 	MaxInflightTransactions:           confutil.P(500),
 	MaxDispatchAhead:                  confutil.P(50),
+	OriginatorIdleGracePeriod:         confutil.P(10),
+	RedelegateGracePeriod:             confutil.P(2),
 	TargetActiveCoordinators:          confutil.P(50),
 	TargetActiveSequencers:            confutil.P(50),
 	TransactionResumePollInterval:     confutil.P("5m"),
@@ -108,10 +110,11 @@ var SequencerMinimum = SequencerMinimumConfig{
 	ClosingGracePeriod:                1,
 	ConfirmedLockRetentionGracePeriod: 0,
 	BaseLedgerRevertRetryThreshold:    0,
-	DelegateTimeout:                   100 * time.Millisecond,
 	HeartbeatInterval:                 1 * time.Second,
 	MaxInflightTransactions:           1,
 	MaxDispatchAhead:                  1,
+	OriginatorIdleGracePeriod:         1,
+	RedelegateGracePeriod:             1,
 	TargetActiveCoordinators:          10,
 	TargetActiveSequencers:            10,
 	TransactionResumePollInterval:     10 * time.Second,

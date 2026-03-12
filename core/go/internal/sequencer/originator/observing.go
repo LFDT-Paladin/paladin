@@ -18,6 +18,7 @@ package originator
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -86,12 +87,12 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 	return nil
 }
 
-func guard_HeartbeatThresholdExceeded(ctx context.Context, o *originator) bool {
+func guard_IdleThresholdExceeded(_ context.Context, o *originator) bool {
 	if o.timeOfMostRecentHeartbeat == nil {
 		//we have never seen a heartbeat so that was a really long time ago, certainly longer than any threshold
 		return true
 	}
-	if o.clock.HasExpired(*o.timeOfMostRecentHeartbeat, o.heartbeatThreshold) {
+	if o.clock.HasExpired(*o.timeOfMostRecentHeartbeat, time.Duration(o.idleThreshold)*o.heartbeatInterval) {
 		return true
 	}
 	return false

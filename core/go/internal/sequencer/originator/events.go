@@ -25,18 +25,6 @@ type Event interface {
 	common.Event
 }
 
-type HeartbeatIntervalEvent struct {
-	common.BaseEvent
-}
-
-func (*HeartbeatIntervalEvent) Type() EventType {
-	return Event_HeartbeatInterval
-}
-
-func (*HeartbeatIntervalEvent) TypeString() string {
-	return "Event_HeartbeatInterval"
-}
-
 type HeartbeatReceivedEvent struct {
 	common.BaseEvent
 	transport.CoordinatorHeartbeatNotification
@@ -48,18 +36,6 @@ func (*HeartbeatReceivedEvent) Type() EventType {
 
 func (*HeartbeatReceivedEvent) TypeString() string {
 	return "Event_HeartbeatReceived"
-}
-
-type DelegateTimeoutEvent struct {
-	common.BaseEvent
-}
-
-func (*DelegateTimeoutEvent) Type() EventType {
-	return Event_Delegate_Timeout
-}
-
-func (*DelegateTimeoutEvent) TypeString() string {
-	return "Event_Delegate_Timeout"
 }
 
 type TransactionCreatedEvent struct {

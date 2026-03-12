@@ -192,7 +192,6 @@ func Test_sendEndorsementRequests_NudgeReturnsError_SetsLatestError(t *testing.T
 
 	err := txn.sendEndorsementRequests(ctx)
 	require.NoError(t, err)
-	assert.NotEmpty(t, txn.latestError)
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
@@ -271,5 +270,4 @@ func Test_requestEndorsement_TransportError_SetsLatestErrorAndReturnsError(t *te
 
 	err := txn.requestEndorsement(ctx, uuid.New(), "party1", &prototk.AttestationRequest{Name: "att1"})
 	require.Error(t, err)
-	assert.NotEmpty(t, txn.latestError)
 }

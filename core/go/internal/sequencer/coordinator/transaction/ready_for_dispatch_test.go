@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -196,53 +197,58 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
 }
 
-func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
+func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
-		Build()
-
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{}).
-		PreAssembly(&components.TransactionPreAssembly{
-			Dependencies: &pldapi.TransactionDependencies{
-				DependsOn: []uuid.UUID{txn1.pt.ID},
-			},
-		}).
-		Build()
-
-	assert.True(t, txn2.hasDependenciesNotReady(ctx))
-}
-
-func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *testing.T) {
-	ctx := context.Background()
-
 	grapher := NewGrapher(ctx)
 
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+	// Test 1: No dependencies - should return false
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
 		Build()
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
 
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	// Test 2: Has dependency not ready
+	dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
 		Build()
 
-	txn3, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
+		AddPendingAssembleRequest().
 		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.pt.ID},
+			DependsOn: []uuid.UUID{dep2.pt.ID},
 		}).
-		PreAssembly(&components.TransactionPreAssembly{
-			Dependencies: &pldapi.TransactionDependencies{
-				DependsOn: []uuid.UUID{txn2.pt.ID},
-			},
-		}).
+		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+	txn2, txn2Mocks := txn2Builder.Build()
+
+	txn2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
+
+	// Test 3: Has dependency ready for dispatch
+	dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(3).
 		Build()
 
-	assert.True(t, txn3.hasDependenciesNotReady(ctx))
+	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		AddPendingAssembleRequest().
+		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
+	txn3, txn3Mocks := txn3Builder.Build()
+
+	txn3Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err = txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
 func Test_traceDispatch_WithPostAssembly(t *testing.T) {
@@ -315,7 +321,6 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		TransactionID(tx2ID).
 		Grapher(grapher).
-		PredefinedDependencies(tx1ID).
 		Dependencies(&pldapi.TransactionDependencies{
 			DependsOn: []uuid.UUID{tx1ID},
 		}).

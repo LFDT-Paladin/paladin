@@ -46,6 +46,8 @@ type EventType = common.EventType
 
 const (
 	Event_Delegated                      EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
+	Event_DependencySelectedForAssemble                                                        // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
+	Event_NewPreAssembleDependency                                                             // a new preassemble dependency has been established
 	Event_Selected                                                                             // selected from the pool as the next transaction to be assembled
 	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
 	Event_Assemble_Success                                                                     // assemble response received from the originator
@@ -53,9 +55,7 @@ const (
 	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
-	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
-	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
-	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch                                                        // another transaction, for which this transaction has a dependency on, has been assembled
 	Event_DependencyRepooled                                                                   // another transaction, for which this transaction has a dependency on, has been put back in the pool
 	Event_DependencyConfirmedReverted                                                          // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
@@ -133,38 +133,31 @@ var stateDefinitionsMap = StateDefinitions{
 						If: guard_HasChainedTxInProgress,
 					},
 					{
-						To: State_Pooled,
-						If: statemachine.GuardAnd(statemachine.GuardNot(guard_HasUnassembledDependencies), statemachine.GuardNot(guard_HasUnknownDependencies)),
+						To: State_PreAssembly_Blocked,
+						If: guard_HasUnassembledDependencies,
 					},
 					{
-						To: State_PreAssembly_Blocked,
-						If: statemachine.GuardOr(guard_HasUnassembledDependencies, guard_HasUnknownDependencies),
+						To: State_Pooled,
 					},
 				},
 			},
-
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
+			},
 			Event_ConfirmedSuccess:  confirmedSuccessHandler,
 			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_PreAssembly_Blocked: {
 		Events: map[EventType]EventHandler{
-			// TODO: when we have best effort FIFO ordering for first assemble within an originator, these transitions become relevant.
-			// they are currently unreachable as transactions only currently gain dependencies once they have been assembled.
-			// In both case it should only be the "previous" transaction that queues this event to us. The guard is likely wrong
-			// as we know that this event means we must sever the next/previous dependency link as we are now past first assembly.
-			// The guard comes from a time when it was possible for predefined explicit dependencies to be passed in, meaning there
-			// could be multiple dependencies blocking assembly, but explicit dependencies are now handled in the transaction manager.
-			Event_DependencyAssembled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-					If: statemachine.GuardNot(guard_HasUnassembledDependencies),
-				}},
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
 			},
-			Event_DependencyReverted: {
+			// Waiting for this event before we moved to pooled ensures FIFO ordering for first assembly within an originator.
+			Event_DependencySelectedForAssemble: {
+				Actions: []ActionRule{{Action: action_RemovePreAssembleDependency}},
 				Transitions: []Transition{{
 					To: State_Pooled,
-					If: statemachine.GuardNot(guard_HasUnassembledDependencies),
 				}},
 			},
 			Event_ConfirmedSuccess:  confirmedSuccessHandler,
@@ -177,18 +170,21 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandler{
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
+			},
 			Event_Selected: {
+				Actions: []ActionRule{
+					// We notify the preassemble dependent at the point of selection, since the outcome of assembly is irrelevant
+					// to ensuring FIFO for first assembly within an originator.
+					{Action: action_NotifyPreAssembleDependentOfSelection},
+					{Action: action_RemovePreAssemblePrereqOf},
+				},
 				Transitions: []Transition{
 					{
 						To: State_Assembling,
 					}},
 			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_PreAssembly_Blocked,
-				}},
-			},
-
 			Event_ConfirmedSuccess:  confirmedSuccessHandler,
 			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
@@ -212,9 +208,8 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 				Transitions: []Transition{
 					{
-						To:      State_Endorsement_Gathering,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfAssembled}},
-						If:      statemachine.GuardNot(guard_AttestationPlanFulfilled),
+						To: State_Endorsement_Gathering,
+						If: statemachine.GuardNot(guard_AttestationPlanFulfilled),
 					},
 					{
 						To: State_Confirming_Dispatchable,
@@ -486,9 +481,6 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyRevert will
-		// need to be sent to the "next" transaction from that originator as a signal that it may now assemble. The dependency
-		// can be severed at this point as we have passed first assemble.
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},

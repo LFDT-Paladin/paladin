@@ -1166,10 +1166,11 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 	}
 
 	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial fire-and-forget delegate fails
-	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the delegate timeout.
+	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the RedelegateGracePeriod.
 	// Reduce it down a little here to speed up the test.
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.DelegateTimeout = confutil.P("2s")
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 
 	alice.OverrideSequencerConfig(&sequencerConfig)
 	bob.OverrideSequencerConfig(&sequencerConfig)

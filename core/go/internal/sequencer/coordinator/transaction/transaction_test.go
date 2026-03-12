@@ -17,13 +17,8 @@ package transaction
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -202,34 +197,6 @@ func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 
 	txn := grapher.TransactionByID(ctx, transaction.pt.ID)
 	assert.NotNil(t, txn)
-}
-
-func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
-	ctx := context.Background()
-
-	_, err := newTransaction(
-		ctx,
-		"", // invalid: empty originator
-		"node1",
-		&components.PrivateTransaction{ID: uuid.New()},
-		"coordinator-signer",
-		transport.NewMockTransportWriter(t),
-		common.NewMockClock(t),
-		func(ctx context.Context, event common.Event) {},
-		common.NewMockEngineIntegration(t),
-		&syncpoints.MockSyncPoints{},
-		componentsmocks.NewAllComponents(t),
-		componentsmocks.NewDomainSmartContract(t),
-		nil,
-		time.Duration(1000),
-		time.Duration(5000),
-		5,
-		0,
-		3,
-		NewGrapher(ctx),
-		nil,
-	)
-	require.Error(t, err)
 }
 
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {

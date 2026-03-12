@@ -255,28 +255,16 @@ func (*ConfirmedRevertedEvent) TypeString() string {
 	return "Event_ConfirmedReverted"
 }
 
-type DependencyAssembledEvent struct {
+type DependencySelectedForAssemblyEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*DependencyAssembledEvent) Type() EventType {
-	return Event_DependencyAssembled
+func (*DependencySelectedForAssemblyEvent) Type() EventType {
+	return Event_DependencySelectedForAssemble
 }
 
-func (*DependencyAssembledEvent) TypeString() string {
-	return "Event_DependencyAssembled"
-}
-
-type DependencyRevertedEvent struct {
-	BaseCoordinatorEvent
-}
-
-func (*DependencyRevertedEvent) Type() EventType {
-	return Event_DependencyReverted
-}
-
-func (*DependencyRevertedEvent) TypeString() string {
-	return "Event_DependencyReverted"
+func (*DependencySelectedForAssemblyEvent) TypeString() string {
+	return "Event_DependencySelectedForAssembly"
 }
 
 type DependencyRepooledEvent struct {
@@ -368,4 +356,17 @@ func (*TransactionUnknownByOriginatorEvent) Type() EventType {
 
 func (*TransactionUnknownByOriginatorEvent) TypeString() string {
 	return "Event_TransactionUnknownByOriginator"
+}
+
+type NewPreAssembleDependencyEvent struct {
+	BaseCoordinatorEvent
+	PrereqTransactionID uuid.UUID
+}
+
+func (*NewPreAssembleDependencyEvent) Type() EventType {
+	return Event_NewPreAssembleDependency
+}
+
+func (*NewPreAssembleDependencyEvent) TypeString() string {
+	return "Event_NewPreAssembleDependency"
 }

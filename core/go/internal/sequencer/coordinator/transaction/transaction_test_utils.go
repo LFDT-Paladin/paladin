@@ -36,7 +36,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -252,6 +251,8 @@ type TransactionBuilderForTesting struct {
 	confirmedLocksReleased             bool
 	submitterSelection                 prototk.ContractConfig_SubmitterSelection
 	nodeName                           string
+	preAssemblePrereqOf                *uuid.UUID
+	preAssembleDependsOn               *uuid.UUID
 	baseLedgerRevertRetryThreshold     int
 	revertCount                        int
 }
@@ -330,11 +331,6 @@ func (b *TransactionBuilderForTesting) InputStateIDs(stateIDs ...pldtypes.HexByt
 
 func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexBytes) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.ReadStateIDs(stateIDs...)
-	return b
-}
-
-func (b *TransactionBuilderForTesting) PredefinedDependencies(transactionIDs ...uuid.UUID) *TransactionBuilderForTesting {
-	b.privateTransactionBuilder.PredefinedDependencies(transactionIDs...)
 	return b
 }
 
@@ -518,6 +514,16 @@ func (b *TransactionBuilderForTesting) TransactionID(id uuid.UUID) *TransactionB
 	return b
 }
 
+func (b *TransactionBuilderForTesting) PreAssemblePrereqOf(id *uuid.UUID) *TransactionBuilderForTesting {
+	b.preAssemblePrereqOf = id
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PreAssembleDependsOn(id *uuid.UUID) *TransactionBuilderForTesting {
+	b.preAssembleDependsOn = id
+	return b
+}
+
 func (b *TransactionBuilderForTesting) Domain(domain string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.Domain(domain)
 	return b
@@ -622,7 +628,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 
 	// create the mocks needed for the NewTransaction call below
 	// the return values of these can be set by builder methods if needed
-	mocks.TXManager.On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	mocks.Domain.On("FixedSigningIdentity").Return("")
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		SubmitterSelection: b.submitterSelection,
@@ -646,12 +651,18 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	txn, err := newTransaction(
+	_, originatorNode, err := pldtypes.PrivateIdentityLocator(b.originator).Validate(ctx, "", false)
+	require.NoError(b.t, err)
+
+	txn := newTransaction(
 		ctx,
 		b.originator,
+		originatorNode,
+		b.chainedTxAlreadyDispatched,
 		b.nodeName,
 		privateTransaction,
 		b.coordinatorSigningIdentity,
+		b.preAssembleDependsOn,
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
@@ -668,7 +679,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.grapher,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
-	require.NoError(b.t, err)
 
 	txn.signerAddress = b.signerAddress
 	txn.domainSigningIdentity = b.domainSigningIdentity
@@ -677,10 +687,10 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
 	txn.cancelRequestTimeoutSchedule = b.cancelRequestTimeoutSchedule
 	txn.cancelStateTimeoutSchedule = b.cancelStateTimeoutSchedule
-	txn.chainedTxAlreadyDispatched = b.chainedTxAlreadyDispatched
 	txn.confirmedLocksReleased = b.confirmedLocksReleased
 	txn.stateMachine.CurrentState = b.state
 	txn.revertReason = b.revertReason
+	txn.preAssemblePrereqOf = b.preAssemblePrereqOf
 	txn.revertCount = b.revertCount
 
 	if b.dependencies != nil {

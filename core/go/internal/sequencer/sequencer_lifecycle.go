@@ -165,7 +165,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				cancelCtx:       cancelCtx,
 			}
 
-			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, common.RealClock(), sMgr.engineIntegration, &contractAddr, sMgr.config, 15000, 10, sMgr.metrics)
+			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, common.RealClock(), sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
 			if err != nil {
 				cancelCtx()
 				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)

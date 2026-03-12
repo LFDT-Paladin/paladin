@@ -37,8 +37,10 @@ func action_SelectActiveCoordinator(ctx context.Context, c *coordinator, _ commo
 	if selectedCoordinator == "" {
 		return nil
 	}
-	c.activeCoordinatorNode = selectedCoordinator
-	c.coordinatorActive(c.contractAddress, selectedCoordinator)
+	if c.activeCoordinatorNode != selectedCoordinator {
+		c.activeCoordinatorNode = selectedCoordinator
+		c.coordinatorActive(c.contractAddress, selectedCoordinator)
+	}
 	return nil
 }
 

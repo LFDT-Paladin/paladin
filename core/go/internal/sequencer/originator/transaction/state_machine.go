@@ -28,29 +28,20 @@ import (
 type State int
 
 const (
-	State_Initial State = iota // Initial state before anything is calculated
-	State_Pending              // Intent for the transaction has been created in the database and has been assigned a unique ID but is not currently known to be being processed by a coordinator
-	//TODO currently Pending doesn't really make sense as a state because it is an instantaneous state.  It is the state of the transaction when it is first created and then immediately transitions to Delegated.
-	// States only really make sense when the transaction is waiting for something to happen.  We could remove this state and just have the transaction start in the Delegated state
-	// However, there may be a need for the originator to only delegate a subset of the transactions ( e.g. maybe there is an absolute ordering requirement and the only way to achieve that is by holding back until the dependency is confirmed)
-	// It is also slightly complicated by the fact that the delegation request is sent by an action of the originator state machine because it sends the delegation request for multiple transactions at once.
-	// Need a decision point on whether that is done by a) transaction emitting and event that triggers the originator to send the delegation request or b) the transaction state machine action makes a syncronous call to the originator to include that transaction in a new delegation request.
-	// NOTE: initially there was a thought that we needed a pending state in case there is no current active coordinator so we can't go straight to delegated.  However, the current model is that we don't actually wait for any response from the coordinator.  We simply send the delegation request and assume that it is delegated at that point.
-	// We only resend the request if we don't see the heartbeat.
-	// Might need to rethink this and allow for some ack and shorter retry interval to tolerate less reliable networks,
-	// Need to make a decision and document it in a README
-	State_Delegated             // the transaction has been sent to the current active coordinator
-	State_Assembling            // the coordinator has sent an assemble request that we have not replied to yet
-	State_Endorsement_Gathering //we have responded to an assemble request and are waiting the coordinator to gather endorsements and send us a dispatch confirmation request
-	State_Signing               // we have assembled the transaction and are waiting for the signing module to sign it before we respond to the coordinator with the signed assembled transaction
-	State_Prepared              // we know that the coordinator has got as far as preparing a public transaction and we have sent a positive response to a coordinator's dispatch confirmation request but have not yet received a heartbeat that notifies us that the coordinator has dispatched the transaction to a public transaction manager for submission
-	State_Dispatched            // the active coordinator that this transaction was delegated to has dispatched the transaction to a public transaction manager for submission
-	State_Sequenced             // the transaction has been assigned a nonce by the public transaction manager
-	State_Submitted             // the transaction has been submitted to the blockchain
-	State_Confirmed             // the public transaction has been confirmed by the blockchain as successful
-	State_Reverted              // upon attempting to assemble the transaction, the domain code has determined that the intent is not valid and the transaction is finalized as reverted
-	State_Parked                // upon attempting to assemble the transaction, the domain code has determined that the transaction is not ready to be assembled and it is parked for later processing.  All remaining transactions for the current originator can continue - unless they have an explicit dependency on this transaction
-	State_Final                 // final state for the transaction. Transactions are removed from memory as soon as they enter this state
+	State_Initial               State = iota // Initial state before anything is calculated
+	State_Pending                            // Intent for the transaction has been created in the database and has been assigned a unique ID but is not currently known to be being processed by a coordinator
+	State_Delegated                          // the transaction has been sent to the current active coordinator - we do not know that the coordinator has accepted the transaction as there is no confirmation response to a delegation request, but the delegate loop will trigger a periodic retry
+	State_Assembling                         // the coordinator has sent an assemble request that we have not replied to yet
+	State_Endorsement_Gathering              //we have responded to an assemble request and are waiting the coordinator to gather endorsements and send us a dispatch confirmation request
+	State_Signing                            // we have assembled the transaction and are waiting for the signing module to sign it before we respond to the coordinator with the signed assembled transaction
+	State_Prepared                           // we know that the coordinator has got as far as preparing a public transaction and we have sent a positive response to a coordinator's dispatch confirmation request but have not yet received a heartbeat that notifies us that the coordinator has dispatched the transaction to a public transaction manager for submission
+	State_Dispatched                         // the active coordinator that this transaction was delegated to has dispatched the transaction to a public transaction manager for submission
+	State_Sequenced                          // the transaction has been assigned a nonce by the public transaction manager
+	State_Submitted                          // the transaction has been submitted to the blockchain
+	State_Confirmed                          // the public transaction has been confirmed by the blockchain as successful
+	State_Reverted                           // upon attempting to assemble the transaction, the domain code has determined that the intent is not valid and the transaction is finalized as reverted
+	State_Parked                             // upon attempting to assemble the transaction, the domain code has determined that the transaction is not ready to be assembled and it is parked for later processing.  All remaining transactions for the current originator can continue - unless they have an explicit dependency on this transaction
+	State_Final                              // final state for the transaction. Transactions are removed from memory as soon as they enter this state
 
 )
 

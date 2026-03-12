@@ -27,7 +27,6 @@ import (
 func (c *coordinator) heartbeatLoop(ctx context.Context) {
 	if c.heartbeatCtx == nil {
 		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
-		defer c.heartbeatCancel()
 
 		log.L(ctx).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
 

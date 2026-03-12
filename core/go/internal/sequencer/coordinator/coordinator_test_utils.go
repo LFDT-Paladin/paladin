@@ -150,17 +150,9 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 		v := *def.ClosingGracePeriod
 		copy.ClosingGracePeriod = &v
 	}
-	if def.DelegateTimeout != nil {
-		v := *def.DelegateTimeout
-		copy.DelegateTimeout = &v
-	}
 	if def.HeartbeatInterval != nil {
 		v := *def.HeartbeatInterval
 		copy.HeartbeatInterval = &v
-	}
-	if def.HeartbeatThreshold != nil {
-		v := *def.HeartbeatThreshold
-		copy.HeartbeatThreshold = &v
 	}
 	if def.MaxInflightTransactions != nil {
 		v := *def.MaxInflightTransactions
