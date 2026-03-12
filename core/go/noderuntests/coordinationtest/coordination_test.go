@@ -1037,6 +1037,93 @@ func TestTransactionRevertDuringAssembly(t *testing.T) {
 	require.False(t, aliceTx.Receipt().Success)
 }
 
+func TestTransactionErrorDuringAssembly(t *testing.T) {
+	// Test that an error from the domain is handle gracefully (this is not a revert, but a failure of an assemble to return any post-assemble data)
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.MaxInflightTransactions = confutil.P(1) // Limit the coordinator to 1 transaction at a time. If the assemble error takes up this slot for ever other transactions will fail to complete and the test will fail.
+	sequencerConfig.StateTimeout = confutil.P("60s")        // Make this nice and big - we shouldn't observe any such timeouts if the assemble error is handled cleanly
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")    // Allow the coordinator to heartbeat frequently to cause the originator to re-delegate as often as it needs
+	bob.OverrideSequencerConfig(&sequencerConfig)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ENDORSER_SUBMISSION,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	// This transaction will result in an assemble error (note - not a clean revert). The subsequent batch of transactions shouldn't
+	// be prevented from being successful just because this one errors at assemble time.
+	_ = alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "1006"
+		}`)). // Special value 1006 in the simple domain causes assembly to error (not revert)
+		Send()
+
+	// With max-inflight = 1, these would be stuck forever if the previous assemble error wasn't handled correctly.
+	// As it is, the coordinator should give the error TX sufficient retries, but then evict it. The originator
+	// can re-delegate but should do so behind non-errored transactions.
+	aliceSuccessTxns := make([]pldclient.SentTransaction, 5)
+	for i := range 5 {
+		idempotencyKey := fmt.Sprintf("tx-alice-%d-%s", i, uuid.New().String())
+		aliceSuccessTxns[i] = alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey(idempotencyKey).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
+				"from": "",
+				"to": "` + bob.GetIdentityLocator() + `",
+				"amount": "100"
+			}`)).
+			Send()
+	}
+
+	for _, tx := range aliceSuccessTxns {
+		// Check alice has the TX including the public TX information
+		customThreshold := 10 * time.Second
+		require.Eventually(t,
+			transactionReceiptCondition(t, ctx, *tx.ID(), alice.GetClient(), false),
+			transactionLatencyThresholdCustom(t, &customThreshold),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt",
+		)
+	}
+}
+
 func TestTransactionRevertDuringEndorsement(t *testing.T) {
 	// Test that a transaction which reverts at endorsement time is still successful
 	// due to the transaction being re-assembled and then successfully endorsed.

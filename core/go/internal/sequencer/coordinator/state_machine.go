@@ -253,6 +253,10 @@ var stateDefinitionsMap = StateDefinitions{
 						Action:    action_CleanUpTransaction,
 					},
 					{
+						Validator: validator_TransactionStateTransitionToEvicted,
+						Action:    action_CleanUpTransaction,
+					},
+					{
 						Action: action_NudgeDispatchLoop,
 					},
 					{

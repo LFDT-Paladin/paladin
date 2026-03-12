@@ -52,7 +52,6 @@ func (*DelegatedEvent) TypeString() string {
 	return "Event_Delegated"
 }
 
-// TransactionSelectedEvent
 type SelectedEvent struct {
 	BaseCoordinatorEvent
 }
@@ -65,7 +64,6 @@ func (*SelectedEvent) TypeString() string {
 	return "Event_Selected"
 }
 
-// AssembleCancelledEvent
 type AssembleCancelledEvent struct {
 	BaseCoordinatorEvent
 }
@@ -78,7 +76,6 @@ func (*AssembleCancelledEvent) TypeString() string {
 	return "Event_Assemble_Cancelled"
 }
 
-// AssembleRequestSentEvent
 type AssembleRequestSentEvent struct {
 	BaseCoordinatorEvent
 }
@@ -91,7 +88,6 @@ func (*AssembleRequestSentEvent) TypeString() string {
 	return "Event_AssembleRequestSent"
 }
 
-// AssembleSuccessEvent
 type AssembleSuccessEvent struct {
 	BaseCoordinatorEvent
 	PostAssembly *components.TransactionPostAssembly
@@ -107,7 +103,6 @@ func (*AssembleSuccessEvent) TypeString() string {
 	return "Event_Assemble_Success"
 }
 
-// AssembleRevertResponseEvent
 type AssembleRevertResponseEvent struct {
 	BaseCoordinatorEvent
 	PostAssembly *components.TransactionPostAssembly
@@ -122,7 +117,19 @@ func (*AssembleRevertResponseEvent) TypeString() string {
 	return "Event_Assemble_Revert_Response"
 }
 
-// EndorsedEvent
+type AssembleErrorResponseEvent struct {
+	BaseCoordinatorEvent
+	RequestID uuid.UUID
+}
+
+func (*AssembleErrorResponseEvent) Type() EventType {
+	return Event_Assemble_Error_Response
+}
+
+func (*AssembleErrorResponseEvent) TypeString() string {
+	return "Event_Assemble_Error_Response"
+}
+
 type EndorsedEvent struct {
 	BaseCoordinatorEvent
 	Endorsement *prototk.AttestationResult
@@ -137,7 +144,6 @@ func (*EndorsedEvent) TypeString() string {
 	return "Event_Endorsed"
 }
 
-// EndorsedRejectedEvent
 type EndorsedRejectedEvent struct {
 	BaseCoordinatorEvent
 	RevertReason           string
@@ -154,7 +160,6 @@ func (*EndorsedRejectedEvent) TypeString() string {
 	return "Event_EndorsedRejected"
 }
 
-// DispatchRequestApprovedEvent
 type DispatchRequestApprovedEvent struct {
 	BaseCoordinatorEvent
 	RequestID uuid.UUID
@@ -168,7 +173,6 @@ func (*DispatchRequestApprovedEvent) TypeString() string {
 	return "Event_DispatchRequestApproved"
 }
 
-// CollectedEvent
 // Collected by the public transaction manager after being dispatched
 type CollectedEvent struct {
 	BaseCoordinatorEvent
@@ -183,7 +187,6 @@ func (*CollectedEvent) TypeString() string {
 	return "Event_Collected"
 }
 
-// DispatchedEvent
 // Collected by the dispatcher thread and dispatched to the public transaction manager
 type DispatchedEvent struct {
 	BaseCoordinatorEvent
@@ -197,7 +200,6 @@ func (*DispatchedEvent) TypeString() string {
 	return "Event_Dispatched"
 }
 
-// NonceAllocatedEvent
 type NonceAllocatedEvent struct {
 	BaseCoordinatorEvent
 	Nonce uint64
@@ -211,7 +213,6 @@ func (*NonceAllocatedEvent) TypeString() string {
 	return "Event_NonceAllocated"
 }
 
-// SubmittedEvent
 type SubmittedEvent struct {
 	BaseCoordinatorEvent
 	SubmissionHash pldtypes.Bytes32

@@ -307,3 +307,22 @@ func TestTransaction_GetNonce_ReturnsSetNonce(t *testing.T) {
 	assert.NotNil(t, nonce, "GetNonce should return a non-nil nonce")
 	assert.Equal(t, expectedNonce, *nonce, "GetNonce should return the correct nonce value")
 }
+
+func TestTransaction_GetAssembleErrorCount_ReturnsZeroInitially(t *testing.T) {
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+
+	count := txn.GetAssembleErrorCount()
+	assert.Equal(t, 0, count, "GetAssembleErrorCount should return 0 for a newly created transaction")
+}
+
+func TestTransaction_GetAssembleErrorCount_ReturnsSetCount(t *testing.T) {
+	builder := NewTransactionBuilderForTesting(t, State_Initial)
+	txn, _ := builder.BuildWithMocks()
+
+	expectedCount := 3
+	txn.assembleErrorCount = expectedCount
+
+	count := txn.GetAssembleErrorCount()
+	assert.Equal(t, expectedCount, count, "GetAssembleErrorCount should return the count that was set")
+}

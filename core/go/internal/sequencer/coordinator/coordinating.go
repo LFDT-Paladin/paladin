@@ -27,6 +27,14 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
+// Enum for delegation acknowledgement errors
+type DelegationAcknowledgementError int64
+
+const (
+	DelegationAcknowledgementError_None DelegationAcknowledgementError = iota
+	DelegationAcknowledgementError_MaxInflightTransactions
+)
+
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
 // included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
 // been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
@@ -34,21 +42,34 @@ import (
 func action_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.updateOriginatorNodePool(e.FromNode)
-	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
-func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction) error {
-	for _, txn := range transactions {
+func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction, delegationID string) error {
+	delegateAcknowledgementIDs := make([]string, 0, len(transactions))
+	delegateAcknowledgementErrors := make([]int64, len(transactions))
+	rejectedMaxInFlight := 0
+	acceptedTransactions := 0
+	inProgressTransactions := 0
+	var newTxnError error
+	for i, txn := range transactions {
+
+		// Acknowledge every delegation
+		delegateAcknowledgementIDs = append(delegateAcknowledgementIDs, txn.ID.String())
 
 		if c.transactionsByID[txn.ID] != nil {
-			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
+			inProgressTransactions++
+			log.L(ctx).Tracef("transaction %s already being coordinated", txn.ID.String())
 			continue
 		}
 
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
 			// We'll rely on the fact that originators retry incomplete transactions periodically
-			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
+			rejectedMaxInFlight++
+			log.L(ctx).Tracef("transaction %s being rejected - reached max in-flight limit", txn.ID.String())
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_MaxInflightTransactions)
+			continue
 		}
 
 		newTransaction, err := transaction.NewTransaction(
@@ -70,14 +91,18 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.closingGracePeriod,
 			c.confirmedLockRetentionGracePeriod,
 			c.baseLedgerRevertRetryThreshold,
+			c.assembleErrorRetryThreshhold,
 			c.grapher,
 			c.metrics,
 		)
 		if err != nil {
-			log.L(ctx).Errorf("error creating transaction: %v", err)
-			return err
+			if newTxnError == nil {
+				newTxnError = err
+			}
+			continue
 		}
 
+		acceptedTransactions++
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
 
@@ -86,14 +111,31 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 
 		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
 		if err != nil {
-			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
-			return err
+			continue
 		}
 	}
+
+	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
+	err := c.transportWriter.SendDelegationRequestAcknowledgment(ctx, c.nodeName, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors)
+	if err != nil {
+		return err
+	}
+
+	if rejectedMaxInFlight > 0 {
+		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, len(transactions), acceptedTransactions, rejectedMaxInFlight)
+		return err
+	}
+
+	if newTxnError != nil {
+		// Return the first TX create error
+		return newTxnError
+	}
+
 	return nil
 }
 
 func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
+	log.L(ctx).Debugf("selecting transaction for coordinator %s", c.nodeName)
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
 	c.activeCoordinatorNode = c.nodeName
@@ -103,7 +145,10 @@ func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Even
 	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required
 	// because other nodes cannot take over coordination.
 	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_SENDER {
+		log.L(ctx).Debugf("starting heartbeat loop for coordinator %s", c.nodeName)
 		go c.heartbeatLoop(ctx)
+	} else {
+		log.L(ctx).Debugf("not starting heartbeat loop for coordinator %s", c.nodeName)
 	}
 
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
@@ -188,6 +233,11 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	return e.To == transaction.State_Final, nil
+}
+
+func validator_TransactionStateTransitionToEvicted(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Evicted, nil
 }
 
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {

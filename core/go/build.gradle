@@ -159,7 +159,12 @@ task makeMocksComponents(type: Exec, dependsOn: [":installMockery", protoc]) {
    executable "mockery"
 }
 
-task makeMocksSyncpoints(type: Exec, dependsOn: [makeMocksComponents]) {
+task makeMocksTransport(type: Exec, dependsOn: [makeMocksComponents]) {
+   executable "mockery"
+   args '--config=.mockery.sequencer.transport.yml'
+}
+
+task makeMocksSyncpoints(type: Exec, dependsOn: [makeMocksTransport]) {
    executable "mockery"
    args '--config=.mockery.sequencer.syncpoints.yml'
 }

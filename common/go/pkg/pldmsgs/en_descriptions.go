@@ -717,6 +717,7 @@ var (
 	// SequencerConfig field descriptions
 	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
 	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
+	SequencerConfigAssembleErrorRetryThreshhold      = pdm("SequencerConfig.assembleErrorRetryThreshhold", "Maximum number of times a transaction can error on assembly before being evicted")
 	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
 	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")
 	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")

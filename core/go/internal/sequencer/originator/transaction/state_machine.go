@@ -61,6 +61,7 @@ const (
 	Event_ConfirmedSuccess                            // confirmation received from the blockchain of base ledge transaction successful completion
 	Event_ConfirmedReverted                           // confirmation received from the blockchain of base ledge transaction failure
 	Event_Delegated                                   // transaction has been delegated to a coordinator
+	Event_Delegate_Rejected                           // transaction delegation has been rejected by the coordinator
 	Event_AssembleRequestReceived                     // coordinator has requested that we assemble the transaction
 	Event_AssembleAndSignSuccess                      // we have successfully assembled the transaction and signing module has signed the assembled transaction
 	Event_AssembleRevert                              // we have failed to assemble the transaction
@@ -132,6 +133,9 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 			},
+			Event_Delegate_Rejected: {
+				Actions: []ActionRule{{Action: action_Delegated}},
+			},
 			Event_AssembleRequestReceived: {
 				Validator: validator_AssembleRequestMatches,
 				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
@@ -189,6 +193,18 @@ var stateDefinitionsMap = StateDefinitions{
 					{
 						To:      State_Parked,
 						Actions: []ActionRule{{Action: action_SendAssembleParkResponse}},
+					},
+				},
+			},
+			Event_AssembleError: {
+				Actions: []ActionRule{{Action: action_AssembleError}},
+				Transitions: []Transition{
+					{
+						// We've been given opportunities by the coordinator to assemble without error. In the future we might insert a failure receipt
+						// for such cases, but for now we free up the state machine, allow other transactions to be delegated ahead, and will be allowed
+						// to retry on the TX resume interval (i.e. when we re-read from the DB)
+						To:      State_Delegated,
+						Actions: []ActionRule{{Action: action_SendAssembleErrorResponse}},
 					},
 				},
 			},
@@ -489,7 +505,6 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 		},
 	},
-
 	State_Parked: {
 		Events: map[EventType]EventHandler{
 			Event_ConfirmedSuccess: {

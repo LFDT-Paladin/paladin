@@ -57,8 +57,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 
 				err := txn.HandleEvent(ctx, txnSubmittedEvent)
 				if err != nil {
-					msg := fmt.Sprintf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
-					log.L(ctx).Error(msg)
+					msg := fmt.Errorf("error handling transaction submitted event for transaction %s: %v", txn.GetID(), err)
 					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 				}
 			} else if dispatchedTransaction.Nonce != nil {
@@ -71,8 +70,7 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 				})
 
 				if err != nil {
-					msg := fmt.Sprintf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
-					log.L(ctx).Error(msg)
+					msg := fmt.Errorf("error handling nonce assigned event for transaction %s: %v", txn.GetID(), err)
 					return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 				}
 			}

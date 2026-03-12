@@ -155,6 +155,32 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
 }
 
+// Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty covers the branch that logs
+// "ignoring endorsement response ... because idempotency key ... does not match expected".
+// We use the same attestation name and party as the pending request so we find the request,
+// then pass a requestID that does not match the pending request's IdempotencyKey.
+func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		AddPendingEndorsementRequest(0).
+		Build()
+
+	// AddPendingEndorsementRequest(0) creates attName "endorse-0" and party "endorser-0@node-0"
+	expectedKey := txn.pendingEndorsementRequests["endorse-0"]["endorser-0@node-0"].IdempotencyKey()
+	wrongRequestID := uuid.New()
+	require.NotEqual(t, expectedKey, wrongRequestID, "test must use a different request ID")
+
+	endorsement := &prototk.AttestationResult{
+		Name:     "endorse-0",
+		Verifier: &prototk.ResolvedVerifier{Lookup: "endorser-0@node-0"},
+	}
+
+	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
+	require.NoError(t, err)
+	assert.Empty(t, txn.pt.PostAssembly.Endorsements, "endorsement with mismatched idempotency key should be ignored")
+}
+
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).

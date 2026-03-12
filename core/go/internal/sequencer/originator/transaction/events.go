@@ -149,6 +149,7 @@ func (*AssembleParkEvent) TypeString() string {
 
 type AssembleErrorEvent struct {
 	BaseEvent
+	RequestID uuid.UUID
 }
 
 func (*AssembleErrorEvent) Type() EventType {

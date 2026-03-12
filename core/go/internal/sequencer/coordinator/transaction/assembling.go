@@ -217,6 +217,8 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinat
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	case *AssembleRevertResponseEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+	case *AssembleErrorResponseEvent:
+		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	}
 	return false, nil
 }
@@ -234,6 +236,15 @@ func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, even
 func action_AssembleRevertResponse(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleRevertResponseEvent)
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
+}
+
+func guard_CanRetryErroredAssemble(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.assembleErrorCount < txn.assembleErrorRetryThreshhold
+}
+
+func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	t.assembleErrorCount++
+	return nil
 }
 
 func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

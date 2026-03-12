@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -27,7 +28,7 @@ func TestBaseEvent_GetEventTime(t *testing.T) {
 	event := &BaseEvent{
 		EventTime: now,
 	}
-	
+
 	result := event.GetEventTime()
 	assert.Equal(t, now, result)
 }
@@ -36,21 +37,21 @@ func TestBaseEvent_GetEventTime_ZeroTime(t *testing.T) {
 	event := &BaseEvent{
 		EventTime: time.Time{},
 	}
-	
+
 	result := event.GetEventTime()
 	assert.True(t, result.IsZero())
 }
 
 func TestHeartbeatIntervalEvent_Type(t *testing.T) {
 	event := &HeartbeatIntervalEvent{}
-	
+
 	result := event.Type()
 	assert.Equal(t, Event_HeartbeatInterval, result)
 }
 
 func TestHeartbeatIntervalEvent_TypeString(t *testing.T) {
 	event := &HeartbeatIntervalEvent{}
-	
+
 	result := event.TypeString()
 	assert.Equal(t, "Event_HeartbeatInterval", result)
 }
@@ -62,7 +63,7 @@ func TestHeartbeatIntervalEvent_GetEventTime(t *testing.T) {
 			EventTime: now,
 		},
 	}
-	
+
 	result := event.GetEventTime()
 	assert.Equal(t, now, result)
 }
@@ -70,14 +71,14 @@ func TestHeartbeatIntervalEvent_GetEventTime(t *testing.T) {
 func TestHeartbeatIntervalEvent_ImplementsEventInterface(t *testing.T) {
 	// This test verifies that HeartbeatIntervalEvent implements the Event interface
 	var _ Event = (*HeartbeatIntervalEvent)(nil)
-	
+
 	now := time.Now()
 	event := &HeartbeatIntervalEvent{
 		BaseEvent: BaseEvent{
 			EventTime: now,
 		},
 	}
-	
+
 	// Test all interface methods
 	assert.Equal(t, Event_HeartbeatInterval, event.Type())
 	assert.Equal(t, "Event_HeartbeatInterval", event.TypeString())
@@ -89,3 +90,50 @@ func TestEventType_HeartbeatInterval(t *testing.T) {
 	assert.Equal(t, EventType(0), Event_HeartbeatInterval)
 }
 
+func TestTransactionStateTransitionEvent_Type(t *testing.T) {
+	event := &TransactionStateTransitionEvent[int]{}
+
+	result := event.Type()
+	assert.Equal(t, Event_TransactionStateTransition, result)
+}
+
+func TestTransactionStateTransitionEvent_TypeString(t *testing.T) {
+	event := &TransactionStateTransitionEvent[int]{}
+
+	result := event.TypeString()
+	assert.Equal(t, "Event_TransactionStateTransition", result)
+}
+
+func TestTransactionStateTransitionEvent_GetEventTime(t *testing.T) {
+	now := time.Now()
+	event := &TransactionStateTransitionEvent[int]{
+		BaseEvent:     BaseEvent{EventTime: now},
+		TransactionID: uuid.New(),
+		From:          0,
+		To:            1,
+	}
+
+	result := event.GetEventTime()
+	assert.Equal(t, now, result)
+}
+
+func TestTransactionStateTransitionEvent_ImplementsEventInterface(t *testing.T) {
+	// This test verifies that TransactionStateTransitionEvent implements the Event interface
+	var _ Event = (*TransactionStateTransitionEvent[int])(nil)
+
+	now := time.Now()
+	txID := uuid.New()
+	event := &TransactionStateTransitionEvent[int]{
+		BaseEvent:     BaseEvent{EventTime: now},
+		TransactionID: txID,
+		From:          0,
+		To:            1,
+	}
+
+	assert.Equal(t, Event_TransactionStateTransition, event.Type())
+	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
+	assert.Equal(t, now, event.GetEventTime())
+	assert.Equal(t, txID, event.TransactionID)
+	assert.Equal(t, 0, event.From)
+	assert.Equal(t, 1, event.To)
+}

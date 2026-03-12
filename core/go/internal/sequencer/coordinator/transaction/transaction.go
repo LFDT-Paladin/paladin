@@ -63,6 +63,7 @@ type coordinatorTransaction struct {
 	revertOnChain              *pldtypes.OnChainLocation
 	revertCount                int
 	lastCanRetryRevert         bool
+	assembleErrorCount         int
 
 	//TODO move the fields that are really just fine grained state info.  Move them into the stateMachine struct ( consider separate structs for each concrete state)
 	heartbeatIntervalsSinceStateChange int
@@ -84,6 +85,7 @@ type coordinatorTransaction struct {
 	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
 	confirmedLocksReleased            bool
 	baseLedgerRevertRetryThreshold    int
+	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
 	clock                    common.Clock
@@ -116,6 +118,7 @@ func NewTransaction(ctx context.Context,
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
+	assembleErrorRetryThreshhold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) (CoordinatorTransaction, error) {
@@ -138,6 +141,7 @@ func NewTransaction(ctx context.Context,
 		finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold,
+		assembleErrorRetryThreshhold,
 		grapher,
 		metrics,
 	)
@@ -162,6 +166,7 @@ func newTransaction(
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
+	assembleErrorRetryThreshhold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*coordinatorTransaction, error) {
@@ -202,6 +207,7 @@ func newTransaction(
 		finalizingGracePeriod:             finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
+		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
 		dependencies:                      &pldapi.TransactionDependencies{},
 		grapher:                           grapher,
 		metrics:                           metrics,

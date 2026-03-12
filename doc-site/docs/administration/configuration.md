@@ -784,6 +784,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| assembleErrorRetryThreshhold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
 | baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
 | blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |

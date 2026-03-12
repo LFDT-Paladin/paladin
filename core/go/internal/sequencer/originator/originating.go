@@ -62,6 +62,9 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 		log.L(ctx).Debugf("no active coordinator set yet; deferring delegation for contract %s", o.contractAddress.String())
 		return nil
 	}
+
+	transactionsWithErrors := make([]*components.PrivateTransaction, 0)
+
 	// Find pending transactions only and (optionally) already delegated transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	transactionsToDelegate := make([]*transaction.OriginatorTransaction, 0)
@@ -69,12 +72,23 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated &&
 			(ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && o.clock.HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
-			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+
+			if txn.GetAssembleErrorCount() > 0 {
+				// These get re-delegated but after everyone else
+				transactionsWithErrors = append(transactionsWithErrors, txn.GetPrivateTransaction())
+			} else {
+				privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			}
 			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
 
 		if txn.GetCurrentState() == transaction.State_Pending {
-			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			if txn.GetAssembleErrorCount() > 0 {
+				// These get re-delegated but after everyone else
+				transactionsWithErrors = append(transactionsWithErrors, txn.GetPrivateTransaction())
+			} else {
+				privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			}
 			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
 	}
@@ -88,14 +102,15 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 			Coordinator: o.activeCoordinatorNode,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
+			msg := fmt.Errorf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	}
 
+	log.L(ctx).Debugf("sending delegation request for %d transactions", len(transactionsWithErrors)+len(privateTransactions))
+
 	// Don't send delegation request before internal TX state machine has been updated
-	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, privateTransactions, o.currentBlockHeight)
+	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, append(privateTransactions, transactionsWithErrors...), o.currentBlockHeight)
 }
 
 func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
@@ -116,15 +131,28 @@ func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
 	// Reason for this is that it is not really a state of the transaction, it is a property of the heartbeat event and as such,
 	// is reconciled as part of handling that event so immediately, the transaction is in Delegated state again
 	for _, txn := range o.getTransactionsInStates([]transaction.State{transaction.State_Delegated}) {
-		dropped := true
-		for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
-			if dispatchedTransaction.ID == txn.GetID() {
-				dropped = false
-				break
-			}
-		}
-		if dropped {
+		// If any one of the transactions has been dropped, re-delegate everything
+		if !transactionFoundInHeartbeat(o, txn) {
 			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.GetID())
+			return true
+		}
+	}
+	return false
+}
+
+func transactionFoundInHeartbeat(o *originator, txn *transaction.OriginatorTransaction) bool {
+	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.DispatchedTransactions {
+		if dispatchedTransaction.ID == txn.GetID() {
+			return true
+		}
+	}
+	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
+		if dispatchedTransaction.ID == txn.GetID() {
+			return true
+		}
+	}
+	for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.ConfirmedTransactions {
+		if dispatchedTransaction.ID == txn.GetID() {
 			return true
 		}
 	}

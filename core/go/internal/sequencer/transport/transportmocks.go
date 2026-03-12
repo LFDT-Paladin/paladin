@@ -172,6 +172,75 @@ func (_m *MockTransportWriter) EXPECT() *MockTransportWriter_Expecter {
 	return &MockTransportWriter_Expecter{mock: &_m.Mock}
 }
 
+// SendAssembleErrorResponse provides a mock function for the type MockTransportWriter
+func (_mock *MockTransportWriter) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string) error {
+	ret := _mock.Called(ctx, txID, assembleRequestId, recipient)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SendAssembleErrorResponse")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, uuid.UUID, string) error); ok {
+		r0 = returnFunc(ctx, txID, assembleRequestId, recipient)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockTransportWriter_SendAssembleErrorResponse_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SendAssembleErrorResponse'
+type MockTransportWriter_SendAssembleErrorResponse_Call struct {
+	*mock.Call
+}
+
+// SendAssembleErrorResponse is a helper method to define mock.On call
+//   - ctx context.Context
+//   - txID uuid.UUID
+//   - assembleRequestId uuid.UUID
+//   - recipient string
+func (_e *MockTransportWriter_Expecter) SendAssembleErrorResponse(ctx interface{}, txID interface{}, assembleRequestId interface{}, recipient interface{}) *MockTransportWriter_SendAssembleErrorResponse_Call {
+	return &MockTransportWriter_SendAssembleErrorResponse_Call{Call: _e.mock.On("SendAssembleErrorResponse", ctx, txID, assembleRequestId, recipient)}
+}
+
+func (_c *MockTransportWriter_SendAssembleErrorResponse_Call) Run(run func(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string)) *MockTransportWriter_SendAssembleErrorResponse_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
+		}
+		var arg2 uuid.UUID
+		if args[2] != nil {
+			arg2 = args[2].(uuid.UUID)
+		}
+		var arg3 string
+		if args[3] != nil {
+			arg3 = args[3].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
+	})
+	return _c
+}
+
+func (_c *MockTransportWriter_SendAssembleErrorResponse_Call) Return(err error) *MockTransportWriter_SendAssembleErrorResponse_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockTransportWriter_SendAssembleErrorResponse_Call) RunAndReturn(run func(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string) error) *MockTransportWriter_SendAssembleErrorResponse_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SendAssembleRequest provides a mock function for the type MockTransportWriter
 func (_mock *MockTransportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error {
 	ret := _mock.Called(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocksJSON, blockHeight)
@@ -410,16 +479,16 @@ func (_c *MockTransportWriter_SendDelegationRequest_Call) RunAndReturn(run func(
 }
 
 // SendDelegationRequestAcknowledgment provides a mock function for the type MockTransportWriter
-func (_mock *MockTransportWriter) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error {
-	ret := _mock.Called(ctx, delegatingNodeName, delegationId, delegateNodeName, transactionID)
+func (_mock *MockTransportWriter) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
+	ret := _mock.Called(ctx, delegatingNodeName, delegationId, transactionIDs, errors)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendDelegationRequestAcknowledgment")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = returnFunc(ctx, delegatingNodeName, delegationId, delegateNodeName, transactionID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []string, []int64) error); ok {
+		r0 = returnFunc(ctx, delegatingNodeName, delegationId, transactionIDs, errors)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -435,13 +504,13 @@ type MockTransportWriter_SendDelegationRequestAcknowledgment_Call struct {
 //   - ctx context.Context
 //   - delegatingNodeName string
 //   - delegationId string
-//   - delegateNodeName string
-//   - transactionID string
-func (_e *MockTransportWriter_Expecter) SendDelegationRequestAcknowledgment(ctx interface{}, delegatingNodeName interface{}, delegationId interface{}, delegateNodeName interface{}, transactionID interface{}) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
-	return &MockTransportWriter_SendDelegationRequestAcknowledgment_Call{Call: _e.mock.On("SendDelegationRequestAcknowledgment", ctx, delegatingNodeName, delegationId, delegateNodeName, transactionID)}
+//   - transactionIDs []string
+//   - errors []int64
+func (_e *MockTransportWriter_Expecter) SendDelegationRequestAcknowledgment(ctx interface{}, delegatingNodeName interface{}, delegationId interface{}, transactionIDs interface{}, errors interface{}) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
+	return &MockTransportWriter_SendDelegationRequestAcknowledgment_Call{Call: _e.mock.On("SendDelegationRequestAcknowledgment", ctx, delegatingNodeName, delegationId, transactionIDs, errors)}
 }
 
-func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) Run(run func(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string)) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
+func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) Run(run func(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64)) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -455,13 +524,13 @@ func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) Run(run 
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
-		var arg3 string
+		var arg3 []string
 		if args[3] != nil {
-			arg3 = args[3].(string)
+			arg3 = args[3].([]string)
 		}
-		var arg4 string
+		var arg4 []int64
 		if args[4] != nil {
-			arg4 = args[4].(string)
+			arg4 = args[4].([]int64)
 		}
 		run(
 			arg0,
@@ -479,7 +548,7 @@ func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) Return(e
 	return _c
 }
 
-func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) RunAndReturn(run func(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
+func (_c *MockTransportWriter_SendDelegationRequestAcknowledgment_Call) RunAndReturn(run func(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error) *MockTransportWriter_SendDelegationRequestAcknowledgment_Call {
 	_c.Call.Return(run)
 	return _c
 }

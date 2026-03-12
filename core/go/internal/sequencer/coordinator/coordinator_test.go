@@ -342,7 +342,7 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 	for i := range 100 {
 		transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
 		txn := transactionBuilder.BuildSparse()
-		err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn})
+		err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "")
 
 		if i < 5 {
 			require.NoError(t, err)

@@ -41,6 +41,7 @@ func Test_State_String_AllStates(t *testing.T) {
 		{State_Dispatched, "State_Dispatched"},
 		{State_Confirmed, "State_Confirmed"},
 		{State_Final, "State_Final"},
+		{State_Evicted, "State_Evicted"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.expect, func(t *testing.T) {

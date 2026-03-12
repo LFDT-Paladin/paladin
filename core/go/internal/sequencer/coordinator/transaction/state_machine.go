@@ -40,6 +40,7 @@ const (
 	State_Dispatched                           // collected by the dispatcher/public TX manager and in-flight on base ledger
 	State_Confirmed                            // "recently" confirmed on the base ledger.  NOTE: confirmed transactions are not held in memory for ever so getting a list of confirmed transactions will only return those confirmed recently
 	State_Final                                // final state for the transaction. Transactions are removed from memory as soon as they enter this state
+	State_Evicted                              // evicted state for a problematic transaction. Transactions are removed from memory as soon as they enter this state. Distinct from State_Final because it might just used for memory or in-flight slot management
 )
 
 type EventType = common.EventType
@@ -50,6 +51,7 @@ const (
 	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
 	Event_Assemble_Success                                                                     // assemble response received from the originator
 	Event_Assemble_Revert_Response                                                             // assemble response received from the originator with a revert reason
+	Event_Assemble_Error_Response                                                              // assemble response received from the originator with an error
 	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
@@ -242,6 +244,20 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Reverted,
 				}},
+			},
+			Event_Assemble_Error_Response: {
+				Validator: validator_MatchesPendingAssembleRequest,
+				Actions:   []ActionRule{{Action: action_AssembleError}},
+				Transitions: []Transition{
+					{
+						If: guard_CanRetryErroredAssemble,
+						To: State_Pooled,
+					},
+					{
+						If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+						To: State_Evicted,
+					},
+				},
 			},
 			// Handle response from originator indicating it doesn't recognize this transaction.
 			// The most likely cause is that the transaction reached a terminal state (e.g., reverted
@@ -541,6 +557,9 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Final: {
 		// Cleanup is handled by the coordinator in response to the state transition event
 	},
+	State_Evicted: {
+		// Cleanup is handled by the coordinator in response to the state transition event
+	},
 }
 
 func (t *coordinatorTransaction) initializeStateMachine(initialState State) {
@@ -607,6 +626,8 @@ func (s State) String() string {
 		return "State_Confirmed"
 	case State_Final:
 		return "State_Final"
+	case State_Evicted:
+		return "State_Evicted"
 	}
 	return fmt.Sprintf("Unknown (%d)", s)
 }

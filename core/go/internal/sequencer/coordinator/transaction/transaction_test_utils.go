@@ -169,6 +169,10 @@ func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uui
 	return nil
 }
 
+func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
+	return nil
+}
+
 func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 	return nil
 }
@@ -197,7 +201,7 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordin
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error {
+func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
 	return nil
 }
 
@@ -253,6 +257,7 @@ type TransactionBuilderForTesting struct {
 	submitterSelection                 prototk.ContractConfig_SubmitterSelection
 	nodeName                           string
 	baseLedgerRevertRetryThreshold     int
+	assembleErrorRetryThreshhold       int
 	revertCount                        int
 }
 
@@ -665,6 +670,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.finalizingGracePeriod,
 		b.confirmedLockRetentionGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
+		b.assembleErrorRetryThreshhold,
 		b.grapher,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)

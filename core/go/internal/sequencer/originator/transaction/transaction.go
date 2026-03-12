@@ -59,6 +59,7 @@ type OriginatorTransaction struct {
 	nonce                            *uint64
 	metrics                          metrics.DistributedSequencerMetrics
 	lastReceivedWillRetry            bool
+	assembleErrorCount               int
 }
 
 func NewTransaction(
@@ -211,4 +212,10 @@ func (t *OriginatorTransaction) GetLastDelegatedTime() *time.Time {
 	t.RLock()
 	defer t.RUnlock()
 	return t.lastDelegatedTime
+}
+
+func (t *OriginatorTransaction) GetAssembleErrorCount() int {
+	t.RLock()
+	defer t.RUnlock()
+	return t.assembleErrorCount
 }

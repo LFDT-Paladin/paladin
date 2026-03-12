@@ -114,10 +114,11 @@ message DelegationRequest {
 }
 
 message DelegationRequestAcknowledgment {
-    string transaction_id = 1;
-    string delegate_node_id = 2;
-    string delegation_id = 3;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
-    string contract_address = 4;
+    repeated string transaction_ids = 1;
+    repeated int64 errors = 2; // Every delegate could have a different result. Allow optional enum error per transaction
+    string delegate_node_id = 3;
+    string delegation_id = 4;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
+    string contract_address = 5;
 }
 
 message StateAcknowledgedEvent {

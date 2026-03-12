@@ -98,6 +98,26 @@ func TestSelectedEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
+func TestAssembleCancelledEvent_Type(t *testing.T) {
+	event := &AssembleCancelledEvent{}
+	assert.Equal(t, Event_Assemble_Cancelled, event.Type())
+}
+
+func TestAssembleCancelledEvent_TypeString(t *testing.T) {
+	event := &AssembleCancelledEvent{}
+	assert.Equal(t, "Event_Assemble_Cancelled", event.TypeString())
+}
+
+func TestAssembleCancelledEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &AssembleCancelledEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
 func TestAssembleRequestSentEvent_Type(t *testing.T) {
 	event := &AssembleRequestSentEvent{}
 	assert.Equal(t, Event_AssembleRequestSent, event.Type())
@@ -209,6 +229,44 @@ func TestAssembleRevertResponseEvent_Fields(t *testing.T) {
 
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
+	assert.Equal(t, requestID, event.RequestID)
+}
+
+func TestAssembleErrorResponseEvent_Type(t *testing.T) {
+	event := &AssembleErrorResponseEvent{}
+	assert.Equal(t, Event_Assemble_Error_Response, event.Type())
+}
+
+func TestAssembleErrorResponseEvent_TypeString(t *testing.T) {
+	event := &AssembleErrorResponseEvent{}
+	assert.Equal(t, "Event_Assemble_Error_Response", event.TypeString())
+}
+
+func TestAssembleErrorResponseEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestAssembleErrorResponseEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	requestID := uuid.New()
+
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		RequestID: requestID,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, requestID, event.RequestID)
 }
 
@@ -803,6 +861,11 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
+		&AssembleCancelledEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
 		&AssembleRequestSentEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
@@ -814,6 +877,11 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&AssembleRevertResponseEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&AssembleErrorResponseEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

@@ -37,6 +37,7 @@ type SentMessageRecorder struct {
 	hasSentAssembleSuccessResponse bool
 	hasSentAssembleRevertResponse  bool
 	hasSentAssembleParkResponse    bool
+	hasSentAssembleErrorResponse   bool
 	hasSentTransactionUnknown      bool
 	transactionUnknownTxID         uuid.UUID
 	transactionUnknownCoordinator  string
@@ -73,6 +74,10 @@ func (r *SentMessageRecorder) HasSentAssembleParkResponse() bool {
 	return r.hasSentAssembleParkResponse
 }
 
+func (r *SentMessageRecorder) HasSentAssembleErrorResponse() bool {
+	return r.hasSentAssembleErrorResponse
+}
+
 func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error {
 	return nil
 }
@@ -81,7 +86,7 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordin
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error {
+func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
 	return nil
 }
 
@@ -148,11 +153,16 @@ func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uui
 	return nil
 }
 
+func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
+	r.hasSentAssembleErrorResponse = true
+	return nil
+}
 func (r *SentMessageRecorder) Reset(_ context.Context) {
 	r.hasSentConfirmationResponse = false
 	r.hasSentAssembleSuccessResponse = false
 	r.hasSentAssembleRevertResponse = false
 	r.hasSentAssembleParkResponse = false
+	r.hasSentAssembleErrorResponse = false
 	r.hasSentTransactionUnknown = false
 	r.transactionUnknownTxID = uuid.UUID{}
 	r.transactionUnknownCoordinator = ""
@@ -176,6 +186,8 @@ type TransactionBuilderForTesting struct {
 	latestSubmissionHash *pldtypes.Bytes32
 	signerAddress        *pldtypes.EthAddress
 	nonce                *uint64
+
+	assembleErrorCount int
 
 	metrics metrics.DistributedSequencerMetrics
 }
@@ -230,6 +242,11 @@ func (b *TransactionBuilderForTesting) GetLatestSubmissionHash() pldtypes.Bytes3
 
 func (b *TransactionBuilderForTesting) QueueEventsTo(emit func(ctx context.Context, event common.Event)) *TransactionBuilderForTesting {
 	b.queueEventForOriginator = emit
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AssembleErrorCount(n int) *TransactionBuilderForTesting {
+	b.assembleErrorCount = n
 	return b
 }
 
@@ -318,6 +335,8 @@ func (b *TransactionBuilderForTesting) Build() *OriginatorTransaction {
 		txn.signerAddress = ptrTo(b.GetSignerAddress())
 
 	}
+
+	txn.assembleErrorCount = b.assembleErrorCount
 
 	if err != nil {
 		panic(fmt.Sprintf("Error from NewTransaction: %v", err))

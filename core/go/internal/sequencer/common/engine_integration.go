@@ -204,7 +204,6 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, e.delegateDomainContext)
 
 	if err != nil {
-		log.L(ctx).Errorf("error assembling and signing transaction: %s", err)
 		return nil, err
 	}
 
