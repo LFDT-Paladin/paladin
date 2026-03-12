@@ -593,6 +593,90 @@ func TestSequencerManager_HandleDirectTransactionRevert_LoadedQueuesCoordinatorA
 	require.NoError(t, err)
 }
 
+func TestSequencerManager_HandleChainedTransactionOutcome_Success_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedSuccessEvent)
+		return ok && event.TransactionID == txID
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_OnChainRevert_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+	revertData := pldtypes.HexBytes("0xdeadbeef")
+	onChain := pldtypes.OnChainLocation{
+		Type:            pldtypes.OnChainTransaction,
+		TransactionHash: pldtypes.RandBytes32(),
+		BlockNumber:     100,
+	}
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
+		return ok &&
+			event.TransactionID == txID &&
+			event.RevertReason.Equals(revertData) &&
+			event.OnChain.BlockNumber == 100
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedOnChainWithRevertData, revertData, onChain)
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_OffChainRevert_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
+		return ok && event.TransactionID == txID && len(event.RevertReason) == 0
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedWithMessage, nil, pldtypes.OnChainLocation{})
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_NotLoaded_NoOp(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// No sequencer loaded - should be a no-op (no panic, no coordinator call)
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
+}
+
 func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)

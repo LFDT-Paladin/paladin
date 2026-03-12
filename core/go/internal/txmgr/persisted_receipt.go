@@ -203,29 +203,33 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			for _, cr := range chainingRecords {
 				for _, receipt := range info {
 					if receipt.TransactionID == cr.ChainedTransaction {
-						log.L(ctx).Infof("Propagating chained transaction receipt from %s to %s", receipt.TransactionID, cr.Transaction)
+						log.L(ctx).Infof("Chained mapping resolved: chained=%s -> original=%s receiptType=%d contract=%s", receipt.TransactionID, cr.Transaction, receipt.ReceiptType, cr.ContractAddress)
 
-						// When a chained transaction fails with on-chain revert data, route the failure
-						// to the original transaction's coordinator for retryability evaluation instead
-						// of immediately finalizing the original transaction.
+						// Notify the original transaction's coordinator of the chained outcome (success, on-chain revert, or off-chain revert).
+						// The chained transaction was originated on this node, so if there is a coordinator loaded with this transaction in State_Dispatched
+						// it will be on this node.
+						contractAddr, parseErr := pldtypes.ParseEthAddress(cr.ContractAddress)
+						if parseErr != nil {
+							log.L(ctx).Errorf("Failed to parse contract address %s for chained TX propagation: %s", cr.ContractAddress, parseErr)
+						} else {
+							origTxID := cr.Transaction
+							// TODO AM: understand why we're copying here
+							outcomeType := receipt.ReceiptType
+							revertBytes := make(pldtypes.HexBytes, len(receipt.RevertData))
+							copy(revertBytes, receipt.RevertData)
+							onChainCopy := receipt.OnChain
+							dbTX.AddPostCommit(func(ctx context.Context) {
+								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, revertBytes, onChainCopy)
+							})
+						}
+
+						// For on-chain reverts with revert data, the coordinator evaluates retryability
+						// and handles finalization, so skip immediate receipt propagation.
 						if receipt.ReceiptType != components.RT_Success && len(receipt.RevertData) > 0 {
-							contractAddr, parseErr := pldtypes.ParseEthAddress(cr.ContractAddress)
-							if parseErr != nil {
-								log.L(ctx).Errorf("Failed to parse contract address %s for chained TX propagation: %s", cr.ContractAddress, parseErr)
-							} else {
-								origTxID := cr.Transaction
-								// TODO AM: why this copying?
-								revertBytes := make(pldtypes.HexBytes, len(receipt.RevertData))
-								copy(revertBytes, receipt.RevertData)
-								onChainCopy := receipt.OnChain
-								log.L(ctx).Infof("Routing chained TX on-chain revert to coordinator for original TX %s (contract %s)", origTxID, cr.ContractAddress)
-								dbTX.AddPostCommit(func(ctx context.Context) {
-									tm.sequencerMgr.HandleChainedTransactionRevert(ctx, *contractAddr, origTxID, revertBytes, onChainCopy)
-								})
-							}
 							continue
 						}
 
+						// For success and off-chain reverts, propagate the receipt to A's originator.
 						upstreamReceipt := &components.ReceiptInputWithOriginator{
 							Originator:            cr.Sender,
 							DomainContractAddress: cr.ContractAddress,

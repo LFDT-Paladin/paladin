@@ -105,8 +105,10 @@ type SequencerManager interface {
 	// HandleDirectTransactionRevert handles on-chain reverts discovered from direct public transaction matches.
 	HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
 
-	// HandleChainedTransactionRevert routes a chained transaction's on-chain revert to the
-	// original transaction's coordinator for retryability evaluation. If the sequencer for the
-	// contract is not currently loaded, this is a no-op (the originator will eventually re-delegate).
-	HandleChainedTransactionRevert(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)
+	// HandleChainedTransactionOutcome routes any chained transaction completion (success,
+	// on-chain revert, or off-chain/assembly revert) to the original (parent) transaction's
+	// coordinator. Called on the node that persisted the chained_private_txns mapping, which is
+	// by definition the dispatch-creator node.
+	// If the sequencer for the contract is not currently loaded, this is a no-op.
+	HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType ReceiptType, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)
 }

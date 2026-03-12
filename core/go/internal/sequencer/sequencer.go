@@ -730,12 +730,54 @@ func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx conte
 	return nil
 }
 
-func (sMgr *sequencerManager) HandleChainedTransactionRevert(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation) {
-	log.L(ctx).Infof("HandleChainedTransactionRevert txID=%s contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)
-	err := sMgr.queueConfirmedRevertedEventToCoordinator(ctx, contractAddress, txID, revertData, onChain, nil)
+func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType components.ReceiptType, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation) {
+	log.L(ctx).Infof("HandleChainedTransactionOutcome txID=%s contract=%s receiptType=%d", txID, contractAddress, receiptType)
+
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
-		log.L(ctx).Errorf("HandleChainedTransactionRevert failed to queue for %s: %s", contractAddress, err)
+		log.L(ctx).Errorf("HandleChainedTransactionOutcome: error getting sequencer for %s: %s", contractAddress, err)
 		return
+	}
+	if sequencer == nil {
+		log.L(ctx).Warnf("HandleChainedTransactionOutcome: no loaded sequencer for contract %s txID=%s (originator will re-delegate)", contractAddress, txID)
+		return
+	}
+
+	switch receiptType {
+	case components.RT_Success:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedSuccessEvent for parent txID=%s on contract=%s", txID, contractAddress)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+		})
+	case components.RT_FailedOnChainWithRevertData:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (on-chain) for parent txID=%s on contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+			RevertReason: revertData,
+			OnChain:      onChain,
+		})
+	case components.RT_FailedWithMessage:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (off-chain) for parent txID=%s on contract=%s", txID, contractAddress)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+		})
+	default:
+		log.L(ctx).Errorf("HandleChainedTransactionOutcome: unexpected receipt type %d for txID=%s", receiptType, txID)
 	}
 }
 
