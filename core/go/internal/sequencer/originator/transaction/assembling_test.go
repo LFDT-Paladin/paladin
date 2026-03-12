@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -77,9 +78,13 @@ func TestAction_AssembleAndSign_EngineIntegrationError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, expectedError, err)
 
-	// Verify no events were emitted
+	// Verify AssembleErrorEvent was emitted so coordinator can park or discard the transaction
 	events := mocks.GetEmittedEvents()
-	assert.Empty(t, events, "No events should be emitted when AssembleAndSign fails")
+	require.Len(t, events, 1, "AssembleErrorEvent should be emitted when AssembleAndSign fails")
+	errorEvent, ok := events[0].(*AssembleErrorEvent)
+	require.True(t, ok, "Event should be AssembleErrorEvent")
+	assert.Equal(t, txn.pt.ID, errorEvent.TransactionID)
+	assert.Equal(t, txn.latestAssembleRequest.requestID, errorEvent.RequestID)
 }
 
 func TestAction_AssembleAndSign_Success_OK(t *testing.T) {
@@ -350,4 +355,69 @@ func Test_action_AssemblePark_SetsPostAssemblyAndRequestID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, postAssembly, txn.pt.PostAssembly)
 	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
+}
+
+func Test_action_AssembleError_SetsRequestIDAndIncrementsErrorCount(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Assembling)
+	txn, _ := builder.BuildWithMocks()
+	requestID := uuid.New()
+	event := &AssembleErrorEvent{
+		BaseEvent:  BaseEvent{TransactionID: txn.pt.ID},
+		RequestID:  requestID,
+	}
+	err := action_AssembleError(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
+	assert.Equal(t, 1, txn.assembleErrorCount)
+
+	// Call again to verify count increments
+	err = action_AssembleError(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, 2, txn.assembleErrorCount)
+}
+
+func Test_action_SendAssembleErrorResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, mocks := builder.BuildWithMocks()
+
+	coordinator := "coordinator@node1"
+	txn.currentDelegate = coordinator
+	requestID := uuid.New()
+	txn.latestFulfilledAssembleRequestID = requestID
+
+	mocks.SentMessageRecorder.Reset(ctx)
+
+	err := action_SendAssembleErrorResponse(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, mocks.SentMessageRecorder.HasSentAssembleErrorResponse(), "SendAssembleErrorResponse should have been called")
+}
+
+func Test_action_SendAssembleErrorResponse_TransportError(t *testing.T) {
+	ctx := context.Background()
+	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering)
+	txn, _ := builder.BuildWithMocks()
+
+	coordinator := "coordinator@node1"
+	txn.currentDelegate = coordinator
+	requestID := uuid.New()
+	txn.latestFulfilledAssembleRequestID = requestID
+
+	mockTransport := transport.NewMockTransportWriter(t)
+	expectedError := errors.New("transport error")
+	mockTransport.EXPECT().SendAssembleErrorResponse(
+		mock.Anything,
+		txn.GetID(),
+		requestID,
+		coordinator,
+	).Return(expectedError)
+
+	originalTransport := txn.transportWriter
+	txn.transportWriter = mockTransport
+	defer func() { txn.transportWriter = originalTransport }()
+
+	err := action_SendAssembleErrorResponse(ctx, txn, nil)
+	assert.Error(t, err)
+	assert.Equal(t, expectedError, err)
 }

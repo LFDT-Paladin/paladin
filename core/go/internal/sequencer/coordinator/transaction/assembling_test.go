@@ -638,6 +638,73 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Ma
 	assert.True(t, result)
 }
 
+func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_Match(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		UseMockTransportWriter().
+		Build()
+
+	// Create a pending request
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
+	mocks.TransportWriter.EXPECT().SendAssembleRequest(
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
+	).Return(nil)
+
+	err := txn.sendAssembleRequest(ctx)
+	require.NoError(t, err)
+
+	requestID := txn.pendingAssembleRequest.IdempotencyKey()
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            requestID,
+	}
+
+	result, err := validator_MatchesPendingAssembleRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.True(t, result)
+}
+
+func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NoMatch(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		UseMockTransportWriter().
+		Build()
+
+	// Create a pending request
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
+	mocks.TransportWriter.EXPECT().SendAssembleRequest(
+		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{}"), int64(100),
+	).Return(nil)
+
+	err := txn.sendAssembleRequest(ctx)
+	require.NoError(t, err)
+
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(), // Different ID
+	}
+
+	result, err := validator_MatchesPendingAssembleRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
+func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NilPendingRequest(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(),
+	}
+
+	result, err := validator_MatchesPendingAssembleRequest(ctx, txn, event)
+	require.NoError(t, err)
+	assert.False(t, result)
+}
+
 func Test_validator_MatchesPendingAssembleRequest_OtherEventType(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
@@ -784,4 +851,59 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 	err := txn.sendAssembleRequest(ctx)
 	require.NoError(t, err)
 	assert.True(t, timeoutEventReceived)
+}
+
+func Test_guard_CanRetryErroredAssemble_WhenBelowThreshold(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	txn.assembleErrorCount = 0
+	txn.assembleErrorRetryThreshhold = 3
+
+	assert.True(t, guard_CanRetryErroredAssemble(ctx, txn))
+}
+
+func Test_guard_CanRetryErroredAssemble_WhenAtThreshold(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	txn.assembleErrorCount = 3
+	txn.assembleErrorRetryThreshhold = 3
+
+	assert.False(t, guard_CanRetryErroredAssemble(ctx, txn))
+}
+
+func Test_guard_CanRetryErroredAssemble_WhenAboveThreshold(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	txn.assembleErrorCount = 5
+	txn.assembleErrorRetryThreshhold = 3
+
+	assert.False(t, guard_CanRetryErroredAssemble(ctx, txn))
+}
+
+func Test_action_AssembleError_IncrementsCountAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(),
+	}
+
+	err := action_AssembleError(ctx, txn, event)
+	require.NoError(t, err)
+	assert.Equal(t, 1, txn.assembleErrorCount)
+}
+
+func Test_action_AssembleError_MultipleCallsIncrementCount(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RequestID:            uuid.New(),
+	}
+
+	for i := 1; i <= 3; i++ {
+		err := action_AssembleError(ctx, txn, event)
+		require.NoError(t, err)
+		assert.Equal(t, i, txn.assembleErrorCount)
+	}
 }

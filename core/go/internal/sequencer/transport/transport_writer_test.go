@@ -892,6 +892,127 @@ func TestSendAssembleResponse_SendError(t *testing.T) {
 	mockTransportManager.AssertExpectations(t)
 }
 
+// ===== SendAssembleErrorResponse Tests =====
+
+func TestSendAssembleErrorResponse_Success(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestId := uuid.New()
+	recipient := "recipient-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	mockTransportManager.On("Send", ctx, mock.MatchedBy(func(msg *components.FireAndForgetMessageSend) bool {
+		if msg.MessageType != MessageType_AssembleError {
+			return false
+		}
+		if msg.Node != recipient {
+			return false
+		}
+		if msg.Component.String() != "TRANSACTION_ENGINE" {
+			return false
+		}
+		var assembleError engineProto.AssembleError
+		err := proto.Unmarshal(msg.Payload, &assembleError)
+		if err != nil {
+			return false
+		}
+		if assembleError.TransactionId != txID.String() {
+			return false
+		}
+		if assembleError.AssembleRequestId != assembleRequestId.String() {
+			return false
+		}
+		if assembleError.ContractAddress != contractAddress.HexString() {
+			return false
+		}
+		return true
+	})).Return(nil)
+
+	tw := &transportWriter{
+		ctx:               ctx,
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendAssembleErrorResponse(ctx, txID, assembleRequestId, recipient)
+	require.NoError(t, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendAssembleErrorResponse_SendError(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestId := uuid.New()
+	recipient := "recipient-node"
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+	sendError := errors.New("transport send error")
+	mockTransportManager.On("Send", ctx, mock.Anything).Return(sendError)
+
+	tw := &transportWriter{
+		ctx:               ctx,
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendAssembleErrorResponse(ctx, txID, assembleRequestId, recipient)
+	require.Error(t, err)
+	assert.Equal(t, sendError, err)
+	mockTransportManager.AssertExpectations(t)
+}
+
+func TestSendAssembleErrorResponse_Loopback(t *testing.T) {
+	ctx := context.Background()
+	txID := uuid.New()
+	assembleRequestId := uuid.New()
+	recipient := "local-node" // Same as local node name
+	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
+
+	mockTransportManager := componentsmocks.NewTransportManager(t)
+	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
+	loopbackQueue := make(chan *components.FireAndForgetMessageSend, 1)
+	mockLoopbackTransport.On("LoopbackQueue").Return(loopbackQueue).Maybe()
+	mockTransportManager.On("LocalNodeName").Return("local-node").Maybe()
+
+	tw := &transportWriter{
+		ctx:               ctx,
+		nodeID:            "local-node",
+		transportManager:  mockTransportManager,
+		loopbackTransport: mockLoopbackTransport,
+		contractAddress:   contractAddress,
+	}
+
+	err := tw.SendAssembleErrorResponse(ctx, txID, assembleRequestId, recipient)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-loopbackQueue:
+		assert.Equal(t, MessageType_AssembleError, msg.MessageType)
+		assert.Equal(t, recipient, msg.Node)
+		var assembleError engineProto.AssembleError
+		err := proto.Unmarshal(msg.Payload, &assembleError)
+		require.NoError(t, err)
+		assert.Equal(t, txID.String(), assembleError.TransactionId)
+		assert.Equal(t, assembleRequestId.String(), assembleError.AssembleRequestId)
+		assert.Equal(t, contractAddress.HexString(), assembleError.ContractAddress)
+	default:
+		t.Fatal("Expected message in loopback queue")
+	}
+
+	mockTransportManager.AssertExpectations(t)
+	mockLoopbackTransport.AssertExpectations(t)
+}
+
 // ===== SendHandoverRequest Tests =====
 
 func TestSendHandoverRequest_Success(t *testing.T) {

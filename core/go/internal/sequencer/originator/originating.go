@@ -102,8 +102,7 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 			Coordinator: o.activeCoordinatorNode,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
-			log.L(ctx).Error(msg)
+			msg := fmt.Errorf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
 	}

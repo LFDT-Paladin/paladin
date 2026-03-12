@@ -233,6 +233,53 @@ func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
+	ctx := context.Background()
+	pt := &components.PrivateTransaction{ID: uuid.New()}
+	allComponents := componentsmocks.NewAllComponents(t)
+	txManager := componentsmocks.NewTXManager(t)
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	clock := common.NewMockClock(t)
+
+	allComponents.EXPECT().TxManager().Return(txManager)
+	txManager.EXPECT().HasChainedTransaction(mock.Anything, pt.ID).Return(false, nil)
+	domainAPI.EXPECT().Domain().Return(domain)
+	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
+	domainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{
+		SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR,
+	})
+	clock.EXPECT().Now().Return(time.Now())
+
+	txn, err := newTransaction(
+		ctx,
+		"sender@node1",
+		"node1",
+		pt,
+		"coordinator-signer",
+		transport.NewMockTransportWriter(t),
+		clock,
+		func(ctx context.Context, event common.Event) {},
+		common.NewMockEngineIntegration(t),
+		&syncpoints.MockSyncPoints{},
+		allComponents,
+		domainAPI,
+		nil,
+		time.Duration(1000),
+		time.Duration(5000),
+		5,
+		0,
+		3,
+		3,
+		NewGrapher(ctx),
+		nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, txn)
+	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {
 	id := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).TransactionID(id).Build()

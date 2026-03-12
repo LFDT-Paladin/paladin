@@ -52,6 +52,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	rejectedMaxInFlight := 0
 	acceptedTransactions := 0
 	inProgressTransactions := 0
+	var newTxnError error
 	for i, txn := range transactions {
 
 		// Acknowledge every delegation
@@ -95,6 +96,9 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.metrics,
 		)
 		if err != nil {
+			if newTxnError == nil {
+				newTxnError = err
+			}
 			continue
 		}
 
@@ -111,16 +115,22 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		}
 	}
 
-	if rejectedMaxInFlight > 0 {
-		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, len(transactions), acceptedTransactions, rejectedMaxInFlight)
-		log.L(ctx).Error(err)
-	}
-
 	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
 	err := c.transportWriter.SendDelegationRequestAcknowledgment(ctx, c.nodeName, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors)
 	if err != nil {
 		return err
 	}
+
+	if rejectedMaxInFlight > 0 {
+		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, len(transactions), acceptedTransactions, rejectedMaxInFlight)
+		return err
+	}
+
+	if newTxnError != nil {
+		// Return the first TX create error
+		return newTxnError
+	}
+
 	return nil
 }
 
