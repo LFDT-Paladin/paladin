@@ -215,7 +215,7 @@ func doDomainInitAssembleTransactionOK(t *testing.T, td *testDomainContext) (*do
 }
 
 func mockHighestBlock(mc *mockComponents) {
-	mc.blockIndexer.On("GetLatestConfirmedBlock", mock.Anything).Return(&blockindexer.BlockInfoJSONRPC{Number: 12345, Timestamp: ethtypes.HexUint64(time.Now().Unix())}, nil).Maybe()
+	mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return(&blockindexer.ConfirmedBlockMetadata{Number: 12345, Timestamp: time.Now().Unix()}, nil).Maybe()
 }
 
 func TestDomainInitTransactionOK(t *testing.T) {
@@ -594,7 +594,7 @@ func TestDomainInitTransactionMissingInput(t *testing.T) {
 
 func TestDomainInitTransactionConfirmedBlockFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
-		mc.blockIndexer.On("GetLatestConfirmedBlock", mock.Anything).Return((*blockindexer.BlockInfoJSONRPC)(nil), fmt.Errorf("pop"))
+		mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return((*blockindexer.ConfirmedBlockMetadata)(nil), fmt.Errorf("pop"))
 	})
 	defer done()
 	assert.Nil(t, td.d.initError.Load())

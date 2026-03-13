@@ -105,7 +105,7 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		return nil, i18n.NewError(ctx, msgs.MsgDomainTxnInputDefinitionInvalid)
 	}
 
-	latestConfirmedBlock, err := dc.dm.blockIndexer.GetLatestConfirmedBlock(ctx)
+	latestConfirmedBlock, err := dc.dm.blockIndexer.GetLatestConfirmedBlockMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +134,9 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		FunctionAbiJson:    string(abiJSON),
 		FunctionParamsJson: string(paramsJSON),
 		FunctionSignature:  fnDef.SolString(), // we use the proprietary "Solidity inspired" form that is very specific, including param names and nested struct defs
-		BaseBlock:          int64(latestConfirmedBlock.Number),
+		BaseBlock:          latestConfirmedBlock.Number,
 		Intent:             intent,
-		BaseBlockTimestamp: int64(latestConfirmedBlock.Timestamp),
+		BaseBlockTimestamp: latestConfirmedBlock.Timestamp,
 	}, nil
 }
 
