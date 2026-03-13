@@ -120,17 +120,20 @@ export interface NotoLockParams {
 export interface NotoCreateTransferLockParams {
   from: PaladinVerifier;
   recipients: UnlockRecipient[];
+  unlockData: string;
   data: string;
 }
 
 export interface NotoCreateMintLockParams {
   recipients: UnlockRecipient[];
+  unlockData: string;
   data: string;
 }
 
 export interface NotoCreateBurnLockParams {
   from: PaladinVerifier;
   amount: string | number;
+  unlockData: string;
   data: string;
 }
 
