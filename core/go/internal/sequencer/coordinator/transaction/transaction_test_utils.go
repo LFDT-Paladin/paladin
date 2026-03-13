@@ -36,7 +36,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -248,7 +247,6 @@ type TransactionBuilderForTesting struct {
 	pendingAssembleRequestSend         func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
 	pendingEndorsementRequestAdditions []pendingEndorsementRequestAddition
 	pendingPreDispatchRequestSend      func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
-	chainedTxAlreadyDispatched         bool
 	confirmedLocksReleased             bool
 	submitterSelection                 prototk.ContractConfig_SubmitterSelection
 	nodeName                           string
@@ -285,13 +283,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		builder.privateTransactionBuilder.EndorsementComplete()
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
-	case State_Blocked:
-		fallthrough
-	case State_Confirming_Dispatchable:
-		fallthrough
-	case State_Ready_For_Dispatch:
-		fallthrough
-	case State_Confirmed:
+	case State_Blocked, State_Confirming_Dispatchable, State_Ready_For_Dispatch, State_Confirmed:
 		//we are emulating a transaction that has been passed State_Endorsement_Gathering so default to complete attestation plan
 		builder.privateTransactionBuilder.EndorsementComplete()
 	}
@@ -488,11 +480,6 @@ func (b *TransactionBuilderForTesting) CancelStateTimeoutSchedule(cancel func())
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ChainedTxAlreadyDispatched(dispatched bool) *TransactionBuilderForTesting {
-	b.chainedTxAlreadyDispatched = dispatched
-	return b
-}
-
 func (b *TransactionBuilderForTesting) ConfirmedLocksReleased(released bool) *TransactionBuilderForTesting {
 	b.confirmedLocksReleased = released
 	return b
@@ -622,7 +609,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 
 	// create the mocks needed for the NewTransaction call below
 	// the return values of these can be set by builder methods if needed
-	mocks.TXManager.On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	mocks.Domain.On("FixedSigningIdentity").Return("")
 	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		SubmitterSelection: b.submitterSelection,
@@ -677,7 +663,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
 	txn.cancelRequestTimeoutSchedule = b.cancelRequestTimeoutSchedule
 	txn.cancelStateTimeoutSchedule = b.cancelStateTimeoutSchedule
-	txn.chainedTxAlreadyDispatched = b.chainedTxAlreadyDispatched
 	txn.confirmedLocksReleased = b.confirmedLocksReleased
 	txn.stateMachine.CurrentState = b.state
 	txn.revertReason = b.revertReason

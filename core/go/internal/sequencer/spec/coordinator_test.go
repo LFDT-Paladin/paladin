@@ -32,7 +32,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func TestCoordinator_InitializeOK(t *testing.T) {
@@ -56,7 +55,6 @@ func TestCoordinator_Idle_ToActive_OnTransactionsDelegated(t *testing.T) {
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	c, _, done := builder.Build(ctx)
 	defer done()
 
@@ -97,7 +95,6 @@ func TestCoordinator_Observing_ToStandby_OnDelegated_IfBehind(t *testing.T) {
 		OriginatorIdentityPool(originator).
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(194) // default tolerance is 5 so this is behind
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.On("FixedSigningIdentity").Return("")
 	builder.GetDomainAPI().On("Domain").Return(mockDomain)
@@ -126,8 +123,6 @@ func TestCoordinator_Observing_ToElect_OnDelegated_IfNotBehind(t *testing.T) {
 		OriginatorIdentityPool(originator).
 		ActiveCoordinatorBlockHeight(200).
 		CurrentBlockHeight(195) // default tolerance is 5 so this is not behind
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
-
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.On("FixedSigningIdentity").Return("")
 	builder.GetDomainAPI().On("Domain").Return(mockDomain)

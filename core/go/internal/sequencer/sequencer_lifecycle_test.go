@@ -441,7 +441,7 @@ func TestSequencerManager_GetSequencer_Loaded(t *testing.T) {
 	assert.Equal(t, existing, seq)
 }
 
-func TestSequencerManager_handleTransactionConfirmedDirect_NotLoaded(t *testing.T) {
+func TestSequencerManager_handleTransactionConfirmedSuccess_NotLoaded(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -451,7 +451,6 @@ func TestSequencerManager_handleTransactionConfirmedDirect_NotLoaded(t *testing.
 	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
 
 	txID := uuid.New()
-	from := pldtypes.RandAddress()
 	nonce := pldtypes.HexUint64(7)
 	completion := &components.TxCompletion{
 		ReceiptInput: components.ReceiptInput{
@@ -463,11 +462,11 @@ func TestSequencerManager_handleTransactionConfirmedDirect_NotLoaded(t *testing.
 		PSC: mocks.domainAPI,
 	}
 
-	err := sm.handleTransactionConfirmedDirect(ctx, completion, from, &nonce)
+	err := sm.handleTransactionConfirmedSuccess(ctx, completion, &nonce)
 	require.NoError(t, err)
 }
 
-func TestSequencerManager_handleTransactionConfirmedByChainedTransaction_LoadedQueuesCoordinatorAndOriginator(t *testing.T) {
+func TestSequencerManager_handleTransactionConfirmedSuccess_LoadedQueuesCoordinator_NoNonce(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -498,11 +497,11 @@ func TestSequencerManager_handleTransactionConfirmedByChainedTransaction_LoadedQ
 		return ok && event.TransactionID == txID && event.Hash == txHash
 	})).Once()
 
-	err := sm.handleTransactionConfirmedByChainedTransaction(ctx, completion)
+	err := sm.handleTransactionConfirmedSuccess(ctx, completion, nil)
 	require.NoError(t, err)
 }
 
-func TestSequencerManager_handleTransactionConfirmedDirect_LoadedQueuesCoordinatorAndOriginator_Reverted(t *testing.T) {
+func TestSequencerManager_handleTransactionConfirmedSuccess_LoadedQueuesCoordinator_WithNonce(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -518,72 +517,31 @@ func TestSequencerManager_handleTransactionConfirmedDirect_LoadedQueuesCoordinat
 
 	txID := uuid.New()
 	txHash := pldtypes.RandBytes32()
-	from := pldtypes.RandAddress()
 	nonce := pldtypes.HexUint64(42)
-	revertReason := pldtypes.HexBytes("0xdeadbeef")
 	completion := &components.TxCompletion{
 		ReceiptInput: components.ReceiptInput{
 			TransactionID: txID,
 			OnChain: pldtypes.OnChainLocation{
 				TransactionHash: txHash,
 			},
-			RevertData: revertReason,
 		},
 		PSC: mocks.domainAPI,
 	}
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
+		event, ok := e.(*coordinatorTx.ConfirmedSuccessEvent)
 		return ok &&
 			event.TransactionID == txID &&
 			event.Hash == txHash &&
 			event.Nonce != nil &&
-			*event.Nonce == nonce &&
-			event.RevertReason.Equals(revertReason)
+			*event.Nonce == nonce
 	})).Once()
 
-	err := sm.handleTransactionConfirmedDirect(ctx, completion, from, &nonce)
+	err := sm.handleTransactionConfirmedSuccess(ctx, completion, &nonce)
 	require.NoError(t, err)
 }
 
-func TestSequencerManager_handleTransactionConfirmedByChainedTransaction_LoadedQueuesCoordinatorAndOriginator_Reverted(t *testing.T) {
-	ctx := context.Background()
-	contractAddr := pldtypes.RandAddress()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	seq := newSequencerForTesting(contractAddr, mocks)
-	sm.sequencersLock.Lock()
-	sm.sequencers[contractAddr.String()] = seq
-	sm.sequencersLock.Unlock()
-
-	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
-	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
-
-	txID := uuid.New()
-	txHash := pldtypes.RandBytes32()
-	revertReason := pldtypes.HexBytes("0x0102")
-	completion := &components.TxCompletion{
-		ReceiptInput: components.ReceiptInput{
-			TransactionID: txID,
-			OnChain: pldtypes.OnChainLocation{
-				TransactionHash: txHash,
-			},
-			RevertData: revertReason,
-		},
-		PSC: mocks.domainAPI,
-	}
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && event.Hash == txHash && event.RevertReason.Equals(revertReason)
-	})).Once()
-
-	err := sm.handleTransactionConfirmedByChainedTransaction(ctx, completion)
-	require.NoError(t, err)
-}
-
-func TestSequencerManager_HandleTransactionFailed_LoadedQueuesCoordinatorAndOriginator(t *testing.T) {
+func TestSequencerManager_HandleDirectTransactionRevert_LoadedQueuesCoordinatorAndOriginator(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
 	from := pldtypes.RandAddress()
@@ -595,7 +553,6 @@ func TestSequencerManager_HandleTransactionFailed_LoadedQueuesCoordinatorAndOrig
 
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
-	sm.syncPoints = mocks.syncPoints
 
 	seq := newSequencerForTesting(contractAddr, mocks)
 	sm.sequencersLock.Lock()
@@ -613,12 +570,7 @@ func TestSequencerManager_HandleTransactionFailed_LoadedQueuesCoordinatorAndOrig
 			event.RevertReason.Equals(revertReason) &&
 			event.Nonce != nil && uint64(*event.Nonce) == nonce
 	})).Once()
-	mocks.syncPoints.EXPECT().WriteOrDistributeReceipts(ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInputWithOriginator) bool {
-		// On-chain reverts are intentionally not finalized at this point.
-		return len(receipts) == 0
-	})).Return(nil).Once()
-
-	err := sm.HandleTransactionFailed(ctx, dbTX, []*components.PublicTxMatch{
+	err := sm.HandleDirectTransactionRevert(ctx, dbTX, []*components.PublicTxMatch{
 		{
 			PaladinTXReference: components.PaladinTXReference{
 				TransactionID:              txID,
@@ -639,6 +591,90 @@ func TestSequencerManager_HandleTransactionFailed_LoadedQueuesCoordinatorAndOrig
 		},
 	})
 	require.NoError(t, err)
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_Success_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedSuccessEvent)
+		return ok && event.TransactionID == txID
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_OnChainRevert_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+	revertData := pldtypes.HexBytes("0xdeadbeef")
+	onChain := pldtypes.OnChainLocation{
+		Type:            pldtypes.OnChainTransaction,
+		TransactionHash: pldtypes.RandBytes32(),
+		BlockNumber:     100,
+	}
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
+		return ok &&
+			event.TransactionID == txID &&
+			event.RevertReason.Equals(revertData) &&
+			event.OnChain.BlockNumber == 100
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedOnChainWithRevertData, revertData, onChain)
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_OffChainRevert_LoadedQueuesCoordinator(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
+		return ok && event.TransactionID == txID && len(event.RevertReason) == 0
+	})).Once()
+
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedWithMessage, nil, pldtypes.OnChainLocation{})
+}
+
+func TestSequencerManager_HandleChainedTransactionOutcome_NotLoaded_NoOp(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// No sequencer loaded - should be a no-op (no panic, no coordinator call)
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
 }
 
 func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T) {

@@ -82,7 +82,7 @@ var SequencerDefaults = SequencerConfig{
 	CoordinatorPriorityEventQueueSize: confutil.P(500),
 	OriginatorEventQueueSize:          confutil.P(50),
 	OriginatorPriorityEventQueueSize:  confutil.P(500),
-	ClosingGracePeriod:                confutil.P(1),
+	ClosingGracePeriod:                confutil.P(2),
 	ConfirmedLockRetentionGracePeriod: confutil.P(1),
 	BaseLedgerRevertRetryThreshold:    confutil.P(3),
 	DelegateTimeout:                   confutil.P("5s"),

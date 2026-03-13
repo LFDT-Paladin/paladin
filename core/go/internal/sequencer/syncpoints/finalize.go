@@ -107,27 +107,27 @@ func (s *syncPoints) WriteOrDistributeReceipts(ctx context.Context, dbTX persist
 
 	// Receipts need to go back to their originator, so we either store the receive ourselves locally - or
 	// push it in a reliable message back to the originator.
-	localFailureReceipts := make([]*components.ReceiptInput, 0)
+	localReceipts := make([]*components.ReceiptInput, 0)
 	remoteSends := make([]*pldapi.ReliableMessage, 0)
 	for _, r := range receipts {
+		node, _ := pldtypes.PrivateIdentityLocator(r.Originator).Node(ctx, true)
 		if r.ReceiptType != components.RT_Success {
-			node, _ := pldtypes.PrivateIdentityLocator(r.Originator).Node(ctx, true)
 			log.L(ctx).Warnf("Failure receipt %s with sender %s (node='%s') and address %v: %s",
 				r.TransactionID, r.Originator, node, r.DomainContractAddress, r.FailureMessage)
-			if node != "" && node != s.transportMgr.LocalNodeName() {
-				remoteSends = append(remoteSends, &pldapi.ReliableMessage{
-					Node:        node,
-					MessageType: pldapi.RMTReceipt.Enum(),
-					Metadata:    pldtypes.JSONString(&r.ReceiptInput),
-				})
-			} else {
-				localFailureReceipts = append(localFailureReceipts, &r.ReceiptInput)
-			}
+		}
+		if node != "" && node != s.transportMgr.LocalNodeName() {
+			remoteSends = append(remoteSends, &pldapi.ReliableMessage{
+				Node:        node,
+				MessageType: pldapi.RMTReceipt.Enum(),
+				Metadata:    pldtypes.JSONString(&r.ReceiptInput),
+			})
+		} else {
+			localReceipts = append(localReceipts, &r.ReceiptInput)
 		}
 	}
 	var err error
-	if len(localFailureReceipts) > 0 {
-		err = s.txMgr.FinalizeTransactions(ctx, dbTX, localFailureReceipts)
+	if len(localReceipts) > 0 {
+		err = s.txMgr.FinalizeTransactions(ctx, dbTX, localReceipts)
 	}
 	if err == nil && len(remoteSends) > 0 {
 		// We log and ignore errors here, because if it is a DB transaction error we will

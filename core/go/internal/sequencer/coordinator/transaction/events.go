@@ -279,16 +279,16 @@ func (*DependencyRevertedEvent) TypeString() string {
 	return "Event_DependencyReverted"
 }
 
-type DependencyRepooledEvent struct {
+type DependencyResetEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*DependencyRepooledEvent) Type() EventType {
-	return Event_DependencyRepooled
+func (*DependencyResetEvent) Type() EventType {
+	return Event_DependencyReset
 }
 
-func (*DependencyRepooledEvent) TypeString() string {
-	return "Event_DependencyRepooled"
+func (*DependencyResetEvent) TypeString() string {
+	return "Event_DependencyReset"
 }
 
 type DependencyConfirmedRevertedEvent struct {

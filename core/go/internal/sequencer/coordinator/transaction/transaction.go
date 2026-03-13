@@ -73,7 +73,6 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingEndorsementsMutex           sync.Mutex
 	pendingPreDispatchRequest          *common.IdempotentRequest
-	chainedTxAlreadyDispatched         bool
 	latestError                        string
 	dependencies                       *pldapi.TransactionDependencies
 
@@ -172,15 +171,6 @@ func newTransaction(
 		return nil, err
 	}
 
-	hasChainedTransaction, err := allComponents.TxManager().HasChainedTransaction(txCtx, pt.ID)
-	if err != nil {
-		log.L(txCtx).Errorf("error checking for chained transaction %s: %v", pt.ID, err)
-		return nil, err
-	}
-	if hasChainedTransaction {
-		log.L(txCtx).Debugf("chained transaction %s found", pt.ID.String())
-	}
-
 	txn := &coordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
@@ -205,7 +195,6 @@ func newTransaction(
 		dependencies:                      &pldapi.TransactionDependencies{},
 		grapher:                           grapher,
 		metrics:                           metrics,
-		chainedTxAlreadyDispatched:        hasChainedTransaction,
 	}
 	txn.initializeStateMachine(State_Initial)
 	grapher.Add(txCtx, txn)

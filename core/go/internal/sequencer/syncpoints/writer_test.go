@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -530,4 +531,68 @@ func TestRunBatch_FinalizeOperationsWithOnChainRevert(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, len(results))
 	mockTXMgr.AssertExpectations(t)
+}
+
+func TestWriteOrDistributeReceipts_LocalSuccessIsFinalized(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+	txID := uuid.New()
+
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+	mockTXMgr.On("FinalizeTransactions", ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInput) bool {
+		return len(receipts) == 1 &&
+			receipts[0].ReceiptType == components.RT_Success &&
+			receipts[0].TransactionID == txID
+	})).Return(nil).Once()
+
+	err := s.WriteOrDistributeReceipts(ctx, dbTX, []*components.ReceiptInputWithOriginator{{
+		Originator:            "wallets.org1.alice@node1",
+		DomainContractAddress: "0xabc",
+		ReceiptInput: components.ReceiptInput{
+			ReceiptType:   components.RT_Success,
+			TransactionID: txID,
+		},
+	}})
+	require.NoError(t, err)
+	mockTXMgr.AssertExpectations(t)
+	mockTransportMgr.AssertExpectations(t)
+}
+
+func TestWriteOrDistributeReceipts_RemoteSuccessIsSentReliably(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+	txID := uuid.New()
+
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+	mockTransportMgr.On("SendReliable", ctx, dbTX, mock.MatchedBy(func(msgs []*pldapi.ReliableMessage) bool {
+		return len(msgs) == 1 &&
+			msgs[0].Node == "node2" &&
+			msgs[0].MessageType.V() == pldapi.RMTReceipt
+	})).Return(nil).Once()
+
+	err := s.WriteOrDistributeReceipts(ctx, dbTX, []*components.ReceiptInputWithOriginator{{
+		Originator:            "wallets.org1.alice@node2",
+		DomainContractAddress: "0xabc",
+		ReceiptInput: components.ReceiptInput{
+			ReceiptType:   components.RT_Success,
+			TransactionID: txID,
+		},
+	}})
+	require.NoError(t, err)
+	mockTXMgr.AssertNotCalled(t, "FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything)
+	mockTransportMgr.AssertExpectations(t)
 }

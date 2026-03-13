@@ -91,7 +91,7 @@ func (tm *txManager) blockIndexerPreCommit(
 
 	// Deliver the failures to the distributed sequencer
 	if len(failedForPrivateTx) > 0 {
-		err = tm.sequencerMgr.HandleTransactionFailed(ctx, dbTX, failedForPrivateTx)
+		err = tm.sequencerMgr.HandleDirectTransactionRevert(ctx, dbTX, failedForPrivateTx)
 		if err != nil {
 			return err
 		}
