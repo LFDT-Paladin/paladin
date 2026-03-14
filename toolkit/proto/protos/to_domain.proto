@@ -345,6 +345,7 @@ message TransactionSpecification {
   string function_params_json = 6; // The parameters supplied in the invocation in normalized JSON format, after validation against the ABI the caller supplied
   int64 base_block = 7; // The block number on the base ledger, upon which this transaction is being assembled
   Intent intent = 8; // The sender's intended outcome (a submitted transaction or only a call)
+  int64 base_block_timestamp = 9; // The timestamp for the provided block number on the base ledger, upon which this transaction is being assembled
 }
 
 message PrivacyGroupEVMTX {

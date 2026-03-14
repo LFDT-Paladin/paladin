@@ -53,7 +53,7 @@ public class RecoverGetSetTest {
 
         // Generate a shiny new EVM
         EVMVersion evmVersion = EVMVersion.Cancun(new Random().nextLong(), EvmConfiguration.DEFAULT);
-        EVMRunner evmRunner = new EVMRunner(evmVersion, address -> Optional.empty(), 0);
+        EVMRunner evmRunner = new EVMRunner(evmVersion, address -> Optional.empty(), 0, 0);
 
         // Load some bytecode for our first contract deploy
         String resourcePath = "contracts/testcontracts/Recover.sol/Recover.json";
