@@ -227,7 +227,6 @@ type TransactionBuilderForTesting struct {
 	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
 	originator                         string
-	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
 	domainSigningIdentity              string
 	coordinatorSigningIdentity         string
@@ -641,8 +640,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn := newTransaction(
 		ctx,
 		b.originator,
-		b.originatorNode,
-		false,
 		b.nodeName,
 		privateTransaction,
 		b.coordinatorSigningIdentity,

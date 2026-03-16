@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
@@ -77,19 +76,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			continue
 		}
 
-		// We do all the validation needed to create a transaction upfront so that we can be certain when we tell the previous
-		// transaction that it has a new dependency, that the creation of that dependency will definititely succeed.
-		_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
-		if err != nil {
-			log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
-			return err
-		}
-		hasChainedTransaction, err := c.components.TxManager().HasChainedTransaction(ctx, txn.ID)
-		if err != nil {
-			log.L(ctx).Errorf("error checking for chained transaction %s: %v", txn.ID, err)
-			return err
-		}
-
 		// We use the order in which transaction are delegated to establish preassembly dependencies, which
 		// is what allows us to ensure FIFO ordering within an originator up until first assembly.
 		//
@@ -132,8 +118,6 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		newTransaction := transaction.NewTransaction(
 			ctx,
 			originator,
-			originatorNode,
-			hasChainedTransaction,
 			c.nodeName,
 			txn,
 			c.signingIdentity,
@@ -163,7 +147,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		receivedEvent := &transaction.DelegatedEvent{}
 		receivedEvent.TransactionID = txn.ID
 
-		err = newTransaction.HandleEvent(ctx, receivedEvent)
+		err := newTransaction.HandleEvent(ctx, receivedEvent)
 		if err != nil {
 			if newTxnError == nil {
 				newTxnError = err

@@ -52,7 +52,6 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	return nil
 }
 
-
 func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
 	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
@@ -62,8 +61,8 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 	return nil
 }
 
-func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.hasDependenciesNotAssembled(ctx)
+func guard_HasUnassembledDependencies(_ context.Context, txn *coordinatorTransaction) bool {
+	return txn.hasDependenciesNotAssembled()
 }
 
 func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

@@ -54,7 +54,6 @@ type coordinatorTransaction struct {
 	// immutable properties of the transaction
 	originator                 string // The fully qualified identity of the originator e.g. "member1@node1"
 	originatorNode             string // The node the originator is running on e.g. "node1"
-	chainedTxAlreadyDispatched bool
 	nodeName                   string // The local node coordinating this transaction
 	domainSigningIdentity      string // Used if an endorsement constraint doesn't stipulate a specific endorser must submit
 	coordinatorSigningIdentity string
@@ -74,13 +73,11 @@ type coordinatorTransaction struct {
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
 
-	pendingAssembleRequest             *common.IdempotentRequest
-	cancelRequestTimeoutSchedule       func()                                          // Short timeout for retry e.g. network blip
-	cancelStateTimeoutSchedule         func()                                          // Timeout for state completion before repooling
-	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	pendingEndorsementsMutex           sync.Mutex
-	pendingPreDispatchRequest          *common.IdempotentRequest
-	latestError                        string
+	pendingAssembleRequest       *common.IdempotentRequest
+	cancelRequestTimeoutSchedule func()                                          // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule   func()                                          // Timeout for state completion before repooling
+	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
+	pendingPreDispatchRequest    *common.IdempotentRequest
 
 	// Transaction dependencies - used for tracking assembly and dispatch order
 	dependencies         *pldapi.TransactionDependencies
@@ -111,8 +108,6 @@ type coordinatorTransaction struct {
 
 func NewTransaction(ctx context.Context,
 	originator string,
-	originatorNode string,
-	hasChainedTransaction bool,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
@@ -137,8 +132,6 @@ func NewTransaction(ctx context.Context,
 	return newTransaction(
 		ctx,
 		originator,
-		originatorNode,
-		hasChainedTransaction,
 		nodeName,
 		pt,
 		coordinatorSigningIdentity,
@@ -165,8 +158,6 @@ func NewTransaction(ctx context.Context,
 func newTransaction(
 	ctx context.Context,
 	originator string,
-	originatorNode string,
-	hasChainedTransaction bool,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
@@ -193,7 +184,7 @@ func newTransaction(
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(txCtx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
-		return nil, err
+		return nil
 	}
 
 	txn := &coordinatorTransaction{
