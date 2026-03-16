@@ -66,7 +66,7 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 
 	transactionsWithErrors := make([]*components.PrivateTransaction, 0)
 
-	// Find pending transactions only and (optionally) already delegated transactions
+	// Re-delegate transactions
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	transactionsToDelegate := make([]*transaction.OriginatorTransaction, 0)
 	for _, txn := range o.transactionsOrdered {

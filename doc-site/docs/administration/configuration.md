@@ -792,13 +792,13 @@
 | confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `1` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
-| delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
-| heartbeatThreshold | Heartbeat threshold | `int` | - |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
+| originatorIdleGracePeriod | Number of heartbeats to receive before moving to idle state | `int` | `10` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
+| redelegateGracePeriod | Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions | `int` | `2` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
