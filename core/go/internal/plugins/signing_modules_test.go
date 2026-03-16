@@ -228,15 +228,6 @@ func TestSigningModuleRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: signingModuleConnectFactory,
 				headerAccessor: signingModuleHeaderAccessor,
-				preRegister: func(signingModuleID string) *prototk.SigningModuleMessage {
-					return &prototk.SigningModuleMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    signingModuleID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 				expectClose: func(err error) {
 					waitForError <- err
 				},
