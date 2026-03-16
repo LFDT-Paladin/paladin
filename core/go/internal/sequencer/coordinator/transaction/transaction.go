@@ -73,20 +73,22 @@ type coordinatorTransaction struct {
 	confirmedLocksReleased             bool
 	heartbeatIntervalsSinceStateChange int
 	stateEntryTime                     time.Time
-	cancelRequestTimeoutSchedule       func() // Short timeout for retry e.g. network blip
-	cancelStateTimeoutSchedule         func()
 
-	// request tracking - used for nudging the same request multiple times until it succeeds or times out
-	pendingAssembleRequest     *common.IdempotentRequest                       // Timeout for state completion before repooling
-	pendingEndorsementRequests map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
-	pendingPreDispatchRequest  *common.IdempotentRequest
+	pendingAssembleRequest             *common.IdempotentRequest
+	cancelRequestTimeoutSchedule       func()                                          // Short timeout for retry e.g. network blip
+	cancelStateTimeoutSchedule         func()                                          // Timeout for state completion before repooling
+	pendingEndorsementRequests         map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
+	pendingEndorsementsMutex           sync.Mutex
+	pendingPreDispatchRequest          *common.IdempotentRequest
+	latestError                        string
 
 	// Transaction dependencies - used for tracking assembly and dispatch order
 	dependencies         *pldapi.TransactionDependencies
 	preAssemblePrereqOf  *uuid.UUID
 	preAssembleDependsOn *uuid.UUID
 
-	// Configuration
+	//Configuration
+
 	requestTimeout                    time.Duration
 	stateTimeout                      time.Duration
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
@@ -187,8 +189,11 @@ func newTransaction(
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
 	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
-	if hasChainedTransaction {
-		log.L(txCtx).Debugf("chained transaction %s found", pt.ID.String())
+
+	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(txCtx, "", false)
+	if err != nil {
+		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
+		return nil, err
 	}
 
 	txn := &coordinatorTransaction{
@@ -216,7 +221,6 @@ func newTransaction(
 		dependencies:                      &pldapi.TransactionDependencies{},
 		grapher:                           grapher,
 		metrics:                           metrics,
-		chainedTxAlreadyDispatched:        hasChainedTransaction,
 		preAssembleDependsOn:              preAssembleDependsOn,
 	}
 	txn.initializeStateMachine(State_Initial)

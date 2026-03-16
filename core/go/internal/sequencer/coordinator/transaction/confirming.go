@@ -25,10 +25,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func guard_HasRevertReason(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.revertReason.String() != ""
-}
-
 func guard_CanRetryRevert(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.lastCanRetryRevert
 }
@@ -88,9 +84,6 @@ func action_NotifyOriginatorOfNonRetryableRevert(ctx context.Context, t *coordin
 
 func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	failureMessage := t.decodedRevertReason
-	if failureMessage == "" {
-		failureMessage = t.revertReason.String()
-	}
 	log.L(ctx).Infof("finalizing transaction %s as reverted (revertCount=%d): %s", t.pt.ID.String(), t.revertCount, failureMessage)
 	t.syncPoints.QueueTransactionFinalize(ctx,
 		&syncpoints.TransactionFinalizeRequest{

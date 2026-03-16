@@ -15,7 +15,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,9 +74,16 @@ func TestPrivateTransactionsSequencerLimitSequentialContracts(t *testing.T) {
 }
 
 func newTwoDomainParty(t *testing.T, nodeName string) testutils.Party {
+	return newTwoDomainPartyWithSequencerConfig(t, nodeName, nil)
+}
+
+func newTwoDomainPartyWithSequencerConfig(t *testing.T, nodeName string, sequencerConfig *pldconf.SequencerConfig) testutils.Party {
 	registry1 := deployDomainRegistry(t, nodeName)
 	registry2 := deployDomainRegistry(t, nodeName)
 	party := testutils.NewPartyForTestingWithNodeName(t, nodeName, nodeName, registry1)
+	if sequencerConfig != nil {
+		party.OverrideSequencerConfig(sequencerConfig)
+	}
 	domainConfig := &domains.SimpleDomainPairConfig{
 		SubmitMode:             domains.ENDORSER_SUBMISSION,
 		Domain1RegistryAddress: registry1.String(),
@@ -133,26 +140,17 @@ func TestChainedTransactionSuccess(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.True(t, tx.Receipt().Success)
 
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", tx.ID().String())
-	receiptLimit := 1
-	chainedTxns, err := client.PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, chainedTxns, 1)
-	assert.True(t, chainedTxns[0].Receipt.Success)
+	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, chainedTx.Receipt)
+	assert.True(t, chainedTx.Receipt.Success)
 }
 
 func TestChainedTransactionRetryableRevertThenSucceeds(t *testing.T) {
@@ -192,28 +190,19 @@ func TestChainedTransactionRetryableRevertThenSucceeds(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.True(t, tx.Receipt().Success)
 
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", tx.ID().String())
-	receiptLimit := 1
-	chainedTxns, err := client.PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, chainedTxns, 1)
-	assert.True(t, chainedTxns[0].Receipt.Success)
+	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, chainedTx.Receipt)
+	assert.True(t, chainedTx.Receipt.Success)
 	// Should have more than 1 public transaction due to the retry
-	assert.Greater(t, len(chainedTxns[0].Public), 1)
+	assert.Greater(t, len(chainedTx.Public), 1)
 }
 
 func TestChainedTransactionAssemblyFailure(t *testing.T) {
@@ -255,27 +244,17 @@ func TestChainedTransactionAssemblyFailure(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.False(t, tx.Receipt().Success)
 
-	// The chained TX should also have a failure receipt, queryable by idempotency key
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", tx.ID().String())
-	receiptLimit := 1
-	chainedTxns, err := client.PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, chainedTxns, 1)
-	assert.False(t, chainedTxns[0].Receipt.Success)
+	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, chainedTx.Receipt)
+	assert.False(t, chainedTx.Receipt.Success)
 }
 
 func TestChainedTransactionBaseLedgerRevertFailure(t *testing.T) {
@@ -318,29 +297,167 @@ func TestChainedTransactionBaseLedgerRevertFailure(t *testing.T) {
 	assert.False(t, tx.Receipt().Success)
 	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenNonRetryableError")
 
-	// The chained TX should also have a failure receipt
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", tx.ID().String())
-	receiptLimit := 1
-	chainedTxns, err := client.PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, chainedTxns, 1)
-	assert.False(t, chainedTxns[0].Receipt.Success)
-	assert.Contains(t, chainedTxns[0].Receipt.FailureMessage, "SimpleTokenNonRetryableError")
-	assert.NotNil(t, chainedTxns[0].Receipt.TransactionReceiptDataOnchain)
-	assert.NotNil(t, chainedTxns[0].Receipt.TransactionHash)
-	assert.Greater(t, chainedTxns[0].Receipt.BlockNumber, int64(0))
+	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, chainedTx.Receipt)
+	assert.False(t, chainedTx.Receipt.Success)
+	assert.Contains(t, chainedTx.Receipt.FailureMessage, "SimpleTokenNonRetryableError")
+	assert.NotNil(t, chainedTx.Receipt.TransactionReceiptDataOnchain)
+	assert.NotNil(t, chainedTx.Receipt.TransactionHash)
+	assert.Greater(t, chainedTx.Receipt.BlockNumber, int64(0))
+}
+
+func TestChainedTransactionRetryableRevert_OnlyChainedFails_ThenSucceeds(t *testing.T) {
+	ctx := t.Context()
+
+	party := newTwoDomainPartyWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{
+		BaseLedgerRevertRetryThreshold: confutil.P(1),
+	})
+	client := party.GetClient()
+
+	hookTargetAddr := deploySimpleTokenInDomain(t, ctx, client, "domain2", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "HookTarget",
+		Symbol:          "HT",
+		EndorsementMode: domains.SelfEndorsement,
+	})
+
+	originAddr := deploySimpleTokenInDomain(t, ctx, client, "domain1", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "Origin",
+		Symbol:          "OR",
+		EndorsementMode: domains.SelfEndorsement,
+		HookAddress:     hookTargetAddr.String(),
+	})
+
+	// Amount 1008: chained TX reverts with retryable error on first chained attempt,
+	// original TX's coordinator retries with a new chained TX that succeeds.
+	// Extra time needed for the dispatch-revert-retry-redispatch cycle.
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From(party.GetIdentity()).
+		To(originAddr).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + party.GetIdentity() + `",
+			"amount": "1008"
+		}`)).
+		Send().Wait(3 * transactionLatencyThreshold(t))
+	require.NoError(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.True(t, tx.Receipt().Success)
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	assert.True(t, txFull.Receipt.Success)
+	// Should have more than 1 chained transaction due to the retry
+	assert.Greater(t, len(txFull.ChainedPrivateTransactions), 1)
+}
+
+func TestChainedTransactionNonRetryableRevert_OnlyChainedFails(t *testing.T) {
+	ctx := t.Context()
+
+	party := newTwoDomainPartyWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{})
+	client := party.GetClient()
+
+	hookTargetAddr := deploySimpleTokenInDomain(t, ctx, client, "domain2", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "HookTarget",
+		Symbol:          "HT",
+		EndorsementMode: domains.SelfEndorsement,
+	})
+
+	originAddr := deploySimpleTokenInDomain(t, ctx, client, "domain1", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "Origin",
+		Symbol:          "OR",
+		EndorsementMode: domains.SelfEndorsement,
+		HookAddress:     hookTargetAddr.String(),
+	})
+
+	// Amount 1009: chained TX reverts with non-retryable error, original TX fails immediately
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From(party.GetIdentity()).
+		To(originAddr).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + party.GetIdentity() + `",
+			"amount": "1009"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.Error(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.False(t, tx.Receipt().Success)
+	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenNonRetryableError")
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	assert.False(t, txFull.Receipt.Success)
+	// Should have only 1 chained transaction since it failed without retry
+	assert.Len(t, txFull.ChainedPrivateTransactions, 1)
+}
+
+func TestChainedTransactionRetryableRevert_OnlyChainedFails_ExceedsThreshold(t *testing.T) {
+	ctx := t.Context()
+
+	party := newTwoDomainPartyWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{
+		BaseLedgerRevertRetryThreshold: confutil.P(1),
+	})
+	client := party.GetClient()
+
+	hookTargetAddr := deploySimpleTokenInDomain(t, ctx, client, "domain2", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "HookTarget",
+		Symbol:          "HT",
+		EndorsementMode: domains.SelfEndorsement,
+	})
+
+	originAddr := deploySimpleTokenInDomain(t, ctx, client, "domain1", party.GetIdentity(), &domains.ConstructorParameters{
+		From:            party.GetIdentity(),
+		Name:            "Origin",
+		Symbol:          "OR",
+		EndorsementMode: domains.SelfEndorsement,
+		HookAddress:     hookTargetAddr.String(),
+	})
+
+	// Amount 1010: every chained TX always reverts with retryable error.
+	// The original TX retries with new chained TXs until its own retry threshold is exceeded.
+	// Extra time needed for multiple dispatch-revert-retry cycles.
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From(party.GetIdentity()).
+		To(originAddr).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + party.GetIdentity() + `",
+			"amount": "1010"
+		}`)).
+		Send().Wait(3 * transactionLatencyThreshold(t))
+	require.Error(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.False(t, tx.Receipt().Success)
+	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenRetryableError")
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	assert.False(t, txFull.Receipt.Success)
+	// Should have more than 1 chained transaction due to the retry before exceeding threshold
+	assert.Greater(t, len(txFull.ChainedPrivateTransactions), 1)
 }

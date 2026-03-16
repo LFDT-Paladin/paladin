@@ -55,8 +55,6 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 			dispatchedTransaction.Signer = *t.signerAddress
 			dispatchedTransaction.Nonce = t.nonce
 			dispatchedTransaction.LatestSubmissionHash = t.latestSubmissionHash
-		} else {
-			log.L(ctx).Warnf("Transaction %s has no signer address", t.pt.ID)
 		}
 		return nil, dispatchedTransaction, nil
 
@@ -74,8 +72,6 @@ func (t *coordinatorTransaction) GetSnapshot(ctx context.Context) (*common.Snaps
 		}
 		if t.signerAddress != nil {
 			confirmedTransaction.Signer = *t.signerAddress
-		} else {
-			log.L(ctx).Warnf("Transaction %s has no signer address", t.pt.ID)
 		}
 		return nil, nil, confirmedTransaction
 	}

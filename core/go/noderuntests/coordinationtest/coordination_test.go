@@ -1415,27 +1415,17 @@ func TestTransactionFailureWhenChainedTransactionAssembleReverts(t *testing.T) {
 		"Transaction did not receive a receipt",
 	)
 
-	// Alice's node also has the failure receipt for the chained transaction, which we can query by idempotency key
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", aliceTx.ID().String())
-	receiptLimit := 1
-	alicesChainedTransaction, err := alice.GetClient().PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
-	require.Len(t, alicesChainedTransaction, 1)
-	require.True(t, alicesChainedTransaction[0].Receipt.Success == false)
+	require.Len(t, aliceTxFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	alicesChainedTransaction, err := alice.GetClient().PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, alicesChainedTransaction.Receipt)
+	require.False(t, alicesChainedTransaction.Receipt.Success)
 }
 
 func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) {
@@ -1518,22 +1508,11 @@ func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) 
 	receiptLimit := 1
 	bobsChainedTransaction, err := bob.GetClient().PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
 		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(bobsTXIdempotencyKey),
-					},
-				},
-			},
-		},
 	})
 	require.NoError(t, err)
 	require.Len(t, bobsChainedTransaction, 1)
-	require.True(t, bobsChainedTransaction[0].Receipt.Success == false)
+	assert.Contains(t, bobsChainedTransaction[0].IdempotencyKey, bobsTXIdempotencyKey)
+	assert.True(t, bobsChainedTransaction[0].Receipt.Success == false)
 }
 
 func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.T) {

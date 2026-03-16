@@ -56,6 +56,11 @@ var simpleTokenBuild []byte // comes from Hardhat build
 // The simple domain can be used to test reverts but only once, then they need discarding for the next revert test
 var revertedOnce = make(map[string]bool)
 
+// Tracks the first chained TX ID per origin TX for chained retry testing (amounts 1008).
+// When the first chained TX fails and the original TX retries with a new chained TX, the
+// new chained TX (different ID) will succeed.
+var chainedTxFirstByOrigin = make(map[string]string)
+
 const (
 	SimpleDomainInsufficientFundsError = "SDE0001"
 )
@@ -1166,6 +1171,12 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					}
 
 					amount := params.Amount.BigInt()
+					// 1003: retryable error on first attempt, then succeed
+					// 1004: retryable error every time (will exceed retry threshold)
+					// 1005: non-retryable error (fails immediately)
+					// 1008: chained TX retryable revert - first chained TX always fails, second succeeds
+					// 1009: chained TX non-retryable revert - always fails
+					// 1010: chained TX retryable revert every time (will exceed original TX retry threshold)
 					if amount.Cmp(big.NewInt(1003)) == 0 {
 						if !revertedOnce[req.Transaction.TransactionId] {
 							revertedOnce[req.Transaction.TransactionId] = true
@@ -1175,6 +1186,17 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 						args["errorMode"] = big.NewInt(1) // retryable
 					} else if amount.Cmp(big.NewInt(1005)) == 0 {
 						args["errorMode"] = big.NewInt(2) // non-retryable
+					} else if amount.Cmp(big.NewInt(1008)) == 0 && params.OriginTxId != "" {
+						if chainedTxFirstByOrigin[params.OriginTxId] == "" {
+							chainedTxFirstByOrigin[params.OriginTxId] = req.Transaction.TransactionId
+						}
+						if chainedTxFirstByOrigin[params.OriginTxId] == req.Transaction.TransactionId {
+							args["errorMode"] = big.NewInt(1) // retryable
+						}
+					} else if amount.Cmp(big.NewInt(1009)) == 0 && params.OriginTxId != "" {
+						args["errorMode"] = big.NewInt(2) // non-retryable
+					} else if amount.Cmp(big.NewInt(1010)) == 0 && params.OriginTxId != "" {
+						args["errorMode"] = big.NewInt(1) // retryable - every chained TX always fails
 					}
 
 					transactionType := prototk.PreparedTransaction_PUBLIC

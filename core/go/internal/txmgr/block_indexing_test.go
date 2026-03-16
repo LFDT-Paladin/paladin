@@ -213,7 +213,7 @@ func TestPrivateConfirmMatchPrivateFailures(t *testing.T) {
 
 			mc.db.ExpectBegin()
 			mc.db.ExpectCommit()
-			mc.sequencerMgr.On("HandleTransactionFailed", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
 				return len(matches) == 1 &&
 					matches[0].TransactionID == txID2
 			})).Return(nil)
@@ -271,7 +271,7 @@ func TestPrivateConfirmMatchPrivateSuccessOverridesFailure(t *testing.T) {
 
 			mc.db.ExpectBegin()
 			mc.db.ExpectCommit()
-			mc.sequencerMgr.On("HandleTransactionFailed", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
 				return len(matches) == 1 &&
 					matches[0].TransactionID == txID2
 			})).Return(nil)
@@ -351,7 +351,7 @@ func TestPrivateConfirmError(t *testing.T) {
 						IndexedTransactionNotify: txi,
 					},
 				}, nil)
-			mc.sequencerMgr.On("HandleTransactionFailed", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -395,7 +395,7 @@ func TestConfirmInsertError(t *testing.T) {
 
 func TestPrivateConfirmSuccessOverridesFailure(t *testing.T) {
 	// Test that when a private transaction has both a failed and successful public submission,
-	// the successful one overrides the failure and HandleTransactionFailed is not called.
+	// the successful one overrides the failure and HandleDirectTransactionRevert is not called.
 
 	testABI := abi.ABI{
 		{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{}},
@@ -442,7 +442,7 @@ func TestPrivateConfirmSuccessOverridesFailure(t *testing.T) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectCommit()
 
-			// HandleTransactionFailed should NOT be called because the success overrides the failure
+			// HandleDirectTransactionRevert should NOT be called because the success overrides the failure
 			// The failed transaction should be removed from failedForPrivateTx list
 
 			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
@@ -459,6 +459,6 @@ func TestPrivateConfirmSuccessOverridesFailure(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify that HandleTransactionFailed was never called
+	// Verify that HandleDirectTransactionRevert was never called
 	// This is implicit - if it were called, the mock would have failed expectations
 }

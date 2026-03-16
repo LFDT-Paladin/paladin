@@ -17,7 +17,6 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -52,26 +51,7 @@ func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing
 	assert.Equal(t, 0, len(c.transactionsByID), "transaction should not be added when NewTransaction fails")
 }
 
-func Test_addToDelegatedTransactions_HasChainedTransactionError_ReturnsError(t *testing.T) {
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	expectedError := fmt.Errorf("database error checking chained transaction")
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, expectedError)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	transactionBuilder := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1)
-	txn := transactionBuilder.BuildSparse()
-
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "")
-
-	require.Error(t, err, "should return error when HasChainedTransaction fails")
-	assert.Equal(t, expectedError, err, "should return the same error from HasChainedTransaction")
-	assert.Equal(t, 0, len(c.transactionsByID), "when HasChainedTransaction fails, the transaction is not added to the map")
-}
-
-func Test_addToDelegatedTransactions_WithChainedTransaction_AddsTransactionInSubmittedState(t *testing.T) {
+func Test_addToDelegatedTransactions_AddsTransactionInPreDispatchFlowState(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -81,7 +61,6 @@ func Test_addToDelegatedTransactions_WithChainedTransaction_AddsTransactionInSub
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(true, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -93,14 +72,18 @@ func Test_addToDelegatedTransactions_WithChainedTransaction_AddsTransactionInSub
 
 	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "")
 
-	require.NoError(t, err, "should not return error when HasChainedTransaction returns true")
+	require.NoError(t, err, "should add delegated transaction")
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
 	coordinatedTxn := c.transactionsByID[txn.ID]
 	require.NotNil(t, coordinatedTxn, "transaction should exist in transactionsByID")
-	assert.Equal(t, transaction.State_Dispatched, coordinatedTxn.GetCurrentState(), "transaction should be in State_Dispatched when chained transaction is found")
+	assert.Contains(t, []transaction.State{
+		transaction.State_Pooled,
+		transaction.State_PreAssembly_Blocked,
+		transaction.State_Assembling,
+	}, coordinatedTxn.GetCurrentState(), "transaction should start in pre-dispatch flow states")
 }
 
-func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionInPooledState(t *testing.T) {
+func Test_addToDelegatedTransactions_AddsTransactionInPooledFlowState(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -110,7 +93,6 @@ func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionIn
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -122,19 +104,18 @@ func Test_addToDelegatedTransactions_WithoutChainedTransaction_AddsTransactionIn
 
 	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "")
 
-	require.NoError(t, err, "should not return error when HasChainedTransaction returns false")
+	require.NoError(t, err, "should add delegated transaction")
 	require.Equal(t, 1, len(c.transactionsByID), "transaction should be added to transactionsByID")
 	coordinatedTxn := c.transactionsByID[txn.ID]
 	require.NotNil(t, coordinatedTxn, "transaction should exist in transactionsByID")
-	assert.NotEqual(t, transaction.State_Dispatched, coordinatedTxn.GetCurrentState(), "transaction should NOT be in State_Dispatched when chained transaction is not found")
-	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked, transaction.State_Assembling}, coordinatedTxn.GetCurrentState(), "transaction should be in Pooled, PreAssembly_Blocked, or Assembling state when chained transaction is not found")
+	assert.NotEqual(t, transaction.State_Dispatched, coordinatedTxn.GetCurrentState(), "transaction should not start in State_Dispatched")
+	assert.Contains(t, []transaction.State{transaction.State_Pooled, transaction.State_PreAssembly_Blocked, transaction.State_Assembling}, coordinatedTxn.GetCurrentState(), "transaction should be in pooled flow states")
 }
 
 func Test_addToDelegatedTransactions_DuplicateTransaction_SkipsAndReturnsNoError(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	mockDomain := componentsmocks.NewDomain(t)
 	mockDomain.On("FixedSigningIdentity").Return("")
 	builder.GetDomainAPI().On("Domain").Return(mockDomain)
@@ -308,7 +289,6 @@ func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *test
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	c, _, done := builder.Build(ctx)
 	defer done()
 

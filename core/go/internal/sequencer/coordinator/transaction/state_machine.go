@@ -57,8 +57,10 @@ const (
 	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
-	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch                                                        // another transaction, for which this transaction has a dependency on, has been assembled
-	Event_DependencyRepooled                                                                   // another transaction, for which this transaction has a dependency on, has been put back in the pool
+	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
+	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
+	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
+	Event_DependencyReset                                                                      // another transaction, for which this transaction has a dependency on, has been reset
 	Event_DependencyConfirmedReverted                                                          // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
 	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
@@ -87,53 +89,11 @@ type (
 	StateMachine     = statemachine.StateMachine[State, *coordinatorTransaction]
 )
 
-// We handle a confirmed event in every state so that work can stop if we've been confirmed on the base ledger.
-// (Either as success or as failure that shouldn't be retried), If we see a confirmation in a pre-dispatch state
-// it usually means that
-// - we have restarted since submission and lost inflight transactions from memory
-// - we have already optimistically repooled this transaction ahead of our own revert following a dependency reverting
-// In both cases, if the confirmation is a revert there is no need for a state transition provided the error is retriable
-// since we are already in the process of preparing the next dispatch
-
-var confirmedSuccessHandler = EventHandler{
-	Actions: []ActionRule{
-		{Action: action_RecordConfirmation},
-		{Action: action_NotifyOriginatorOfConfirmation},
-	},
-	Transitions: []Transition{{To: State_Confirmed}},
-}
-
-var confirmedRevertedHandler = EventHandler{
-	Actions: []ActionRule{
-		{
-			Action: action_RecordConfirmation,
-		},
-		{
-			Action: action_NotifyOriginatorOfRetryableRevert,
-			If:     guard_CanRetryRevert,
-		},
-		{
-			Action: action_NotifyOriginatorOfNonRetryableRevert,
-			If:     statemachine.GuardNot(guard_CanRetryRevert),
-		},
-	},
-	Transitions: []Transition{
-		{
-			If: statemachine.GuardNot(guard_CanRetryRevert),
-			To: State_Confirmed,
-		},
-	},
-}
-
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
 		Events: map[EventType]EventHandler{
 			Event_Delegated: {
 				Transitions: []Transition{
-					{
-						To: State_Dispatched,
-						If: guard_HasChainedTxInProgress,
-					},
 					{
 						To: State_PreAssembly_Blocked,
 						If: guard_HasUnassembledDependencies,
@@ -146,8 +106,6 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_NewPreAssembleDependency: {
 				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_PreAssembly_Blocked: {
@@ -162,13 +120,11 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Pooled: {
 		OnTransitionTo: []ActionRule{
-			{Action: action_NotifyDependentsOfRepool},
+			{Action: action_NotifyDependentsOfReset},
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandler{
@@ -187,8 +143,6 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Assembling,
 					}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Assembling: {
@@ -264,8 +218,6 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
 				}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Endorsement_Gathering: {
@@ -317,7 +269,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyRepooled: {
+			Event_DependencyReset: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -327,8 +279,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Blocked: {
@@ -344,7 +294,7 @@ var stateDefinitionsMap = StateDefinitions{
 					If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
 				}},
 			},
-			Event_DependencyRepooled: {
+			Event_DependencyReset: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -354,8 +304,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Confirming_Dispatchable: {
@@ -394,7 +342,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyRepooled: {
+			Event_DependencyReset: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -404,9 +352,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Ready_For_Dispatch: {
@@ -427,7 +372,7 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_DependencyRepooled: {
+			Event_DependencyReset: {
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
@@ -437,11 +382,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
-			// We handle a confirmed event in every state so that work can stop if we've been confirmed on the base ledger.
-			// In this state if we've reverted we've likely rolled back because a dependency reverted earlier,
-			// so we don't do anything else other than tell the originator.
-			Event_ConfirmedSuccess:  confirmedSuccessHandler,
-			Event_ConfirmedReverted: confirmedRevertedHandler,
 		},
 	},
 	State_Dispatched: {
@@ -458,45 +398,57 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Submitted: {
 				Actions: []ActionRule{{Action: action_NotifySubmitted}},
 			},
-			Event_ConfirmedSuccess: confirmedSuccessHandler,
+			Event_ConfirmedSuccess: {
+				Actions: []ActionRule{
+					{Action: action_RecordConfirmation},
+					{Action: action_NotifyOriginatorOfConfirmation},
+					{Action: action_NotifyDependantsOfSuccessfulConfirmation},
+				},
+				Transitions: []Transition{{To: State_Confirmed}},
+			},
 			Event_ConfirmedReverted: {
 				Actions: []ActionRule{
 					{
 						Action: action_RecordConfirmation,
-					},
-					{
-						Action: action_NotifyOriginatorOfRetryableRevert,
-						If:     guard_CanRetryRevert,
-					},
-					{
-						Action: action_NotifyOriginatorOfNonRetryableRevert,
-						If:     statemachine.GuardNot(guard_CanRetryRevert),
 					},
 				},
 				Transitions: []Transition{
 					{
 						If: guard_CanRetryRevert,
 						To: State_Pooled,
+						Actions: []ActionRule{
+							{Action: action_NotifyOriginatorOfRetryableRevert},
+						},
 					},
 					{
 						If: statemachine.GuardNot(guard_CanRetryRevert),
-						To: State_Confirmed,
+						To: State_Reverted,
+						Actions: []ActionRule{
+							{Action: action_NotifyOriginatorOfNonRetryableRevert},
+							{Action: action_NotifyDependantsOfRevertedConfirmation},
+							{Action: action_FinalizeNonRetryableRevert},
+						},
 					},
 				},
 			},
-			Event_DependencyRepooled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
+			Event_DependencyReset: {
+				Actions: []ActionRule{
+					{Action: action_ResetTransactionLocks},
+					{Action: action_NotifyDependentsOfReset},
+				},
 			},
 			Event_DependencyConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-				}},
+				Actions: []ActionRule{
+					{Action: action_ResetTransactionLocks},
+					{Action: action_NotifyDependentsOfReset},
+				},
 			},
 		},
 	},
 	State_Reverted: {
+		OnTransitionTo: []ActionRule{
+			{Action: action_ResetTransactionLocks},
+		},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
@@ -509,20 +461,6 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirmed: {
-		OnTransitionTo: []ActionRule{
-			{
-				Action: action_NotifyDependantsOfSuccessfulConfirmation,
-				If:     statemachine.GuardNot(guard_HasRevertReason),
-			},
-			{
-				Action: action_NotifyDependantsOfRevertedConfirmation,
-				If:     guard_HasRevertReason,
-			},
-			{
-				Action: action_FinalizeNonRetryableRevert,
-				If:     guard_HasRevertReason,
-			},
-		},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{

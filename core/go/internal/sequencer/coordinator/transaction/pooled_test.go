@@ -27,6 +27,65 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Test_action_ResetTransactionLocks(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+	err := action_ResetTransactionLocks(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	// Create the dependency transaction first and add it to grapher
+	dependencyID := uuid.New()
+	dependencyTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		TransactionID(dependencyID).
+		Build()
+
+	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(dependencyID).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreparedPublicTransaction(&pldapi.TransactionInput{}).
+		Build()
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	// Verify PreAssembly exists
+	require.NotNil(t, txn.pt.PreAssembly)
+	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
+	require.Len(t, txn.pt.PreAssembly.Dependencies.DependsOn, 1)
+	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
+
+	// Call action_InitializeForNewAssembly
+	err := action_InitializeForNewAssembly(ctx, txn, nil)
+	require.NoError(t, err)
+
+	// Verify that the dependency transaction has been updated with this transaction as a dependent
+	require.NotNil(t, dependencyTxn.pt.PreAssembly.Dependencies)
+	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
+	require.Nil(t, txn.pt.PreparedPublicTransaction)
+	require.Nil(t, txn.pt.PreparedPrivateTransaction)
+}
+
+func Test_action_InitializeForNewAssembly_NoPreAssembly(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+
+	// Remove PreAssembly to test error case
+	txn.pt.PreAssembly = nil
+
+	// Call action_InitializeForNewAssembly - should return error
+	err := action_InitializeForNewAssembly(ctx, txn, nil)
+	assert.Error(t, err)
+}
+
 func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
 	ctx := context.Background()
 
@@ -96,21 +155,7 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
-func Test_guard_HasChainedTxInProgress(t *testing.T) {
-	ctx := context.Background()
-
-	// Test 1: Initially false (hasChainedTransaction=false passed to NewTransaction via test utils)
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	assert.False(t, guard_HasChainedTxInProgress(ctx, txn1))
-
-	// Test 2: When chainedTxAlreadyDispatched is true
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		ChainedTxAlreadyDispatched(true).
-		Build()
-	assert.True(t, guard_HasChainedTxInProgress(ctx, txn2))
-}
-
-func Test_action_NotifyDependentsOfRepool_WithDependents(t *testing.T) {
+func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -134,20 +179,20 @@ func Test_action_NotifyDependentsOfRepool_WithDependents(t *testing.T) {
 		Build()
 
 	// Call action_InitializeForNewAssembly - should re-pool dependents
-	err := action_NotifyDependentsOfRepool(ctx, mainTxn, nil)
+	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.NoError(t, err)
 
 	// Verify the dependent transaction received the event
 	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.GetCurrentState())
 }
 
-func Test_action_NotifyDependentsOfRepool_InitialTransitionHasNoDependents(t *testing.T) {
+func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	err := action_NotifyDependentsOfRepool(ctx, txn, nil)
+	err := action_NotifyDependentsOfReset(ctx, txn, nil)
 	require.NoError(t, err)
 }
 
@@ -160,7 +205,7 @@ func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	err := txn.notifyDependentsOfRepool(ctx)
+	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
 }
 
@@ -181,7 +226,7 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	err := txn.notifyDependentsOfRepool(ctx)
+	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
 }
 
@@ -196,7 +241,7 @@ func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	err := txn.notifyDependentsOfRepool(ctx)
+	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
 }
 
@@ -332,8 +377,12 @@ func Test_notifyDependentsOfRepool_HandleEventReturnsError(t *testing.T) {
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	// Call notifyDependentsOfRepool - should return the error from HandleEvent
-	err := txn.notifyDependentsOfRepool(ctx)
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
+	// txn2.stateMachine.CurrentState = State_Blocked
+	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
+
+	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
+	err := txn1.notifyDependentsOfReset(ctx)
+	assert.Error(t, err)
+	// Verify the error is returned (the error will be from action_initializeDependencies failing)
+	assert.NotNil(t, err)
 }

@@ -52,26 +52,38 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	return nil
 }
 
-func guard_HasUnassembledDependencies(_ context.Context, txn *coordinatorTransaction) bool {
-	return txn.hasDependenciesNotAssembled()
+
+func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
+	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
+	// later assembles binding to stale minters that have already been reset/reverted.
+	txn.grapher.ForgetMints(txn.pt.ID)
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	return nil
 }
 
-func guard_HasChainedTxInProgress(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.chainedTxAlreadyDispatched
+func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.hasDependenciesNotAssembled(ctx)
 }
 
-func action_NotifyDependentsOfRepool(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	// We emit a DependencyRepooledEvent whenever we transition to pooled. For the initial transition
+func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	// We emit a DependencyResetEvent whenever we transition to pooled. For the initial transition
 	// from State_Initial to State_Pooled and the transition from State_Assembling to State_Pooled
 	// we do not expect any dependents yet, so this is a no-op.
-	return txn.notifyDependentsOfRepool(ctx)
+	if err := txn.notifyDependentsOfReset(ctx); err != nil {
+		return err
+	}
+	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
+	// events while dispatched are no-ops and stale dependency links are dropped.
+	txn.dependencies = &pldapi.TransactionDependencies{}
+	return nil
 }
 
-func (t *coordinatorTransaction) notifyDependentsOfRepool(ctx context.Context) error {
+func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
 	for _, dependentID := range t.dependencies.PrereqOf {
 		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
 		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyRepooledEvent{
+			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},

@@ -1753,3 +1753,4 @@ func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
 	// Should only have 1 public transaction since it failed immediately without retry
 	assert.Len(t, txFull.Public, 1)
 }
+

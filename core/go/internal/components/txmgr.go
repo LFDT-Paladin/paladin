@@ -147,6 +147,5 @@ type TXManager interface {
 	PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, txToChain *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (*ChainedPrivateTransaction, error)
 	ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ChainedPrivateTransaction) error
 	WritePreparedTransactions(ctx context.Context, dbTX persistence.DBTX, prepared []*PreparedTransactionWithRefs) error
-	HasChainedTransaction(ctx context.Context, txID uuid.UUID) (bool, error)
 	BlockedByDependencies(ctx context.Context, dbTX persistence.DBTX, tx *ValidatedTransaction) (bool, error)
 }
