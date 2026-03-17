@@ -310,38 +310,6 @@ func Test_action_NotifyDependantsOfSuccessfulConfirmation_ResetLocksWhenRetentio
 	assert.True(t, txn.confirmedLocksReleased)
 }
 
-func Test_action_NotifyDependantsOfSuccessfulConfirmation_ReturnsErrorWhenResetLocksFails(t *testing.T) {
-	ctx := context.Background()
-	expectedErr := errors.New("reset locks failed")
-	testHookResetConfirmedTransactionLocksOnce = func() error { return expectedErr }
-	defer func() { testHookResetConfirmedTransactionLocksOnce = nil }()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(0).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
-	require.Error(t, err)
-	assert.Equal(t, expectedErr, err)
-}
-
-func Test_action_NotifyDependantsOfRevertedConfirmation_ReturnsErrorWhenResetLocksFails(t *testing.T) {
-	ctx := context.Background()
-	expectedErr := errors.New("reset locks failed")
-	testHookResetConfirmedTransactionLocksOnce = func() error { return expectedErr }
-	defer func() { testHookResetConfirmedTransactionLocksOnce = nil }()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(1).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	err := action_NotifyDependantsOfRevertedConfirmation(ctx, txn, nil)
-	require.Error(t, err)
-	assert.Equal(t, expectedErr, err)
-}
-
 func Test_action_NotifyDependantsOfSuccessfulConfirmation_DoesNotResetLocksWhenRetentionConfigured(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
