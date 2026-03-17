@@ -311,7 +311,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 	inputIDs := make([]any, 0, len(ids))
 	for _, input := range ids {
 		if !input.NilOrZero() {
-			inputIDs = append(inputIDs, input.String())
+			inputIDs = append(inputIDs, common.HexUint256To32ByteHexString(input))
 		}
 	}
 
