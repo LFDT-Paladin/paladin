@@ -315,7 +315,6 @@ func Test_addToDelegatedTransactions_HandleEventError_ContinuesAndReturnsNoError
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -341,7 +340,6 @@ func Test_addToDelegatedTransactions_SendDelegationRequestAcknowledgmentError_Re
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -484,7 +482,6 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_Estab
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -517,7 +514,6 @@ func Test_addToDelegatedTransactions_PreviousTransactionHandleEventReturnsError(
 	ctx := context.Background()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -557,7 +553,6 @@ func Test_addToDelegatedTransactions_PreviousTransactionNotInPreAssemblyState_No
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	})
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(false, nil)
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1)
 	builder.OverrideSequencerConfig(config)
@@ -582,81 +577,4 @@ func Test_addToDelegatedTransactions_PreviousTransactionNotInPreAssemblyState_No
 	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{existingTxn, newTxn}, "")
 
 	require.NoError(t, err)
-}
-
-func Test_addToDelegatedTransactions_HandleEventError_CapturesFirstError(t *testing.T) {
-	// Tests lines 167-171: when HandleEvent returns an error, it's captured in newTxnError
-	// and the function eventually returns it
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	mockDomain := componentsmocks.NewDomain(t)
-	mockDomain.On("FixedSigningIdentity").Return("")
-	builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	// Return true for hasChainedTransaction - this causes transition to State_Dispatched
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(true, nil)
-	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(-1)
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set up mock transport writer that returns an error from SendDispatched
-	// (called by action_NotifyDispatched when transitioning to State_Dispatched)
-	mockTransport := transport.NewMockTransportWriter(t)
-	expectedError := fmt.Errorf("send dispatched error")
-	mockTransport.On("SendDispatched", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(expectedError)
-	mockTransport.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockTransport.On("WaitForDone", mock.Anything).Return().Maybe()
-	c.transportWriter = mockTransport
-
-	txn := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
-
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn}, "delegation-1")
-
-	// The error from HandleEvent should be returned
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
-}
-
-func Test_addToDelegatedTransactions_HandleEventError_CapturesOnlyFirstError(t *testing.T) {
-	// Tests that when multiple transactions fail HandleEvent, only the first error is captured
-	ctx := context.Background()
-	originator := "sender@senderNode"
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	mockDomain := componentsmocks.NewDomain(t)
-	mockDomain.On("FixedSigningIdentity").Return("")
-	builder.GetDomainAPI().On("Domain").Return(mockDomain)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
-	})
-	// Return true for hasChainedTransaction - this causes transition to State_Dispatched
-	builder.GetTXManager().On("HasChainedTransaction", mock.Anything, mock.Anything).Return(true, nil)
-	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(-1)
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	// Set up mock transport writer that returns different errors for each call
-	mockTransport := transport.NewMockTransportWriter(t)
-	firstError := fmt.Errorf("first error")
-	secondError := fmt.Errorf("second error")
-	mockTransport.On("SendDispatched", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(firstError).Once()
-	mockTransport.On("SendDispatched", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(secondError).Once()
-	mockTransport.On("SendDelegationRequestAcknowledgment", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockTransport.On("WaitForDone", mock.Anything).Return().Maybe()
-	c.transportWriter = mockTransport
-
-	txn1 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
-	txn2 := testutil.NewPrivateTransactionBuilderForTesting().Address(builder.GetContractAddress()).Originator(originator).NumberOfRequiredEndorsers(1).BuildSparse()
-
-	err := c.addToDelegatedTransactions(ctx, originator, []*components.PrivateTransaction{txn1, txn2}, "delegation-1")
-
-	// Only the first error should be returned (lines 168-169 check if newTxnError == nil)
-	require.Error(t, err)
-	assert.Equal(t, firstError, err)
 }

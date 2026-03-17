@@ -637,7 +637,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	txn := newTransaction(
+	txn, err := newTransaction(
 		ctx,
 		b.originator,
 		b.nodeName,

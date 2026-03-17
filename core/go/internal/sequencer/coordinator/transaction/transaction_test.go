@@ -21,12 +21,14 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -219,11 +221,9 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
-	txn := newTransaction(
+	txn, err := newTransaction(
 		ctx,
 		"sender@node1",
-		"node1",
-		false,
 		"node1",
 		pt,
 		"coordinator-signer",
@@ -245,9 +245,91 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		NewGrapher(ctx),
 		nil,
 	)
+	require.NoError(t, err)
 	require.NotNil(t, txn)
 	assert.Equal(t, pt.ID, txn.GetID())
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
+func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
+	ctx := context.Background()
+	pt := &components.PrivateTransaction{ID: uuid.New()}
+	allComponents := componentsmocks.NewAllComponents(t)
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	clock := common.NewMockClock(t)
+
+	domainAPI.EXPECT().Domain().Return(domain)
+	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
+	domainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{
+		SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR,
+	})
+	clock.EXPECT().Now().Return(time.Now())
+
+	txn, err := NewTransaction(
+		ctx,
+		"sender@node1",
+		"node1",
+		pt,
+		"coordinator-signer",
+		nil,
+		transport.NewMockTransportWriter(t),
+		clock,
+		func(ctx context.Context, event common.Event) {},
+		common.NewMockEngineIntegration(t),
+		&syncpoints.MockSyncPoints{},
+		allComponents,
+		domainAPI,
+		nil,
+		time.Duration(1000),
+		time.Duration(5000),
+		5,
+		0,
+		3,
+		3,
+		NewGrapher(ctx),
+		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, txn)
+	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
+func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	pt := &components.PrivateTransaction{ID: uuid.New()}
+	allComponents := componentsmocks.NewAllComponents(t)
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	clock := common.NewMockClock(t)
+
+	// "sender" has no @ so with allowEmptyNode false, Validate returns an error
+	txn, err := newTransaction(
+		ctx,
+		"sender",
+		"node1",
+		pt,
+		"coordinator-signer",
+		nil,
+		transport.NewMockTransportWriter(t),
+		clock,
+		func(ctx context.Context, event common.Event) {},
+		common.NewMockEngineIntegration(t),
+		&syncpoints.MockSyncPoints{},
+		allComponents,
+		domainAPI,
+		nil,
+		time.Duration(1000),
+		time.Duration(5000),
+		5,
+		0,
+		3,
+		3,
+		NewGrapher(ctx),
+		nil,
+	)
+	require.Error(t, err)
+	require.Nil(t, txn)
 }
 
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {

@@ -128,7 +128,7 @@ func NewTransaction(ctx context.Context,
 	assembleErrorRetryThreshhold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) CoordinatorTransaction {
+) (CoordinatorTransaction, error) {
 	return newTransaction(
 		ctx,
 		originator,
@@ -178,13 +178,13 @@ func newTransaction(
 	assembleErrorRetryThreshhold int,
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
-) *coordinatorTransaction {
+) (*coordinatorTransaction, error) {
 	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
 
 	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(txCtx, "", false)
 	if err != nil {
 		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
-		return nil
+		return nil, err
 	}
 
 	txn := &coordinatorTransaction{
@@ -216,7 +216,7 @@ func newTransaction(
 	}
 	txn.initializeStateMachine(State_Initial)
 	grapher.Add(txCtx, txn)
-	return txn
+	return txn, nil
 }
 
 // This function is external but doesn't not need a lock as ints are atomic

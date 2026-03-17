@@ -34,6 +34,8 @@ type DelegationAcknowledgementError int64
 const (
 	DelegationAcknowledgementError_None DelegationAcknowledgementError = iota
 	DelegationAcknowledgementError_MaxInflightTransactions
+	DelegationAcknowledgementError_CoordinatorError
+	DelegationAcknowledgementError_PreviousTransactionError
 )
 
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
@@ -55,11 +57,17 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	rejectedMaxInFlight := 0
 	acceptedTransactions := 0
 	inProgressTransactions := 0
-	var newTxnError error
+	var txnHandlingError error
 
 	for i, txn := range transactions {
 		// Acknowledge every delegation
 		delegateAcknowledgementIDs = append(delegateAcknowledgementIDs, txn.ID.String())
+
+		// Any previous errors, don't handle this TX
+		if txnHandlingError != nil {
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_PreviousTransactionError)
+			continue
+		}
 
 		// store the transaction if it already exists, so if the next transaction is new we can establish the dependency via an event
 		if c.transactionsByID[txn.ID] != nil {
@@ -73,6 +81,9 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			rejectedMaxInFlight++
 			log.L(ctx).Tracef("transaction %s being rejected - reached max in-flight limit", txn.ID.String())
 			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_MaxInflightTransactions)
+			// Since all subsequent transactions will be rejected for the same reason, go through them all recording
+			// an error for the delegation acknowledgement response. The originator may choose to do nothing but log
+			// and retry later.
 			continue
 		}
 
@@ -110,12 +121,14 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 					PrereqTransactionID: transactions[i-1].ID,
 				})
 				if err != nil {
-					return err
+					txnHandlingError = err
+					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+					continue
 				}
 			}
 		}
 
-		newTransaction := transaction.NewTransaction(
+		newTransaction, err := transaction.NewTransaction(
 			ctx,
 			originator,
 			c.nodeName,
@@ -140,6 +153,13 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			c.metrics,
 		)
 
+		if err != nil {
+			txnHandlingError = err
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+			// All subsequent transactions will be skipped
+			continue
+		}
+
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
 		acceptedTransactions++
@@ -147,11 +167,11 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		receivedEvent := &transaction.DelegatedEvent{}
 		receivedEvent.TransactionID = txn.ID
 
-		err := newTransaction.HandleEvent(ctx, receivedEvent)
+		err = newTransaction.HandleEvent(ctx, receivedEvent)
 		if err != nil {
-			if newTxnError == nil {
-				newTxnError = err
-			}
+			txnHandlingError = err
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+			// All subsequent transactions will be skipped
 			continue
 		}
 		previousTransaction = newTransaction
@@ -168,9 +188,9 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 		return err
 	}
 
-	if newTxnError != nil {
-		// Return the first TX create error
-		return newTxnError
+	if txnHandlingError != nil {
+		// Return the first TX creation or handling error
+		return txnHandlingError
 	}
 	return nil
 }

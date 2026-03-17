@@ -310,6 +310,38 @@ func Test_action_NotifyDependantsOfSuccessfulConfirmation_ResetLocksWhenRetentio
 	assert.True(t, txn.confirmedLocksReleased)
 }
 
+func Test_action_NotifyDependantsOfSuccessfulConfirmation_ReturnsErrorWhenResetLocksFails(t *testing.T) {
+	ctx := context.Background()
+	expectedErr := errors.New("reset locks failed")
+	testHookResetConfirmedTransactionLocksOnce = func() error { return expectedErr }
+	defer func() { testHookResetConfirmedTransactionLocksOnce = nil }()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ConfirmedLockRetentionGracePeriod(0).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+
+	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+}
+
+func Test_action_NotifyDependantsOfRevertedConfirmation_ReturnsErrorWhenResetLocksFails(t *testing.T) {
+	ctx := context.Background()
+	expectedErr := errors.New("reset locks failed")
+	testHookResetConfirmedTransactionLocksOnce = func() error { return expectedErr }
+	defer func() { testHookResetConfirmedTransactionLocksOnce = nil }()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ConfirmedLockRetentionGracePeriod(1).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+
+	err := action_NotifyDependantsOfRevertedConfirmation(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+}
+
 func Test_action_NotifyDependantsOfSuccessfulConfirmation_DoesNotResetLocksWhenRetentionConfigured(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
@@ -580,6 +612,59 @@ func Test_action_FinalizeNonRetryableRevert(t *testing.T) {
 
 	err := action_FinalizeNonRetryableRevert(ctx, txn, nil)
 	require.NoError(t, err)
+}
+
+func Test_action_FinalizeNonRetryableRevert_OnCommitCallback(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		RevertCount(2).
+		RevertReason(pldtypes.MustParseHexBytes("0xdeadbeef")).
+		Build()
+
+	onCommitCalled := false
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.Domain == txn.pt.Domain &&
+				req.Originator == txn.originator &&
+				req.TransactionID == txn.pt.ID
+		}),
+		mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, _ *syncpoints.TransactionFinalizeRequest, onCommit func(context.Context), _ func(context.Context, error)) {
+		onCommit(ctx)
+		onCommitCalled = true
+	}).Return()
+
+	err := action_FinalizeNonRetryableRevert(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, onCommitCalled, "onCommit callback should have been invoked")
+}
+
+func Test_action_FinalizeNonRetryableRevert_OnRollbackCallback(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		RevertCount(2).
+		RevertReason(pldtypes.MustParseHexBytes("0xdeadbeef")).
+		Build()
+
+	rollbackErr := errors.New("finalize failed")
+	onRollbackCalled := false
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.Domain == txn.pt.Domain &&
+				req.Originator == txn.originator &&
+				req.TransactionID == txn.pt.ID
+		}),
+		mock.Anything, mock.Anything,
+	).Run(func(_ context.Context, _ *syncpoints.TransactionFinalizeRequest, _ func(context.Context), onRollback func(context.Context, error)) {
+		onRollback(ctx, rollbackErr)
+		onRollbackCalled = true
+	}).Return()
+
+	err := action_FinalizeNonRetryableRevert(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, onRollbackCalled, "onRollback callback should have been invoked")
 }
 
 func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *testing.T) {

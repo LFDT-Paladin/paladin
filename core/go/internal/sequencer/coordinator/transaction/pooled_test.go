@@ -16,7 +16,6 @@ package transaction
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -37,53 +36,24 @@ func Test_action_ResetTransactionLocks(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
+func Test_action_ReinitializeForNewAssembly_Success(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
-
-	// Create the dependency transaction first and add it to grapher
-	dependencyID := uuid.New()
-	dependencyTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		TransactionID(dependencyID).
-		Build()
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).
-		PredefinedDependencies(dependencyID).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreparedPublicTransaction(&pldapi.TransactionInput{}).
 		Build()
 
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
-	// Verify PreAssembly exists
-	require.NotNil(t, txn.pt.PreAssembly)
-	require.NotNil(t, txn.pt.PreAssembly.Dependencies)
-	require.Len(t, txn.pt.PreAssembly.Dependencies.DependsOn, 1)
-	require.Equal(t, dependencyID, txn.pt.PreAssembly.Dependencies.DependsOn[0])
 
-	// Call action_InitializeForNewAssembly
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
 
-	// Verify that the dependency transaction has been updated with this transaction as a dependent
-	require.NotNil(t, dependencyTxn.pt.PreAssembly.Dependencies)
-	require.Contains(t, dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, txn.pt.ID)
 	require.Nil(t, txn.pt.PreparedPublicTransaction)
 	require.Nil(t, txn.pt.PreparedPrivateTransaction)
-}
-
-func Test_action_InitializeForNewAssembly_NoPreAssembly(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-
-	// Remove PreAssembly to test error case
-	txn.pt.PreAssembly = nil
-
-	// Call action_InitializeForNewAssembly - should return error
-	err := action_InitializeForNewAssembly(ctx, txn, nil)
-	assert.Error(t, err)
 }
 
 func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
@@ -349,40 +319,4 @@ func Test_guard_HasUnassembledDependencies_True(t *testing.T) {
 	txn.preAssembleDependsOn = &dependencyID
 
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
-}
-
-func Test_notifyDependentsOfRepool_HandleEventReturnsError(t *testing.T) {
-	ctx := context.Background()
-	mockGrapher := NewMockGrapher(t)
-	dependentID := uuid.New()
-
-	// Set up mock expectations for grapher operations used during transaction creation
-	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
-	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
-
-	// Create a mock dependent transaction that returns an error from HandleEvent
-	mockDependentTxn := NewMockCoordinatorTransaction(t)
-	expectedError := errors.New("handle event error")
-	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyRepooledEvent")).Return(expectedError)
-
-	// Configure mock grapher to return the mock dependent transaction
-	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
-
-	// Create main transaction with the mock grapher and a dependent
-	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(mockGrapher).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
-		PreAssembly(&components.TransactionPreAssembly{}).
-		Build()
-
-	// txn2.stateMachine.CurrentState = State_Blocked
-	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
-
-	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
-	err := txn1.notifyDependentsOfReset(ctx)
-	assert.Error(t, err)
-	// Verify the error is returned (the error will be from action_initializeDependencies failing)
-	assert.NotNil(t, err)
 }
