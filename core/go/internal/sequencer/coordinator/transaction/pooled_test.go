@@ -430,7 +430,7 @@ func Test_notifyDependentsOfRepool_WithDependent_HandleEventError(t *testing.T) 
 	// txn2.stateMachine.CurrentState = State_Blocked
 	txn2.pt.PreAssembly = nil // This will cause action_initializeDependencies to fail when transitioning to State_Pooled
 
-	// Call notifyDependentsOfRevert - it should return the error from HandleEvent
+	// Call notifyDependentsOfReset - it should return the error from HandleEvent
 	err := txn1.notifyDependentsOfReset(ctx)
 	assert.Error(t, err)
 	// Verify the error is returned (the error will be from action_initializeDependencies failing)
