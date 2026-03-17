@@ -17,6 +17,7 @@ package noto
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -31,6 +32,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func decodeFnParams[T any](t *testing.T, abiFn *abi.Entry, paramsJSONStr string) *T {
+	cv, err := abiFn.Inputs.ParseJSON([]byte(paramsJSONStr))
+	require.NoError(t, err)
+	var v T
+	reEncodedParamsJSON, err := cv.JSON()
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
+
+func decodeSingleABITuple[T any](t *testing.T, typeList abi.ParameterArray, paramsEncoded pldtypes.HexBytes) *T {
+	cv, err := typeList.DecodeABIData([]byte(paramsEncoded), 0)
+	require.NoError(t, err)
+	require.Len(t, cv.Children, 1)
+	var v T
+	serializer := abi.NewSerializer().
+		SetFormattingMode(abi.FormatAsObjects).
+		SetByteSerializer(abi.HexByteSerializer0xPrefix)
+	reEncodedParamsJSON, err := serializer.SerializeJSON(cv.Children[0])
+	require.NoError(t, err)
+	err = json.Unmarshal(reEncodedParamsJSON, &v)
+	require.NoError(t, err)
+	return &v
+}
 
 var encodedConfig = func(data *types.NotoConfigData_V0) []byte {
 	dataJSON, err := json.Marshal(data)
@@ -85,7 +112,7 @@ func TestABIParseFailure(t *testing.T) {
 func TestNotoDomainInit(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	configureRes, err := n.ConfigureDomain(ctx, &prototk.ConfigureDomainRequest{
 		Name:       "noto",
@@ -119,7 +146,7 @@ func TestNotoDomainInit(t *testing.T) {
 func TestNotoDomainDeployDefaults(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -176,7 +203,7 @@ func TestNotoDomainDeployDefaults(t *testing.T) {
 func TestNotoDomainDeployBasicConfig(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	deployTransaction := &prototk.DeployTransactionSpecification{
 		TransactionId: "tx1",
@@ -240,7 +267,7 @@ func TestNotoDomainDeployBasicConfig(t *testing.T) {
 func TestNotoDomainDeployHooksConfig(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	groupSalt := pldtypes.RandBytes32()
 	deployTransaction := &prototk.DeployTransactionSpecification{
@@ -619,7 +646,7 @@ func TestInitTransactionBadParams(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "!!wrong",
 		},
 	})
@@ -635,7 +662,7 @@ func TestInitTransactionMissingTo(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: "{}",
 		},
 	})
@@ -651,7 +678,7 @@ func TestInitTransactionMissingAmount(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient"}`,
 		},
 	})
@@ -667,11 +694,130 @@ func TestInitTransactionBadSignature(t *testing.T) {
 				ContractConfigJson: `{"notaryLookup":"notary"}`,
 				ContractAddress:    pldtypes.RandAddress().String(),
 			},
-			FunctionAbiJson:    `{"name": "transfer"}`,
+			FunctionAbiJson:    string(pldtypes.JSONString(types.NotoABI.Functions()["transfer"])),
 			FunctionParamsJson: `{"to": "recipient", "amount": 1}`,
 		},
 	})
 	assert.ErrorContains(t, err, "PD200002")
+}
+
+func TestIsBaseLedgerRevertRetryable_ShortData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{0x01, 0x02},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_EmptyData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: []byte{},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_NilData(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: nil,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Empty(t, res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_RetryableError_NotoInvalidInput(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoInvalidInput"]
+	require.NotNil(t, errorEntry)
+	idBytes := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"id": "%s"}`, idBytes)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoInvalidInput")
+	assert.Contains(t, res.DecodedReason, idBytes.String())
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_NotNotary(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoNotNotary"]
+	require.NotNil(t, errorEntry)
+	addr := pldtypes.RandAddress()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"sender": "%s"}`, addr)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoNotNotary")
+}
+
+func TestIsBaseLedgerRevertRetryable_NonRetryableError_DuplicateTransaction(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	errorEntry := errorsBuild.ABI.Errors()["NotoDuplicateTransaction"]
+	require.NotNil(t, errorEntry)
+	txId := pldtypes.RandBytes32()
+	encoded, err := errorEntry.EncodeCallDataJSONCtx(ctx, []byte(fmt.Sprintf(`{"txId": "%s"}`, txId)))
+	require.NoError(t, err)
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: encoded,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Contains(t, res.DecodedReason, "NotoDuplicateTransaction")
+}
+
+func TestIsBaseLedgerRevertRetryable_UnrecognizedSelector(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Equal(t, pldtypes.HexBytes(revertData).String(), res.DecodedReason)
+}
+
+func TestIsBaseLedgerRevertRetryable_ExactlyFourBytes(t *testing.T) {
+	n := &Noto{}
+	ctx := t.Context()
+
+	revertData := []byte{0xab, 0xcd, 0xef, 0x01}
+
+	res, err := n.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Retryable)
+	assert.Equal(t, pldtypes.HexBytes(revertData).String(), res.DecodedReason)
 }
 
 func TestAssembleTransactionBadAbi(t *testing.T) {
@@ -709,7 +855,7 @@ func TestPrepareTransactionBadAbi(t *testing.T) {
 
 func TestUnimplementedMethods(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.Sign(ctx, nil)
 	assert.ErrorContains(t, err, "PD200022")
@@ -723,7 +869,7 @@ func TestUnimplementedMethods(t *testing.T) {
 
 func TestDecodeConfigInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _, err := n.decodeConfig(ctx, types.NotoConfigID_V0)
 	assert.ErrorContains(t, err, "FF22047")
@@ -731,8 +877,22 @@ func TestDecodeConfigInvalid(t *testing.T) {
 
 func TestRecoverSignatureInvalid(t *testing.T) {
 	n := &Noto{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := n.recoverSignature(ctx, nil, nil)
 	assert.ErrorContains(t, err, "FF22087")
+}
+
+func hashName(name string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(name))
+	hash := h.Sum(nil)
+	return ((pldtypes.HexBytes)(hash)).String()
+}
+
+func testSchema(name string) *prototk.StateSchema {
+	nameHash := hashName(name)
+	return &prototk.StateSchema{
+		Id: nameHash,
+	}
 }

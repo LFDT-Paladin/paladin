@@ -18,8 +18,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -27,11 +25,10 @@ import (
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 3 (less than grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 3
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(3).
+		Build()
 
 	// Should return false when heartbeat intervals is less than grace period
 	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
@@ -39,11 +36,10 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 5 (equal to grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 5
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(5).
+		Build()
 
 	// Should return true when heartbeat intervals equals grace period
 	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
@@ -51,11 +47,10 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 7 (greater than grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 7
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(7).
+		Build()
 
 	// Should return true when heartbeat intervals is greater than grace period
 	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
@@ -63,11 +58,10 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterTh
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 0 and heartbeat intervals to 0
-	txn.finalizingGracePeriod = 0
-	txn.heartbeatIntervalsSinceStateChange = 0
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(0).
+		HeartbeatIntervalsSinceStateChange(0).
+		Build()
 
 	// Should return true when both are zero (0 >= 0)
 	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
@@ -75,56 +69,21 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 0
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 0
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(0).
+		Build()
 
 	// Should return false when heartbeat intervals is 0 and grace period is positive
 	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func Test_action_FinalizeAsUnknownByOriginator_CallsQueueTransactionFinalize(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	// Set up the mock to verify QueueTransactionFinalize is called with correct parameters
-	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
-	mockSyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
-		mock.Anything, // onSuccess callback
-		mock.Anything, // onError callback
-	).Return(nil)
-
-	// Call action_FinalizeAsUnknownByOriginator
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-
-	// Verify QueueTransactionFinalize was called
-	mockSyncPoints.AssertExpectations(t)
-}
-
 func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	// Set up a cancel function to track if it's called
 	cancelCalled := false
-	txn.cancelRequestTimeoutSchedule = func() { cancelCalled = true }
-
-	// Set up the mock
-	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
-	mockSyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
+		Build()
 
 	// Call action_FinalizeAsUnknownByOriginator
 	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
@@ -134,81 +93,32 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
 
-func Test_finalizeAsUnknownByOriginator_OnSuccessCallback(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	var onSuccessCalled bool
-	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
-	mockSyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
-		mock.Anything,
-		mock.Anything,
-	).Run(func(args mock.Arguments) {
-		onSuccess := args.Get(6).(func(context.Context))
-		onSuccess(ctx)
-		onSuccessCalled = true
-	}).Return(nil)
-
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, onSuccessCalled)
-	mockSyncPoints.AssertExpectations(t)
-}
-
-func Test_finalizeAsUnknownByOriginator_OnErrorCallback_Retries(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	callCount := 0
-	mockSyncPoints := mocks.syncPoints.(*syncpoints.MockSyncPoints)
-	mockSyncPoints.On("QueueTransactionFinalize",
-		ctx,
-		txn.pt.Domain,
-		pldtypes.EthAddress{},
-		txn.originator,
-		txn.pt.ID,
-		"originator reported transaction as unknown",
-		mock.Anything,
-		mock.Anything,
-	).Run(func(args mock.Arguments) {
-		callCount++
-		if callCount == 1 {
-			onError := args.Get(7).(func(context.Context, error))
-			onError(ctx, assert.AnError)
-		}
-	}).Return(nil)
-
-	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, callCount, 1)
-	mockSyncPoints.AssertExpectations(t)
-}
-
 func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.confirmedLockRetentionGracePeriod = 2
-
-	txn.heartbeatIntervalsSinceStateChange = 1
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(1).
+		Build()
 	assert.False(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 
-	txn.heartbeatIntervalsSinceStateChange = 2
+	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build()
 	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 
-	txn.confirmedLocksReleased = true
+	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(2).
+		ConfirmedLocksReleased(true).
+		Build()
 	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
 func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	mocks.engineIntegration.EXPECT().ResetTransactions(ctx, txn.pt.ID).Return().Once()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
 
 	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 	require.NoError(t, err)

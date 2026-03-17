@@ -66,7 +66,8 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	privateTransactions := make([]*components.PrivateTransaction, 0)
 	transactionsToDelegate := make([]*transaction.OriginatorTransaction, 0)
 	for _, txn := range o.transactionsOrdered {
-		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
+		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated &&
+			(ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && o.clock.HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
 			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
 			transactionsToDelegate = append(transactionsToDelegate, txn)
@@ -150,17 +151,33 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 	return true, nil
 }
 
-func action_OriginatorTransactionStateTransition(ctx context.Context, o *originator, event common.Event) error {
+func validator_OriginatorTransactionStateTransitionToFinal(ctx context.Context, _ *originator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	switch e.To {
-	case transaction.State_Final:
-		o.removeTransaction(ctx, e.TransactionID)
-	case transaction.State_Confirmed, transaction.State_Reverted:
-		o.queueEventInternal(ctx, &transaction.FinalizeEvent{
-			BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
-			TransactionID: e.TransactionID,
-		})
-	}
+	return e.To == transaction.State_Final, nil
+}
+
+func action_CleanUpTransaction(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	o.removeTransaction(ctx, e.TransactionID)
+	return nil
+}
+
+func validator_OriginatorTransactionStateTransitionToConfirmed(ctx context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Confirmed, nil
+}
+
+func validator_OriginatorTransactionStateTransitionToReverted(ctx context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Reverted, nil
+}
+
+func action_FinalizeTransaction(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	o.queueEventInternal(ctx, &transaction.FinalizeEvent{
+		BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
+		TransactionID: e.TransactionID,
+	})
 	return nil
 }
 
@@ -177,7 +194,6 @@ func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
 			break
 		}
 	}
-	// Note: submittedTransactionsByHash cleanup is handled separately in confirmTransaction
 }
 
 func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {

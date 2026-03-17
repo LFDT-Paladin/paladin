@@ -16,16 +16,12 @@ package transaction
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -33,32 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_EndorsedRejected_CompletesWithoutError(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	event := &EndorsedRejectedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txn.pt.ID,
-		},
-		RevertReason:           "rejected by endorser",
-		Party:                  "party1",
-		AttestationRequestName: "att1",
-		RequestID:              uuid.New(),
-	}
-
-	err := action_EndorsedRejected(ctx, txn, event)
-	require.NoError(t, err)
-	// applyEndorsementRejection is a no-op (returns nil); assert action completed
-}
-
 func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
+		Build()
 	// No unfulfilled endorsement requirements: PostAssembly nil so unfulfilledEndorsementRequirements returns empty.
 	// PreAssembly must be non-nil because sendEndorsementRequests reads t.pt.PreAssembly.Verifiers.
 	txn.pt.PostAssembly = nil
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{}}
 
 	err := action_NudgeEndorsementRequests(ctx, txn, nil)
 	require.NoError(t, err)
@@ -66,27 +44,16 @@ func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testin
 
 func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_InitializesPendingRequests(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{
-			{
-				Name:            "att1",
-				AttestationType: prototk.AttestationType_ENDORSE,
-				Parties:         []string{"party1"},
-			},
-		},
-		Endorsements: []*prototk.AttestationResult{},
-		InputStates:  []*components.FullState{},
-		ReadStates:   []*components.FullState{},
-		OutputStates: []*components.FullState{},
-		InfoStates:   []*components.FullState{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{
-		Verifiers:                []*prototk.ResolvedVerifier{{Lookup: "v1"}},
-		TransactionSpecification: nil,
-	}
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
+		UseMockTransportWriter().
+		Build()
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
@@ -97,84 +64,50 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 	require.NoError(t, err)
 	// Assert state: pending endorsement requests were initialized (sendEndorsementRequests path)
 	assert.NotNil(t, txn.pendingEndorsementRequests)
-	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFire(t *testing.T) {
 	ctx := context.Background()
-	realClock := common.RealClock()
-	mockTransportWriter := transport.NewMockTransportWriter(t)
-	mockEngineIntegration := common.NewMockEngineIntegration(t)
-	grapher := NewGrapher(ctx)
-	txn, err := NewTransaction(
-		ctx,
-		fmt.Sprintf("%s@%s", uuid.NewString(), uuid.NewString()),
-		&components.PrivateTransaction{
-			ID:           uuid.New(),
-			Domain:       "test-domain",
-			PreAssembly:  &components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{}},
-			PostAssembly: nil, // no unfulfilled requirements so we only hit the nil branch and schedule timer
-		},
-		false,
-		"coordinator-signer",
-		mockTransportWriter,
-		realClock,
-		func(ctx context.Context, event common.Event) {},
-		mockEngineIntegration,
-		&syncpoints.MockSyncPoints{},
-		realClock.Duration(1),
-		realClock.Duration(5000),
-		5,
-		0,
-		"",
-		prototk.ContractConfig_SUBMITTER_COORDINATOR,
-		grapher,
-		nil,
-	)
-	require.NoError(t, err)
-
 	var timeoutEventReceived bool
-	var mu sync.Mutex
-	txn.queueEventForCoordinator = func(ctx context.Context, event common.Event) {
-		if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
-			mu.Lock()
-			timeoutEventReceived = true
-			mu.Unlock()
-		}
-	}
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		UseMockClock().
+		QueueEventForCoordinator(func(ctx context.Context, event common.Event) {
+			if _, ok := event.(*RequestTimeoutIntervalEvent); ok {
+				timeoutEventReceived = true
+			}
+		}).
+		RequestTimeout(1).
+		Build()
 
-	err = txn.sendEndorsementRequests(ctx)
+	mocks.Clock.On("Now").Return(time.Now())
+	mocks.Clock.On("ScheduleTimer", mock.Anything, time.Duration(1), mock.Anything).Return(func() {}).Run(func(args mock.Arguments) {
+		callback := args.Get(2).(func())
+		callback()
+	})
+
+	err := txn.sendEndorsementRequests(ctx)
 	require.NoError(t, err)
-	time.Sleep(15 * time.Millisecond)
 
-	mu.Lock()
 	assert.True(t, timeoutEventReceived, "queueEventForCoordinator should have been called with RequestTimeoutIntervalEvent")
-	mu.Unlock()
 }
 
 func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{
-			{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}},
-			{Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2"}},
-		},
-		Endorsements: []*prototk.AttestationResult{},
-		InputStates:  []*components.FullState{},
-		ReadStates:   []*components.FullState{},
-		OutputStates: []*components.FullState{},
-		InfoStates:   []*components.FullState{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{}}
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}, {Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		UseMockTransportWriter().
+		Build()
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
 			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		).Return(nil)
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party2", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
@@ -185,14 +118,13 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 	require.NoError(t, err)
 	assert.Contains(t, txn.pendingEndorsementRequests, "att1")
 	assert.Contains(t, txn.pendingEndorsementRequests, "att2")
-	mocks.transportWriter.AssertExpectations(t)
 }
 
 func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}
-	txn.pendingEndorsementRequests = make(map[string]map[string]*common.IdempotentRequest)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		Build()
 	// No entry for "att1" so applyEndorsement will hit the "no pending request found for attestation request name" path
 
 	endorsement := &prototk.AttestationResult{
@@ -207,15 +139,13 @@ func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsN
 
 func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}
-	pr := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, k uuid.UUID) error { return nil })
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {"party1": pr},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		AddPendingEndorsementRequest(0).
+		Build()
 
 	endorsement := &prototk.AttestationResult{
-		Name:     "att1",
+		Name:     "endorse-0",
 		Verifier: &prototk.ResolvedVerifier{Lookup: "party1"},
 	}
 	wrongRequestID := uuid.New() // different from pr.IdempotencyKey()
@@ -227,17 +157,14 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {
-			"otherParty": common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, k uuid.UUID) error { return nil }),
-		},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		AddPendingEndorsementRequest(0).
+		Build()
 
 	endorsement := &prototk.AttestationResult{
 		Name:     "att1",
-		Verifier: &prototk.ResolvedVerifier{Lookup: "party1"},
+		Verifier: &prototk.ResolvedVerifier{Lookup: "wrong-lookup"},
 	}
 	requestID := uuid.New()
 
@@ -248,20 +175,15 @@ func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *test
 
 func Test_sendEndorsementRequests_NudgeReturnsError_SetsLatestError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		AttestationPlan: []*prototk.AttestationRequest{
-			{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}},
-		},
-		Endorsements: []*prototk.AttestationResult{},
-		InputStates:  []*components.FullState{},
-		ReadStates:   []*components.FullState{},
-		OutputStates: []*components.FullState{},
-		InfoStates:   []*components.FullState{},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{}}
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		UseMockTransportWriter().
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		Build()
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
@@ -275,12 +197,11 @@ func Test_sendEndorsementRequests_NudgeReturnsError_SetsLatestError(t *testing.T
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	cancelCalled := false
-	txn.cancelRequestTimeoutSchedule = func() { cancelCalled = true }
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		AddPendingEndorsementRequest(0).
+		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
+		Build()
 
 	txn.resetEndorsementRequests(ctx)
 
@@ -288,83 +209,19 @@ func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testin
 	assert.Nil(t, txn.pendingEndorsementRequests)
 }
 
-func Test_endorsementStateTimeoutExceeded_NoPendingRequests_ReturnsFalse(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pendingEndorsementRequests = nil
-
-	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
-	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
-}
-
-func Test_endorsementStateTimeoutExceeded_WithPendingRequest_NotExpired(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
-	require.NoError(t, req.Nudge(ctx))
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {"party1": req},
-	}
-
-	mocks.clock.Advance(1000) // less than default state timeout (5000)
-	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
-	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
-}
-
-func Test_endorsementStateTimeoutExceeded_WithPendingRequest_Expired(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
-	require.NoError(t, req.Nudge(ctx))
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {"party1": req},
-	}
-
-	mocks.clock.Advance(6000) // greater than default state timeout (5000)
-	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
-	assert.True(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
-}
-
-func Test_endorsementStateTimeoutExceeded_WithPendingRequest_NilFirstRequestTime_UsesStateEntryTime(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-
-	req := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return errors.New("send failed")
-	})
-	_ = req.Nudge(ctx) // Keep FirstRequestTime nil
-	txn.pendingEndorsementRequests = map[string]map[string]*common.IdempotentRequest{
-		"att1": {"party1": req},
-	}
-
-	assert.False(t, txn.endorsementStateTimeoutExceeded(ctx))
-	assert.False(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
-
-	mocks.clock.Advance(6000) // greater than default state timeout (5000)
-	assert.True(t, txn.endorsementStateTimeoutExceeded(ctx))
-	assert.True(t, guard_EndorsementStateTimeoutExceeded(ctx, txn))
-}
-
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		AddPendingEndorsementRequest(2).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2)
-	txn, _ := builder.BuildWithMocks()
+	txn, _ := builder.Build()
 
 	require.NotNil(t, txn.pendingEndorsementRequests)
-	require.NotNil(t, txn.cancelRequestTimeoutSchedule)
-	require.NotNil(t, txn.cancelStateTimeoutSchedule)
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirming_Dispatchable, txn.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
 }
 
@@ -372,7 +229,9 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
-	blockingDependency := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	blockingTXID := uuid.New()
+	_, _ = NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		TransactionID(blockingTXID).
 		Grapher(grapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
@@ -380,39 +239,30 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
-		NumberOfRequiredEndorsers(3).
+		AddPendingEndorsementRequest(2).NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		InputStateIDs(blockingDependency.pt.PostAssembly.OutputStates[0].ID)
-	txn, _ := builder.BuildWithMocks()
+		Dependencies(&pldapi.TransactionDependencies{DependsOn: []uuid.UUID{blockingTXID}})
+	txn, _ := builder.Build()
 
 	require.NotNil(t, txn.pendingEndorsementRequests)
-	require.NotNil(t, txn.cancelRequestTimeoutSchedule)
-	require.NotNil(t, txn.cancelStateTimeoutSchedule)
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
 	require.NoError(t, err)
-	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+	require.Equal(t, State_Blocked, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
-	assert.Nil(t, txn.cancelRequestTimeoutSchedule)
-	assert.Nil(t, txn.cancelStateTimeoutSchedule)
 }
 
 func Test_requestEndorsement_TransportError_SetsLatestErrorAndReturnsError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{
-		Verifiers:                []*prototk.ResolvedVerifier{},
-		TransactionSpecification: &prototk.TransactionSpecification{},
-	}
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Signatures:   []*prototk.AttestationResult{},
-		InputStates:  []*components.FullState{},
-		ReadStates:   []*components.FullState{},
-		OutputStates: []*components.FullState{},
-		InfoStates:   []*components.FullState{},
-	}
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		UseMockTransportWriter().
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		Build()
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendEndorsementRequest(
 			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
 			mock.Anything, mock.Anything, mock.Anything,

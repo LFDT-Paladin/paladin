@@ -23,16 +23,23 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
-func (t *CoordinatorTransaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
+func (t *coordinatorTransaction) revertTransactionFailedAssembly(ctx context.Context, revertReason string) {
 	var tryFinalize func()
 	tryFinalize = func() {
-		t.syncPoints.QueueTransactionFinalize(ctx, t.pt.Domain, pldtypes.EthAddress{}, t.originator, t.pt.ID, revertReason,
+		t.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
+			Domain:          t.pt.Domain,
+			ContractAddress: pldtypes.EthAddress{},
+			Originator:      t.originator,
+			TransactionID:   t.pt.ID,
+			FailureMessage:  revertReason,
+		},
 			func(ctx context.Context) {
 				log.L(ctx).Debugf("finalized deployment transaction: %s", t.pt.ID)
 			},
@@ -44,7 +51,7 @@ func (t *CoordinatorTransaction) revertTransactionFailedAssembly(ctx context.Con
 	tryFinalize()
 }
 
-func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
+func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAssembly *components.TransactionPostAssembly, requestID uuid.UUID) error {
 	t.pt.PostAssembly = postAssembly
 
 	t.clearTimeoutSchedules()
@@ -82,7 +89,7 @@ func (t *CoordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	return t.calculatePostAssembleDependencies(ctx)
 }
 
-func (t *CoordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
+func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
 	// assemble requests have a short and long timeout
 	// the short timeout is for toleration of unreliable networks whereby the action is to retry the request with the same idempotency key
 	// the long timeout is to prevent an unavailable transaction originator/assemble from holding up the entire contract / privacy group given that the assemble step is single threaded
@@ -110,18 +117,14 @@ func (t *CoordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *CoordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error {
+func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error {
 	if t.pendingAssembleRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgeAssembleRequest called with no pending request")
 	}
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *CoordinatorTransaction) assembleStateTimeoutExceeded(ctx context.Context) bool {
-	return t.stateTimeoutExceeded(ctx, t.pendingAssembleRequest, "assembly")
-}
-
-func (t *CoordinatorTransaction) isNotAssembled() bool {
+func (t *coordinatorTransaction) isNotAssembled() bool {
 	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
 	// a failing test if we add new states in the future and forget to update this list
 
@@ -132,7 +135,7 @@ func (t *CoordinatorTransaction) isNotAssembled() bool {
 		t.stateMachine.GetCurrentState() != State_Confirmed
 }
 
-func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
+func (t *coordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
 	//this function is called when the transaction is successfully assembled
 	// and we have a duty to inform all the transactions that depend on us
 	// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyAssembled will
@@ -158,7 +161,7 @@ func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context
 	return nil
 }
 
-func (t *CoordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
+func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
 	// Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
 	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
 	// this function calculates the dependencies relating to states and sets up the reverse association
@@ -199,17 +202,17 @@ func (t *CoordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 	return nil
 }
 
-func (t *CoordinatorTransaction) writeLockStates(ctx context.Context) error {
+func (t *coordinatorTransaction) writeLockStates(ctx context.Context) error {
 	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.pt)
 }
 
-func (t *CoordinatorTransaction) incrementErrors() error {
-	t.errorCount++
-	return nil
-}
-
-func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, event common.Event) (bool, error) {
+func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
+	// TODO: Snapshot freshness
+	// We currently accept an assemble response if the request ID matches the pending request.
+	// Add a snapshot version to assemble requests/responses and reject responses
+	// that were built from a snapshot older than the transaction's current assembly version.
+	// This is intended to guard against stale in-flight assemble responses after repool/unwind.
 	case *AssembleSuccessEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	case *AssembleRevertResponseEvent:
@@ -218,7 +221,7 @@ func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *Coordinat
 	return false, nil
 }
 
-func action_AssembleSuccess(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_AssembleSuccess(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleSuccessEvent)
 	err := t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 	if err == nil {
@@ -228,34 +231,20 @@ func action_AssembleSuccess(ctx context.Context, t *CoordinatorTransaction, even
 	return err
 }
 
-func action_AssembleRevertResponse(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_AssembleRevertResponse(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*AssembleRevertResponseEvent)
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 }
 
-func action_SendAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
 }
 
-func action_OnTransitionToAssembling(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	txn.scheduleStateTimeout(ctx)
-	return action_SendAssembleRequest(ctx, txn, event)
-}
-
-func action_NudgeAssembleRequest(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_NudgeAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
 }
 
-func action_NotifyDependentsOfAssembled(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfAssembled(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.notifyDependentsOfAssembled(ctx)
-}
-
-func action_IncrementErrors(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	txn.resetEndorsementRequests(ctx)
-	return txn.incrementErrors()
-}
-
-func guard_AssembleStateTimeoutExceeded(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.assembleStateTimeoutExceeded(ctx)
 }

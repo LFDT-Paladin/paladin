@@ -49,7 +49,6 @@ const (
 	Event_Closed
 	Event_CoordinatorCreated
 	Event_TransactionsDelegated
-	Event_TransactionConfirmed
 	Event_TransactionDispatchConfirmed
 	Event_HeartbeatReceived
 	Event_NewBlock
@@ -116,7 +115,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Idle: {
-		OnTransitionTo: action_Idle,
+		OnTransitionTo: []ActionRule{{Action: action_Idle}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -179,7 +178,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Elect: {
-		OnTransitionTo: action_SendHandoverRequest,
+		OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
@@ -212,7 +211,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Active: {
-		OnTransitionTo: action_SelectTransaction,
+		OnTransitionTo: []ActionRule{{Action: action_SelectTransaction}},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
@@ -229,9 +228,6 @@ var stateDefinitionsMap = StateDefinitions{
 				// don't select a transaction here since events must to move into pooled state before
 				// they can be selected and there is a separate event for that
 			},
-			Event_TransactionConfirmed: {
-				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
-			},
 			Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
 				Transitions: []Transition{{
 					To: State_Flush,
@@ -239,9 +235,30 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
-					{Action: action_TransactionStateTransition},
-					{Action: action_NudgeDispatchLoop},
-					{Action: action_SelectTransaction, If: guard_Not(guard_HasTransactionAssembling)},
+					{
+						Validator: validator_TransactionStateTransitionDispatchedToPooled,
+						If:        guard_HasTransactionAssembling,
+						Action:    action_cancelCurrentlyAssemblingTransaction, // This TX is being re-pooled, cancel the one we're already assembling
+					},
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+					{
+						Action: action_NudgeDispatchLoop,
+					},
+					{
+						Action: action_SelectTransaction,
+						If:     guard_Not(guard_HasTransactionAssembling),
+					},
 				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
@@ -259,15 +276,25 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_SendHeartbeat},
 				},
 			},
-			Event_TransactionConfirmed: {
-				Actions: []ActionRule{{Action: action_TransactionConfirmed}},
+			common.Event_TransactionStateTransition: {
+				Actions: []ActionRule{
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+				},
 				Transitions: []Transition{{
 					To: State_Closing,
 					If: guard_FlushComplete,
 				}},
-			},
-			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
@@ -288,7 +315,23 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_TransactionStateTransition}},
+				// TODO: these actions probably shouldn't be necessary in Closing state
+				// but this is closely related to many of the other TODO questions in this
+				// state machine definition and they need to be addressed together
+				Actions: []ActionRule{
+					{
+						Validator: validator_TransactionStateTransitionToPooled,
+						Action:    action_PoolTransaction,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToReadyForDispatch,
+						Action:    action_QueueTransactionForDispatch,
+					},
+					{
+						Validator: validator_TransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
@@ -305,12 +348,8 @@ func (c *coordinator) initializeStateMachineEventLoop(initialState State, eventQ
 		EventQueueSize:         eventQueueSize,
 		PriorityEventQueueSize: priorityEventQueueSize,
 		Name:                   fmt.Sprintf("coordinator-%s", c.contractAddress.String()[0:8]),
-		OnStop: func(ctx context.Context) common.Event {
-			// Return the final event to process when stopping
-			return &CoordinatorClosedEvent{}
-		},
-		TransitionCallback: c.onStateTransition,
-		PreProcess:         c.preProcessEvent,
+		TransitionCallback:     c.onStateTransition,
+		PreProcess:             c.preProcessEvent,
 	})
 }
 

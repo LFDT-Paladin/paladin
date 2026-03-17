@@ -35,10 +35,10 @@ func TestParseCoordinatorHeartbeatNotification_Success(t *testing.T) {
 	snapshot := common.CoordinatorSnapshot{
 		CoordinatorState:       "Idle",
 		BlockHeight:            100,
-		FlushPoints:            []*common.FlushPoint{},
-		PooledTransactions:     []*common.Transaction{},
-		DispatchedTransactions: []*common.DispatchedTransaction{},
-		ConfirmedTransactions:  []*common.ConfirmedTransaction{},
+		FlushPoints:            []*common.SnapshotFlushPoint{},
+		PooledTransactions:     []*common.SnapshotPooledTransaction{},
+		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
+		ConfirmedTransactions:  []*common.SnapshotConfirmedTransaction{},
 	}
 
 	notification := CoordinatorHeartbeatNotification{
@@ -67,7 +67,7 @@ func TestParseCoordinatorHeartbeatNotification_WithFlushPoints(t *testing.T) {
 	flushPointHash := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
 	txID := uuid.New()
 
-	flushPoint := &common.FlushPoint{
+	flushPoint := &common.SnapshotFlushPoint{
 		From:          *flushPointAddr,
 		Nonce:         42,
 		TransactionID: txID,
@@ -78,10 +78,10 @@ func TestParseCoordinatorHeartbeatNotification_WithFlushPoints(t *testing.T) {
 	snapshot := common.CoordinatorSnapshot{
 		CoordinatorState:       "Active",
 		BlockHeight:            200,
-		FlushPoints:            []*common.FlushPoint{flushPoint},
-		PooledTransactions:     []*common.Transaction{},
-		DispatchedTransactions: []*common.DispatchedTransaction{},
-		ConfirmedTransactions:  []*common.ConfirmedTransaction{},
+		FlushPoints:            []*common.SnapshotFlushPoint{flushPoint},
+		PooledTransactions:     []*common.SnapshotPooledTransaction{},
+		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
+		ConfirmedTransactions:  []*common.SnapshotConfirmedTransaction{},
 	}
 
 	notification := CoordinatorHeartbeatNotification{

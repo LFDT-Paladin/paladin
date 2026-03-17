@@ -23,7 +23,7 @@ import (
 )
 
 func TestFlushPoint_GetSignerNonce_zeroAddressWithZeroNonce(t *testing.T) {
-	fp := &FlushPoint{
+	fp := &SnapshotFlushPoint{
 		From:  *pldtypes.MustEthAddress("0x0000000000000000000000000000000000000000"),
 		Nonce: 0,
 	}
@@ -32,7 +32,7 @@ func TestFlushPoint_GetSignerNonce_zeroAddressWithZeroNonce(t *testing.T) {
 }
 
 func TestFlushPoint_GetSignerNonce_validAddressWithNonce1(t *testing.T) {
-	fp := &FlushPoint{
+	fp := &SnapshotFlushPoint{
 		From:  *pldtypes.MustEthAddress("0xacA6D8Ba6BFf0fa5c8a06A58368CB6097285d5c5"),
 		Nonce: 1,
 	}
@@ -41,7 +41,7 @@ func TestFlushPoint_GetSignerNonce_validAddressWithNonce1(t *testing.T) {
 }
 
 func TestFlushPoint_GetSignerNonce_validAddressWithHighNonce(t *testing.T) {
-	fp := &FlushPoint{
+	fp := &SnapshotFlushPoint{
 		From:  *pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890"),
 		Nonce: 999999,
 	}
@@ -50,7 +50,7 @@ func TestFlushPoint_GetSignerNonce_validAddressWithHighNonce(t *testing.T) {
 }
 
 func TestFlushPoint_GetSignerNonce_randomAddressWithNonce(t *testing.T) {
-	fp := &FlushPoint{
+	fp := &SnapshotFlushPoint{
 		From:  *pldtypes.RandAddress(),
 		Nonce: 42,
 	}
@@ -65,7 +65,7 @@ func TestFlushPoint_GetSignerNonce_randomAddressWithNonce(t *testing.T) {
 
 func TestTransaction_GetID_newRandomUUID(t *testing.T) {
 	id := uuid.New()
-	tx := &Transaction{
+	tx := &SnapshotPooledTransaction{
 		ID: id,
 	}
 	result := tx.GetID()
@@ -78,7 +78,7 @@ func TestTransaction_GetID_newRandomUUID(t *testing.T) {
 
 func TestTransaction_GetID_specificUUID(t *testing.T) {
 	id := uuid.MustParse("123e4567-e89b-12d3-a456-426614174000")
-	tx := &Transaction{
+	tx := &SnapshotPooledTransaction{
 		ID: id,
 	}
 	result := tx.GetID()
@@ -86,7 +86,7 @@ func TestTransaction_GetID_specificUUID(t *testing.T) {
 }
 
 func TestTransaction_GetID_nilUUID(t *testing.T) {
-	tx := &Transaction{
+	tx := &SnapshotPooledTransaction{
 		ID: uuid.Nil,
 	}
 	result := tx.GetID()

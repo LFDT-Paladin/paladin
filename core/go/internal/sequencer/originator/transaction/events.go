@@ -51,6 +51,7 @@ func (*ConfirmedSuccessEvent) TypeString() string {
 type ConfirmedRevertedEvent struct {
 	BaseEvent
 	RevertReason pldtypes.HexBytes
+	WillRetry    bool
 }
 
 func (*ConfirmedRevertedEvent) Type() EventType {

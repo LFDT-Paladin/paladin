@@ -28,8 +28,8 @@ import (
 func Test_action_ActiveCoordinatorUpdated_Success(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	err := o.stateMachineEventLoop.ProcessEvent(ctx, &ActiveCoordinatorUpdatedEvent{Coordinator: "node1"})
 	require.NoError(t, err)
@@ -39,8 +39,8 @@ func Test_action_ActiveCoordinatorUpdated_Success(t *testing.T) {
 func Test_action_ActiveCoordinatorUpdated_EmptyCoordinatorReturnsError(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	err := o.stateMachineEventLoop.ProcessEvent(ctx, &ActiveCoordinatorUpdatedEvent{Coordinator: ""})
 	require.Error(t, err)
@@ -51,13 +51,15 @@ func Test_guard_HasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *test
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
-	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated)
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
-		PooledTransactions: []*common.Transaction{},
+		PooledTransactions: []*common.SnapshotPooledTransaction{},
 	}
 
 	assert.True(t, guard_HasDroppedTransactions(ctx, o))
@@ -67,13 +69,15 @@ func Test_guard_HasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testin
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated).Build()
-	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Delegated)
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	o.latestCoordinatorSnapshot = &common.CoordinatorSnapshot{
-		PooledTransactions: []*common.Transaction{
+		PooledTransactions: []*common.SnapshotPooledTransaction{
 			{ID: txn.GetID(), Originator: originatorLocator},
 		},
 	}
@@ -84,8 +88,8 @@ func Test_guard_HasDroppedTransactions_FalseWhenDelegatedTxnInSnapshot(t *testin
 func Test_sendDelegationRequest_NoActiveCoordinatorReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	o.activeCoordinatorNode = ""
 	err := o.stateMachineEventLoop.ProcessEvent(ctx, &DelegateTimeoutEvent{})
@@ -95,8 +99,8 @@ func Test_sendDelegationRequest_NoActiveCoordinatorReturnsNil(t *testing.T) {
 func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	valid, err := validator_TransactionDoesNotExist(ctx, o, &HeartbeatReceivedEvent{})
 	assert.NoError(t, err)
@@ -106,8 +110,8 @@ func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *test
 func Test_validator_TransactionDoesNotExist_NilTransactionReturnsTrue(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	valid, err := validator_TransactionDoesNotExist(ctx, o, &TransactionCreatedEvent{Transaction: nil})
 	assert.NoError(t, err)
@@ -118,10 +122,12 @@ func Test_validator_TransactionDoesNotExist_TransactionAlreadyExistsReturnsFalse
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
 	coordinatorLocator := "coordinator@coordinatorNode"
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending).Build()
-	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator).Transactions(txn)
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers(originatorLocator, coordinatorLocator).TransactionBuilders(txBuilder)
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+	txn := txBuilder.GetBuiltTransaction()
+	require.NotNil(t, txn)
 
 	require.NotNil(t, o.transactionsByID[txn.GetID()])
 
@@ -135,12 +141,45 @@ func Test_validator_TransactionDoesNotExist_TransactionAlreadyExistsReturnsFalse
 func Test_validator_TransactionDoesNotExist_NewTransactionReturnsTrue(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _ := builder.Build(ctx)
-	defer o.Stop()
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
 
 	transactionBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
 	pt := transactionBuilder.Build().GetPrivateTransaction()
 	valid, err := validator_TransactionDoesNotExist(ctx, o, &TransactionCreatedEvent{Transaction: pt})
 	assert.NoError(t, err)
 	assert.True(t, valid)
+}
+
+func Test_validator_OriginatorTransactionStateTransitionToFinal(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_OriginatorTransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_OriginatorTransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Confirmed})
+	require.NoError(t, err)
+	assert.False(t, valid)
+}
+
+func Test_validator_OriginatorTransactionStateTransitionToConfirmed(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_OriginatorTransactionStateTransitionToConfirmed(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Confirmed})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_OriginatorTransactionStateTransitionToConfirmed(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Reverted})
+	require.NoError(t, err)
+	assert.False(t, valid)
+}
+
+func Test_validator_OriginatorTransactionStateTransitionToReverted(t *testing.T) {
+	ctx := context.Background()
+	valid, err := validator_OriginatorTransactionStateTransitionToReverted(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Reverted})
+	require.NoError(t, err)
+	assert.True(t, valid)
+
+	valid, err = validator_OriginatorTransactionStateTransitionToReverted(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
+	require.NoError(t, err)
+	assert.False(t, valid)
 }

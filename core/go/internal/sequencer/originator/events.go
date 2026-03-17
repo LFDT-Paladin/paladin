@@ -19,7 +19,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 type Event interface {
@@ -87,20 +86,4 @@ func (*ActiveCoordinatorUpdatedEvent) Type() EventType {
 
 func (*ActiveCoordinatorUpdatedEvent) TypeString() string {
 	return "Event_ActiveCoordinatorUpdated"
-}
-
-type TransactionConfirmedEvent struct {
-	common.BaseEvent
-	From         *pldtypes.EthAddress
-	Nonce        uint64
-	Hash         pldtypes.Bytes32
-	RevertReason pldtypes.HexBytes
-}
-
-func (*TransactionConfirmedEvent) Type() EventType {
-	return Event_TransactionConfirmed
-}
-
-func (*TransactionConfirmedEvent) TypeString() string {
-	return "Event_TransactionConfirmed"
 }

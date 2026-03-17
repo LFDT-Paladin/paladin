@@ -725,6 +725,7 @@ var (
 	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
 	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
 	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
+	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
 	SequencerConfigHeartbeatThreshold                = pdm("SequencerConfig.heartbeatThreshold", "Heartbeat threshold")
@@ -733,6 +734,8 @@ var (
 	SequencerConfigTargetActiveCoordinators          = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
 	SequencerConfigTargetActiveSequencers            = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
 	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
+	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")
+	SequencerConfigTransactionResumeMaxTransactions  = pdm("SequencerConfig.transactionResumeMaxTransactions", "Maximum number of pending transactions to resume")
 	SequencerConfigWriter                            = pdm("SequencerConfig.writer", "Writer configuration")
 
 	// PublicTxManagerConfig field descriptions

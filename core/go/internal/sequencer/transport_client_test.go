@@ -664,6 +664,7 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
 		RevertReason:    revertReason,
+		WillRetry:       true,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
 
@@ -685,7 +686,7 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason)
+		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.WillRetry
 	})).Once()
 
 	sm.handleTransactionConfirmed(ctx, message)
@@ -790,6 +791,32 @@ func TestHandleCoordinatorHeartbeatNotification_MissingFrom(t *testing.T) {
 
 	// Should not panic and should return early
 	sm.handleCoordinatorHeartbeatNotification(ctx, message)
+}
+
+func TestHandleCoordinatorHeartbeatNotification_SequencerNotLoaded(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	coordinatorSnapshot := &common.CoordinatorSnapshot{}
+	snapshotJSON, _ := json.Marshal(coordinatorSnapshot)
+	heartbeatNotification := &engineProto.CoordinatorHeartbeatNotification{
+		From:                "coordinator@node2",
+		ContractAddress:     contractAddr.String(),
+		CoordinatorSnapshot: snapshotJSON,
+	}
+	payload, _ := proto.Marshal(heartbeatNotification)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "coordinator-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_CoordinatorHeartbeatNotification,
+		Payload:     payload,
+	}
+
+	sm.handleCoordinatorHeartbeatNotification(ctx, message)
+	assert.Empty(t, sm.sequencers)
 }
 
 func TestHandlePreDispatchRequest_Success(t *testing.T) {

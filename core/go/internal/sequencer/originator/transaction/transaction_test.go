@@ -110,11 +110,6 @@ func TestTransaction_UpdateLastDelegatedTime_SetsTime(t *testing.T) {
 	// Verify that the time is now set
 	lastDelegatedTime := txn.GetLastDelegatedTime()
 	assert.NotNil(t, lastDelegatedTime, "GetLastDelegatedTime should return a non-nil value after UpdateLastDelegatedTime")
-
-	// Verify that the time is a valid time.Time (since RealClock returns time.Now())
-	realTime, ok := (*lastDelegatedTime).(time.Time)
-	require.True(t, ok, "LastDelegatedTime should be a time.Time")
-	assert.False(t, realTime.IsZero(), "LastDelegatedTime should not be zero")
 }
 
 func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
@@ -136,9 +131,8 @@ func TestTransaction_UpdateLastDelegatedTime_UpdatesTime(t *testing.T) {
 	require.NotNil(t, secondTime, "Second update should set a time")
 
 	// Verify that the times are different
-	firstRealTime := (*firstTime).(time.Time)
-	secondRealTime := (*secondTime).(time.Time)
-	assert.True(t, secondRealTime.After(firstRealTime), "Second time should be after the first time")
+
+	assert.True(t, secondTime.After(*firstTime), "Second time should be after the first time")
 }
 
 func TestTransaction_GetLastDelegatedTime_ReturnsUpdatedTime(t *testing.T) {

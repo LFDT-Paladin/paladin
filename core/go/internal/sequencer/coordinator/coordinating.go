@@ -17,7 +17,6 @@ package coordinator
 
 import (
 	"context"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -52,34 +51,25 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
 		}
 
-		// The newly delegated TX might be after the restart of an originator, for which we've already
-		// instantiated a chained TX
-		hasChainedTransaction, err := c.txManager.HasChainedTransaction(ctx, txn.ID)
-		if err != nil {
-			log.L(ctx).Errorf("error checking for chained transaction: %v", err)
-			return err
-		}
-		if hasChainedTransaction {
-			log.L(ctx).Debugf("chained transaction %s found", txn.ID.String())
-		}
-
 		newTransaction, err := transaction.NewTransaction(
 			ctx,
 			originator,
+			c.nodeName,
 			txn,
-			hasChainedTransaction,
 			c.signingIdentity,
 			c.transportWriter,
 			c.clock,
 			c.queueEventInternal,
 			c.engineIntegration,
 			c.syncPoints,
+			c.components,
+			c.domainAPI,
+			c.dCtx,
 			c.requestTimeout,
 			c.stateTimeout,
 			c.closingGracePeriod,
 			c.confirmedLockRetentionGracePeriod,
-			c.domainAPI.Domain().FixedSigningIdentity(),
-			c.domainAPI.ContractConfig().GetSubmitterSelection(),
+			c.baseLedgerRevertRetryThreshold,
 			c.grapher,
 			c.metrics,
 		)
@@ -122,7 +112,7 @@ func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Even
 
 func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error {
 	log.L(ctx).Trace("selecting next transaction to assemble")
-	txn := c.popNextPooledTransaction(ctx)
+	txn := c.popNextPooledTransaction()
 	if txn == nil {
 		log.L(ctx).Info("no transaction found to process")
 		return nil
@@ -135,7 +125,7 @@ func (c *coordinator) selectNextTransactionToAssemble(ctx context.Context) error
 
 }
 
-func (c *coordinator) addTransactionToBackOfPool(txn *transaction.CoordinatorTransaction) {
+func (c *coordinator) addTransactionToBackOfPool(txn transaction.CoordinatorTransaction) {
 	// Check if transaction is already in the pool
 	// This makes the function safe to call multiple times, albeit not strictly idempotently
 	for _, pooledTxn := range c.pooledTransactions {
@@ -146,7 +136,7 @@ func (c *coordinator) addTransactionToBackOfPool(txn *transaction.CoordinatorTra
 	c.pooledTransactions = append(c.pooledTransactions, txn)
 }
 
-func (c *coordinator) popNextPooledTransaction(ctx context.Context) *transaction.CoordinatorTransaction {
+func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransaction {
 	if len(c.pooledTransactions) == 0 {
 		return nil
 	}
@@ -155,87 +145,76 @@ func (c *coordinator) popNextPooledTransaction(ctx context.Context) *transaction
 	return nextPooledTx
 }
 
-func action_TransactionConfirmed(ctx context.Context, c *coordinator, event common.Event) error {
-	// An earlier version of this code had handling for receiving a confirmation event and using it to monitor
-	// transactions that another coordinator is coordinating, so that flush points could be updated and checked
-	// in the case of a handover, rather than relying solely on heartbeats. But that same code version only queued
-	// the event to a coordinator if it was the active coordinator and knew about the transaction, which meant the
-	// monitoring path was never taken.
-	//
-	// This version of the code brings all the logic about whether a trasaction confirmed event should be acted on
-	// into the coordinator state machine. The event is only handled in states where the coordinator is the active
-	// coordinator, and then only acted on if the transaction is known. It is functionally equivalent, but without
-	// the unused code, and decision making is contained within the state machine.
-	e := event.(*TransactionConfirmedEvent)
-
-	log.L(ctx).Debugf("we currently have %d transactions to handle, confirming that dispatched TX %s is in our list", len(c.transactionsByID), e.TxID.String())
-
-	dispatchedTransaction, ok := c.transactionsByID[e.TxID]
-
-	if !ok {
-		log.L(ctx).Debugf("action_TransactionConfirmed: Coordinator not tracking transaction ID %s", e.TxID)
-		return nil
-	}
-
-	if dispatchedTransaction.GetLatestSubmissionHash() == nil {
-		// The transaction created a chained private transaction so there is no hash to compare
-		log.L(ctx).Debugf("transaction %s confirmed with nil dispatch hash (confirmed hash of chained TX %s)", dispatchedTransaction.GetID().String(), e.Hash.String())
-	} else if *(dispatchedTransaction.GetLatestSubmissionHash()) != e.Hash {
-		// Is this not the transaction that we are looking for?
-		// We have missed a submission?  Or is it possible that an earlier submission has managed to get confirmed?
-		// It is interesting so we log it but either way,  this must be the transaction that we are looking for because we can't re-use a nonce
-		log.L(ctx).Debugf("transaction %s confirmed with a different hash than expected. Dispatch hash %s, confirmed hash %s", dispatchedTransaction.GetID().String(), dispatchedTransaction.GetLatestSubmissionHash(), e.Hash.String())
-	}
-	txEvent := &transaction.ConfirmedEvent{
-		Hash:         e.Hash,
-		RevertReason: e.RevertReason,
-		Nonce:        e.Nonce,
-	}
-	txEvent.TransactionID = e.TxID
-	txEvent.EventTime = time.Now()
-
-	log.L(ctx).Debugf("Confirming dispatched TX %s", e.TxID.String())
-	err := dispatchedTransaction.HandleEvent(ctx, txEvent)
-	if err != nil {
-		log.L(ctx).Errorf("error handling ConfirmedEvent for transaction %s: %v", dispatchedTransaction.GetID().String(), err)
-		return err
-	}
-	return nil
+func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Pooled, nil
 }
 
-func action_TransactionStateTransition(ctx context.Context, c *coordinator, event common.Event) error {
+func validator_TransactionStateTransitionDispatchedToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.From == transaction.State_Dispatched && e.To == transaction.State_Pooled, nil
+}
 
-	// If a transaction has transitioned to Pooled, add it to the pool queue
+func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	// For pooled transactions, when we are pooling (or re-pooling) we push the transaction
 	// to the back of the queue to give best-effort FIFO assembly as transactions arrive at the
 	// node. If a transaction needs re-assembly after a revert, it will be processed after
 	// a new transaction that hasn't ever been assembled.
-	if e.To == transaction.State_Pooled {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			c.addTransactionToBackOfPool(txn)
+	txn := c.transactionsByID[e.TransactionID]
+	if txn != nil {
+		c.addTransactionToBackOfPool(txn)
+	}
+	return nil
+}
+
+func validator_TransactionStateTransitionToReadyForDispatch(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Ready_For_Dispatch, nil
+}
+
+func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	txn := c.transactionsByID[e.TransactionID]
+	if txn != nil {
+		select {
+		case c.dispatchQueue <- txn:
+		case <-ctx.Done():
 		}
 	}
+	return nil
+}
 
-	// If a transaction has transitioned to Ready_For_Dispatch, queue it for dispatch
-	if e.To == transaction.State_Ready_For_Dispatch {
-		txn := c.transactionsByID[e.TransactionID]
-		if txn != nil {
-			c.dispatchQueue <- txn
-		}
+func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Final, nil
+}
+
+func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	delete(c.transactionsByID, e.TransactionID)
+	c.metrics.DecCoordinatingTransactions()
+	err := c.grapher.Forget(e.TransactionID)
+	if err != nil {
+		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
 	}
+	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+	return nil
+}
 
-	// If a transaction has reached its final state, clean it up from the coordinator
-	if e.To == transaction.State_Final {
-		delete(c.transactionsByID, e.TransactionID)
-		c.metrics.DecCoordinatingTransactions()
-		err := c.grapher.Forget(e.TransactionID)
-		if err != nil {
-			log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
-		}
-		log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
+	log.L(ctx).Debug("cancelling any transaction currently being assembled")
+	assemblingTransactions := c.getTransactionsInStates(ctx, []transaction.State{
+		transaction.State_Assembling,
+	})
+	if len(assemblingTransactions) > 0 {
+		log.L(ctx).Debugf("cancelling assembling transaction: %s", assemblingTransactions[0].GetID().String())
+		err := assemblingTransactions[0].HandleEvent(ctx, &transaction.AssembleCancelledEvent{
+			BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+				TransactionID: assemblingTransactions[0].GetID(),
+			},
+		})
+		return err
 	}
-
 	return nil
 }

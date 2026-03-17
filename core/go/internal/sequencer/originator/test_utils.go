@@ -69,18 +69,18 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 }
 
 type OriginatorBuilderForTesting struct {
-	state            State
-	nodeName         *string
-	committeeMembers []string
-	contractAddress  *pldtypes.EthAddress
-	transactions     []*transaction.OriginatorTransaction
-	metrics          metrics.DistributedSequencerMetrics
-	sequencerConfig  *pldconf.SequencerConfig
+	state               State
+	nodeName            *string
+	committeeMembers    []string
+	contractAddress     *pldtypes.EthAddress
+	transactionBuilders []*transaction.TransactionBuilderForTesting
+	metrics             metrics.DistributedSequencerMetrics
+	sequencerConfig     *pldconf.SequencerConfig
+	clock               common.Clock
 }
 
 type OriginatorDependencyMocks struct {
 	SentMessageRecorder *SentMessageRecorder
-	Clock               *common.FakeClockForTesting
 	EngineIntegration   *common.FakeEngineIntegrationForTesting
 }
 
@@ -89,6 +89,7 @@ func NewOriginatorBuilderForTesting(state State) *OriginatorBuilderForTesting {
 		state:           state,
 		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 		sequencerConfig: &pldconf.SequencerDefaults,
+		clock:           common.RealClock(),
 	}
 }
 
@@ -107,8 +108,13 @@ func (b *OriginatorBuilderForTesting) CommitteeMembers(committeeMembers ...strin
 	return b
 }
 
-func (b *OriginatorBuilderForTesting) Transactions(transactions ...*transaction.OriginatorTransaction) *OriginatorBuilderForTesting {
-	b.transactions = transactions
+func (b *OriginatorBuilderForTesting) TransactionBuilders(builders ...*transaction.TransactionBuilderForTesting) *OriginatorBuilderForTesting {
+	b.transactionBuilders = builders
+	return b
+}
+
+func (b *OriginatorBuilderForTesting) Clock(clock common.Clock) *OriginatorBuilderForTesting {
+	b.clock = clock
 	return b
 }
 
@@ -128,7 +134,7 @@ func (b *OriginatorBuilderForTesting) OverrideSequencerConfig(config *pldconf.Se
 	b.sequencerConfig = config
 }
 
-func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *OriginatorDependencyMocks) {
+func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *OriginatorDependencyMocks, func()) {
 
 	if b.nodeName == nil {
 		b.nodeName = ptrTo("member1@node1")
@@ -143,18 +149,18 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 	}
 	mocks := &OriginatorDependencyMocks{
 		SentMessageRecorder: NewSentMessageRecorder(),
-		Clock:               &common.FakeClockForTesting{},
 		EngineIntegration:   &common.FakeEngineIntegrationForTesting{},
 	}
 
 	var originator *originator
 
 	var err error
+	buildCtx, cancel := context.WithCancel(ctx)
 	originator, err = NewOriginator(
-		ctx,
+		buildCtx,
 		*b.nodeName,
 		mocks.SentMessageRecorder,
-		mocks.Clock,
+		b.clock,
 		mocks.EngineIntegration,
 		b.contractAddress,
 		&pldconf.SequencerDefaults,
@@ -163,14 +169,11 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		b.metrics,
 	)
 
-	for _, tx := range b.transactions {
+	for _, txBuilder := range b.transactionBuilders {
+		tx := txBuilder.QueueEventsTo(originator.queueEventInternal).Build()
 		txID := tx.GetID()
 		originator.transactionsByID[txID] = tx
 		originator.transactionsOrdered = append(originator.transactionsOrdered, tx)
-		switch tx.GetCurrentState() {
-		case transaction.State_Submitted:
-			originator.submittedTransactionsByHash[*tx.GetLatestSubmissionHash()] = &txID
-		}
 	}
 
 	if err != nil {
@@ -184,5 +187,9 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 
 	originator.activeCoordinatorNode = "coordinator"
 
-	return originator, mocks
+	done := func() {
+		cancel()
+		originator.WaitForDone(context.Background())
+	}
+	return originator, mocks, done
 }

@@ -377,9 +377,8 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 	}
 
 	persistedTransactions := make([]*DBPublicTxn, 0, len(txns))
-	persistedSubmissions := make([]*DBPubTxnSubmission, 0, len(txns))
 	for _, tx := range txns {
-		dbTransaction := &DBPublicTxn{
+		persistedTransactions = append(persistedTransactions, &DBPublicTxn{
 			From:            tx.From,
 			To:              tx.To,
 			Nonce:           (*uint64)(tx.Nonce),
@@ -389,32 +388,101 @@ func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.C
 			Dispatcher:      tx.Dispatcher,
 			Created:         tx.Created,
 			FixedGasPricing: pldtypes.JSONString(tx.PublicTxGasPricing),
-		}
-		dbSubmission := &DBPubTxnSubmission{
-			TransactionHash: *tx.TransactionHash,
-			Created:         tx.PublicTx.Submissions[0].Time, // We should never get here without exactly one submission
-			GasPricing:      pldtypes.JSONString(tx.PublicTx.Submissions[0].PublicTxGasPricing),
-			SequencerTXReference: SequencerTXReference{
-				PrivateTXID: tx.Transaction,
-			},
-		}
-		persistedSubmissions = append(persistedSubmissions, dbSubmission)
-		dbBinding := &DBPublicTxnBinding{
-			Transaction:     tx.Transaction,
-			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.TransactionType),
-		}
-		dbTransaction.Submissions = persistedSubmissions
-		dbTransaction.Binding = dbBinding
-		persistedTransactions = append(persistedTransactions, dbTransaction)
+		})
 	}
 
-	err = dbTX.DB().
-		WithContext(ctx).
-		Table("public_txns").
-		Create(persistedTransactions).
-		Error
-	if err != nil {
-		return err
+	if len(persistedTransactions) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_txns").
+			Clauses(
+				clause.OnConflict{
+					// Message delivery is at-least-once, so we need to be able writing the same transaction and its binding
+					// more than once. We don't expect any of the columns to change, so duplicates are ignored.
+					Columns: []clause.Column{
+						{Name: "from"},
+						{Name: "nonce"},
+					},
+					DoNothing: true,
+				},
+				clause.Returning{Columns: []clause.Column{{Name: "pub_txn_id"}}},
+			).
+			Create(&persistedTransactions).
+			Error
+		if err != nil {
+			return err
+		}
+
+		for _, tx := range persistedTransactions {
+			if tx.PublicTxnID != 0 {
+				continue
+			}
+			existing := &DBPublicTxn{}
+			err = dbTX.DB().
+				WithContext(ctx).
+				Table("public_txns").
+				Where(`"from" = ? AND nonce = ?`, tx.From, tx.Nonce).
+				Take(existing).
+				Error
+			if err != nil {
+				return err
+			}
+			tx.PublicTxnID = existing.PublicTxnID
+		}
+	}
+
+	dbBindings := make([]*DBPublicTxnBinding, 0, len(txns))
+	dbSubmissions := make([]*DBPubTxnSubmission, 0, len(txns))
+	for i, tx := range txns {
+		dbBindings = append(dbBindings, &DBPublicTxnBinding{
+			PublicTxnID:     persistedTransactions[i].PublicTxnID,
+			Transaction:     tx.Transaction,
+			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.TransactionType),
+			Sender:          tx.TransactionSender,
+			ContractAddress: tx.TransactionContractAddress,
+		})
+
+		for _, submission := range tx.Submissions {
+			dbSubmissions = append(dbSubmissions, &DBPubTxnSubmission{
+				PublicTxnID:     persistedTransactions[i].PublicTxnID,
+				TransactionHash: submission.TransactionHash,
+				Created:         submission.Time,
+				GasPricing:      pldtypes.JSONString(submission.PublicTxGasPricing),
+				SequencerTXReference: SequencerTXReference{
+					PrivateTXID: tx.Transaction,
+				},
+			})
+		}
+	}
+
+	if len(dbBindings) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_txn_bindings").
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "pub_txn_id"}},
+				DoNothing: true,
+			}).
+			Create(&dbBindings).
+			Error
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(dbSubmissions) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_submissions").
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "tx_hash"}},
+				DoNothing: true,
+			}).
+			Create(&dbSubmissions).
+			Error
+		if err != nil {
+			return err
+		}
 	}
 
 	return err

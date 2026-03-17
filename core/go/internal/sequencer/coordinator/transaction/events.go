@@ -65,6 +65,19 @@ func (*SelectedEvent) TypeString() string {
 	return "Event_Selected"
 }
 
+// AssembleCancelledEvent
+type AssembleCancelledEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*AssembleCancelledEvent) Type() EventType {
+	return Event_Assemble_Cancelled
+}
+
+func (*AssembleCancelledEvent) TypeString() string {
+	return "Event_Assemble_Cancelled"
+}
+
 // AssembleRequestSentEvent
 type AssembleRequestSentEvent struct {
 	BaseCoordinatorEvent
@@ -155,19 +168,6 @@ func (*DispatchRequestApprovedEvent) TypeString() string {
 	return "Event_DispatchRequestApproved"
 }
 
-// DispatchRequestRejectedEvent
-type DispatchRequestRejectedEvent struct {
-	BaseCoordinatorEvent
-}
-
-func (*DispatchRequestRejectedEvent) Type() EventType {
-	return Event_DispatchRequestRejected
-}
-
-func (*DispatchRequestRejectedEvent) TypeString() string {
-	return "Event_DispatchRequestRejected"
-}
-
 // CollectedEvent
 // Collected by the public transaction manager after being dispatched
 type CollectedEvent struct {
@@ -225,20 +225,34 @@ func (*SubmittedEvent) TypeString() string {
 	return "Event_Submitted"
 }
 
-// ConfirmedEvent
-type ConfirmedEvent struct {
+type ConfirmedSuccessEvent struct {
 	BaseCoordinatorEvent
-	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
+	Nonce *pldtypes.HexUint64
+	Hash  pldtypes.Bytes32
+}
+
+func (*ConfirmedSuccessEvent) Type() EventType {
+	return Event_ConfirmedSuccess
+}
+
+func (*ConfirmedSuccessEvent) TypeString() string {
+	return "Event_ConfirmedSuccess"
+}
+
+type ConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+	Nonce        *pldtypes.HexUint64
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
+	OnChain      pldtypes.OnChainLocation
 }
 
-func (*ConfirmedEvent) Type() EventType {
-	return Event_Confirmed
+func (*ConfirmedRevertedEvent) Type() EventType {
+	return Event_ConfirmedReverted
 }
 
-func (*ConfirmedEvent) TypeString() string {
-	return "Event_Confirmed"
+func (*ConfirmedRevertedEvent) TypeString() string {
+	return "Event_ConfirmedReverted"
 }
 
 type DependencyAssembledEvent struct {
@@ -265,16 +279,28 @@ func (*DependencyRevertedEvent) TypeString() string {
 	return "Event_DependencyReverted"
 }
 
-type DependencyRepooledEvent struct {
+type DependencyResetEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*DependencyRepooledEvent) Type() EventType {
-	return Event_DependencyRepooled
+func (*DependencyResetEvent) Type() EventType {
+	return Event_DependencyReset
 }
 
-func (*DependencyRepooledEvent) TypeString() string {
-	return "Event_DependencyRepooled"
+func (*DependencyResetEvent) TypeString() string {
+	return "Event_DependencyReset"
+}
+
+type DependencyConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*DependencyConfirmedRevertedEvent) Type() EventType {
+	return Event_DependencyConfirmedReverted
+}
+
+func (*DependencyConfirmedRevertedEvent) TypeString() string {
+	return "Event_DependencyConfirmedReverted"
 }
 
 type DependencyReadyEvent struct {

@@ -34,8 +34,8 @@ import (
 )
 
 type TransportWriter interface {
-	StartLoopbackWriter(ctx context.Context)
-	StopLoopbackWriter()
+	StartLoopbackWriter()
+	WaitForDone(ctx context.Context)
 	SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error
 	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error
 	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
@@ -45,7 +45,7 @@ type TransportWriter interface {
 	SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error
 	SendNonceAssigned(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce uint64) error
 	SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error
-	SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes) error
+	SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error
 	SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error
 	SendPreDispatchRequest(ctx context.Context, originatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, hash *pldtypes.Bytes32) error
 	SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error
@@ -53,36 +53,37 @@ type TransportWriter interface {
 	SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error
 }
 
-func NewTransportWriter(contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
+func NewTransportWriter(ctx context.Context, contractAddress *pldtypes.EthAddress, nodeID string, transportManager components.TransportManager, loopbackHandler func(ctx context.Context, message *components.ReceivedMessage)) TransportWriter {
 	loopbackTransport := NewLoopbackTransportWriter(loopbackHandler)
 	return &transportWriter{
+		ctx:                   ctx,
 		nodeID:                nodeID,
 		transportManager:      transportManager,
 		loopbackTransport:     loopbackTransport,
 		contractAddress:       contractAddress,
-		stopLoopbackSender:    make(chan struct{}),
 		loopbackSenderStopped: make(chan struct{}),
 	}
 }
 
 type transportWriter struct {
+	ctx                   context.Context
 	nodeID                string
 	transportManager      components.TransportManager
 	loopbackTransport     LoopbackTransportManager
 	contractAddress       *pldtypes.EthAddress
-	stopLoopbackSender    chan struct{}
 	loopbackSenderStopped chan struct{}
 }
 
-func (tw *transportWriter) StartLoopbackWriter(ctx context.Context) {
+func (tw *transportWriter) StartLoopbackWriter() {
 	// We use a separate goroutine to send loopback messages to free up the event loops.
-	go tw.loopbackSender(ctx)
+	go tw.loopbackSender()
 }
 
-func (tw *transportWriter) StopLoopbackWriter() {
-	// We use a separate goroutine to send loopback messages to free up the event loops.
-	tw.stopLoopbackSender <- struct{}{}
-	<-tw.loopbackSenderStopped
+func (tw *transportWriter) WaitForDone(ctx context.Context) {
+	select {
+	case <-tw.loopbackSenderStopped:
+	case <-ctx.Done():
+	}
 }
 
 func (tw *transportWriter) SendDelegationRequest(
@@ -305,7 +306,7 @@ func (tw *transportWriter) SendEndorsementResponse(ctx context.Context, transact
 
 func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send assemble request to assembling node %s", assemblingNode)
+	log.L(ctx).Tracef("transport writer attempting to send assemble request to assembling node %s", assemblingNode)
 
 	preAssemblyBytes, err := json.Marshal(preAssembly)
 	if err != nil {
@@ -342,7 +343,7 @@ func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNo
 
 func (tw *transportWriter) SendAssembleResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send assemble response to node %s", recipient)
+	log.L(ctx).Tracef("transport writer attempting to send assemble response to node %s", recipient)
 
 	postAssemblyBytes, err := json.Marshal(postAssembly)
 	if err != nil {
@@ -382,7 +383,7 @@ func (tw *transportWriter) SendAssembleResponse(ctx context.Context, txID uuid.U
 
 func (tw *transportWriter) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send handover request to node %s", activeCoordinator)
+	log.L(ctx).Tracef("transport writer attempting to send handover request to node %s", activeCoordinator)
 
 	if contractAddress == nil {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send handover request without specifying contract address")
@@ -410,7 +411,7 @@ func (tw *transportWriter) SendHandoverRequest(ctx context.Context, activeCoordi
 
 func (tw *transportWriter) SendNonceAssigned(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce uint64) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send nonce assigned message to node %s", originatorNode)
+	log.L(ctx).Tracef("transport writer attempting to send nonce assigned message to node %s", originatorNode)
 
 	if contractAddress == nil {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send nonce assigned event request without specifying contract address")
@@ -441,7 +442,7 @@ func (tw *transportWriter) SendNonceAssigned(ctx context.Context, txID uuid.UUID
 
 func (tw *transportWriter) SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send transaction submitted message to node %s", originatorNode)
+	log.L(ctx).Tracef("transport writer attempting to send transaction submitted message to node %s", originatorNode)
 
 	if contractAddress == nil {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send TX submitted event without specifying contract address")
@@ -470,9 +471,9 @@ func (tw *transportWriter) SendTransactionSubmitted(ctx context.Context, txID uu
 	return err
 }
 
-func (tw *transportWriter) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes) error {
+func (tw *transportWriter) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send transaction confirmed message to node %s", originatorNode)
+	log.L(ctx).Tracef("transport writer attempting to send transaction confirmed message to node %s", originatorNode)
 
 	if contractAddress == nil {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send TX submitted event without specifying contract address")
@@ -484,6 +485,7 @@ func (tw *transportWriter) SendTransactionConfirmed(ctx context.Context, txID uu
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddress.HexString(),
 		RevertReason:    revertReason,
+		WillRetry:       willRetry,
 	}
 	if nonce != nil {
 		txConfirmed.Nonce = int64(*nonce)
@@ -507,7 +509,7 @@ func (tw *transportWriter) SendTransactionConfirmed(ctx context.Context, txID uu
 
 func (tw *transportWriter) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send haertbeat to node %s", targetNode)
+	log.L(ctx).Tracef("transport writer attempting to send haertbeat to node %s", targetNode)
 
 	coordinatorSnapshotBytes, err := json.Marshal(coordinatorSnapshot)
 	if err != nil {
@@ -539,7 +541,7 @@ func (tw *transportWriter) SendHeartbeat(ctx context.Context, targetNode string,
 
 func (tw *transportWriter) SendPreDispatchRequest(ctx context.Context, originatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification, hash *pldtypes.Bytes32) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch request to node %s", originatorNode)
+	log.L(ctx).Tracef("transport writer attempting to send pre-dispatch request to node %s", originatorNode)
 
 	// MRW TODO There should be a different proto message type instead of TransactionDispatched
 	dispatchConfirmationRequest := &engineProto.TransactionDispatched{
@@ -567,7 +569,7 @@ func (tw *transportWriter) SendPreDispatchRequest(ctx context.Context, originato
 
 func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transactionOriginatorNode string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginatorNode)
+	log.L(ctx).Tracef("transport writer attempting to send pre-dispatch response to node %s", transactionOriginatorNode)
 
 	dispatchResponseEvent := &engineProto.TransactionDispatched{
 		Id:              idempotencyKey.String(),
@@ -593,7 +595,7 @@ func (tw *transportWriter) SendPreDispatchResponse(ctx context.Context, transact
 
 func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Tracef("transport writer attempting to send dispatched message to node %s", transactionOriginator)
+	log.L(ctx).Tracef("transport writer attempting to send dispatched message to node %s", transactionOriginator)
 
 	dispatchedEvent := &engineProto.TransactionDispatched{
 		Id:              idempotencyKey.String(),
@@ -629,7 +631,7 @@ func (tw *transportWriter) SendDispatched(ctx context.Context, transactionOrigin
 // (e.g. reverted during assembly) but the response to the coordinator was lost, and the
 // transaction has since been removed from memory on the originator after cleanup.
 func (tw *transportWriter) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Warnf("transport writer sending transaction unknown message for tx %s to coordinator %s", txID, coordinatorNode)
+	log.L(ctx).Warnf("transport writer sending transaction unknown message for tx %s to coordinator %s", txID, coordinatorNode)
 
 	if tw.contractAddress == nil {
 		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send transaction unknown without specifying contract address")
@@ -664,12 +666,17 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 		return err
 	}
 
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGTX)).Debugf("%+v sent to %s", payload.MessageType, payload.Node)
+	log.L(ctx).Debugf("%+v sent to %s", payload.MessageType, payload.Node)
 	if payload.Node == "" || payload.Node == tw.transportManager.LocalNodeName() {
 		// "Localhost" loopback
 		log.L(ctx).Debugf("sending %s to loopback interface", payload.MessageType)
-
-		tw.loopbackTransport.LoopbackQueue() <- payload
+		select {
+		case tw.loopbackTransport.LoopbackQueue() <- payload:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tw.ctx.Done():
+			return tw.ctx.Err()
+		}
 
 		return nil
 	}
@@ -681,22 +688,22 @@ func (tw *transportWriter) send(ctx context.Context, payload *components.FireAnd
 // Run the loopback transport in a goroutine to avoid blocking the event loop. This is important for the
 // channel-based event queue to ensure the queue consumer is not blocked when we happen to be sending
 // to ourselves.
-func (tw *transportWriter) loopbackSender(ctx context.Context) {
+func (tw *transportWriter) loopbackSender() {
 	defer close(tw.loopbackSenderStopped)
 	for {
 		select {
 		case queuedPayload, ok := <-tw.loopbackTransport.LoopbackQueue():
 			if !ok {
-				log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
+				log.L(tw.ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 				return
 			}
 
-			err := tw.loopbackTransport.Send(ctx, queuedPayload)
+			err := tw.loopbackTransport.Send(tw.ctx, queuedPayload)
 			if err != nil {
-				log.L(ctx).Errorf("error sending %s to loopback interface for contract %s: %s", queuedPayload.MessageType, tw.contractAddress.String(), err)
+				log.L(tw.ctx).Errorf("error sending %s to loopback interface for contract %s: %s", queuedPayload.MessageType, tw.contractAddress.String(), err)
 			}
-		case <-tw.stopLoopbackSender:
-			log.L(ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
+		case <-tw.ctx.Done():
+			log.L(tw.ctx).Infof("shutting down loopback sender for contract %s", tw.contractAddress.String())
 			return
 		}
 	}

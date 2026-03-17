@@ -199,6 +199,7 @@ public class NotoHelper {
                                     put("amount", amount);
                                 }});
                             }});
+                            put("unlockData", "0x");
                             put("data", "0x");
                         }},
                         abi,
@@ -206,7 +207,7 @@ public class NotoHelper {
                 ), true));
     }
 
-    public void delegateLock(String sender, JsonHex.Bytes32 lockId, JsonHex.Address delegate, JsonNode unlockParams) throws IOException {
+    public void delegateLock(String sender, JsonHex.Bytes32 lockId, JsonHex.Address delegate) throws IOException {
         testbed.getRpcClient().request("testbed_invoke", new Testbed.TransactionInput(
                 "private",
                 "",

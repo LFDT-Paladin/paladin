@@ -77,8 +77,8 @@ func TestState_String_NegativeState(t *testing.T) {
 func Test_queueEventInternal_QueuesPriorityEvent(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 
 	syncEvent := statemachine.NewSyncEvent()
 	c.queueEventInternal(ctx, syncEvent)

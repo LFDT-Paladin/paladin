@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/stretchr/testify/assert"
@@ -354,8 +355,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.StateTimeout = confutil.P("60s") // In this test we don't want to hit this
-	sequencerConfig.RequestTimeout = confutil.P("10s")  // Extend this enough to give the bob node enough time to restart
+	sequencerConfig.StateTimeout = confutil.P("60s")   // In this test we don't want to hit this
+	sequencerConfig.RequestTimeout = confutil.P("10s") // Extend this enough to give the bob node enough time to restart
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
@@ -446,8 +447,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.RequestTimeout = confutil.P("1s")   // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
-	sequencerConfig.StateTimeout = confutil.P("10s") // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
+	sequencerConfig.RequestTimeout = confutil.P("1s") // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
+	sequencerConfig.StateTimeout = confutil.P("10s")  // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
 	alice.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
@@ -537,6 +538,12 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 
+	// Resume transactions in 1-TX pages
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.TransactionResumePageSize = confutil.P(1)
+
+	bob.OverrideSequencerConfig(&sequencerConfig)
+
 	domainConfig := &domains.SimpleDomainConfig{
 		SubmitMode: domains.ENDORSER_SUBMISSION,
 	}
@@ -573,24 +580,32 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 	// Stop alice's node before submitting a transaction request to bob's node.
 	stopNode(t, alice)
 
-	// Start a private transaction on bob's node, TO alice's identifier. This can't proceed while her node is stopped.
-	bobTx1 := bob.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
-		Private().
-		Domain("domain1").
-		IdempotencyKey("tx1-bob-" + uuid.New().String()).
-		From(bob.GetIdentity()).
-		To(contractAddress).
-		Function("transfer").
-		Inputs(pldtypes.RawJSON(`{
-			"from": "` + bob.GetIdentityLocator() + `",
-			"to": "` + alice.GetIdentityLocator() + `",
-			"amount": "123000000000000000000"
-		}`)).
-		Send()
-	require.NoError(t, bobTx1.Error())
+	bobTransactions := make([]pldclient.SentTransaction, 6)
 
-	// Check that we don't receive a receipt in the usual time while alice's node is offline
-	result := bobTx1.Wait(transactionLatencyThreshold(t))
+	for i := range 6 {
+		idempotencyKey := fmt.Sprintf("tx1-bob-%d-%s", i, uuid.New().String())
+		bobTransactions[i] = bob.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey(idempotencyKey).
+			From(bob.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
+				"from": "` + bob.GetIdentityLocator() + `",
+				"to": "` + alice.GetIdentityLocator() + `",
+				"amount": "1000000000000000000"
+			}`)).
+			Send()
+	}
+	for _, tx := range bobTransactions {
+		require.NoError(t, tx.Error())
+	}
+
+	// Check that we don't receive receipts in the usual time while alice's node is offline
+	result := bobTransactions[0].Wait(transactionLatencyThreshold(t))
+	require.ErrorContains(t, result.Error(), "timed out")
+	result = bobTransactions[5].Wait(transactionLatencyThreshold(t))
 	require.ErrorContains(t, result.Error(), "timed out")
 
 	// Now stop bob's node as well.
@@ -606,12 +621,14 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 
 	// Check that we did receive a receipt once the nodes restarted
 	// We can't use Wait as the client in the SentTransaction is for the previous instance of the running node
-	assert.Eventually(t,
-		transactionReceiptCondition(t, ctx, *bobTx1.ID(), bob.GetClient(), false),
-		transactionLatencyThreshold(t),
-		100*time.Millisecond,
-		"Transaction did not receive a receipt",
-	)
+	for _, tx := range bobTransactions {
+		assert.Eventually(t,
+			transactionReceiptCondition(t, ctx, *tx.ID(), bob.GetClient(), false),
+			transactionLatencyThreshold(t),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt",
+		)
+	}
 }
 
 func TestTransactionSuccessChainedTransaction(t *testing.T) {
@@ -1118,7 +1135,7 @@ func TestTransactionRevertOnBaseLedger(t *testing.T) {
 			"from": "",
 			"to": "` + bob.GetIdentityLocator() + `",
 			"amount": "1003"
-		}`)). // Special value 1003 in the simple domain causes revert once on the base ledger, then subsequently be successful
+		}`)). // Special value 1003 in the simple domain causes retryable revert once on the base ledger, then subsequently be successful
 		Send().Wait(transactionLatencyThresholdCustom(t, &customDuration))
 	require.NoError(t, aliceTx.Error())
 
@@ -1310,27 +1327,17 @@ func TestTransactionFailureWhenChainedTransactionAssembleReverts(t *testing.T) {
 		"Transaction did not receive a receipt",
 	)
 
-	// Alice's node also has the failure receipt for the chained transaction, which we can query by idempotency key
-	chainedTxIdempotencyKey := fmt.Sprintf("%s_transfer", aliceTx.ID().String())
-	receiptLimit := 1
-	alicesChainedTransaction, err := alice.GetClient().PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
-		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(chainedTxIdempotencyKey),
-					},
-				},
-			},
-		},
-	})
+	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
-	require.Len(t, alicesChainedTransaction, 1)
-	require.True(t, alicesChainedTransaction[0].Receipt.Success == false)
+	require.Len(t, aliceTxFull.ChainedPrivateTransactions, 1)
+
+	chainedTxID, err := uuid.Parse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NoError(t, err)
+
+	alicesChainedTransaction, err := alice.GetClient().PTX().GetTransactionFull(ctx, chainedTxID)
+	require.NoError(t, err)
+	require.NotNil(t, alicesChainedTransaction.Receipt)
+	require.False(t, alicesChainedTransaction.Receipt.Success)
 }
 
 func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) {
@@ -1413,22 +1420,11 @@ func TestTransactionFailureChainedTransactionDifferentOriginators(t *testing.T) 
 	receiptLimit := 1
 	bobsChainedTransaction, err := bob.GetClient().PTX().QueryTransactionsFull(ctx, &query.QueryJSON{
 		Limit: &receiptLimit,
-		Statements: query.Statements{
-			Ops: query.Ops{
-				Equal: []*query.OpSingleVal{
-					{
-						Op: query.Op{
-							Field: "idempotencyKey",
-						},
-						Value: pldtypes.JSONString(bobsTXIdempotencyKey),
-					},
-				},
-			},
-		},
 	})
 	require.NoError(t, err)
 	require.Len(t, bobsChainedTransaction, 1)
-	require.True(t, bobsChainedTransaction[0].Receipt.Success == false)
+	assert.Contains(t, bobsChainedTransaction[0].IdempotencyKey, bobsTXIdempotencyKey)
+	assert.True(t, bobsChainedTransaction[0].Receipt.Success == false)
 }
 
 func TestTransactionSuccessMultipleConcurrentPrivacyGroupEndorsement(t *testing.T) {

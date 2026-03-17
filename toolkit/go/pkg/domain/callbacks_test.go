@@ -27,13 +27,13 @@ import (
 func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
 	tests := []struct {
 		name           string
-		mockFunc       func() (*pb.FindAvailableStatesResponse, error)
+		mockFunc       func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error)
 		expectedStates []*pb.StoredState
 		expectedError  error
 	}{
 		{
 			name: "successful response",
-			mockFunc: func() (*pb.FindAvailableStatesResponse, error) {
+			mockFunc: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 				return &pb.FindAvailableStatesResponse{
 					States: []*pb.StoredState{
 						{
@@ -59,7 +59,7 @@ func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
 		},
 		{
 			name: "error response",
-			mockFunc: func() (*pb.FindAvailableStatesResponse, error) {
+			mockFunc: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 				return nil, errors.New("database error")
 			},
 			expectedStates: nil,
@@ -67,7 +67,7 @@ func TestMockDomainCallbacks_FindAvailableStates(t *testing.T) {
 		},
 		{
 			name: "empty states response",
-			mockFunc: func() (*pb.FindAvailableStatesResponse, error) {
+			mockFunc: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 				return &pb.FindAvailableStatesResponse{
 					States: []*pb.StoredState{},
 				}, nil

@@ -141,7 +141,7 @@ func (n *NotoHelper) Unlock(ctx context.Context, params *types.UnlockParams) *Do
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }
 
-func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.UnlockParams) *DomainTransactionHelper {
+func (n *NotoHelper) PrepareUnlock(ctx context.Context, params *types.PrepareUnlockParams) *DomainTransactionHelper {
 	fn := types.NotoABI.Functions()["prepareUnlock"]
 	return NewDomainTransactionHelper(ctx, n.t, n.rpc, n.Address, fn, toJSON(n.t, params))
 }

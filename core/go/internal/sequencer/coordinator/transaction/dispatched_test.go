@@ -19,13 +19,15 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_Collected_SetsSignerAddress(t *testing.T) {
+func Test_action_NotifyCollected_SetsSignerAddress(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	signerAddr := pldtypes.RandAddress()
 	event := &CollectedEvent{
@@ -35,7 +37,7 @@ func Test_action_Collected_SetsSignerAddress(t *testing.T) {
 		SignerAddress: *signerAddr,
 	}
 
-	err := action_Collected(ctx, txn, event)
+	err := action_NotifyCollected(ctx, txn, event)
 	require.NoError(t, err)
 
 	// Assert state: signerAddress was set from the event
@@ -43,9 +45,11 @@ func Test_action_Collected_SetsSignerAddress(t *testing.T) {
 	assert.Equal(t, signerAddr.String(), txn.signerAddress.String())
 }
 
-func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
+func Test_action_NotifyNonceAllocated_SetsNonceAndSends(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	nonce := uint64(123)
 	event := &NonceAllocatedEvent{
@@ -55,22 +59,23 @@ func Test_action_NonceAllocated_SetsNonceAndSends(t *testing.T) {
 		Nonce: nonce,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, nonce).
 		Return(nil)
 
-	err := action_NonceAllocated(ctx, txn, event)
+	err := action_NotifyNonceAllocated(ctx, txn, event)
 	require.NoError(t, err)
 
 	// Assert state: nonce was set
 	require.NotNil(t, txn.nonce)
 	assert.Equal(t, nonce, *txn.nonce)
-	mocks.transportWriter.AssertExpectations(t)
 }
 
-func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
+func Test_action_NotifyNonceAllocated_PropagatesSendError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	event := &NonceAllocatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -79,21 +84,23 @@ func Test_action_NonceAllocated_PropagatesSendError(t *testing.T) {
 		Nonce: 1,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendNonceAssigned(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, uint64(1)).
 		Return(assert.AnError)
 
-	err := action_NonceAllocated(ctx, txn, event)
-	assert.Error(t, err)
+	err := action_NotifyNonceAllocated(ctx, txn, event)
+	require.Error(t, err)
 
 	// State still updated even when send fails
 	require.NotNil(t, txn.nonce)
 	assert.Equal(t, uint64(1), *txn.nonce)
 }
 
-func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
+func Test_action_NotifySubmitted_SetsSubmissionHashAndSends(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -103,22 +110,23 @@ func Test_action_Submitted_SetsSubmissionHashAndSends(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(nil)
 
-	err := action_Submitted(ctx, txn, event)
+	err := action_NotifySubmitted(ctx, txn, event)
 	require.NoError(t, err)
 
 	// Assert state: latestSubmissionHash was set
 	require.NotNil(t, txn.latestSubmissionHash)
 	assert.Equal(t, submissionHash, *txn.latestSubmissionHash)
-	mocks.transportWriter.AssertExpectations(t)
 }
 
-func Test_action_Submitted_PropagatesSendError(t *testing.T) {
+func Test_action_NotifySubmitted_PropagatesSendError(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := newTransactionForUnitTesting(t, nil)
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
 
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	event := &SubmittedEvent{
@@ -128,14 +136,58 @@ func Test_action_Submitted_PropagatesSendError(t *testing.T) {
 		SubmissionHash: submissionHash,
 	}
 
-	mocks.transportWriter.EXPECT().
+	mocks.TransportWriter.EXPECT().
 		SendTransactionSubmitted(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &submissionHash).
 		Return(assert.AnError)
 
-	err := action_Submitted(ctx, txn, event)
-	assert.Error(t, err)
+	err := action_NotifySubmitted(ctx, txn, event)
+	require.Error(t, err)
 
 	// State still updated
 	require.NotNil(t, txn.latestSubmissionHash)
 	assert.Equal(t, submissionHash, *txn.latestSubmissionHash)
+}
+
+func Test_action_NotifyDispatched_UsesTransactionSpec(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
+
+	spec := txn.pt.PreAssembly.TransactionSpecification
+	mocks.TransportWriter.EXPECT().
+		SendDispatched(ctx, txn.originator, mock.Anything, spec).
+		Return(nil)
+
+	err := action_NotifyDispatched(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_NotifyDispatched_AllowsNilTransactionSpec(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
+	txn.pt.PreAssembly = nil
+
+	mocks.TransportWriter.EXPECT().
+		SendDispatched(ctx, txn.originator, mock.Anything, (*prototk.TransactionSpecification)(nil)).
+		Return(nil)
+
+	err := action_NotifyDispatched(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_NotifyDispatched_PropagatesSendError(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		UseMockTransportWriter().
+		Build()
+
+	mocks.TransportWriter.EXPECT().
+		SendDispatched(ctx, txn.originator, mock.Anything, txn.pt.PreAssembly.TransactionSpecification).
+		Return(assert.AnError)
+
+	err := action_NotifyDispatched(ctx, txn, nil)
+	require.Error(t, err)
 }

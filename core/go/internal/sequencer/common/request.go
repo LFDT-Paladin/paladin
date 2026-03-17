@@ -17,19 +17,21 @@ package common
 import (
 	"context"
 
+	"time"
+
 	"github.com/google/uuid"
 )
 
 type IdempotentRequest struct {
 	idempotencyKey   uuid.UUID                                                 //unique string to identify the request (re-used across retries)
-	requestTime      Time                                                      //time the request was most recently sent
-	firstRequestTime Time                                                      //time the request was first sent
+	requestTime      *time.Time                                                //time the request was most recently sent
+	firstRequestTime *time.Time                                                //time the request was first sent
 	send             func(ctx context.Context, idempotencyKey uuid.UUID) error // function to send the request
 	clock            Clock
-	timeout          Duration
+	timeout          time.Duration
 }
 
-func NewIdempotentRequest(ctx context.Context, clock Clock, timeout Duration, sendRequest func(ctx context.Context, idempotencyKey uuid.UUID) error) *IdempotentRequest {
+func NewIdempotentRequest(ctx context.Context, clock Clock, timeout time.Duration, sendRequest func(ctx context.Context, idempotencyKey uuid.UUID) error) *IdempotentRequest {
 	idempotencyKey := uuid.New()
 	r := &IdempotentRequest{
 		idempotencyKey:   idempotencyKey,
@@ -47,16 +49,17 @@ func (r *IdempotentRequest) IdempotencyKey() uuid.UUID {
 	return r.idempotencyKey
 }
 
-func (r *IdempotentRequest) FirstRequestTime() Time {
+func (r *IdempotentRequest) FirstRequestTime() *time.Time {
 	return r.firstRequestTime
 }
 
 // Prompt to check whether a retry is due and if so, send the request
 func (r *IdempotentRequest) Nudge(ctx context.Context) error {
-	if r.requestTime == nil || r.clock.HasExpired(r.requestTime, r.timeout) {
+	if r.requestTime == nil || r.clock.HasExpired(*r.requestTime, r.timeout) {
 		err := r.send(ctx, r.idempotencyKey)
 		if err == nil {
-			r.requestTime = r.clock.Now()
+			now := r.clock.Now()
+			r.requestTime = &now
 			if r.firstRequestTime == nil {
 				r.firstRequestTime = r.requestTime
 			}

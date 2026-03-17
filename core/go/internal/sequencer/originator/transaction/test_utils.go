@@ -46,10 +46,10 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 	return &SentMessageRecorder{}
 }
 
-func (r *SentMessageRecorder) StartLoopbackWriter(ctx context.Context) {
+func (r *SentMessageRecorder) StartLoopbackWriter() {
 }
 
-func (r *SentMessageRecorder) StopLoopbackWriter() {
+func (r *SentMessageRecorder) WaitForDone(ctx context.Context) {
 }
 
 func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
@@ -109,7 +109,7 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes) error {
+func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
 	return nil
 }
 
@@ -164,7 +164,6 @@ type TransactionBuilderForTesting struct {
 	currentDelegate           string
 	txn                       *OriginatorTransaction
 	sentMessageRecorder       *SentMessageRecorder
-	fakeClock                 *common.FakeClockForTesting
 	fakeEngineIntegration     *common.FakeEngineIntegrationForTesting
 	queueEventForOriginator   func(ctx context.Context, event common.Event)
 
@@ -188,7 +187,6 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		state:                     state,
 		currentDelegate:           uuid.New().String(),
 		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
-		fakeClock:                 &common.FakeClockForTesting{},
 		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
 		sentMessageRecorder:       NewSentMessageRecorder(),
 		metrics:                   metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
@@ -230,9 +228,17 @@ func (b *TransactionBuilderForTesting) GetLatestSubmissionHash() pldtypes.Bytes3
 	return *b.latestSubmissionHash
 }
 
+func (b *TransactionBuilderForTesting) QueueEventsTo(emit func(ctx context.Context, event common.Event)) *TransactionBuilderForTesting {
+	b.queueEventForOriginator = emit
+	return b
+}
+
+func (b *TransactionBuilderForTesting) GetBuiltTransaction() *OriginatorTransaction {
+	return b.txn
+}
+
 type TransactionDependencyFakes struct {
 	SentMessageRecorder *SentMessageRecorder
-	Clock               *common.FakeClockForTesting
 	EngineIntegration   *common.FakeEngineIntegrationForTesting
 	transactionBuilder  *TransactionBuilderForTesting
 	emittedEvents       []common.Event
@@ -241,7 +247,6 @@ type TransactionDependencyFakes struct {
 func (b *TransactionBuilderForTesting) BuildWithMocks() (*OriginatorTransaction, *TransactionDependencyFakes) {
 	mocks := &TransactionDependencyFakes{
 		SentMessageRecorder: b.sentMessageRecorder,
-		Clock:               b.fakeClock,
 		EngineIntegration:   b.fakeEngineIntegration,
 		transactionBuilder:  b,
 	}

@@ -17,16 +17,16 @@ package transaction
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_clearTimeoutSchedules_BothNil(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.cancelRequestTimeoutSchedule = nil
-	txn.cancelStateTimeoutSchedule = nil
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	// Should not panic
 	txn.clearTimeoutSchedules()
@@ -36,15 +36,16 @@ func Test_clearTimeoutSchedules_BothNil(t *testing.T) {
 }
 
 func Test_clearTimeoutSchedules_BothSet(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	called1 := false
 	called2 := false
-	txn.cancelRequestTimeoutSchedule = func() {
-		called1 = true
-	}
-	txn.cancelStateTimeoutSchedule = func() {
-		called2 = true
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		CancelRequestTimeoutSchedule(func() {
+			called1 = true
+		}).
+		CancelStateTimeoutSchedule(func() {
+			called2 = true
+		}).
+		Build()
 
 	txn.clearTimeoutSchedules()
 
@@ -54,13 +55,26 @@ func Test_clearTimeoutSchedules_BothSet(t *testing.T) {
 	assert.Nil(t, txn.cancelStateTimeoutSchedule)
 }
 
-func Test_stateTimeoutExceeded_NoStartTime(t *testing.T) {
+func Test_action_ScheduleStateTimeout_schedulesTimer(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateEntryTime = nil
-	pendingRequest := common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		return nil
-	})
+	timeoutEventReceived := false
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		UseMockClock().
+		StateTimeout(1).
+		QueueEventForCoordinator(func(ctx context.Context, event common.Event) {
+			if _, ok := event.(*StateTimeoutIntervalEvent); ok {
+				timeoutEventReceived = true
+			}
+		}).
+		Build()
 
-	assert.False(t, txn.stateTimeoutExceeded(ctx, pendingRequest, "test-state"))
+	mocks.Clock.On("ScheduleTimer", mock.Anything, time.Duration(1), mock.Anything).Return(func() {}).
+		Run(func(args mock.Arguments) {
+			callback := args.Get(2).(func())
+			callback()
+		})
+
+	err := action_ScheduleStateTimeout(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, timeoutEventReceived)
 }

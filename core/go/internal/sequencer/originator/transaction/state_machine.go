@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 )
@@ -90,6 +91,11 @@ type (
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Created: {
 				Transitions: []Transition{
 					{
@@ -101,6 +107,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Pending: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 				Transitions: []Transition{
@@ -113,6 +124,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Delegated: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Delegated: {
 				Actions: []ActionRule{{Action: action_Delegated}},
 			},
@@ -142,14 +158,19 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Assembling: {
-		OnTransitionTo: action_AssembleAndSign,
+		OnTransitionTo: []ActionRule{{Action: action_AssembleAndSign}},
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleAndSignSuccess: {
 				Actions: []ActionRule{{Action: action_AssembleAndSignSuccess}},
 				Transitions: []Transition{
 					{
-						To:     State_Endorsement_Gathering,
-						Action: action_SendAssembleSuccessResponse,
+						To:      State_Endorsement_Gathering,
+						Actions: []ActionRule{{Action: action_SendAssembleSuccessResponse}},
 					},
 				},
 			},
@@ -157,8 +178,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_AssembleRevert}},
 				Transitions: []Transition{
 					{
-						To:     State_Reverted,
-						Action: action_SendAssembleRevertResponse,
+						To:      State_Reverted,
+						Actions: []ActionRule{{Action: action_SendAssembleRevertResponse}},
 					},
 				},
 			},
@@ -166,8 +187,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_AssemblePark}},
 				Transitions: []Transition{
 					{
-						To:     State_Parked,
-						Action: action_SendAssembleParkResponse,
+						To:      State_Parked,
+						Actions: []ActionRule{{Action: action_SendAssembleParkResponse}},
 					},
 				},
 			},
@@ -188,7 +209,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_AssembleRequestReceived},
 					{
-						If:     statemachine.Not(guard_AssembleRequestMatchesPreviousResponse),
+						If:     statemachine.GuardNot(guard_AssembleRequestMatchesPreviousResponse),
 						Action: action_AssembleAndSign,
 					},
 					{
@@ -202,6 +223,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Endorsement_Gathering: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Validator: validator_AssembleRequestMatches,
 				Actions: []ActionRule{
@@ -213,7 +239,7 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 				Transitions: []Transition{{
 					//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
-					If: statemachine.Not(guard_AssembleRequestMatchesPreviousResponse),
+					If: statemachine.GuardNot(guard_AssembleRequestMatchesPreviousResponse),
 					To: State_Assembling,
 				}},
 			},
@@ -230,8 +256,8 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions:   []ActionRule{{Action: action_PreDispatchRequestReceived}},
 				Transitions: []Transition{
 					{
-						To:     State_Prepared,
-						Action: action_SendPreDispatchResponse,
+						To:      State_Prepared,
+						Actions: []ActionRule{{Action: action_SendPreDispatchResponse}},
 					},
 				},
 			},
@@ -239,6 +265,11 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Prepared: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_Dispatched: {
 				Actions: []ActionRule{{Action: action_Dispatched}},
 				//Note: no validator here although this event may or may not match the most recent dispatch confirmation response.
@@ -251,6 +282,21 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Dispatched,
 					},
 				},
+			},
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions: []ActionRule{
+					{Action: action_AssembleRequestReceived},
+					{
+						//We thought we had got as far as endorsement but it seems like the coordinator had not got the response in time and has resent the assemble request, we simply reply with the same response as before
+						If:     guard_AssembleRequestMatchesPreviousResponse,
+						Action: action_ResendAssembleSuccessResponse,
+					}},
+				Transitions: []Transition{{
+					//This is different from the previous request. The coordinator must have decided that it was necessary to re-assemble with different available states so we go back to assembling state for a do-over
+					If: statemachine.GuardNot(guard_AssembleRequestMatchesPreviousResponse),
+					To: State_Assembling,
+				}},
 			},
 			Event_PreDispatchRequestReceived: {
 				Validator: validator_PreDispatchRequestMatchesAssembledDelegation,
@@ -290,9 +336,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -332,6 +386,15 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			// The coordinator must have decided that it was necessary to re-assemble with different available
+			// states so we go back to assembling state for another attempt
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
+				Transitions: []Transition{{
+					To: State_Assembling,
+				}},
+			},
 		},
 	},
 	State_Sequenced: {
@@ -342,9 +405,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -362,6 +433,15 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			// The coordinator must have decided that it was necessary to re-assemble with different available
+			// states so we go back to assembling state for another attempt
+			Event_AssembleRequestReceived: {
+				Validator: validator_AssembleRequestMatches,
+				Actions:   []ActionRule{{Action: action_AssembleRequestReceived}},
+				Transitions: []Transition{{
+					To: State_Assembling,
+				}},
+			},
 		},
 	},
 	State_Submitted: {
@@ -375,9 +455,17 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_ConfirmedReverted: {
-				Transitions: []Transition{{
-					To: State_Delegated, //trust coordinator to retry
-				}},
+				Actions: []ActionRule{{Action: action_RecordWillRetry}},
+				Transitions: []Transition{
+					{
+						If: guard_WillRetry,
+						To: State_Delegated,
+					},
+					{
+						If: statemachine.GuardNot(guard_WillRetry),
+						To: State_Confirmed,
+					},
+				},
 			},
 			Event_CoordinatorChanged: {
 				Actions: []ActionRule{{Action: action_CoordinatorChanged}},
@@ -404,6 +492,11 @@ var stateDefinitionsMap = StateDefinitions{
 
 	State_Parked: {
 		Events: map[EventType]EventHandler{
+			Event_ConfirmedSuccess: {
+				Transitions: []Transition{{
+					To: State_Confirmed,
+				}},
+			},
 			Event_AssembleRequestReceived: {
 				Actions: []ActionRule{
 					{Action: action_AssembleRequestReceived},
@@ -421,7 +514,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Confirmed: {
-		OnTransitionTo: action_QueueFinalizeEvent,
+		OnTransitionTo: []ActionRule{{Action: action_QueueFinalizeEvent}},
 		Events: map[EventType]EventHandler{
 			Event_Finalize: {
 				Transitions: []Transition{{
@@ -431,7 +524,7 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Reverted: {
-		OnTransitionTo: action_QueueFinalizeEvent,
+		OnTransitionTo: []ActionRule{{Action: action_QueueFinalizeEvent}},
 		Events: map[EventType]EventHandler{
 			Event_Finalize: {
 				Transitions: []Transition{{
@@ -473,7 +566,10 @@ func (t *OriginatorTransaction) initializeStateMachine(initialState State) {
 }
 
 func (t *OriginatorTransaction) HandleEvent(ctx context.Context, event common.Event) error {
-	return t.stateMachine.ProcessEvent(ctx, t, event)
+	// Adding the log field here means every function called by the transaction state machine will have the txID field
+	// in addition to the fields of the parent context
+	txCtx := log.WithLogField(ctx, "txID", t.pt.ID.String())
+	return t.stateMachine.ProcessEvent(txCtx, t, event)
 }
 
 func action_CoordinatorChanged(ctx context.Context, t *OriginatorTransaction, event common.Event) error {

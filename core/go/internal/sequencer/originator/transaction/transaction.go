@@ -17,6 +17,7 @@ package transaction
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -49,7 +50,7 @@ type OriginatorTransaction struct {
 	transportWriter                  transport.TransportWriter
 	queueEventForOriginator          func(context.Context, common.Event)
 	currentDelegate                  string
-	lastDelegatedTime                *common.Time
+	lastDelegatedTime                *time.Time
 	latestAssembleRequest            *assembleRequestFromCoordinator
 	latestFulfilledAssembleRequestID uuid.UUID
 	latestPreDispatchRequestID       uuid.UUID
@@ -57,6 +58,7 @@ type OriginatorTransaction struct {
 	latestSubmissionHash             *pldtypes.Bytes32
 	nonce                            *uint64
 	metrics                          metrics.DistributedSequencerMetrics
+	lastReceivedWillRetry            bool
 }
 
 func NewTransaction(
@@ -205,7 +207,7 @@ func (t *OriginatorTransaction) GetNonce() *uint64 {
 	return t.nonce
 }
 
-func (t *OriginatorTransaction) GetLastDelegatedTime() *common.Time {
+func (t *OriginatorTransaction) GetLastDelegatedTime() *time.Time {
 	t.RLock()
 	defer t.RUnlock()
 	return t.lastDelegatedTime

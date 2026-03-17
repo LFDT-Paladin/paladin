@@ -69,3 +69,13 @@ func action_QueueFinalizeEvent(ctx context.Context, txn *OriginatorTransaction, 
 	txn.queueEventForOriginator(ctx, event)
 	return nil
 }
+
+func action_RecordWillRetry(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+	e := event.(*ConfirmedRevertedEvent)
+	t.lastReceivedWillRetry = e.WillRetry
+	return nil
+}
+
+func guard_WillRetry(ctx context.Context, t *OriginatorTransaction) bool {
+	return t.lastReceivedWillRetry
+}

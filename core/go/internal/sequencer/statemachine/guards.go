@@ -17,18 +17,18 @@ package statemachine
 
 import "context"
 
-// Not returns a guard that negates the given guard.
-// If the input guard returns true, Not returns false, and vice versa.
-func Not[E any](guard Guard[E]) Guard[E] {
+// GuardNot returns a guard that negates the given guard.
+// If the input guard returns true, GuardNot returns false, and vice versa.
+func GuardNot[E any](guard Guard[E]) Guard[E] {
 	return func(ctx context.Context, entity E) bool {
 		return !guard(ctx, entity)
 	}
 }
 
-// And returns a guard that combines multiple guards with logical AND.
+// GuardAnd returns a guard that combines multiple guards with logical AND.
 // The resulting guard returns true only if all input guards return true.
 // Guards are evaluated in order; evaluation stops at the first false result.
-func And[E any](guards ...Guard[E]) Guard[E] {
+func GuardAnd[E any](guards ...Guard[E]) Guard[E] {
 	return func(ctx context.Context, entity E) bool {
 		for _, guard := range guards {
 			if !guard(ctx, entity) {
@@ -39,10 +39,10 @@ func And[E any](guards ...Guard[E]) Guard[E] {
 	}
 }
 
-// Or returns a guard that combines multiple guards with logical OR.
+// GuardOr returns a guard that combines multiple guards with logical OR.
 // The resulting guard returns true if any of the input guards return true.
 // Guards are evaluated in order; evaluation stops at the first true result.
-func Or[E any](guards ...Guard[E]) Guard[E] {
+func GuardOr[E any](guards ...Guard[E]) Guard[E] {
 	return func(ctx context.Context, entity E) bool {
 		for _, guard := range guards {
 			if guard(ctx, entity) {

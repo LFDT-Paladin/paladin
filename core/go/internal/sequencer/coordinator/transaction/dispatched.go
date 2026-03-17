@@ -19,21 +19,31 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 )
 
-func action_Collected(_ context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	var txSpec *prototk.TransactionSpecification
+	if t.pt.PreAssembly != nil {
+		txSpec = t.pt.PreAssembly.TransactionSpecification
+	}
+	return t.transportWriter.SendDispatched(ctx, t.originator, uuid.New(), txSpec)
+}
+
+func action_NotifyCollected(_ context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*CollectedEvent)
 	t.signerAddress = &e.SignerAddress
 	return nil
 }
 
-func action_NonceAllocated(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_NotifyNonceAllocated(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*NonceAllocatedEvent)
 	t.nonce = &e.Nonce
 	return t.transportWriter.SendNonceAssigned(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce)
 }
 
-func action_Submitted(ctx context.Context, t *CoordinatorTransaction, event common.Event) error {
+func action_NotifySubmitted(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	log.L(ctx).Infof("coordinator transaction applying SubmittedEvent for transaction %s submitted with hash %s", t.pt.ID.String(), e.SubmissionHash.HexString())
 	t.latestSubmissionHash = &e.SubmissionHash

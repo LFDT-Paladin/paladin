@@ -39,7 +39,8 @@ func NewTestGasPriceClient(t *testing.T, conf *pldconf.GasPriceConfig, zeroGasPr
 	mockEthClient := ethclientmocks.NewEthClient(t)
 
 	hgc := &HybridGasPriceClient{
-		conf: conf,
+		conf:                       conf,
+		gasPriceRefreshRoutineDone: make(chan struct{}),
 	}
 	hgc.Init(ctx)
 
@@ -359,6 +360,7 @@ func TestInitWithDefaults(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Should use defaults for missing fields
@@ -382,6 +384,7 @@ func TestInitWithCacheEnabledEthFeeHistory(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Should initialize cache
@@ -407,6 +410,7 @@ func TestInitWithCacheEnabledGasOracle(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Should initialize cache and gas oracle HTTP client
@@ -428,6 +432,7 @@ func TestInitWithCacheDisabled(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Should not initialize cache
@@ -475,6 +480,7 @@ func TestInitWithGasOracleCacheTakesPrecedence(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Should use gas oracle cache settings (60s, not 30s)
@@ -618,6 +624,7 @@ func TestGetCachedGasPriceWithoutCache(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 
@@ -641,6 +648,7 @@ func TestSetCachedGasPriceWithCache(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 
@@ -671,6 +679,7 @@ func TestSetCachedGasPriceWithoutCache(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 
@@ -737,6 +746,7 @@ func TestInitValidationWithValidGasPriceCaps(t *testing.T) {
 	gasPriceClient := NewGasPriceClient(ctx, conf)
 	err := gasPriceClient.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	// Verify caps are set correctly
@@ -860,6 +870,7 @@ func TestGetGasPriceObjectWithCacheHit(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Pre-populate cache
 	cachedGasPrice := &pldapi.PublicTxGasPricing{
@@ -905,6 +916,7 @@ func TestGetGasPriceObjectWithCacheMiss(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock eth client
 	mockEthClient := ethclientmocks.NewEthClient(t)
@@ -959,6 +971,7 @@ func TestGetGasPriceObjectWithGasOracleCache(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Verify cache was initialized
 	assert.NotNil(t, hgc.gasPriceCache)
@@ -1020,6 +1033,7 @@ func TestStartWithNilGasPriceResponse(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock GasPrice returning nil
 	mockEthClient.On("GasPrice", ctx).Return(nil, nil).Once()
@@ -1046,6 +1060,7 @@ func TestStartWithGasPriceError(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock GasPrice returning error
 	mockEthClient.On("GasPrice", ctx).Return(nil, fmt.Errorf("network error")).Once()
@@ -1078,6 +1093,7 @@ func TestStartSkipsGasPriceWhenFixedPriceSet(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Should not call GasPrice since fixedGasPrice is set
 	hgc.Start(ctx, mockEthClient)
@@ -1102,6 +1118,7 @@ func TestStartWithCacheEnabled(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock GasPrice call
 	gasPrice := pldtypes.Uint64ToUint256(20000000000)
@@ -1131,6 +1148,7 @@ func TestStartWithCacheDisabled(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock GasPrice call
 	gasPrice := pldtypes.Uint64ToUint256(20000000000)
@@ -1163,6 +1181,7 @@ func TestRefreshGasPriceCacheWithGasOracle(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Setup httpmock
 	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
@@ -1202,6 +1221,7 @@ func TestRefreshGasPriceCacheWithEthFeeHistory(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Mock eth client
 	mockEthClient := ethclientmocks.NewEthClient(t)
@@ -1244,6 +1264,7 @@ func TestRefreshGasPriceCacheWithError(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Setup httpmock
 	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
@@ -1277,6 +1298,7 @@ func TestRefreshGasPriceCacheWithoutCache(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Call refresh (should be no-op)
 	hgc.refreshGasPriceCache(ctx)
@@ -1307,6 +1329,7 @@ func TestStartGasPriceRefreshWithTickerAndCancellation(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Setup httpmock
 	httpmock.ActivateNonDefault(hgc.gasOracleHTTPClient.GetClient())
@@ -1361,6 +1384,7 @@ func TestStartGasPriceRefreshWithoutCache(t *testing.T) {
 	hgc := gasPriceClient.(*HybridGasPriceClient)
 	err := hgc.Init(ctx)
 	require.NoError(t, err)
+	defer gasPriceClient.Stop()
 
 	// Should not start refresh when cache is nil
 	hgc.startGasPriceRefresh(ctx)

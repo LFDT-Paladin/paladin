@@ -19,7 +19,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
@@ -75,23 +74,6 @@ func (*CoordinatorFlushedEvent) Type() EventType {
 
 func (*CoordinatorFlushedEvent) TypeString() string {
 	return "Event_Flushed"
-}
-
-type TransactionConfirmedEvent struct {
-	common.BaseEvent
-	TxID         uuid.UUID
-	From         *pldtypes.EthAddress
-	Nonce        *pldtypes.HexUint64 // nil when nonce is not available (e.g. chained confirmation)
-	Hash         pldtypes.Bytes32
-	RevertReason pldtypes.HexBytes
-}
-
-func (*TransactionConfirmedEvent) Type() EventType {
-	return Event_TransactionConfirmed
-}
-
-func (*TransactionConfirmedEvent) TypeString() string {
-	return "Event_TransactionConfirmed"
 }
 
 type TransactionDispatchConfirmedEvent struct {

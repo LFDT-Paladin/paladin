@@ -23,11 +23,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 // Function hasDependenciesNotAssembled checks if the transaction has any dependencies that have not been assembled yet
-func (t *CoordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context) bool {
+func (t *coordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context) bool {
 	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
 		for _, dependencyID := range t.pt.PreAssembly.Dependencies.DependsOn {
 			dependency := t.grapher.TransactionByID(ctx, dependencyID)
@@ -46,7 +45,7 @@ func (t *CoordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context
 }
 
 // Function hasUnknownDependencies checks if the transaction has any dependencies the coordinator does not have in memory.  These might be long gone confirmed to base ledger or maybe the delegation request for them hasn't reached us yet. At this point, we don't know
-func (t *CoordinatorTransaction) hasUnknownDependencies(ctx context.Context) bool {
+func (t *coordinatorTransaction) hasUnknownDependencies(ctx context.Context) bool {
 
 	dependencies := t.dependencies.DependsOn
 	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
@@ -66,8 +65,12 @@ func (t *CoordinatorTransaction) hasUnknownDependencies(ctx context.Context) boo
 	return false
 }
 
+func action_InitializeForNewAssembly(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
+	return txn.initializeForNewAssembly(ctx)
+}
+
 // Initializes (or re-initializes) the transaction as it arrives in the pool
-func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) error {
+func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) error {
 	if t.pt.PreAssembly == nil {
 		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.pt.ID)
 		log.L(ctx).Error(msg)
@@ -99,7 +102,10 @@ func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) e
 	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
 	// dependencies from a previous version of the grapher.
 	t.pt.PostAssembly = nil
+	t.pt.PreparedPublicTransaction = nil
+	t.pt.PreparedPrivateTransaction = nil
 	t.dependencies = &pldapi.TransactionDependencies{}
+	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
@@ -108,39 +114,41 @@ func (t *CoordinatorTransaction) initializeForNewAssemply(ctx context.Context) e
 	return nil
 }
 
-func action_recordRevert(ctx context.Context, txn *CoordinatorTransaction, _ common.Event) error {
-	now := pldtypes.TimestampNow()
-	txn.revertTime = &now
+func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
+	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
+	// later assembles binding to stale minters that have already been reset/reverted.
+	txn.grapher.ForgetMints(txn.pt.ID)
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
 	return nil
 }
 
-func action_onTransitionToPooled(ctx context.Context, txn *CoordinatorTransaction, event common.Event) error {
-	// We emit a DependencyRepooledEvent whenever we transition to pooled. For the initial transition
-	// from State_Initial to State_Pooled and the transition from State_Assembling to State_Pooled
-	// we do not expect any dependents yet, so this is a no-op.
-	if err := txn.notifyDependentsOfRepool(ctx); err != nil {
-		return err
-	}
-	return txn.initializeForNewAssemply(ctx)
-}
-
-func guard_HasUnassembledDependencies(ctx context.Context, txn *CoordinatorTransaction) bool {
+func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.hasDependenciesNotAssembled(ctx)
 }
 
-func guard_HasUnknownDependencies(ctx context.Context, txn *CoordinatorTransaction) bool {
+func guard_HasUnknownDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.hasUnknownDependencies(ctx)
 }
 
-func guard_HasChainedTxInProgress(ctx context.Context, txn *CoordinatorTransaction) bool {
-	return txn.chainedTxAlreadyDispatched
+func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	// We emit a DependencyResetEvent whenever we transition to pooled. For the initial transition
+	// from State_Initial to State_Pooled and the transition from State_Assembling to State_Pooled
+	// we do not expect any dependents yet, so this is a no-op.
+	if err := txn.notifyDependentsOfReset(ctx); err != nil {
+		return err
+	}
+	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
+	// events while dispatched are no-ops and stale dependency links are dropped.
+	txn.dependencies = &pldapi.TransactionDependencies{}
+	return nil
 }
 
-func (t *CoordinatorTransaction) notifyDependentsOfRepool(ctx context.Context) error {
+func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
 	for _, dependentID := range t.dependencies.PrereqOf {
 		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
 		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyRepooledEvent{
+			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},

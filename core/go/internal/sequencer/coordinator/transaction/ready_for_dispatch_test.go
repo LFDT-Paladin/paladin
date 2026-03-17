@@ -17,7 +17,6 @@ package transaction
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -31,29 +30,28 @@ import (
 
 func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier:    &prototk.ResolvedVerifier{Lookup: "signer1"},
+					Constraints: []prototk.AttestationResult_AttestationConstraint{prototk.AttestationResult_ENDORSER_MUST_SUBMIT},
+				},
 			},
-		},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.pt.Signer = ""
+		}).
+		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
+		Build()
 
 	err := action_UpdateSigningIdentity(ctx, txn, nil)
-
-	require.NoError(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, "signer1", txn.pt.Signer)
 }
 
 func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
+		Build()
 	txn.pt.PostAssembly = nil
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.pt.Signer = ""
 
 	txn.updateSigningIdentity()
 
@@ -61,12 +59,12 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.pt.Signer = ""
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{},
+		}).
+		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
+		Build()
 
 	txn.updateSigningIdentity()
 
@@ -74,22 +72,23 @@ func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
 	verifierLookup := "verifier1"
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: verifierLookup,
-				},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{
-					prototk.AttestationResult_ENDORSER_MUST_SUBMIT,
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: verifierLookup,
+					},
+					Constraints: []prototk.AttestationResult_AttestationConstraint{
+						prototk.AttestationResult_ENDORSER_MUST_SUBMIT,
+					},
 				},
 			},
-		},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.pt.Signer = ""
+		}).
+		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
+		Build()
 
 	txn.updateSigningIdentity()
 
@@ -97,19 +96,17 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier:    &prototk.ResolvedVerifier{Lookup: "verifier1"},
+					Constraints: []prototk.AttestationResult_AttestationConstraint{},
 				},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{},
 			},
-		},
-	}
-	txn.submitterSelection = prototk.ContractConfig_SUBMITTER_COORDINATOR
-	txn.pt.Signer = ""
+		}).
+		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
+		Build()
 
 	txn.updateSigningIdentity()
 
@@ -117,68 +114,33 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 }
 
 func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
-				},
-				Constraints: []prototk.AttestationResult_AttestationConstraint{
-					prototk.AttestationResult_ENDORSER_MUST_SUBMIT,
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier1",
+					},
+					Constraints: []prototk.AttestationResult_AttestationConstraint{
+						prototk.AttestationResult_ENDORSER_MUST_SUBMIT,
+					},
 				},
 			},
-		},
-	}
-	// Use a different submitter selection value (0 is COORDINATOR, so use 1 or higher)
-	txn.submitterSelection = 999 // Invalid value to test the condition
-	txn.pt.Signer = ""
+		}).
+		SubmitterSelection(999). // Invalid value to test the condition
+		Build()
 
 	txn.updateSigningIdentity()
 
 	assert.Empty(t, txn.pt.Signer)
 }
 
-func Test_dependentsMustWait_FixedSigningIdentity_Confirmed(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Confirmed
-
-	assert.False(t, txn.dependentsMustWait())
-}
-
-func Test_dependentsMustWait_FixedSigningIdentity_Submitted(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Dispatched
-
-	assert.False(t, txn.dependentsMustWait())
-}
-
-func Test_dependentsMustWait_FixedSigningIdentity_Dispatched(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Dispatched
-
-	assert.False(t, txn.dependentsMustWait())
-}
-
-func Test_dependentsMustWait_FixedSigningIdentity_ReadyForDispatch(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Ready_For_Dispatch
-
-	assert.False(t, txn.dependentsMustWait())
-}
-
-func Test_dependentsMustWait_FixedSigningIdentity_NotReady(t *testing.T) {
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.stateMachine.CurrentState = State_Assembling
-
-	assert.True(t, txn.dependentsMustWait())
-}
-
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Dependencies(&pldapi.TransactionDependencies{}).
+		Build()
 	txn.pt.PreAssembly = nil
 
 	assert.False(t, txn.hasDependenciesNotReady(ctx))
@@ -187,12 +149,12 @@ func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	ctx := context.Background()
 
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
 	missingID := uuid.New()
-	txn.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{missingID},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{missingID},
+		}).
+		Build()
 	txn.pt.PreAssembly = nil
 
 	// Missing dependency is an error case, should block next TX by returning true
@@ -203,10 +165,10 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
 	txn1.stateMachine.CurrentState = State_Assembling
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
 	txn2.dependencies = &pldapi.TransactionDependencies{
 		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
@@ -219,31 +181,16 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.stateMachine.CurrentState = State_Confirmed
-
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
-	txn2.pt.PreAssembly = nil
-
-	assert.False(t, txn2.hasDependenciesNotReady(ctx))
-}
-
-func Test_hasDependenciesNotReady_FixedDomainSigner_DependencyReadyForDispatch(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
-
-	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).
-		DomainSigningIdentity("fixed-signer").
 		Build()
-	txn2.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
+
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txn1.pt.ID},
+		}).
+		Build()
 	txn2.pt.PreAssembly = nil
 
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
@@ -253,16 +200,19 @@ func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.stateMachine.CurrentState = State_Assembling
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{}
-	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.pt.ID},
-		},
-	}
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			Dependencies: &pldapi.TransactionDependencies{
+				DependsOn: []uuid.UUID{txn1.pt.ID},
+			},
+		}).
+		Build()
 
 	assert.True(t, txn2.hasDependenciesNotReady(ctx))
 }
@@ -271,21 +221,26 @@ func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.stateMachine.CurrentState = State_Confirmed
 
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.stateMachine.CurrentState = State_Assembling
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(grapher).
+		Build()
 
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
-	txn3.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
-	txn3.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn2.pt.ID},
-		},
-	}
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		Build()
+
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txn1.pt.ID},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{
+			Dependencies: &pldapi.TransactionDependencies{
+				DependsOn: []uuid.UUID{txn2.pt.ID},
+			},
+		}).
+		Build()
 
 	assert.True(t, txn3.hasDependenciesNotReady(ctx))
 }
@@ -293,23 +248,24 @@ func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *
 func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.PostAssembly = &components.TransactionPostAssembly{
-		Signatures: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PostAssembly(&components.TransactionPostAssembly{
+			Signatures: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier1",
+					},
 				},
 			},
-		},
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier2",
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier2",
+					},
 				},
 			},
-		},
-	}
+		}).
+		Build()
 
 	// Should not panic
 	txn.traceDispatch(ctx)
@@ -318,10 +274,11 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{},
+		}).
+		Build()
 
 	err := txn.notifyDependentsOfReadiness(ctx)
 	assert.NoError(t, err)
@@ -329,39 +286,43 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 
 func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
 	missingID := uuid.New()
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{missingID},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{missingID},
+		}).
+		Build()
 	// Missing dependency is an error case, should block next TX by returning true
 	err := txn.notifyDependentsOfReadiness(ctx)
-	assert.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "PD012645"))
+	require.ErrorContains(t, err, "PD012645")
 }
 
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
+	tx1ID := uuid.New()
+	tx2ID := uuid.New()
 	// txn1 is the notifier: it enters Ready_For_Dispatch and notifies its dependents (txn2)
-	txn1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(grapher).Build()
-	// txn2 is the dependent: it must be in State_Blocked so that Event_DependencyReady causes a transition to State_Confirming_Dispatchable
-	txn2 := NewTransactionBuilderForTesting(t, State_Blocked).
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx1ID).
 		Grapher(grapher).
-		PredefinedDependencies(txn1.pt.ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
 		Build()
-	txn2.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{txn2.pt.ID},
-	}
+	// txn2 is the dependent: it must be in State_Blocked so that Event_DependencyReady causes a transition to State_Confirming_Dispatchable
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		TransactionID(tx2ID).
+		Grapher(grapher).
+		PredefinedDependencies(tx1ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID},
+		}).
+		Build()
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.CurrentState,
 		"DependencyReadyEvent should transition txn2 from State_Blocked to State_Confirming_Dispatchable")
 }
@@ -375,63 +336,59 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 	log.SetLevel("trace")
 	defer log.SetLevel(originalLevel)
 
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn1.pt.PostAssembly = &components.TransactionPostAssembly{
-		Signatures: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier1",
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		PostAssembly(&components.TransactionPostAssembly{
+			Signatures: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier1",
+					},
 				},
 			},
-		},
-		Endorsements: []*prototk.AttestationResult{
-			{
-				Verifier: &prototk.ResolvedVerifier{
-					Lookup: "verifier2",
+			Endorsements: []*prototk.AttestationResult{
+				{
+					Verifier: &prototk.ResolvedVerifier{
+						Lookup: "verifier2",
+					},
 				},
 			},
-		},
-	}
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+		}).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{},
+		}).
+		Build()
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	ctx := context.Background()
 
 	grapher := NewGrapher(ctx)
-	// Create the main transaction that will notify dependents
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
 
 	// Create a dependent transaction in State_Blocked that will fail when handling DependencyReadyEvent
 	// This happens when transitioning to State_Confirming_Dispatchable triggers action_SendPreDispatchRequest
 	// which calls Hash(), which fails if PostAssembly is nil
-	dependentTxnBuilder := NewTransactionBuilderForTesting(t, State_Blocked).
-		Grapher(grapher)
-	dependentTxn := dependentTxnBuilder.Build()
-	dependentID := dependentTxn.pt.ID
+	dependentID := uuid.New()
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		TransactionID(dependentID).
+		Build()
 
 	// Remove PostAssembly to cause Hash() to fail when transitioning to State_Confirming_Dispatchable
 	// Note: guard_AttestationPlanFulfilled returns true when PostAssembly is nil (no unfulfilled requirements)
 	// so the transition will be attempted, but action_SendPreDispatchRequest will fail
 	dependentTxn.pt.PostAssembly = nil
 
-	// Ensure the dependent transaction can transition (no dependencies not ready)
-	// The guard requires: guard_And(guard_AttestationPlanFulfilled, guard_Not(guard_HasDependenciesNotReady))
-	dependentTxn.dependencies = &pldapi.TransactionDependencies{}
-	if dependentTxn.pt.PreAssembly == nil {
-		dependentTxn.pt.PreAssembly = &components.TransactionPreAssembly{}
-	}
-
-	// Set up the main transaction to have the dependent as a PrereqOf
-	txn1.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{dependentID},
-	}
+	// Create the main transaction that will notify dependents
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Build()
 
 	// Call notifyDependentsOfReadiness - should return error
 	err := txn1.notifyDependentsOfReadiness(ctx)
@@ -441,9 +398,9 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.domainSigningIdentity = "domain-signer"
-	txn.pt.Signer = ""
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		DomainSigningIdentity("domain-signer").
+		Build()
 
 	txn.allocateSigningIdentity(ctx)
 
@@ -453,154 +410,35 @@ func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
 func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.domainSigningIdentity = ""
-	txn.pt.Signer = ""
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		CoordinatorSigningIdentity("coordinator-signer").
+		Build()
 
 	txn.allocateSigningIdentity(ctx)
 
-	assert.Equal(t, txn.coordinatorSigningIdentity, txn.pt.Signer)
+	assert.Equal(t, "coordinator-signer", txn.pt.Signer)
 }
 
-func Test_action_NotifyDependentsOfReadiness_WithExistingSigner(t *testing.T) {
+func Test_action_AllocateSigningIdentity_WithExistingSigner(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.Signer = "existing-signer"
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Signer("existing-signer").
+		Build()
 
-	err := action_NotifyDependentsOfReadiness(ctx, txn, nil)
-	assert.NoError(t, err)
+	err := action_AllocateSigningIdentity(ctx, txn, nil)
+	require.NoError(t, err)
 	assert.Equal(t, "existing-signer", txn.pt.Signer)
 }
 
-func Test_action_NotifyDependentsOfReadiness_WithoutSigner(t *testing.T) {
+func Test_action_AllocateSigningIdentity_WithoutSigner(t *testing.T) {
 	ctx := context.Background()
 
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.pt.Signer = ""
-	txn.domainSigningIdentity = ""
-	txn.dependencies = &pldapi.TransactionDependencies{
-		PrereqOf: []uuid.UUID{},
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		CoordinatorSigningIdentity("coordinator-signer").
+		Build()
 
-	err := action_NotifyDependentsOfReadiness(ctx, txn, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, txn.coordinatorSigningIdentity, txn.pt.Signer)
-}
-
-func Test_hasDependenciesNotIn_NoDependencies(t *testing.T) {
-	ctx := context.Background()
-
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	txn.dependencies = &pldapi.TransactionDependencies{}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.False(t, txn.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
-}
-
-func Test_hasDependenciesNotIn_DependencyNotInMemory(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
-	missingID := uuid.New()
-	txn.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{missingID},
-	}
-	txn.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.False(t, txn.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
-}
-
-func Test_hasDependenciesNotIn_DependencyNotInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
-	txn2.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
-}
-
-func Test_hasDependenciesNotIn_DependencyInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID},
-	}
-	txn2.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
-}
-
-func Test_hasDependenciesNotIn_PreAssemblyDependencyNotInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{}
-	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.pt.ID},
-		},
-	}
-
-	assert.True(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{}))
-}
-
-func Test_hasDependenciesNotIn_PreAssemblyDependencyInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn2.dependencies = &pldapi.TransactionDependencies{}
-	txn2.pt.PreAssembly = &components.TransactionPreAssembly{
-		Dependencies: &pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.pt.ID},
-		},
-	}
-
-	assert.False(t, txn2.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
-}
-
-func Test_hasDependenciesNotIn_MultipleDependencies_OneInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
-	txn3.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID, txn2.pt.ID},
-	}
-	txn3.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.True(t, txn3.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1}))
-}
-
-func Test_hasDependenciesNotIn_MultipleDependencies_AllInIgnoreList(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := newTransactionForUnitTesting(t, grapher)
-	txn2, _ := newTransactionForUnitTesting(t, grapher)
-	txn3, _ := newTransactionForUnitTesting(t, grapher)
-	txn3.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: []uuid.UUID{txn1.pt.ID, txn2.pt.ID},
-	}
-	txn3.pt.PreAssembly = &components.TransactionPreAssembly{}
-
-	assert.False(t, txn3.hasDependenciesNotIn(ctx, []*CoordinatorTransaction{txn1, txn2}))
+	err := action_AllocateSigningIdentity(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "coordinator-signer", txn.pt.Signer)
 }

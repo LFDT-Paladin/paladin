@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -158,19 +159,23 @@ func TestRunBatch_OnlyFinalizeOperations(t *testing.T) {
 		{
 			contractAddress: *contractAddr,
 			finalizeOperation: &finalizeOperation{
-				Domain:         "domain1",
-				TransactionID:  txID1,
-				FailureMessage: "error1",
-				Originator:     "originator1@node1",
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain1",
+					TransactionID:  txID1,
+					FailureMessage: "error1",
+					Originator:     "originator1@node1",
+				},
 			},
 		},
 		{
 			contractAddress: *contractAddr,
 			finalizeOperation: &finalizeOperation{
-				Domain:         "domain2",
-				TransactionID:  txID2,
-				FailureMessage: "error2",
-				Originator:     "originator2@node1",
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain2",
+					TransactionID:  txID2,
+					FailureMessage: "error2",
+					Originator:     "originator2@node1",
+				},
 			},
 		},
 	}
@@ -252,10 +257,12 @@ func TestRunBatch_MixedOperations(t *testing.T) {
 			contractAddress: *contractAddr,
 			domainContext:   dc,
 			finalizeOperation: &finalizeOperation{
-				Domain:         "domain1",
-				TransactionID:  txID,
-				FailureMessage: "error1",
-				Originator:     "originator1@node1",
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain1",
+					TransactionID:  txID,
+					FailureMessage: "error1",
+					Originator:     "originator1@node1",
+				},
 			},
 		},
 		{
@@ -304,10 +311,12 @@ func TestRunBatch_FinalizeOperationError(t *testing.T) {
 		{
 			contractAddress: *contractAddr,
 			finalizeOperation: &finalizeOperation{
-				Domain:         "domain1",
-				TransactionID:  txID,
-				FailureMessage: "error1",
-				Originator:     "originator1@node1",
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain1",
+					TransactionID:  txID,
+					FailureMessage: "error1",
+					Originator:     "originator1@node1",
+				},
 			},
 		},
 	}
@@ -449,10 +458,12 @@ func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {
 		{
 			contractAddress: *contractAddr,
 			finalizeOperation: &finalizeOperation{
-				Domain:         "domain1",
-				TransactionID:  txID,
-				FailureMessage: "", // Empty failure message
-				Originator:     "originator1@node1",
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain1",
+					TransactionID:  txID,
+					FailureMessage: "",
+					Originator:     "originator1@node1",
+				},
 			},
 		},
 	}
@@ -464,4 +475,124 @@ func TestRunBatch_FinalizeOperationsWithEmptyFailureMessage(t *testing.T) {
 	// FinalizeTransactions should not be called when there are no failure messages
 	mockTXMgr.AssertNotCalled(t, "FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything)
 	mockTransportMgr.AssertNotCalled(t, "SendReliable", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestRunBatch_FinalizeOperationsWithOnChainRevert(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	txID := uuid.New()
+	revertData := pldtypes.MustParseHexBytes("0xdeadbeef")
+	onChain := pldtypes.OnChainLocation{
+		Type:             pldtypes.OnChainTransaction,
+		TransactionHash:  pldtypes.NewBytes32FromSlice([]byte{0x01}),
+		BlockNumber:      42,
+		TransactionIndex: 7,
+	}
+
+	mockTXMgr.On("FinalizeTransactions", ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInput) bool {
+		if len(receipts) != 1 {
+			return false
+		}
+		r := receipts[0]
+		return r.ReceiptType == components.RT_FailedOnChainWithRevertData &&
+			r.TransactionID == txID &&
+			r.OnChain.BlockNumber == 42 &&
+			r.OnChain.TransactionIndex == 7 &&
+			r.RevertData.String() == revertData.String()
+	})).Return(nil)
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			finalizeOperation: &finalizeOperation{
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:        "domain1",
+					TransactionID: txID,
+					Originator:    "originator1@node1",
+					RevertData:    revertData,
+					OnChain:       &onChain,
+				},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	mockTXMgr.AssertExpectations(t)
+}
+
+func TestWriteOrDistributeReceipts_LocalSuccessIsFinalized(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+	txID := uuid.New()
+
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+	mockTXMgr.On("FinalizeTransactions", ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInput) bool {
+		return len(receipts) == 1 &&
+			receipts[0].ReceiptType == components.RT_Success &&
+			receipts[0].TransactionID == txID
+	})).Return(nil).Once()
+
+	err := s.WriteOrDistributeReceipts(ctx, dbTX, []*components.ReceiptInputWithOriginator{{
+		Originator:            "wallets.org1.alice@node1",
+		DomainContractAddress: "0xabc",
+		ReceiptInput: components.ReceiptInput{
+			ReceiptType:   components.RT_Success,
+			TransactionID: txID,
+		},
+	}})
+	require.NoError(t, err)
+	mockTXMgr.AssertExpectations(t)
+	mockTransportMgr.AssertExpectations(t)
+}
+
+func TestWriteOrDistributeReceipts_RemoteSuccessIsSentReliably(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+	txID := uuid.New()
+
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+	mockTransportMgr.On("SendReliable", ctx, dbTX, mock.MatchedBy(func(msgs []*pldapi.ReliableMessage) bool {
+		return len(msgs) == 1 &&
+			msgs[0].Node == "node2" &&
+			msgs[0].MessageType.V() == pldapi.RMTReceipt
+	})).Return(nil).Once()
+
+	err := s.WriteOrDistributeReceipts(ctx, dbTX, []*components.ReceiptInputWithOriginator{{
+		Originator:            "wallets.org1.alice@node2",
+		DomainContractAddress: "0xabc",
+		ReceiptInput: components.ReceiptInput{
+			ReceiptType:   components.RT_Success,
+			TransactionID: txID,
+		},
+	}})
+	require.NoError(t, err)
+	mockTXMgr.AssertNotCalled(t, "FinalizeTransactions", mock.Anything, mock.Anything, mock.Anything)
+	mockTransportMgr.AssertExpectations(t)
 }

@@ -40,7 +40,6 @@ const (
 	Event_HeartbeatInterval                EventType = iota + 300 // the heartbeat interval has passed since the last time a heartbeat was received or the last time this event was received
 	Event_HeartbeatReceived                                       // a heartbeat message was received from the current active coordinator
 	Event_TransactionCreated                                      // a new transaction has been created and is ready to be sent to the coordinator TODO maybe name something like Intent created?
-	Event_TransactionConfirmed                                    // a transaction, that was send by this originator, has been confirmed on the base ledger
 	Event_NewBlock                                                // a new block has been mined on the base ledger
 	Event_Base_Ledger_Transaction_Reverted                        // A transaction has moved from the dispatched to pending state because it was reverted on the base ledger
 	Event_Delegate_Timeout                                        // a regular interval to re-delegate transactions that have been delegated but not yet confirmed
@@ -69,9 +68,29 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{To: State_Observing}},
 			},
 			Event_TransactionCreated: {
-				Validator:   validator_TransactionDoesNotExist,
-				Actions:     []ActionRule{{Action: action_TransactionCreated}},
-				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
+				Validator: validator_TransactionDoesNotExist,
+				Actions:   []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{
+					To: State_Sending,
+					Actions: []ActionRule{{
+						Action: action_SendDelegationRequest,
+					}},
+				}},
+			},
+			common.Event_TransactionStateTransition: {
+				Actions: []ActionRule{
+					{
+						Validator: validator_OriginatorTransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+					{
+						Validator: statemachine.ValidatorOr(
+							validator_OriginatorTransactionStateTransitionToConfirmed,
+							validator_OriginatorTransactionStateTransitionToReverted,
+						),
+						Action: action_FinalizeTransaction,
+					},
+				},
 			},
 		},
 	},
@@ -84,14 +103,31 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{To: State_Idle, If: guard_HeartbeatThresholdExceeded}},
 			},
 			Event_TransactionCreated: {
-				Validator:   validator_TransactionDoesNotExist,
-				Actions:     []ActionRule{{Action: action_TransactionCreated}},
-				Transitions: []Transition{{To: State_Sending, Action: action_SendDelegationRequest}},
+				Validator: validator_TransactionDoesNotExist,
+				Actions:   []ActionRule{{Action: action_TransactionCreated}},
+				Transitions: []Transition{{
+					To: State_Sending,
+					Actions: []ActionRule{{
+						Action: action_SendDelegationRequest,
+					}},
+				}},
 			},
 			Event_NewBlock:          {},
 			Event_HeartbeatReceived: {Actions: []ActionRule{{Action: action_HeartbeatReceived}}},
 			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
+				Actions: []ActionRule{
+					{
+						Validator: validator_OriginatorTransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+					{
+						Validator: statemachine.ValidatorOr(
+							validator_OriginatorTransactionStateTransitionToConfirmed,
+							validator_OriginatorTransactionStateTransitionToReverted,
+						),
+						Action: action_FinalizeTransaction,
+					},
+				},
 			},
 		},
 	},
@@ -102,10 +138,6 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_ActiveCoordinatorUpdated},
 					{Action: action_SendDelegationRequest},
 				},
-			},
-			Event_TransactionConfirmed: {
-				Actions:     []ActionRule{{Action: action_TransactionConfirmed}},
-				Transitions: []Transition{{To: State_Observing, If: statemachine.Not(guard_HasUnconfirmedTransactions)}},
 			},
 			Event_TransactionCreated: {
 				Validator: validator_TransactionDoesNotExist,
@@ -128,7 +160,22 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_ResendTimedOutDelegationRequest}},
 			},
 			common.Event_TransactionStateTransition: {
-				Actions: []ActionRule{{Action: action_OriginatorTransactionStateTransition}},
+				Actions: []ActionRule{
+					{
+						Validator: validator_OriginatorTransactionStateTransitionToFinal,
+						Action:    action_CleanUpTransaction,
+					},
+					{
+						Validator: statemachine.ValidatorOr(
+							validator_OriginatorTransactionStateTransitionToConfirmed,
+							validator_OriginatorTransactionStateTransitionToReverted,
+						),
+						Action: action_FinalizeTransaction,
+					},
+				},
+				Transitions: []Transition{
+					{To: State_Observing, If: statemachine.GuardNot(guard_HasUnconfirmedTransactions)},
+				},
 			},
 		},
 	},

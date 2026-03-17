@@ -28,8 +28,8 @@ import (
 func Test_action_NewBlock_SetsCurrentBlockHeight(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Standby)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 
 	err := action_NewBlock(ctx, c, &NewBlockEvent{BlockHeight: 1000})
 	require.NoError(t, err)
@@ -39,8 +39,8 @@ func Test_action_NewBlock_SetsCurrentBlockHeight(t *testing.T) {
 func Test_action_EndorsementRequested_SetsActiveCoordinatorAndUpdatesPool(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 
 	err := action_EndorsementRequested(ctx, c, &EndorsementRequestedEvent{From: "node1"})
 	require.NoError(t, err)
@@ -53,8 +53,8 @@ func Test_action_HeartbeatReceived_SetsActiveCoordinatorBlockHeightAndUpdatesPoo
 	addr := pldtypes.RandAddress()
 	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
 	contractAddress := builder.GetContractAddress()
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 
 	event := &HeartbeatReceivedEvent{}
 	event.From = "node1"
@@ -73,14 +73,14 @@ func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
 	addr := pldtypes.RandAddress()
 	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
 	contractAddress := builder.GetContractAddress()
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 	event := &HeartbeatReceivedEvent{}
 	event.From = "node1"
 	event.ContractAddress = &contractAddress
 	event.BlockHeight = 2000
 	signerAddr := pldtypes.RandAddress()
-	event.FlushPoints = []*common.FlushPoint{
+	event.FlushPoints = []*common.SnapshotFlushPoint{
 		{From: *signerAddr, Nonce: 42, Hash: pldtypes.Bytes32{}},
 	}
 
@@ -94,8 +94,8 @@ func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
 func Test_action_SendHandoverRequest_CallsSendHandoverRequest(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Elect)
-	c, mocks := builder.Build(ctx)
-	defer c.Stop()
+	c, mocks, done := builder.Build(ctx)
+	defer done()
 	c.activeCoordinatorNode = "otherNode"
 
 	err := action_SendHandoverRequest(ctx, c, nil)
@@ -106,8 +106,8 @@ func Test_action_SendHandoverRequest_CallsSendHandoverRequest(t *testing.T) {
 func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 	err := action_Idle(ctx, c, nil)
 	require.NoError(t, err)
 }
@@ -115,8 +115,8 @@ func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
 func Test_action_Idle_CancelsHeartbeatWhenSet(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 	c.heartbeatCtx = heartbeatCtx
 	c.heartbeatCancel = cancel

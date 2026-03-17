@@ -64,12 +64,15 @@ func (c *closeableHTTPClient) Close() {
 }
 
 // NewRPCClient Constructor
-func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (Client, error) {
-	rc, closeFn, err := pldresty.New(ctx, conf)
+func NewHTTPClient(ctx context.Context, conf *pldconf.HTTPClientConfig) (ClosableClient, error) {
+	rc, err := pldresty.New(ctx, conf)
 	if err != nil {
 		return nil, err
 	}
-	return &closeableHTTPClient{Client: WrapRestyClient(rc), closeFn: closeFn}, nil
+	return &closeableHTTPClient{
+		Client:  WrapRestyClient(rc.Client),
+		closeFn: rc.Close,
+	}, nil
 }
 
 func WrapRestyClient(rc *resty.Client) Client {

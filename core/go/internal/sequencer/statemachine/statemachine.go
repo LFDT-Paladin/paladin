@@ -94,7 +94,7 @@ type Lockable interface {
 // All actions receive the event so they can apply event-specific data or perform side effects.
 // Actions can be specified for:
 //   - Event handling (Actions field in EventHandler; first action often applies event data)
-//   - Specific transitions (Action field in Transition struct)
+//   - Specific transitions (Actions field in Transition struct)
 //   - Entry to a state (OnTransitionTo in StateDefinition)
 type Action[E any] func(ctx context.Context, entity E, event common.Event) error
 
@@ -103,21 +103,23 @@ type Action[E any] func(ctx context.Context, entity E, event common.Event) error
 type Guard[E any] func(ctx context.Context, entity E) bool
 
 // ActionRule pairs an action with an optional guard condition.
+// Validator is evaluated first for event-aware filtering.
 // If the guard (If) is nil, the action is always executed.
 // If the guard returns true, the action is executed.
 type ActionRule[E any] struct {
-	Action Action[E]
-	If     Guard[E]
+	Action    Action[E]
+	Validator Validator[E]
+	If        Guard[E]
 }
 
 // Transition defines a possible state transition.
 // To: The target state to transition to
 // If: Optional guard condition - if nil, transition is always taken (when matched)
-// Action: Optional action to execute during this specific transition
+// Actions: Optional transition-specific action rules to execute before state-entry actions
 type Transition[S State, E any] struct {
-	To     S         // Target state
-	If     Guard[E]  // Guard condition (optional)
-	Action Action[E] // Transition-specific action (optional)
+	To      S               // Target state
+	If      Guard[E]        // Guard condition (optional)
+	Actions []ActionRule[E] // Transition-specific action rules (optional)
 }
 
 // Validator is a function that validates whether an event is valid for the current
@@ -136,10 +138,10 @@ type EventHandler[S State, E any] struct {
 }
 
 // StateDefinition defines the behavior of a particular state.
-// OnTransitionTo: Action executed when entering this state (after transition-specific actions)
+// OnTransitionTo: Action rules executed when entering this state (after transition-specific actions)
 // Events: Map of event types to their handlers in this state
 type StateDefinition[S State, E any] struct {
-	OnTransitionTo Action[E]
+	OnTransitionTo []ActionRule[E]
 	Events         map[common.EventType]EventHandler[S, E]
 }
 
@@ -149,10 +151,6 @@ type StateDefinitions[S State, E any] map[S]StateDefinition[S, E]
 // TransitionCallback is called when a state transition occurs.
 // It receives the entity, old state, new state, and the event that triggered the transition.
 type TransitionCallback[S State, E any] func(ctx context.Context, entity E, from S, to S, event common.Event)
-
-// OnStopCallback is called when the event loop receives a stop signal.
-// It can optionally return a final event to process before stopping.
-type OnStopCallback func(ctx context.Context) common.Event
 
 // StateMachine holds the current state, metadata, and processing logic for a state machine instance.
 // The entity type E must implement Lockable; the state machine holds the entity's lock
@@ -222,8 +220,9 @@ func (sm *StateMachine[S, E]) ProcessEvent(
 	}
 
 	// Execute Actions
-	err = sm.performActions(ctx, entity, event, *eventHandler)
+	err = sm.executeActionRules(ctx, entity, event, eventHandler.Actions)
 	if err != nil {
+		log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
 		return err
 	}
 
@@ -265,18 +264,26 @@ func (sm *StateMachine[S, E]) evaluateEvent(
 	return &eventHandler, nil
 }
 
-// performActions executes the actions defined in the event handler (in order).
-func (sm *StateMachine[S, E]) performActions(
+// executeActionRules executes guarded action rules in order.
+func (sm *StateMachine[S, E]) executeActionRules(
 	ctx context.Context,
 	entity E,
 	event common.Event,
-	eventHandler EventHandler[S, E],
+	actionRules []ActionRule[E],
 ) error {
-	for _, rule := range eventHandler.Actions {
+	for _, rule := range actionRules {
+		if rule.Validator != nil {
+			valid, err := rule.Validator(ctx, entity, event)
+			if err != nil {
+				return err
+			}
+			if !valid {
+				continue
+			}
+		}
 		if rule.If == nil || rule.If(ctx, entity) {
 			err := rule.Action(ctx, entity, event)
 			if err != nil {
-				log.L(ctx).Errorf("%s | %s | %s | error applying action: %v", sm.name, sm.CurrentState.String(), event.TypeString(), err)
 				return err
 			}
 		}
@@ -299,19 +306,17 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 			sm.LatestEvent = event.TypeString()
 			sm.LastStateChange = time.Now()
 
-			// Execute transition-specific action first
-			if rule.Action != nil {
-				err := rule.Action(ctx, entity, event)
-				if err != nil {
-					log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
-					return err
-				}
+			// Execute transition-specific actions first
+			err := sm.executeActionRules(ctx, entity, event, rule.Actions)
+			if err != nil {
+				log.L(ctx).Errorf("%s | %s | %s | error executing transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
+				return err
 			}
 
-			// Execute state entry action
+			// Execute state entry actions
 			newStateDefinition, exists := sm.definitions[sm.CurrentState]
-			if exists && newStateDefinition.OnTransitionTo != nil {
-				err := newStateDefinition.OnTransitionTo(ctx, entity, event)
+			if exists && len(newStateDefinition.OnTransitionTo) > 0 {
+				err := sm.executeActionRules(ctx, entity, event, newStateDefinition.OnTransitionTo)
 				if err != nil {
 					log.L(ctx).Errorf("%s | %s | %s | error executing state entry action for transition to state %s : %v", sm.name, previousState.String(), event.TypeString(), sm.CurrentState.String(), err)
 					return err
@@ -319,8 +324,7 @@ func (sm *StateMachine[S, E]) evaluateTransitions(
 			}
 
 			// Transition logging (state machine is sequencer-only; uses state category)
-			logCtx := log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)
-			log.L(logCtx).Debugf("%s | %s | %s | transition to state %s",
+			log.L(ctx).Debugf("%s | %s | %s | transition to state %s",
 				sm.name,
 				previousState.String(),
 				event.TypeString(),
@@ -363,9 +367,7 @@ type StateMachineEventLoop[S State, E Lockable] struct {
 	entity         E
 	events         chan common.Event
 	eventsPriority chan common.Event
-	stopLoop       chan struct{}
 	loopStopped    chan struct{}
-	onStop         OnStopCallback
 	name           string
 	running        bool
 	processEvent   func(ctx context.Context, event common.Event) error
@@ -392,9 +394,6 @@ type StateMachineEventLoopConfig[S State, E Lockable] struct {
 	// Name for the event loop and the state machine; required. Used in logging (e.g. transition logs).
 	// The same name is applied to both.
 	Name string
-
-	// OnStop callback invoked when the event loop stops, can return a final event to process
-	OnStop OnStopCallback
 
 	// TransitionCallback is invoked on state transitions (optional)
 	TransitionCallback TransitionCallback[S, E]
@@ -438,9 +437,7 @@ func NewStateMachineEventLoop[S State, E Lockable](config StateMachineEventLoopC
 		entity:         config.Entity,
 		events:         make(chan common.Event, config.EventQueueSize),
 		eventsPriority: make(chan common.Event, config.PriorityEventQueueSize),
-		stopLoop:       make(chan struct{}, 1),
 		loopStopped:    make(chan struct{}),
-		onStop:         config.OnStop,
 		name:           config.Name,
 		processEvent:   processEvent,
 	}
@@ -501,19 +498,6 @@ func (sel *StateMachineEventLoop[S, E]) Start(ctx context.Context) {
 			if err != nil {
 				log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString(), err)
 			}
-		case <-sel.stopLoop:
-			if sel.onStop != nil {
-				if finalEvent := sel.onStop(ctx); finalEvent != nil {
-					log.L(ctx).Debugf("%s | %s | %s | processing final", sel.name, sel.stateMachine.CurrentState.String(), finalEvent.TypeString())
-					err := sel.processEvent(ctx, finalEvent)
-					if err != nil {
-						log.L(ctx).Errorf("%s | %s | %s | error: %v", sel.name, sel.stateMachine.CurrentState.String(), finalEvent.TypeString(), err)
-					}
-				}
-			}
-			log.L(ctx).Debugf("%s | %s | event loop stopped", sel.name, sel.stateMachine.CurrentState.String())
-			sel.running = false
-			return
 		case <-ctx.Done():
 			log.L(ctx).Debugf("%s | %s | context cancelled, stopping", sel.name, sel.stateMachine.CurrentState.String())
 			sel.running = false
@@ -550,7 +534,11 @@ func (sel *StateMachineEventLoop[S, E]) TryQueueEvent(ctx context.Context, event
 // Priority events are always fully drained before the main queue is read.
 func (sel *StateMachineEventLoop[S, E]) QueuePriorityEvent(ctx context.Context, event common.Event) {
 	log.L(ctx).Tracef("%s | %s | queueing priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
-	sel.eventsPriority <- event
+	select {
+	case sel.eventsPriority <- event:
+	case <-ctx.Done():
+		log.L(ctx).Warnf("%s | %s | context cancelled, dropping priority event %s", sel.name, sel.stateMachine.CurrentState.String(), event.TypeString())
+	}
 }
 
 // TryQueuePriorityEvent attempts to queue an event on the priority queue without blocking.
@@ -572,39 +560,12 @@ func (sel *StateMachineEventLoop[S, E]) ProcessEvent(ctx context.Context, event 
 	return sel.stateMachine.ProcessEvent(ctx, sel.entity, event)
 }
 
-// Stop signals the event loop to stop and waits for it to complete.
-func (sel *StateMachineEventLoop[S, E]) Stop() {
+// WaitForDone waits for the event loop to complete after context cancellation.
+func (sel *StateMachineEventLoop[S, E]) WaitForDone(ctx context.Context) {
 	select {
 	case <-sel.loopStopped:
-		return
-	default:
+	case <-ctx.Done():
 	}
-
-	select {
-	case sel.stopLoop <- struct{}{}:
-	default:
-	}
-
-	<-sel.loopStopped
-}
-
-// StopAsync signals the event loop to stop but does not wait for completion.
-func (sel *StateMachineEventLoop[S, E]) StopAsync() {
-	select {
-	case <-sel.loopStopped:
-		return
-	default:
-	}
-
-	select {
-	case sel.stopLoop <- struct{}{}:
-	default:
-	}
-}
-
-// WaitForStop waits for the event loop to complete after Stop or StopAsync was called.
-func (sel *StateMachineEventLoop[S, E]) WaitForStop() {
-	<-sel.loopStopped
 }
 
 // IsStopped returns true if the event loop has been stopped.

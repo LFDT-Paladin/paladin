@@ -801,3 +801,12 @@ func (dc *domainContract) WrapPrivacyGroupEVMTX(ctx context.Context, pg *pldapi.
 	return ptx, nil
 
 }
+func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (bool, string, error) {
+	res, err := dc.api.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return res.Retryable, res.DecodedReason, nil
+}

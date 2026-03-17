@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -30,12 +29,12 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:      mockCallbacks,
-		coinSchema:     &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0:   &prototk.StateSchema{Id: "data"},
-		dataSchemaV1:   &prototk.StateSchema{Id: "data_v1"},
-		manifestSchema: &prototk.StateSchema{Id: "manifest"},
+		coinSchema:     testSchema("coin"),
+		dataSchemaV0:   testSchema("data"),
+		dataSchemaV1:   testSchema("data_v1"),
+		manifestSchema: testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that burnFrom is not allowed in basic mode
 	basicConfig := &types.NotoParsedConfig{
@@ -76,11 +75,11 @@ func TestBurnFromHooksModeAllowed(t *testing.T) {
 	mockCallbacks := newMockCallbacks()
 	n := &Noto{
 		Callbacks:    mockCallbacks,
-		coinSchema:   &prototk.StateSchema{Id: "coin"},
-		dataSchemaV0: &prototk.StateSchema{Id: "data"},
-		dataSchemaV1: &prototk.StateSchema{Id: "data_v1"},
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that burnFrom is allowed in hooks mode
 	hooksConfig := &types.NotoParsedConfig{

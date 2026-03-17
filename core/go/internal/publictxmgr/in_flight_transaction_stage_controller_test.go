@@ -76,7 +76,6 @@ func TestProcessSubmittingStageOutput_PersistenceError(t *testing.T) {
 	})
 
 	it.TriggerNewStageRun(ctx, InFlightTxStageSubmitting, BaseTxSubStatusReceived)
-	rsc := it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx)
 
 	// Add submit output first
 	currentGeneration.bufferedStageOutputs = make([]*StageOutput, 0)
@@ -88,7 +87,7 @@ func TestProcessSubmittingStageOutput_PersistenceError(t *testing.T) {
 	})
 
 	// Now test persistence error case
-	rsc = it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx)
+	rsc := it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx)
 	rsc.StageOutput = &StageOutput{
 		SubmitOutput: &SubmitOutputs{
 			SubmissionOutcome: SubmissionOutcomeSubmittedNew,

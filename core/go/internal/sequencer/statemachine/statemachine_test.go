@@ -38,6 +38,13 @@ const (
 	State_Error
 )
 
+func waitForLoopDone(t *testing.T, sel *StateMachineEventLoop[TestState, *TestEntity]) {
+	t.Helper()
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sel.WaitForDone(waitCtx)
+}
+
 func (s TestState) String() string {
 	switch s {
 	case State_Idle:
@@ -222,21 +229,25 @@ func TestActionsOnTransition(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
-							actionCalled = true
-							e.lastAction = "transition_action"
-							return nil
-						},
+						Actions: []ActionRule[*TestEntity]{{
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+								actionCalled = true
+								e.lastAction = "transition_action"
+								return nil
+							},
+						}},
 					}},
 				},
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
-				entryActionCalled = true
-				e.lastAction = "entry_action"
-				return nil
-			},
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					entryActionCalled = true
+					e.lastAction = "entry_action"
+					return nil
+				},
+			}},
 		},
 	}
 
@@ -250,6 +261,174 @@ func TestActionsOnTransition(t *testing.T) {
 	assert.True(t, entryActionCalled, "entry action should be called")
 	// Entry action runs after transition action
 	assert.Equal(t, "entry_action", entity.lastAction)
+}
+
+func TestTransitionAndEntryActionRules_OrderAndGuards(t *testing.T) {
+	steps := make([]string, 0, 6)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+						Actions: []ActionRule[*TestEntity]{
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-1")
+									return nil
+								},
+							},
+							{
+								If: func(ctx context.Context, e *TestEntity) bool { return false },
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-skipped")
+									return nil
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-2")
+									return nil
+								},
+							},
+						},
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-1")
+						return nil
+					},
+				},
+				{
+					If: func(ctx context.Context, e *TestEntity) bool { return false },
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-skipped")
+						return nil
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-2")
+						return nil
+					},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"transition-1", "transition-2", "entry-1", "entry-2"}, steps)
+}
+
+func TestTransitionActionRules_ErrorStopsRemainingRules(t *testing.T) {
+	transitionErr := errors.New("transition action failed")
+	steps := make([]string, 0, 4)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+						Actions: []ActionRule[*TestEntity]{
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-1")
+									return nil
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-error")
+									return transitionErr
+								},
+							},
+							{
+								Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+									steps = append(steps, "transition-after-error")
+									return nil
+								},
+							},
+						},
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					steps = append(steps, "entry-should-not-run")
+					return nil
+				},
+			}},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	assert.Equal(t, transitionErr, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"transition-1", "transition-error"}, steps)
+}
+
+func TestEntryActionRules_ErrorStopsRemainingRules(t *testing.T) {
+	entryErr := errors.New("entry action failed")
+	steps := make([]string, 0, 4)
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-1")
+						return nil
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-error")
+						return entryErr
+					},
+				},
+				{
+					Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+						steps = append(steps, "entry-after-error")
+						return nil
+					},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	assert.Equal(t, entryErr, err)
+	assert.Equal(t, State_Active, entity.sm.GetCurrentState())
+	assert.Equal(t, []string{"entry-1", "entry-error"}, steps)
 }
 
 func TestEventHandlerActions(t *testing.T) {
@@ -330,6 +509,93 @@ func TestEventValidator(t *testing.T) {
 	err = entity2.sm.ProcessEvent(ctx, entity2, newTestEvent(Event_Start))
 	require.NoError(t, err)
 	assert.Equal(t, State_Idle, entity2.sm.GetCurrentState()) // No transition
+}
+
+func TestActionRuleValidator_TrueExecutesAction(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Validator: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+							return true, nil
+						},
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.counter++
+							return nil
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, 1, entity.counter)
+}
+
+func TestActionRuleValidator_FalseSkipsAction(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Validator: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+							return false, nil
+						},
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.counter++
+							return nil
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, 0, entity.counter)
+}
+
+func TestActionRuleValidator_ErrorStopsProcessing(t *testing.T) {
+	validationErr := errors.New("action rule validation failed")
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						Validator: func(ctx context.Context, e *TestEntity, event common.Event) (bool, error) {
+							return false, validationErr
+						},
+						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+							e.counter++
+							return nil
+						},
+					}},
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	ctx := context.Background()
+
+	err := entity.sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	assert.Equal(t, validationErr, err)
+	assert.Equal(t, 0, entity.counter)
+	assert.Equal(t, State_Idle, entity.sm.GetCurrentState())
 }
 
 func TestFirstActionAppliesEventData(t *testing.T) {
@@ -660,9 +926,11 @@ func TestTransitionOnActionError(t *testing.T) {
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
-							return transitionErr
-						},
+						Actions: []ActionRule[*TestEntity]{{
+							Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+								return transitionErr
+							},
+						}},
 					}},
 				},
 			},
@@ -691,9 +959,11 @@ func TestStateEntryActionError(t *testing.T) {
 			},
 		},
 		State_Active: {
-			OnTransitionTo: func(ctx context.Context, e *TestEntity, event common.Event) error {
-				return entryErr
-			},
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
+					return entryErr
+				},
+			}},
 		},
 	}
 
@@ -786,7 +1056,7 @@ func TestStateMachineEventLoop_StartStopAndMethods(t *testing.T) {
 		Name:           "pel-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	assert.False(t, sel.IsRunning())
 	assert.False(t, sel.IsStopped())
@@ -813,7 +1083,8 @@ func TestStateMachineEventLoop_StartStopAndMethods(t *testing.T) {
 
 	assert.Equal(t, State_Complete, sel.GetCurrentState())
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 	assert.True(t, sel.IsStopped())
 	assert.False(t, sel.IsRunning())
 }
@@ -846,7 +1117,7 @@ func TestStateMachineEventLoop_ProcessEventSync(t *testing.T) {
 	assert.Equal(t, State_Active, sel.GetCurrentState())
 }
 
-func TestStateMachineEventLoop_StopAsyncWaitForStop(t *testing.T) {
+func TestStateMachineEventLoop_CancelWaitForDone(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -867,20 +1138,20 @@ func TestStateMachineEventLoop_StopAsyncWaitForStop(t *testing.T) {
 		Name:         "stop-async-wait-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go sel.Start(ctx)
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	sel.StopAsync()
-	sel.WaitForStop()
+	cancel()
+	waitForLoopDone(t, sel)
 
 	assert.True(t, sel.IsStopped())
 }
 
-func TestStateMachineEventLoop_WithOnStop(t *testing.T) {
+func TestStateMachineEventLoop_StopCancelsWithoutFinalEvent(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -899,21 +1170,20 @@ func TestStateMachineEventLoop_WithOnStop(t *testing.T) {
 		Definitions:  definitions,
 		Entity:       entity,
 		Name:         "onstop-test",
-		OnStop: func(ctx context.Context) common.Event {
-			return newTestEvent(Event_Reset)
-		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go sel.Start(ctx)
 	sel.QueueEvent(ctx, newTestEvent(Event_Start))
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 
 	assert.True(t, sel.IsStopped())
+	assert.Equal(t, State_Active, sel.GetCurrentState())
 }
 
 func TestStateMachineEventLoop_WithTransitionCallback(t *testing.T) {
@@ -1006,7 +1276,7 @@ func TestStateMachineEventLoop_WithPreProcessHandled(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// PreProcess is used when events go through the event loop
 	go sel.Start(ctx)
@@ -1019,7 +1289,8 @@ func TestStateMachineEventLoop_WithPreProcessHandled(t *testing.T) {
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 
 	assert.True(t, preHandled)
 	// State should still be Idle because PreProcess handled the event
@@ -1051,7 +1322,7 @@ func TestStateMachineEventLoop_WithPreProcessError(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// PreProcess error is surfaced when events go through the event loop
 	go sel.Start(ctx)
@@ -1064,7 +1335,8 @@ func TestStateMachineEventLoop_WithPreProcessError(t *testing.T) {
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 
 	// Event loop processed the event; PreProcess returned error (logged, loop continues)
 	assert.True(t, sel.IsStopped())
@@ -1132,7 +1404,7 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 		Name:           "priority-drain-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1149,7 +1421,8 @@ func TestStateMachineEventLoop_PriorityQueueDrainedBeforeMain(t *testing.T) {
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 
 	assert.Equal(t, []string{"Event_Start", "Event_Process", "Event_Reset"}, entity.ProcessOrder)
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
@@ -1187,7 +1460,7 @@ func TestStateMachineEventLoop_QueuePriorityEvent(t *testing.T) {
 		Name:         "priority-queue-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1207,7 +1480,8 @@ func TestStateMachineEventLoop_QueuePriorityEvent(t *testing.T) {
 	<-syncEv3.Done
 
 	assert.Equal(t, State_Complete, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_TryQueuePriorityEvent verifies TryQueuePriorityEvent returns
@@ -1246,7 +1520,7 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1270,7 +1544,8 @@ func TestStateMachineEventLoop_TryQueuePriorityEvent(t *testing.T) {
 	syncEv2 := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_PrioritySyncEvent verifies that a sync event sent on the
@@ -1296,7 +1571,7 @@ func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
 		Name:         "priority-sync-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1309,7 +1584,8 @@ func TestStateMachineEventLoop_PrioritySyncEvent(t *testing.T) {
 	<-syncEv2.Done
 
 	assert.Equal(t, State_Active, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_PriorityEventQueueSize verifies that PriorityEventQueueSize
@@ -1348,7 +1624,7 @@ func TestStateMachineEventLoop_PriorityEventQueueSize(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1370,7 +1646,8 @@ func TestStateMachineEventLoop_PriorityEventQueueSize(t *testing.T) {
 	syncEv2 := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_TryQueueEvent_BufferFull verifies TryQueueEvent returns false when main buffer is full.
@@ -1408,7 +1685,7 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 		},
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1429,7 +1706,8 @@ func TestStateMachineEventLoop_TryQueueEvent_BufferFull(t *testing.T) {
 	syncEv2 := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv2)
 	<-syncEv2.Done
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull verifies QueueEvent
@@ -1470,8 +1748,46 @@ func TestStateMachineEventLoop_QueueEvent_ContextCancelledWhenBufferFull(t *test
 	assert.Len(t, sel.events, 1)
 }
 
-// TestStateMachineEventLoop_Stop_WhenAlreadyStopped verifies Stop returns immediately when loop is already stopped.
-func TestStateMachineEventLoop_Stop_WhenAlreadyStopped(t *testing.T) {
+// TestStateMachineEventLoop_QueuePriorityEvent_ContextCancelledWhenBufferFull verifies QueuePriorityEvent
+// returns when context is cancelled while the priority queue buffer is full.
+func TestStateMachineEventLoop_QueuePriorityEvent_ContextCancelledWhenBufferFull(t *testing.T) {
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+	}
+
+	entity := newTestEntity(definitions, "test-entity")
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:           State_Idle,
+		Definitions:            definitions,
+		Entity:                 entity,
+		PriorityEventQueueSize: 1,
+		Name:                   "queue-priority-event-cancelled-full-buffer-test",
+	})
+
+	// Do not start the loop: fill the single-slot queue so the next QueuePriorityEvent would block.
+	require.True(t, sel.TryQueuePriorityEvent(context.Background(), newTestEvent(Event_Start)))
+	require.Len(t, sel.eventsPriority, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// this will never return if it is waiting to queue the event
+	sel.QueuePriorityEvent(ctx, newTestEvent(Event_Start))
+
+	// Queue remains full with the original event; cancelled enqueue was dropped.
+	assert.Len(t, sel.eventsPriority, 1)
+}
+
+// TestStateMachineEventLoop_Cancel_WhenAlreadyStopped verifies cancel is idempotent.
+func TestStateMachineEventLoop_Cancel_WhenAlreadyStopped(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -1492,22 +1808,24 @@ func TestStateMachineEventLoop_Stop_WhenAlreadyStopped(t *testing.T) {
 		Name:         "stop-when-stopped-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 	assert.True(t, sel.IsStopped())
 
-	// Second Stop() should return immediately (already stopped)
-	sel.Stop()
+	// Second cancel should return immediately (already stopped)
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
-// TestStateMachineEventLoop_Stop_ConcurrentCalls verifies concurrent Stop() calls; one hits default when stopLoop is full.
-func TestStateMachineEventLoop_Stop_ConcurrentCalls(t *testing.T) {
+// TestStateMachineEventLoop_Cancel_ConcurrentCalls verifies concurrent cancel calls are safe.
+func TestStateMachineEventLoop_Cancel_ConcurrentCalls(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -1528,36 +1846,36 @@ func TestStateMachineEventLoop_Stop_ConcurrentCalls(t *testing.T) {
 		Name:         "stop-concurrent-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	// Use a barrier so two goroutines reach Stop()'s second select at the same time;
-	// one send to stopLoop succeeds, the other hits default (buffer full).
+	// Use a barrier so two goroutines cancel at the same time.
 	barrier := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		<-barrier
-		sel.Stop()
+		cancel()
 	}()
 	go func() {
 		defer wg.Done()
 		<-barrier
-		sel.Stop()
+		cancel()
 	}()
 	close(barrier)
 	wg.Wait()
+	waitForLoopDone(t, sel)
 
 	assert.True(t, sel.IsStopped())
 }
 
-// TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped verifies StopAsync returns immediately when loop is already stopped.
-func TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped(t *testing.T) {
+// TestStateMachineEventLoop_Cancel_WhenAlreadyStopped_Equivalent verifies cancel is idempotent.
+func TestStateMachineEventLoop_Cancel_WhenAlreadyStopped_Equivalent(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -1578,22 +1896,24 @@ func TestStateMachineEventLoop_StopAsync_WhenAlreadyStopped(t *testing.T) {
 		Name:         "stop-async-when-stopped-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 	assert.True(t, sel.IsStopped())
 
-	// StopAsync when already stopped should return immediately
-	sel.StopAsync()
+	// Cancel when already stopped should return immediately
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
-// TestStateMachineEventLoop_StopAsync_ConcurrentCalls verifies concurrent StopAsync() calls; one hits default.
-func TestStateMachineEventLoop_StopAsync_ConcurrentCalls(t *testing.T) {
+// TestStateMachineEventLoop_Cancel_ConcurrentCalls_Equivalent verifies concurrent cancel calls are safe.
+func TestStateMachineEventLoop_Cancel_ConcurrentCalls_Equivalent(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
@@ -1614,32 +1934,31 @@ func TestStateMachineEventLoop_StopAsync_ConcurrentCalls(t *testing.T) {
 		Name:         "stop-async-concurrent-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	// Use a barrier so two goroutines reach StopAsync()'s second select at the same time;
-	// one send succeeds, the other hits default (stopLoop buffer full).
+	// Use a barrier so two goroutines cancel at the same time.
 	barrier := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		<-barrier
-		sel.StopAsync()
+		cancel()
 	}()
 	go func() {
 		defer wg.Done()
 		<-barrier
-		sel.StopAsync()
+		cancel()
 	}()
 	close(barrier)
 	wg.Wait()
 
-	sel.WaitForStop()
+	waitForLoopDone(t, sel)
 	assert.True(t, sel.IsStopped())
 }
 
@@ -1682,23 +2001,14 @@ func TestStateMachineEventLoop_ContextCancelled(t *testing.T) {
 	assert.True(t, sel.IsStopped())
 }
 
-// TestStateMachineEventLoop_OnStopFinalEventError verifies that when OnStop returns an event and processEvent
-// returns an error, the error is logged and the loop still stops.
-func TestStateMachineEventLoop_OnStopFinalEventError(t *testing.T) {
-	processErr := errors.New("final event failed")
+// TestStateMachineEventLoop_StopAfterWork verifies cancellation cleanly halts after events were processed.
+func TestStateMachineEventLoop_StopAfterWork(t *testing.T) {
 	definitions := StateDefinitions[TestState, *TestEntity]{
 		State_Idle: {
 			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
 				Event_Start: {
 					Transitions: []Transition[TestState, *TestEntity]{{
 						To: State_Active,
-					}},
-				},
-				Event_Reset: {
-					Actions: []ActionRule[*TestEntity]{{
-						Action: func(ctx context.Context, e *TestEntity, event common.Event) error {
-							return processErr
-						},
 					}},
 				},
 			},
@@ -1710,20 +2020,18 @@ func TestStateMachineEventLoop_OnStopFinalEventError(t *testing.T) {
 		InitialState: State_Idle,
 		Definitions:  definitions,
 		Entity:       entity,
-		Name:         "onstop-final-event-error-test",
-		OnStop: func(ctx context.Context) common.Event {
-			return newTestEvent(Event_Reset)
-		},
+		Name:         "stop-ignores-queued-events-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
 	sel.QueueEvent(ctx, syncEv)
 	<-syncEv.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 	assert.True(t, sel.IsStopped())
 }
 
@@ -1756,7 +2064,7 @@ func TestStateMachineEventLoop_ProcessEventError_Priority(t *testing.T) {
 		Name:         "process-error-priority-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1770,7 +2078,8 @@ func TestStateMachineEventLoop_ProcessEventError_Priority(t *testing.T) {
 
 	// State should still be Idle because the action returned error (transition not applied)
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_ProcessEventError_Main verifies that when a main-queue event causes
@@ -1802,7 +2111,7 @@ func TestStateMachineEventLoop_ProcessEventError_Main(t *testing.T) {
 		Name:         "process-error-main-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1815,7 +2124,8 @@ func TestStateMachineEventLoop_ProcessEventError_Main(t *testing.T) {
 	<-syncEv2.Done
 
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_ProcessEventError_PriorityDrain verifies that when a priority event
@@ -1856,7 +2166,7 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityDrain(t *testing.T) {
 		Name:         "process-error-priority-drain-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1872,7 +2182,8 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityDrain(t *testing.T) {
 	<-syncEv2.Done
 
 	assert.Equal(t, State_Active, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_SyncEventFromPrioritySelect verifies a sync event sent on the priority queue
@@ -1898,7 +2209,7 @@ func TestStateMachineEventLoop_SyncEventFromPrioritySelect(t *testing.T) {
 		Name:         "sync-from-priority-select-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1909,7 +2220,8 @@ func TestStateMachineEventLoop_SyncEventFromPrioritySelect(t *testing.T) {
 	sel.QueuePriorityEvent(ctx, syncEv2)
 	<-syncEv2.Done
 
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }
 
 // TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect verifies that when a priority event
@@ -1941,7 +2253,7 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T
 		Name:         "process-error-priority-select-test",
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	go sel.Start(ctx)
 
 	syncEv := NewSyncEvent()
@@ -1955,5 +2267,6 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T
 	<-syncEv2.Done
 
 	assert.Equal(t, State_Idle, sel.GetCurrentState())
-	sel.Stop()
+	cancel()
+	waitForLoopDone(t, sel)
 }

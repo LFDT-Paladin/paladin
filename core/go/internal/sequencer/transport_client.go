@@ -40,7 +40,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	//TODO this need to become an ultra low latency, non blocking, handover to the event loop thread.
 	// need some thought on how to handle errors, retries, buffering, swapping idle sequencers in and out of memory etc...
 
-	sMgr.logPaladinMessage(ctx, message)
+	log.L(ctx).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 
 	//Send the event to the sequencer handler
 	switch message.MessageType {
@@ -79,10 +79,6 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	default:
 		log.L(ctx).Errorf("Unknown message type: %s", message.MessageType)
 	}
-}
-
-func (sMgr *sequencerManager) logPaladinMessage(ctx context.Context, message *components.ReceivedMessage) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGRX)).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
@@ -265,9 +261,10 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	heartbeatEvent.CoordinatorSnapshot = *coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
+	// we only pass heartbeat notifications to sequencers that are already loaded in memory
+	seq, err := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass heartbeat event to %v:", err)
+		log.L(ctx).Debugf("ignoring heartbeat for contract %s as sequencer is not loaded: %v", contractAddress, err)
 		return
 	}
 
@@ -769,6 +766,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedRevertedEvent{}
 		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
 		transactionSubmittedEvent.RevertReason = transactionConfirmed.RevertReason
+		transactionSubmittedEvent.WillRetry = transactionConfirmed.WillRetry
 		transactionSubmittedEvent.EventTime = time.Now()
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
 	} else {

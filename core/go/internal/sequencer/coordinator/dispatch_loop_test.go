@@ -36,19 +36,19 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(1)
 	builder.OverrideSequencerConfig(config)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
+	c, _, done := builder.Build(ctx)
+	defer done()
 
 	// Pre-populate inFlightTxns so the dispatch loop will enter the first Wait() when it pulls the tx
-	dummyTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	dummyTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 	c.inFlightMutex.L.Lock()
 	c.inFlightTxns[dummyTxn.GetID()] = dummyTxn
 	c.inFlightMutex.L.Unlock()
 
 	// Queue one tx: transition to Ready_For_Dispatch so it gets sent to dispatchQueue
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 	c.transactionsByID[txn.GetID()] = txn
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+	err := action_QueueTransactionForDispatch(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
 		To:            transaction.State_Ready_For_Dispatch,
 	})
@@ -57,7 +57,7 @@ func TestDispatchLoop_StopWhileWaitingForInFlightSlot(t *testing.T) {
 	// Give the dispatch loop time to pull the tx and enter the first Wait() (too many in flight).
 	time.Sleep(50 * time.Millisecond)
 	// Stop() sends to stopDispatchLoop (buffered) then Signals; loop wakes, receives from stopDispatchLoop, returns.
-	c.Stop()
+	done()
 }
 
 // TestDispatchLoop_StopAtSelect covers the path where the dispatch loop is in the top-level
@@ -68,63 +68,8 @@ func TestDispatchLoop_StopAtSelect(t *testing.T) {
 	config := builder.GetSequencerConfig()
 	config.MaxDispatchAhead = confutil.P(-1) // no dispatch progress, so loop stays in select
 	builder.OverrideSequencerConfig(config)
-	c, _ := builder.Build(ctx)
+	_, _, done := builder.Build(ctx)
 
 	// Stop without ever queueing a tx; loop is blocked on select between dispatchQueue and stopDispatchLoop
-	c.Stop()
-}
-
-func TestDispatchLoop_SkipsStaleQueuedTransaction(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	config := builder.GetSequencerConfig()
-	config.MaxDispatchAhead = confutil.P(1)
-	builder.OverrideSequencerConfig(config)
-	c, _ := builder.Build(ctx)
-	defer c.Stop()
-
-	dispatchedTxIDs := make(chan string, 2)
-	c.readyForDispatch = func(_ context.Context, tx *transaction.CoordinatorTransaction) {
-		dispatchedTxIDs <- tx.GetID().String()
-	}
-
-	// Pre-populate in-flight to force the dispatch loop to wait after pulling from queue.
-	inFlightTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
-	c.inFlightMutex.L.Lock()
-	c.inFlightTxns[inFlightTxn.GetID()] = inFlightTxn
-	c.inFlightMutex.L.Unlock()
-
-	staleTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	validTxn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
-	c.transactionsByID[staleTxn.GetID()] = staleTxn
-	c.transactionsByID[validTxn.GetID()] = validTxn
-
-	err := action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: staleTxn.GetID(),
-		To:            transaction.State_Ready_For_Dispatch,
-	})
-	require.NoError(t, err)
-	err = action_TransactionStateTransition(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: validTxn.GetID(),
-		To:            transaction.State_Ready_For_Dispatch,
-	})
-	require.NoError(t, err)
-
-	// Simulate dependency repool while queued for dispatch.
-	err = staleTxn.HandleEvent(ctx, &transaction.DependencyRepooledEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: staleTxn.GetID(),
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, transaction.State_Pooled, staleTxn.GetCurrentState())
-
-	// Release the dispatch loop and allow it to process the stale queue entry.
-	c.inFlightMutex.L.Lock()
-	delete(c.inFlightTxns, inFlightTxn.GetID())
-	c.inFlightMutex.Signal()
-	c.inFlightMutex.L.Unlock()
-
-	txID := <-dispatchedTxIDs
-	require.Equal(t, validTxn.GetID().String(), txID, "expected only the valid queued transaction to dispatch")
+	done()
 }
