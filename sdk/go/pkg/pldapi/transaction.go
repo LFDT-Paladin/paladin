@@ -168,7 +168,7 @@ type TransactionReceiptBatch struct {
 type TransactionReceiptDataOnchain struct {
 	TransactionHash  *pldtypes.Bytes32 `docstruct:"TransactionReceiptDataOnchain" json:"transactionHash,omitempty"`
 	BlockNumber      int64             `docstruct:"TransactionReceiptDataOnchain" json:"blockNumber,omitempty"`
-	TransactionIndex int64             `docstruct:"TransactionReceiptDataOnchain" json:"transactionIndex,omitempty"`
+	TransactionIndex int64             `docstruct:"TransactionReceiptDataOnchain" json:"transactionIndex"`
 }
 
 type TransactionReceiptDataOnchainEvent struct {
