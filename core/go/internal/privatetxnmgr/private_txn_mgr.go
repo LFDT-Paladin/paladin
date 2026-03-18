@@ -49,15 +49,16 @@ type privateTxManager struct {
 	ctx                  context.Context
 	ctxCancel            func()
 	config               *pldconf.PrivateTxManagerConfig
-	sequencers           map[string]*Sequencer
-	sequencersLock       sync.RWMutex
-	endorsementGatherers map[string]ptmgrtypes.EndorsementGatherer
-	components           components.AllComponents
-	nodeName             string
-	subscribers          []components.PrivateTxEventSubscriber
-	subscribersLock      sync.Mutex
-	syncPoints           syncpoints.SyncPoints
-	blockHeight          int64
+	sequencers               map[string]*Sequencer
+	sequencersLock           sync.RWMutex
+	endorsementGatherers     map[string]ptmgrtypes.EndorsementGatherer
+	endorsementGatherersLock sync.RWMutex
+	components               components.AllComponents
+	nodeName                 string
+	subscribers              []components.PrivateTxEventSubscriber
+	subscribersLock          sync.Mutex
+	syncPoints               syncpoints.SyncPoints
+	blockHeight              int64
 }
 
 // Init implements Engine.
@@ -190,17 +191,28 @@ func (p *privateTxManager) getEndorsementGathererForContract(ctx context.Context
 	// We need to have this as a function of the PrivateTransactionManager rather than a function of the sequencer because the endorsement gatherer is needed
 	// even if we don't have a sequencer.  e.g. maybe the transaction is being coordinated by another node and this node has just been asked to endorse it
 	// in that case, we need to make sure that we are using the domainContext provided by the endorsement request
+	addrStr := contractAddr.String()
+	p.endorsementGatherersLock.RLock()
+	if eg := p.endorsementGatherers[addrStr]; eg != nil {
+		p.endorsementGatherersLock.RUnlock()
+		return eg, nil
+	}
+	p.endorsementGatherersLock.RUnlock()
+
 	domainSmartContract, err := p.components.DomainManager().GetSmartContractByAddress(ctx, dbTX, contractAddr)
 	if err != nil {
 		return nil, err
 	}
-	if p.endorsementGatherers[contractAddr.String()] == nil {
-		// TODO: Consider scope of state in privateTxManager threading model
-		dCtx := p.components.StateManager().NewDomainContext(p.ctx /* background context */, domainSmartContract.Domain(), contractAddr)
-		endorsementGatherer := NewEndorsementGatherer(p.components.Persistence(), domainSmartContract, dCtx, p.components.KeyManager())
-		p.endorsementGatherers[contractAddr.String()] = endorsementGatherer
+
+	p.endorsementGatherersLock.Lock()
+	defer p.endorsementGatherersLock.Unlock()
+	if eg := p.endorsementGatherers[addrStr]; eg != nil {
+		return eg, nil
 	}
-	return p.endorsementGatherers[contractAddr.String()], nil
+	dCtx := p.components.StateManager().NewDomainContext(p.ctx /* background context */, domainSmartContract.Domain(), contractAddr)
+	endorsementGatherer := NewEndorsementGatherer(p.components.Persistence(), domainSmartContract, dCtx, p.components.KeyManager())
+	p.endorsementGatherers[addrStr] = endorsementGatherer
+	return endorsementGatherer, nil
 }
 
 func (p *privateTxManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
