@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
@@ -43,16 +44,27 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 		t.revertReason = e.RevertReason
 		t.revertOnChain = &e.OnChain
 		t.revertCount++
-
-		retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
-		if err != nil {
-			log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
-			retryable = false
+		if len(e.RevertReason) == 0 {
+			// Off-chain revert (for example a chained assembly failure propagated from another TX).
+			// This is not a base-ledger revert, so do not route through domain retryability logic.
+			t.decodedRevertReason = e.FailureMessage
+			t.lastCanRetryRevert = false
+		} else {
+			retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
+			if err != nil {
+				log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
+				retryable = false
+			}
+			t.decodedRevertReason = decodedReason
+			if t.decodedRevertReason == "" && e.FailureMessage != "" {
+				// Chained transaction outcomes can carry a decoded failure string from the child domain.
+				// Use it when this coordinator cannot decode revert bytes.
+				t.decodedRevertReason = e.FailureMessage
+			}
+			t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
+			log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
+				t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
 		}
-		t.decodedRevertReason = decodedReason
-		t.lastCanRetryRevert = retryable && t.revertCount <= t.baseLedgerRevertRetryThreshold
-		log.L(ctx).Debugf("transaction %s base ledger reverted with \"%s\" (%s) (count=%d, retryable=%t, threshold=%d, canRetry=%t)",
-			t.pt.ID.String(), t.decodedRevertReason, t.revertReason.String(), t.revertCount, retryable, t.baseLedgerRevertRetryThreshold, t.lastCanRetryRevert)
 	}
 
 	if t.latestSubmissionHash == nil {
@@ -69,17 +81,26 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 
 func action_NotifyOriginatorOfConfirmation(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedSuccessEvent)
-	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, nil, false)
+	return t.transportWriter.SendTransactionConfirmed(
+		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
+		engine.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false,
+	)
 }
 
 func action_NotifyOriginatorOfRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason, true)
+	return t.transportWriter.SendTransactionConfirmed(
+		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
+		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, true,
+	)
 }
 
 func action_NotifyOriginatorOfNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
-	return t.transportWriter.SendTransactionConfirmed(ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce, e.RevertReason, false)
+	return t.transportWriter.SendTransactionConfirmed(
+		ctx, t.pt.ID, t.originatorNode, &t.pt.Address, e.Nonce,
+		engine.TransactionConfirmed_OUTCOME_REVERTED, t.revertReason, t.decodedRevertReason, false,
+	)
 }
 
 func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {

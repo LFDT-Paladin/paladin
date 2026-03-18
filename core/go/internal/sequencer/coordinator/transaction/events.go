@@ -241,10 +241,11 @@ func (*ConfirmedSuccessEvent) TypeString() string {
 
 type ConfirmedRevertedEvent struct {
 	BaseCoordinatorEvent
-	Nonce        *pldtypes.HexUint64
-	Hash         pldtypes.Bytes32
-	RevertReason pldtypes.HexBytes
-	OnChain      pldtypes.OnChainLocation
+	Nonce          *pldtypes.HexUint64
+	Hash           pldtypes.Bytes32
+	FailureMessage string
+	RevertReason   pldtypes.HexBytes
+	OnChain        pldtypes.OnChainLocation
 }
 
 func (*ConfirmedRevertedEvent) Type() EventType {

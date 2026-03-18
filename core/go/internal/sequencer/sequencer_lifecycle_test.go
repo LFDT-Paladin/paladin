@@ -611,7 +611,7 @@ func TestSequencerManager_HandleChainedTransactionOutcome_Success_LoadedQueuesCo
 		return ok && event.TransactionID == txID
 	})).Once()
 
-	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, "", nil, pldtypes.OnChainLocation{})
 }
 
 func TestSequencerManager_HandleChainedTransactionOutcome_OnChainRevert_LoadedQueuesCoordinator(t *testing.T) {
@@ -641,13 +641,14 @@ func TestSequencerManager_HandleChainedTransactionOutcome_OnChainRevert_LoadedQu
 			event.OnChain.BlockNumber == 100
 	})).Once()
 
-	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedOnChainWithRevertData, revertData, onChain)
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedOnChainWithRevertData, "", revertData, onChain)
 }
 
 func TestSequencerManager_HandleChainedTransactionOutcome_OffChainRevert_LoadedQueuesCoordinator(t *testing.T) {
 	ctx := context.Background()
 	contractAddr := pldtypes.RandAddress()
 	txID := uuid.New()
+	failureMessage := "assembly revert"
 
 	mocks := newSequencerLifecycleTestMocks(t)
 	sm := newSequencerManagerForTesting(t, mocks)
@@ -659,10 +660,10 @@ func TestSequencerManager_HandleChainedTransactionOutcome_OffChainRevert_LoadedQ
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*coordinatorTx.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && len(event.RevertReason) == 0
+		return ok && event.TransactionID == txID && len(event.RevertReason) == 0 && event.FailureMessage == failureMessage
 	})).Once()
 
-	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedWithMessage, nil, pldtypes.OnChainLocation{})
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_FailedWithMessage, failureMessage, nil, pldtypes.OnChainLocation{})
 }
 
 func TestSequencerManager_HandleChainedTransactionOutcome_NotLoaded_NoOp(t *testing.T) {
@@ -674,7 +675,7 @@ func TestSequencerManager_HandleChainedTransactionOutcome_NotLoaded_NoOp(t *test
 	sm := newSequencerManagerForTesting(t, mocks)
 
 	// No sequencer loaded - should be a no-op (no panic, no coordinator call)
-	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, nil, pldtypes.OnChainLocation{})
+	sm.HandleChainedTransactionOutcome(ctx, *contractAddr, txID, components.RT_Success, "", nil, pldtypes.OnChainLocation{})
 }
 
 func TestSequencerManager_stopLowestPrioritySequencer_NoSequencers(t *testing.T) {
