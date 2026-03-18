@@ -909,7 +909,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          if (matchesSelector(revertData, SELECTOR_OUTPUT_ALREADY_UNSPENT)) {
              return "PenteOutputAlreadyUnspent(output=" + decodeBytes32Param(revertData) + ")";
          }
-         return "0x" + HexFormat.of().formatHex(revertData);
+        return "";
      }
 
      @NotNull
