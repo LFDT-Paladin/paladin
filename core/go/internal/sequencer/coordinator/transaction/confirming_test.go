@@ -22,7 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -124,7 +124,7 @@ func Test_action_NotifyOriginatorOfConfirmation_Success(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engineProto.TransactionConfirmed_OUTCOME_SUCCESS, pldtypes.HexBytes(nil), "", false).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_SUCCESS, pldtypes.HexBytes(nil), "", false).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfConfirmation(ctx, txn, event)
@@ -149,7 +149,7 @@ func Test_action_NotifyOriginatorOfRetryableRevert(t *testing.T) {
 	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", true).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", true).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfRetryableRevert(ctx, txn, event)
@@ -174,7 +174,7 @@ func Test_action_NotifyOriginatorOfNonRetryableRevert(t *testing.T) {
 	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", false).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", false).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfNonRetryableRevert(ctx, txn, event)

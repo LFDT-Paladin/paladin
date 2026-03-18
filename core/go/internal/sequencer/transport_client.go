@@ -762,18 +762,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		return
 	}
 
-	isReverted := false
-	switch transactionConfirmed.GetOutcome() {
-	case engineProto.TransactionConfirmed_OUTCOME_REVERTED:
-		isReverted = true
-	case engineProto.TransactionConfirmed_OUTCOME_SUCCESS:
-		isReverted = false
-	default:
-		// Backward-compatible fallback for older senders that don't populate outcome.
-		isReverted = transactionConfirmed.WillRetry || len(transactionConfirmed.RevertReason) > 0
-	}
-
-	if isReverted {
+	if transactionConfirmed.GetOutcome() == engineProto.TransactionConfirmed_OUTCOME_REVERTED {
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedRevertedEvent{}
 		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
 		transactionSubmittedEvent.RevertReason = transactionConfirmed.RevertReason
