@@ -1,3 +1,6 @@
+//go:build besu_paid_gas
+// +build besu_paid_gas
+
 /*
  * Copyright © 2024 Kaleido, Inc.
  *
@@ -13,13 +16,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package common
+package testutils
 
-const SEQUENCER_LOG_CATEGORY_FIELD = "category"
+// This is what you use when you're running from the commandline
+func getBesuPort() int {
+	return 8555
+}
 
-const (
-	CATEGORY_STATE     string = "state"
-	CATEGORY_LIFECYCLE string = "lifecycle"
-	CATEGORY_MSGTX     string = "msgtx"
-	CATEGORY_MSGRX     string = "msgrx"
-)
+// Configures the test to use a fixed signing identity that should have been pre-funded,
+// rather than generating a new anonymous signing key every time.
+func getFixedSigningIdentity() string {
+	return "fixed"
+}

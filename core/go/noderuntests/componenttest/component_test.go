@@ -27,8 +27,10 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
+	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -63,6 +65,14 @@ func newInstanceForComponentTestingWithDomainRegistry(t *testing.T) testutils.Co
 
 func startNode(t *testing.T, party testutils.Party, domainConfig interface{}) {
 	party.Start(t, domainConfig, CONFIG_PATHS[party.GetNodeName()], false)
+}
+
+func newSingleNodePartyForComponentTestingWithSequencerConfig(t *testing.T, nodeName string, sequencerConfig *pldconf.SequencerConfig) testutils.Party {
+	domainRegistryAddress := deployDomainRegistry(t, nodeName)
+	party := testutils.NewPartyForTestingWithNodeName(t, nodeName, nodeName, domainRegistryAddress)
+	party.OverrideSequencerConfig(sequencerConfig)
+	startNode(t, party, nil)
+	return party
 }
 
 func TestRunSimpleStorageEthTransaction(t *testing.T) {
@@ -466,7 +476,8 @@ func TestPrivateTransactionsDeployAndExecute(t *testing.T) {
                     "name": "FakeToken1",
                     "symbol": "FT1",
 					"endorsementMode": "` + domains.SelfEndorsement + `",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
                 }`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -521,7 +532,8 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
                     "name": "FakeToken1",
                     "symbol": "FT1",
 					"endorsementMode": "` + domains.SelfEndorsement + `",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
                 }`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -577,7 +589,8 @@ func TestPrivateTransactionRevertedAssembleFailed(t *testing.T) {
 					"name": "FakeToken1",
 					"symbol": "FT1",
 					"endorsementMode": "` + domains.SelfEndorsement + `",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
 				}`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -657,7 +670,8 @@ func TestDeployOnOneNodeInvokeOnAnother(t *testing.T) {
 			"name": "FakeToken1",
 			"symbol": "FT1",
 			"endorsementMode": "` + domains.SelfEndorsement + `",
-			"hookAddress": ""
+			"hookAddress": "",
+			"amountVisible": false
 		}`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -872,7 +886,8 @@ func TestNotaryDelegated(t *testing.T) {
 					"name": "FakeToken1",
 					"symbol": "FT1",
 					"endorsementMode": "NotaryEndorsement",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
 				}`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -966,7 +981,8 @@ func TestNotaryDelegatedPrepare(t *testing.T) {
 					"symbol": "FT1",
 					"endorsementMode": "NotaryEndorsement",
 					"deleteSubmitToSender": true,
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
 				}`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -1056,7 +1072,8 @@ func TestSingleNodeSelfEndorseConcurrentSpends(t *testing.T) {
                     "name": "FakeToken1",
                     "symbol": "FT1",
 					"endorsementMode": "` + domains.SelfEndorsement + `",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
                 }`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -1151,7 +1168,8 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
                     "name": "FakeToken1",
                     "symbol": "FT1",
 					"endorsementMode": "` + domains.SelfEndorsement + `",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
                 }`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -1186,6 +1204,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
                 "to": "wallets.org1.aaaaaa",
                 "amount": "99"
             }`)).
+		DependsOn([]uuid.UUID{*tx1.ID()}).
 		Send()
 	require.NoError(t, tx2.Error())
 
@@ -1202,6 +1221,7 @@ func TestSingleNodeSelfEndorseSeriesOfTransfers(t *testing.T) {
                 "to": "wallets.org1.bbbbbb",
                 "amount": "98"
             }`)).
+		DependsOn([]uuid.UUID{*tx2.ID()}).
 		Send()
 	require.NoError(t, tx3.Error())
 
@@ -1250,7 +1270,8 @@ func TestNotaryEndorseConcurrentSpends(t *testing.T) {
 					"name": "FakeToken1",
 					"symbol": "FT1",
 					"endorsementMode": "NotaryEndorsement",
-					"hookAddress": ""
+					"hookAddress": "",
+					"amountVisible": false
 				}`)).
 		Send().Wait(transactionLatencyThreshold(t))
 	require.NoError(t, deployTx.Error())
@@ -1589,3 +1610,147 @@ func TestPrivacyGroupEndorsementConcurrent(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseLedgerRevertRetryable_ThenSucceeds(t *testing.T) {
+	ctx := t.Context()
+	instance := newInstanceForComponentTestingWithDomainRegistry(t)
+	client := instance.GetClient()
+
+	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
+		Private().
+		Domain("domain1").
+		From("wallets.org1.aaaaaa").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "wallets.org1.aaaaaa",
+			"name": "FakeToken1",
+			"symbol": "FT1",
+			"endorsementMode": "` + domains.SelfEndorsement + `",
+			"hookAddress": "",
+			"amountVisible": false
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, deployTx.Error())
+	contractAddress := deployTx.Receipt().ContractAddress
+
+	// Amount 1003: retryable error on first attempt, succeeds on retry
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From("wallets.org1.aaaaaa").
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "wallets.org1.aaaaaa",
+			"amount": "1003"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.True(t, tx.Receipt().Success)
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	assert.True(t, txFull.Receipt.Success)
+	// Should have more than 1 public transaction due to the retry
+	assert.Greater(t, len(txFull.Public), 1)
+}
+
+func TestBaseLedgerRevertRetryable_ExceedsThreshold(t *testing.T) {
+	ctx := t.Context()
+
+	// Use a low threshold so we quickly exceed it
+	party := newSingleNodePartyForComponentTestingWithSequencerConfig(t, "node1", &pldconf.SequencerConfig{
+		BaseLedgerRevertRetryThreshold: confutil.P(1),
+	})
+	client := party.GetClient()
+
+	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
+		Private().
+		Domain("domain1").
+		From(party.GetIdentity()).
+		Inputs(pldtypes.RawJSON(`{
+			"from": "` + party.GetIdentity() + `",
+			"name": "FakeToken1",
+			"symbol": "FT1",
+			"endorsementMode": "` + domains.SelfEndorsement + `",
+			"hookAddress": "",
+			"amountVisible": false
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, deployTx.Error())
+	contractAddress := deployTx.Receipt().ContractAddress
+
+	// Amount 1004: retryable error every time - will exceed the threshold of 1
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From(party.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + party.GetIdentity() + `",
+			"amount": "1004"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.Error(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.False(t, tx.Receipt().Success)
+	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenRetryableError")
+	assert.NotNil(t, tx.Receipt().TransactionReceiptDataOnchain)
+	assert.NotNil(t, tx.Receipt().TransactionHash)
+	assert.Greater(t, tx.Receipt().BlockNumber, int64(0))
+}
+
+func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
+	ctx := t.Context()
+	instance := newInstanceForComponentTestingWithDomainRegistry(t)
+	client := instance.GetClient()
+
+	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
+		Private().
+		Domain("domain1").
+		From("wallets.org1.aaaaaa").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "wallets.org1.aaaaaa",
+			"name": "FakeToken1",
+			"symbol": "FT1",
+			"endorsementMode": "` + domains.SelfEndorsement + `",
+			"hookAddress": "",
+			"amountVisible": false
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.NoError(t, deployTx.Error())
+	contractAddress := deployTx.Receipt().ContractAddress
+
+	// Amount 1005: non-retryable error - fails immediately
+	tx := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		From("wallets.org1.aaaaaa").
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "wallets.org1.aaaaaa",
+			"amount": "1005"
+		}`)).
+		Send().Wait(transactionLatencyThreshold(t))
+	require.Error(t, tx.Error())
+	require.NotNil(t, tx.Receipt())
+	assert.False(t, tx.Receipt().Success)
+	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenNonRetryableError")
+	assert.NotNil(t, tx.Receipt().TransactionReceiptDataOnchain)
+	assert.NotNil(t, tx.Receipt().TransactionHash)
+	assert.Greater(t, tx.Receipt().BlockNumber, int64(0))
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	assert.False(t, txFull.Receipt.Success)
+	// Should only have 1 public transaction since it failed immediately without retry
+	assert.Len(t, txFull.Public, 1)
+}
+

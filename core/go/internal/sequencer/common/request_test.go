@@ -17,9 +17,12 @@ package common
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_IdempotentRequestOK(t *testing.T) {
@@ -48,16 +51,21 @@ func Test_IdempotentRequestErrorFromSend(t *testing.T) {
 
 func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
 	ctx := context.Background()
-	clock := &FakeClockForTesting{}
+	clock := NewMockClock(t)
+	clock.On("Now").Return(time.Now())
+
 	requested := 0
-	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		requested++
 		return nil
 	})
+	// always sends the request for the first time
 	err := request.Nudge(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, requested)
-	clock.Advance(1001) //Just after expiry
+
+	// the second nudge only sends if the request has expired
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true)
 	err = request.Nudge(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, requested)
@@ -66,16 +74,22 @@ func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
 
 func Test_IdempotentRequest_NoRetryOnNudgeIfNotExpired(t *testing.T) {
 	ctx := context.Background()
-	clock := &FakeClockForTesting{}
+	clock := NewMockClock(t)
+	clock.On("Now").Return(time.Now())
+
 	requested := 0
-	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		requested++
 		return nil
 	})
+
+	// always sends the request for the first time
 	err := request.Nudge(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, requested)
-	clock.Advance(999) //Just before expiry
+
+	// the second nudge only sends if the request has expired
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(false)
 	err = request.Nudge(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, requested)
@@ -84,22 +98,27 @@ func Test_IdempotentRequest_NoRetryOnNudgeIfNotExpired(t *testing.T) {
 
 func Test_IdempotentRequest_FirstRequestTime(t *testing.T) {
 	ctx := context.Background()
-	clock := &FakeClockForTesting{}
-	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+	start := time.Now()
+	end := start.Add(time.Duration(1))
+	clock := NewMockClock(t)
+	clock.On("Now").Return(start).Once()
+	clock.On("Now").Return(end).Once()
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true)
+
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
 		return nil
 	})
+	// send the request twice
 	err := request.Nudge(ctx)
 	assert.NoError(t, err)
-	start := clock.Now()
-	assert.Equal(t, start, request.FirstRequestTime())
-	clock.Advance(1001)
 	err = request.Nudge(ctx)
 	assert.NoError(t, err)
-	end := clock.Now()
-	assert.Equal(t, start, request.FirstRequestTime())
-	assert.Equal(t, end, request.requestTime)
-	assert.NotEqual(t, request.FirstRequestTime(), request.requestTime)
 
+	require.NotNil(t, request.FirstRequestTime())
+	require.NotNil(t, request.requestTime)
+	assert.Equal(t, start, *request.FirstRequestTime())
+	assert.Equal(t, end, *request.requestTime)
+	assert.NotEqual(t, request.FirstRequestTime(), request.requestTime)
 }
 
 func Test_IdempotentRequest_IdempotencyKey(t *testing.T) {

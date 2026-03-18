@@ -21,7 +21,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 )
 
-type Guard func(ctx context.Context, c *coordinator) bool
+// Guard type is defined as a type alias in state_machine.go using statemachine.Guard[*coordinator]
 
 func guard_Not(guard Guard) Guard {
 	return func(ctx context.Context, c *coordinator) bool {
@@ -45,23 +45,21 @@ func guard_ActiveCoordinatorFlushComplete(ctx context.Context, c *coordinator) b
 }
 
 // Function flushComplete returns true if there are no transactions past the point of no return that haven't been confirmed yet
+// TODO: does considering the flush complete while there might be transactions in terminal states (State_Confirmed/State reverted)
+// waiting for the grace period to expire before being cleaned result in a memory leak? N.B. There is currently no heartbeat handling in State_Flush
 func guard_FlushComplete(ctx context.Context, c *coordinator) bool {
 	return len(
 		c.getTransactionsInStates(ctx, []transaction.State{
 			transaction.State_Ready_For_Dispatch,
 			transaction.State_Dispatched,
-			transaction.State_Submitted,
 		}),
 	) == 0
 }
 
-// Function noTransactionsInflight returns true if all transactions that have been delegated to this coordinator have been confirmed
+// Function noTransactionsInflight returns true if all transactions that have been delegated to this coordinator have been confirmed/reverted
+// and since removed from memory
 func guard_HasTransactionsInflight(ctx context.Context, c *coordinator) bool {
-	return len(
-		c.getTransactionsNotInStates(ctx, []transaction.State{
-			transaction.State_Confirmed,
-		}),
-	) > 0
+	return len(c.transactionsByID) > 0
 }
 
 func guard_ClosingGracePeriodExpired(ctx context.Context, c *coordinator) bool {
@@ -76,4 +74,8 @@ func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {
 			transaction.State_Assembling,
 		}),
 	) > 0
+}
+
+func guard_HasActiveCoordinator(ctx context.Context, c *coordinator) bool {
+	return c.activeCoordinatorNode != ""
 }

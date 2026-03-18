@@ -17,7 +17,6 @@
 
  import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  import com.fasterxml.jackson.annotation.JsonProperty;
- import com.fasterxml.jackson.core.type.TypeReference;
  import com.fasterxml.jackson.databind.JsonNode;
  import com.fasterxml.jackson.databind.ObjectMapper;
  import com.fasterxml.jackson.databind.node.*;
@@ -42,12 +41,21 @@
  import java.nio.charset.StandardCharsets;
  import java.util.*;
  import java.util.concurrent.CompletableFuture;
+import java.util.HexFormat;
 import java.util.concurrent.ExecutionException;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 
  public class PenteDomain extends DomainInstance {
      private static final Logger LOGGER = PaladinLogging.getLogger(PenteDomain.class);
+
+     // Error selectors for retryable base ledger reverts (all take a single bytes32 parameter)
+     // PenteInputNotAvailable(bytes32 input)
+     private static final byte[] SELECTOR_INPUT_NOT_AVAILABLE = new byte[]{(byte)0xa8, (byte)0x0f, (byte)0x89, (byte)0xf4};
+     // PenteReadNotAvailable(bytes32 read)
+     private static final byte[] SELECTOR_READ_NOT_AVAILABLE = new byte[]{(byte)0xa7, (byte)0xa3, (byte)0xac, (byte)0xe3};
+     // PenteOutputAlreadyUnspent(bytes32 output)
+     private static final byte[] SELECTOR_OUTPUT_ALREADY_UNSPENT = new byte[]{(byte)0xf6, (byte)0xb3, (byte)0x93, (byte)0x1c};
 
      private final PenteConfiguration config = new PenteConfiguration();
 
@@ -182,14 +190,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
              var onChainConfig = PenteConfiguration.decodeConfig(request.getContractConfig().toByteArray());
 
              var contractConfigObj = new PenteConfiguration.ContractConfig(onChainConfig.evmVersion());
-             var contractConfig = ContractConfig.newBuilder().
+            var contractConfig = ContractConfig.newBuilder().
                      setContractConfigJson(new ObjectMapper().writeValueAsString(contractConfigObj)).
                      setCoordinatorSelection(ContractConfig.CoordinatorSelection.COORDINATOR_ENDORSER).
-                     setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR).
-                     build();
+                    setSubmitterSelection(ContractConfig.SubmitterSelection.SUBMITTER_COORDINATOR);
+            if (request.hasPrivacyGroup()) {
+                var privacyGroup = request.getPrivacyGroup();
+                var members = privacyGroup.getMembersList().toArray(new String[0]);
+                if (members.length > 0) {
+                    var lookups = PenteTransaction.buildGroupScopeIdentityLookups(new JsonHex.Bytes32(privacyGroup.getGenesisSalt()), members);
+                    contractConfig.addAllCoordinatorEndorserCandidates(lookups);
+                }
+            }
              return CompletableFuture.completedFuture(InitContractResponse.newBuilder().
                      setValid(true).
-                     setContractConfig(contractConfig).
+                    setContractConfig(contractConfig.build()).
                      build());
 
          } catch (Exception e) {
@@ -596,7 +611,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<BuildReceiptResponse> buildReceipt(BuildReceiptRequest request) {
          try {
-             if (!request.getComplete()) {
+             if (request.getUnavailableStates()) {
                  throw new IllegalStateException("all states must be available to build an EVM receipt");
              }
 
@@ -843,6 +858,58 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }
+     }
+
+     @Override
+     protected CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request) {
+         // Very simple for Pente - we expect all the states, so we can just pass back the pre-calculated
+         // first unavailable ID that Paladin provided us
+         var res = CheckStateCompletionResponse.newBuilder();
+         if (request.getUnavailableStates().hasFirstUnavailableId()) {
+             res.setNextMissingStateId(request.getUnavailableStates().getFirstUnavailableId());
+         }
+         return CompletableFuture.completedFuture(res.build());
+     }
+
+     @Override
+     protected CompletableFuture<IsBaseLedgerRevertRetryableResponse> isBaseLedgerRevertRetryable(IsBaseLedgerRevertRetryableRequest request) {
+         byte[] revertData = request.getRevertData().toByteArray();
+         if (revertData.length < 4) {
+             return CompletableFuture.completedFuture(
+                 IsBaseLedgerRevertRetryableResponse.newBuilder().setRetryable(true).build()
+             );
+         }
+         boolean retryable = matchesSelector(revertData, SELECTOR_INPUT_NOT_AVAILABLE) ||
+                     matchesSelector(revertData, SELECTOR_READ_NOT_AVAILABLE) ||
+                     matchesSelector(revertData, SELECTOR_OUTPUT_ALREADY_UNSPENT);
+         String decodedReason = decodeRevertReason(revertData);
+         return CompletableFuture.completedFuture(
+             IsBaseLedgerRevertRetryableResponse.newBuilder().setRetryable(retryable).setDecodedReason(decodedReason).build()
+         );
+     }
+
+     private static boolean matchesSelector(byte[] data, byte[] selector) {
+         return data[0] == selector[0] && data[1] == selector[1] && data[2] == selector[2] && data[3] == selector[3];
+     }
+
+     private static String decodeBytes32Param(byte[] revertData) {
+         if (revertData.length >= 36) {
+             return "0x" + HexFormat.of().formatHex(revertData, 4, 36);
+         }
+         return "0x" + HexFormat.of().formatHex(revertData, 4, revertData.length);
+     }
+
+     private static String decodeRevertReason(byte[] revertData) {
+         if (matchesSelector(revertData, SELECTOR_INPUT_NOT_AVAILABLE)) {
+             return "PenteInputNotAvailable(input=" + decodeBytes32Param(revertData) + ")";
+         }
+         if (matchesSelector(revertData, SELECTOR_READ_NOT_AVAILABLE)) {
+             return "PenteReadNotAvailable(read=" + decodeBytes32Param(revertData) + ")";
+         }
+         if (matchesSelector(revertData, SELECTOR_OUTPUT_ALREADY_UNSPENT)) {
+             return "PenteOutputAlreadyUnspent(output=" + decodeBytes32Param(revertData) + ")";
+         }
+         return "0x" + HexFormat.of().formatHex(revertData);
      }
 
      @NotNull

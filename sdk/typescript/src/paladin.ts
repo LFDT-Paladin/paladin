@@ -429,6 +429,14 @@ export default class PaladinClient {
       );
       return res.data.result;
     },
+
+    sign: async (keyIdentifier: string, algorithm: string, verifierType: string, payloadType: string, payload: string) => {
+      const res = await this.post<JsonRpcResult<string>>(
+        "keymgr_sign",
+        [keyIdentifier, algorithm, verifierType, payloadType, payload]
+      );
+      return res.data.result;
+    },
   };
 
   ptx = {

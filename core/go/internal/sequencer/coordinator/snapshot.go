@@ -17,14 +17,51 @@ package coordinator
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-func action_SendHeartbeat(ctx context.Context, c *coordinator) error {
+func (c *coordinator) heartbeatLoop(ctx context.Context) {
+	if c.heartbeatCtx == nil {
+		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+		defer c.heartbeatCancel()
+
+		log.L(ctx).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
+
+		// Send an initial heartbeat interval event to be handled immediately
+		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+		if err != nil {
+			// This is currently unreachable because the heartbeat interval event only causes a transaction
+			// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
+			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+		}
+
+		// Then every N seconds
+		ticker := time.NewTicker(c.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+				if err != nil {
+					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+				}
+			case <-c.heartbeatCtx.Done():
+				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
+				c.heartbeatCtx = nil
+				c.heartbeatCancel = nil
+				return
+			}
+		}
+	}
+}
+
+func action_SendHeartbeat(ctx context.Context, c *coordinator, _ common.Event) error {
 	return c.sendHeartbeat(ctx, c.contractAddress)
 }
 
@@ -32,8 +69,6 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, contractAddress *pldtyp
 	snapshot := c.getSnapshot(ctx)
 	log.L(ctx).Debugf("sending heartbeats for sequencer %s", contractAddress.String())
 	var err error
-	c.originatorNodePoolMutex.RLock()
-	defer c.originatorNodePoolMutex.RUnlock()
 	for _, node := range c.originatorNodePool {
 		if node != c.nodeName {
 			log.L(ctx).Debugf("sending heartbeat to %s", node)
@@ -49,9 +84,9 @@ func (c *coordinator) sendHeartbeat(ctx context.Context, contractAddress *pldtyp
 func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapshot {
 	log.L(ctx).Debugf("creating snapshot for sequencer %s", c.contractAddress.String())
 	// This function is called from the sequencer loop so is safe to read internal state
-	pooledTransactions := make([]*common.Transaction, 0, len(c.transactionsByID))
-	dispatchedTransactions := make([]*common.DispatchedTransaction, 0, len(c.transactionsByID))
-	confirmedTransactions := make([]*common.ConfirmedTransaction, 0, len(c.transactionsByID))
+	pooledTransactions := make([]*common.SnapshotPooledTransaction, 0, len(c.transactionsByID))
+	dispatchedTransactions := make([]*common.SnapshotDispatchedTransaction, 0, len(c.transactionsByID))
+	confirmedTransactions := make([]*common.SnapshotConfirmedTransaction, 0, len(c.transactionsByID))
 
 	//Snapshot contains a coarse grained view of transactions state.
 	// All known transactions fall into one of 3 categories
@@ -59,67 +94,18 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
 	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
 	for _, txn := range c.transactionsByID {
-		log.L(ctx).Debugf("next transaction to assess current status of %s. Current state: %s", txn.ID.String(), txn.GetCurrentState().String())
-		switch txn.GetCurrentState() {
-		// pooled transactions are those that have been delegated but not yet dispatched, this includes the various states from being delegated up to being ready for dispatch
-		case transaction.State_Reverted:
-			//NOOP - this transaction is just waiting to be cleaned up so we don't include it in the snapshot
-		case transaction.State_Blocked:
-			fallthrough
-		case transaction.State_Confirming_Dispatchable:
-			fallthrough
-		case transaction.State_Endorsement_Gathering:
-			fallthrough
-		case transaction.State_PreAssembly_Blocked:
-			fallthrough
-		case transaction.State_Assembling:
-			fallthrough
-		case transaction.State_Pooled:
-			pooledTransactions = append(pooledTransactions, &common.Transaction{
-				ID: txn.ID,
-			})
-		case transaction.State_Ready_For_Dispatch:
-			//this is already past the point of no return.  It is as good as dispatched, just waiting for the the dispatcher thread to collect it so we include it in the dispatched transactions
-			// of the snapshot
-			fallthrough
-		case transaction.State_Submitted:
-			fallthrough
-		case transaction.State_SubmissionPrepared:
-			fallthrough
-		case transaction.State_Dispatched:
-			dispatchedTransaction := &common.DispatchedTransaction{}
-			dispatchedTransaction.ID = txn.ID
-			dispatchedTransaction.Originator = txn.Originator()
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				dispatchedTransaction.Signer = *signerAddressPtr
-				dispatchedTransaction.Nonce = txn.GetNonce()
-				dispatchedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
-			}
-
+		pooledTransaction, dispatchedTransaction, confirmedTransaction := txn.GetSnapshot(ctx)
+		if pooledTransaction != nil {
+			pooledTransactions = append(pooledTransactions, pooledTransaction)
+		}
+		if dispatchedTransaction != nil {
 			dispatchedTransactions = append(dispatchedTransactions, dispatchedTransaction)
-
-		case transaction.State_Confirmed:
-			log.L(ctx).Debugf("heartbeat snapshot building, transaction ID %s is in State_Confirmed, sending to heartbeat receipients", txn.ID.String())
-			confirmedTransaction := &common.ConfirmedTransaction{}
-			confirmedTransaction.ID = txn.ID
-
-			signerAddressPtr := txn.GetSignerAddress()
-			if signerAddressPtr != nil {
-				confirmedTransaction.Signer = *signerAddressPtr
-			} else {
-				log.L(ctx).Warnf("Transaction %s has no signer address", txn.ID)
-			}
-			confirmedTransaction.Nonce = txn.GetNonce()
-			confirmedTransaction.LatestSubmissionHash = txn.GetLatestSubmissionHash()
-			confirmedTransaction.RevertReason = txn.GetRevertReason()
+		}
+		if confirmedTransaction != nil {
 			confirmedTransactions = append(confirmedTransactions, confirmedTransaction)
 		}
-
 	}
-	flushPoints := make([]*common.FlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
+	flushPoints := make([]*common.SnapshotFlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
 	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
 		flushPoints = append(flushPoints, flushPoint)
 	}
@@ -128,7 +114,12 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
-		CoordinatorState:       c.GetCurrentState().String(),
+		CoordinatorState:       c.stateMachineEventLoop.GetCurrentState().String(),
 		BlockHeight:            c.currentBlockHeight,
 	}
+}
+
+func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *coordinator, event common.Event) error {
+	c.heartbeatIntervalsSinceStateChange++
+	return nil
 }

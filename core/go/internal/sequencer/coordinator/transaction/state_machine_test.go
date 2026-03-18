@@ -18,48 +18,93 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
-func TestStateMachine_InitializeOK(t *testing.T) {
+func Test_State_String_AllStates(t *testing.T) {
+	tests := []struct {
+		state  State
+		expect string
+	}{
+		{State_Initial, "State_Initial"},
+		{State_Pooled, "State_Pooled"},
+		{State_PreAssembly_Blocked, "State_PreAssembly_Blocked"},
+		{State_Assembling, "State_Assembling"},
+		{State_Reverted, "State_Reverted"},
+		{State_Endorsement_Gathering, "State_Endorsement_Gathering"},
+		{State_Blocked, "State_Blocked"},
+		{State_Confirming_Dispatchable, "State_Confirming_Dispatchable"},
+		{State_Ready_For_Dispatch, "State_Ready_For_Dispatch"},
+		{State_Dispatched, "State_Dispatched"},
+		{State_Confirmed, "State_Confirmed"},
+		{State_Final, "State_Final"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expect, func(t *testing.T) {
+			assert.Equal(t, tt.expect, tt.state.String())
+		})
+	}
+}
+
+func Test_State_String_Unknown(t *testing.T) {
+	// State value beyond defined constants
+	s := State(99)
+	assert.Contains(t, s.String(), "Unknown")
+	assert.Contains(t, s.String(), "99")
+}
+
+func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
 	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build()
 
-	transportWriter := transport.NewMockTransportWriter(t)
-	clock := &common.FakeClockForTesting{}
-	engineIntegration := common.NewMockEngineIntegration(t)
-	syncPoints := &syncpoints.MockSyncPoints{}
-	txn, err := NewTransaction(
-		ctx,
-		"sender@node1",
-		&components.PrivateTransaction{
-			ID: uuid.New(),
-		},
-		transportWriter,
-		clock,
-		func(ctx context.Context, event common.Event) error {
-			//don't expect any events during initialize
-			assert.Failf(t, "unexpected event", "%T", event)
-			return nil
-		},
-		engineIntegration,
-		syncPoints,
-		clock.Duration(1000),
-		clock.Duration(5000),
-		5,
-		NewGrapher(ctx),
-		nil,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
-	)
-	assert.NoError(t, err)
-	assert.NotNil(t, txn)
+	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3, txn.heartbeatIntervalsSinceStateChange)
+}
 
-	assert.Equal(t, State_Initial, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		FinalizingGracePeriod(10).
+		Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
+	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
+	assert.False(t, txn.confirmedLocksReleased)
+	mocks.EngineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
+	assert.Equal(t, 2, txn.heartbeatIntervalsSinceStateChange)
+	assert.True(t, txn.confirmedLocksReleased)
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
+}
+
+func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(100).
+		FinalizingGracePeriod(2).
+		Build()
+
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
+
+	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, State_Final, txn.stateMachine.GetCurrentState())
 }

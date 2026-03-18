@@ -93,6 +93,11 @@ func (pr *pluginRun[M]) run() error {
 	// Ensure we cleanup
 	var conn *grpc.ClientConn
 	defer func() {
+		// Always run plugin-specific shutdown logic if a handler was initialized.
+		// For transport plugins this ensures listener teardown on every exit path.
+		if pr.handler != nil {
+			pr.closePlugin()
+		}
 		// Cancel any in-flight requests
 		pr.inflight.Close()
 		// Close the connection
@@ -175,7 +180,6 @@ func (pr *pluginRun[M]) serve() error {
 			if strings.Contains(err.Error(), "EOF") {
 				log.L(pr.ctx).Tracef("recv closed with err treated as EOF: %s", err)
 				log.L(pr.ctx).Infof("recv closed with EOF, shutting down the plugin")
-				pr.closePlugin()
 				return nil
 			}
 			log.L(pr.ctx).Warnf("recv failed, err %s", err)

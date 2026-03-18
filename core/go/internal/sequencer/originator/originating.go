@@ -25,42 +25,70 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	"github.com/google/uuid"
 )
 
-func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
-	transactions, err := o.transactionsOrderedByCreatedTime(ctx)
+func action_TransactionCreated(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*TransactionCreatedEvent)
+	return o.createTransaction(ctx, e.Transaction)
+}
+
+func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
+	newTxn, err := transaction.NewTransaction(ctx,
+		txn,
+		o.transportWriter,
+		o.queueEventInternal,
+		o.engineIntegration,
+		o.metrics)
 	if err != nil {
-		log.L(ctx).Errorf("failed to get transactions ordered by created time: %v", err)
+		log.L(ctx).Errorf("error creating transaction: %v", err)
 		return err
 	}
+	o.transactionsByID[txn.ID] = newTxn
+	o.transactionsOrdered = append(o.transactionsOrdered, newTxn)
+	createdEvent := &transaction.CreatedEvent{}
+	createdEvent.TransactionID = txn.ID
+	err = newTxn.HandleEvent(ctx, createdEvent)
+	if err != nil {
+		log.L(ctx).Errorf("error handling CreatedEvent for transaction %s: %v", txn.ID.String(), err)
+		return err
+	}
+	return nil
+}
 
+func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDelegated bool, ignoreDelegateTimeout bool) error {
+	if o.activeCoordinatorNode == "" {
+		// the delegation timeout loop ensures that this request will be retried when we have an active coordinator
+		log.L(ctx).Debugf("no active coordinator set yet; deferring delegation for contract %s", o.contractAddress.String())
+		return nil
+	}
 	// Find pending transactions only and (optionally) already delegated transactions
-	// TODO - this is another place where we are checking state outside the state machine
 	privateTransactions := make([]*components.PrivateTransaction, 0)
-	for _, txn := range transactions {
-		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated && (ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && common.RealClock().HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
+	transactionsToDelegate := make([]*transaction.OriginatorTransaction, 0)
+	for _, txn := range o.transactionsOrdered {
+		if includeAlreadyDelegated && txn.GetCurrentState() == transaction.State_Delegated &&
+			(ignoreDelegateTimeout || (txn.GetLastDelegatedTime() != nil && o.clock.HasExpired(*txn.GetLastDelegatedTime(), o.delegateTimeout))) {
 			// only re-delegate after the delegate timeout
-			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
-			txn.UpdateLastDelegatedTime()
+			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
 
 		if txn.GetCurrentState() == transaction.State_Pending {
-			privateTransactions = append(privateTransactions, txn.PrivateTransaction)
-			txn.UpdateLastDelegatedTime()
+			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
+			transactionsToDelegate = append(transactionsToDelegate, txn)
 		}
-
 	}
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
-	for _, txn := range transactions {
+	for _, txn := range transactionsToDelegate {
 		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
-				TransactionID: txn.ID,
+				TransactionID: txn.GetID(),
 			},
 			Coordinator: o.activeCoordinatorNode,
 		})
 		if err != nil {
-			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.ID, err)
+			msg := fmt.Sprintf("error handling delegated event for transaction %s: %v", txn.GetID(), err)
 			log.L(ctx).Error(msg)
 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 		}
@@ -70,15 +98,15 @@ func sendDelegationRequest(ctx context.Context, o *originator, includeAlreadyDel
 	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, privateTransactions, o.currentBlockHeight)
 }
 
-func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator) error {
+func action_SendDroppedTXDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, true, true)
 }
 
-func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator) error {
+func action_ResendTimedOutDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, true, false)
 }
 
-func action_SendDelegationRequest(ctx context.Context, o *originator) error {
+func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
 	return sendDelegationRequest(ctx, o, false, false)
 }
 
@@ -87,16 +115,16 @@ func guard_HasDroppedTransactions(ctx context.Context, o *originator) bool {
 	//NOTE: "dropped" is not a state in the transaction state machine, but rather a state in the originator's view of the world.
 	// Reason for this is that it is not really a state of the transaction, it is a property of the heartbeat event and as such,
 	// is reconciled as part of handling that event so immediately, the transaction is in Delegated state again
-	for _, txn := range o.getTransactionsInStates(ctx, []transaction.State{transaction.State_Delegated}) {
+	for _, txn := range o.getTransactionsInStates([]transaction.State{transaction.State_Delegated}) {
 		dropped := true
 		for _, dispatchedTransaction := range o.latestCoordinatorSnapshot.PooledTransactions {
-			if dispatchedTransaction.ID == txn.ID {
+			if dispatchedTransaction.ID == txn.GetID() {
 				dropped = false
 				break
 			}
 		}
 		if dropped {
-			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.ID)
+			log.L(ctx).Debugf("transaction %s is in Delegated state but not found in latest coordinator snapshot, assuming dropped", txn.GetID())
 			return true
 		}
 	}
@@ -121,4 +149,59 @@ func validator_TransactionDoesNotExist(ctx context.Context, o *originator, event
 	}
 
 	return true, nil
+}
+
+func validator_OriginatorTransactionStateTransitionToFinal(ctx context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Final, nil
+}
+
+func action_CleanUpTransaction(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	o.removeTransaction(ctx, e.TransactionID)
+	return nil
+}
+
+func validator_OriginatorTransactionStateTransitionToConfirmed(ctx context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Confirmed, nil
+}
+
+func validator_OriginatorTransactionStateTransitionToReverted(ctx context.Context, _ *originator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Reverted, nil
+}
+
+func action_FinalizeTransaction(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	o.queueEventInternal(ctx, &transaction.FinalizeEvent{
+		BaseEvent:     common.BaseEvent{EventTime: e.GetEventTime()},
+		TransactionID: e.TransactionID,
+	})
+	return nil
+}
+
+func (o *originator) removeTransaction(ctx context.Context, txnID uuid.UUID) {
+	log.L(ctx).Debugf("removing transaction %s from originator", txnID.String())
+
+	// Remove from transactionsByID
+	delete(o.transactionsByID, txnID)
+
+	// Remove from transactionsOrdered
+	for i, txn := range o.transactionsOrdered {
+		if txn.GetID() == txnID {
+			o.transactionsOrdered = append(o.transactionsOrdered[:i], o.transactionsOrdered[i+1:]...)
+			break
+		}
+	}
+}
+
+func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event common.Event) error {
+	e := event.(*ActiveCoordinatorUpdatedEvent)
+	if e.Coordinator == "" {
+		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "Cannot set active coordinator to an empty string")
+	}
+	o.activeCoordinatorNode = e.Coordinator
+	log.L(ctx).Debugf("active coordinator updated to %s", e.Coordinator)
+	return nil
 }

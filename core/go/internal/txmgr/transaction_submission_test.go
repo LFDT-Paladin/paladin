@@ -1608,3 +1608,4 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, `{"value":"46"}`, validatedTransaction.Transaction.Data.String())
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
 }
+

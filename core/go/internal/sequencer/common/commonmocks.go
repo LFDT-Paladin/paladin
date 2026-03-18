@@ -41,20 +41,18 @@ func (_m *MockClock) EXPECT() *MockClock_Expecter {
 }
 
 // Duration provides a mock function for the type MockClock
-func (_mock *MockClock) Duration(milliseconds int) Duration {
+func (_mock *MockClock) Duration(milliseconds int) time.Duration {
 	ret := _mock.Called(milliseconds)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Duration")
 	}
 
-	var r0 Duration
-	if returnFunc, ok := ret.Get(0).(func(int) Duration); ok {
+	var r0 time.Duration
+	if returnFunc, ok := ret.Get(0).(func(int) time.Duration); ok {
 		r0 = returnFunc(milliseconds)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Duration)
-		}
+		r0 = ret.Get(0).(time.Duration)
 	}
 	return r0
 }
@@ -83,27 +81,27 @@ func (_c *MockClock_Duration_Call) Run(run func(milliseconds int)) *MockClock_Du
 	return _c
 }
 
-func (_c *MockClock_Duration_Call) Return(duration Duration) *MockClock_Duration_Call {
+func (_c *MockClock_Duration_Call) Return(duration time.Duration) *MockClock_Duration_Call {
 	_c.Call.Return(duration)
 	return _c
 }
 
-func (_c *MockClock_Duration_Call) RunAndReturn(run func(milliseconds int) Duration) *MockClock_Duration_Call {
+func (_c *MockClock_Duration_Call) RunAndReturn(run func(milliseconds int) time.Duration) *MockClock_Duration_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // HasExpired provides a mock function for the type MockClock
-func (_mock *MockClock) HasExpired(time Time, duration Duration) bool {
-	ret := _mock.Called(time, duration)
+func (_mock *MockClock) HasExpired(time1 time.Time, duration time.Duration) bool {
+	ret := _mock.Called(time1, duration)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HasExpired")
 	}
 
 	var r0 bool
-	if returnFunc, ok := ret.Get(0).(func(Time, Duration) bool); ok {
-		r0 = returnFunc(time, duration)
+	if returnFunc, ok := ret.Get(0).(func(time.Time, time.Duration) bool); ok {
+		r0 = returnFunc(time1, duration)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
@@ -116,21 +114,21 @@ type MockClock_HasExpired_Call struct {
 }
 
 // HasExpired is a helper method to define mock.On call
-//   - time Time
-//   - duration Duration
-func (_e *MockClock_Expecter) HasExpired(time interface{}, duration interface{}) *MockClock_HasExpired_Call {
-	return &MockClock_HasExpired_Call{Call: _e.mock.On("HasExpired", time, duration)}
+//   - time1 time.Time
+//   - duration time.Duration
+func (_e *MockClock_Expecter) HasExpired(time1 interface{}, duration interface{}) *MockClock_HasExpired_Call {
+	return &MockClock_HasExpired_Call{Call: _e.mock.On("HasExpired", time1, duration)}
 }
 
-func (_c *MockClock_HasExpired_Call) Run(run func(time Time, duration Duration)) *MockClock_HasExpired_Call {
+func (_c *MockClock_HasExpired_Call) Run(run func(time1 time.Time, duration time.Duration)) *MockClock_HasExpired_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 Time
+		var arg0 time.Time
 		if args[0] != nil {
-			arg0 = args[0].(Time)
+			arg0 = args[0].(time.Time)
 		}
-		var arg1 Duration
+		var arg1 time.Duration
 		if args[1] != nil {
-			arg1 = args[1].(Duration)
+			arg1 = args[1].(time.Duration)
 		}
 		run(
 			arg0,
@@ -145,26 +143,24 @@ func (_c *MockClock_HasExpired_Call) Return(b bool) *MockClock_HasExpired_Call {
 	return _c
 }
 
-func (_c *MockClock_HasExpired_Call) RunAndReturn(run func(time Time, duration Duration) bool) *MockClock_HasExpired_Call {
+func (_c *MockClock_HasExpired_Call) RunAndReturn(run func(time1 time.Time, duration time.Duration) bool) *MockClock_HasExpired_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Now provides a mock function for the type MockClock
-func (_mock *MockClock) Now() Time {
+func (_mock *MockClock) Now() time.Time {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Now")
 	}
 
-	var r0 Time
-	if returnFunc, ok := ret.Get(0).(func() Time); ok {
+	var r0 time.Time
+	if returnFunc, ok := ret.Get(0).(func() time.Time); ok {
 		r0 = returnFunc()
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(Time)
-		}
+		r0 = ret.Get(0).(time.Time)
 	}
 	return r0
 }
@@ -186,18 +182,18 @@ func (_c *MockClock_Now_Call) Run(run func()) *MockClock_Now_Call {
 	return _c
 }
 
-func (_c *MockClock_Now_Call) Return(time Time) *MockClock_Now_Call {
-	_c.Call.Return(time)
+func (_c *MockClock_Now_Call) Return(time1 time.Time) *MockClock_Now_Call {
+	_c.Call.Return(time1)
 	return _c
 }
 
-func (_c *MockClock_Now_Call) RunAndReturn(run func() Time) *MockClock_Now_Call {
+func (_c *MockClock_Now_Call) RunAndReturn(run func() time.Time) *MockClock_Now_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ScheduleTimer provides a mock function for the type MockClock
-func (_mock *MockClock) ScheduleTimer(context1 context.Context, duration Duration, fn func()) func() {
+func (_mock *MockClock) ScheduleTimer(context1 context.Context, duration time.Duration, fn func()) func() {
 	ret := _mock.Called(context1, duration, fn)
 
 	if len(ret) == 0 {
@@ -205,7 +201,7 @@ func (_mock *MockClock) ScheduleTimer(context1 context.Context, duration Duratio
 	}
 
 	var r0 func()
-	if returnFunc, ok := ret.Get(0).(func(context.Context, Duration, func()) func()); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, time.Duration, func()) func()); ok {
 		r0 = returnFunc(context1, duration, fn)
 	} else {
 		if ret.Get(0) != nil {
@@ -222,21 +218,21 @@ type MockClock_ScheduleTimer_Call struct {
 
 // ScheduleTimer is a helper method to define mock.On call
 //   - context1 context.Context
-//   - duration Duration
+//   - duration time.Duration
 //   - fn func()
 func (_e *MockClock_Expecter) ScheduleTimer(context1 interface{}, duration interface{}, fn interface{}) *MockClock_ScheduleTimer_Call {
 	return &MockClock_ScheduleTimer_Call{Call: _e.mock.On("ScheduleTimer", context1, duration, fn)}
 }
 
-func (_c *MockClock_ScheduleTimer_Call) Run(run func(context1 context.Context, duration Duration, fn func())) *MockClock_ScheduleTimer_Call {
+func (_c *MockClock_ScheduleTimer_Call) Run(run func(context1 context.Context, duration time.Duration, fn func())) *MockClock_ScheduleTimer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 Duration
+		var arg1 time.Duration
 		if args[1] != nil {
-			arg1 = args[1].(Duration)
+			arg1 = args[1].(time.Duration)
 		}
 		var arg2 func()
 		if args[2] != nil {
@@ -256,63 +252,9 @@ func (_c *MockClock_ScheduleTimer_Call) Return(cancel func()) *MockClock_Schedul
 	return _c
 }
 
-func (_c *MockClock_ScheduleTimer_Call) RunAndReturn(run func(context1 context.Context, duration Duration, fn func()) func()) *MockClock_ScheduleTimer_Call {
+func (_c *MockClock_ScheduleTimer_Call) RunAndReturn(run func(context1 context.Context, duration time.Duration, fn func()) func()) *MockClock_ScheduleTimer_Call {
 	_c.Call.Return(run)
 	return _c
-}
-
-// NewMockDuration creates a new instance of MockDuration. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
-func NewMockDuration(t interface {
-	mock.TestingT
-	Cleanup(func())
-}) *MockDuration {
-	mock := &MockDuration{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// MockDuration is an autogenerated mock type for the Duration type
-type MockDuration struct {
-	mock.Mock
-}
-
-type MockDuration_Expecter struct {
-	mock *mock.Mock
-}
-
-func (_m *MockDuration) EXPECT() *MockDuration_Expecter {
-	return &MockDuration_Expecter{mock: &_m.Mock}
-}
-
-// NewMockTime creates a new instance of MockTime. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
-func NewMockTime(t interface {
-	mock.TestingT
-	Cleanup(func())
-}) *MockTime {
-	mock := &MockTime{}
-	mock.Mock.Test(t)
-
-	t.Cleanup(func() { mock.AssertExpectations(t) })
-
-	return mock
-}
-
-// MockTime is an autogenerated mock type for the Time type
-type MockTime struct {
-	mock.Mock
-}
-
-type MockTime_Expecter struct {
-	mock *mock.Mock
-}
-
-func (_m *MockTime) EXPECT() *MockTime_Expecter {
-	return &MockTime_Expecter{mock: &_m.Mock}
 }
 
 // NewMockHooks creates a new instance of MockHooks. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

@@ -60,8 +60,14 @@ func newTestServer(t *testing.T, rpcHandler testRPCHander) (context.Context, *rp
 		URL: fmt.Sprintf("http://%s", server.Listener.Addr()),
 	})
 	assert.NoError(t, err)
+	t.Cleanup(c.Close)
 
-	rb := c.(*rpcClient)
+	var rb *rpcClient
+	if closeable, ok := c.(*closeableHTTPClient); ok {
+		rb = closeable.Client.(*rpcClient)
+	} else {
+		rb = c.(*closeableHTTPClient).Client.(*rpcClient)
+	}
 
 	return ctx, rb, func() {
 		cancelCtx()

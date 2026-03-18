@@ -23,7 +23,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordinatorTx "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
@@ -65,7 +64,7 @@ type sequencerManager struct {
 
 // Init implements Engine.
 func (sMgr *sequencerManager) PreInit(c components.PreInitComponents) (*components.ManagerInitResult, error) {
-	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("PreInit distributed sequencer manager")
+	log.L(sMgr.ctx).Infof("PreInit distributed sequencer manager")
 	sMgr.metrics = metrics.InitMetrics(sMgr.ctx, c.MetricsManager().Registry())
 
 	return &components.ManagerInitResult{
@@ -80,7 +79,7 @@ func (sMgr *sequencerManager) PreInit(c components.PreInitComponents) (*componen
 }
 
 func (sMgr *sequencerManager) PostInit(c components.AllComponents) error {
-	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("PostInit distributed sequencer manager")
+	log.L(sMgr.ctx).Infof("PostInit distributed sequencer manager")
 	sMgr.components = c
 	sMgr.nodeName = sMgr.components.TransportManager().LocalNodeName()
 	sMgr.syncPoints = syncpoints.NewSyncPoints(sMgr.ctx, &sMgr.config.Writer, c.Persistence(), c.TxManager(), c.PublicTxManager(), c.TransportManager())
@@ -88,7 +87,7 @@ func (sMgr *sequencerManager) PostInit(c components.AllComponents) error {
 }
 
 func (sMgr *sequencerManager) Start() error {
-	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Starting distributed sequencer manager")
+	log.L(sMgr.ctx).Infof("Starting distributed sequencer manager")
 	sMgr.syncPoints.Start()
 	sMgr.pollForIncompleteTransactions(sMgr.ctx, confutil.DurationMinIfPositive(sMgr.config.TransactionResumePollInterval, pldconf.SequencerMinimum.TransactionResumePollInterval, *pldconf.SequencerDefaults.TransactionResumePollInterval))
 
@@ -96,16 +95,16 @@ func (sMgr *sequencerManager) Start() error {
 }
 
 func (sMgr *sequencerManager) Stop() {
-	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Stopping distributed sequencer manager")
+	log.L(sMgr.ctx).Infof("Stopping distributed sequencer manager")
 	sMgr.StopAllSequencers(sMgr.ctx)
-	log.L(log.WithLogField(sMgr.ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_LIFECYCLE)).Infof("Stopped all sequencers")
+	log.L(sMgr.ctx).Infof("Stopped all sequencers")
 	sMgr.syncPoints.Close()
 	sMgr.cancelCtx()
 }
 
 func NewDistributedSequencerManager(ctx context.Context, config *pldconf.SequencerConfig) components.SequencerManager {
 
-	dsmCtx, dsmCtxCancel := context.WithCancel(log.WithLogField(ctx, "role", "sequencer"))
+	dsmCtx, dsmCtxCancel := context.WithCancel(log.WithComponent(ctx, "sequencer_manager"))
 	sMgr := &sequencerManager{
 		ctx:                           dsmCtx,
 		cancelCtx:                     dsmCtxCancel,
@@ -149,26 +148,59 @@ func (sMgr *sequencerManager) pollForIncompleteTransactions(ctx context.Context,
 		}
 
 		for {
+			pageSize := confutil.IntMin(sMgr.config.TransactionResumePageSize, pldconf.SequencerMinimum.TransactionResumePageSize, *pldconf.SequencerDefaults.TransactionResumePageSize)
+			maxTransactions := *pldconf.SequencerDefaults.TransactionResumeMaxTransactions
+			if sMgr.config.TransactionResumeMaxTransactions != nil {
+				maxTransactions = *sMgr.config.TransactionResumeMaxTransactions
+			}
+
 			resumedTransactions := 0
+			var lastCreatedTime int64
 
 			// Originators are responsible for resuming and re-delegating their own transactions.
-			pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(sMgr.ctx, query.NewQueryBuilder().Limit(1000).NotEqual("submitMode", string(pldapi.SubmitModeRemote)).Query(), sMgr.components.Persistence().NOTX(), true)
-			if err != nil {
-				log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
-			}
-			resumedTransactions += len(pendingTx)
-			log.L(sMgr.ctx).Infof("Resuming %d transactions", resumedTransactions)
-			for _, tx := range pendingTx {
-				log.L(sMgr.ctx).Debugf("Resuming pending transaction %s", tx.Transaction.ID)
-				err = sMgr.HandleTxResume(sMgr.ctx, &components.ValidatedTransaction{
-					ResolvedTransaction: *tx,
-				})
+			// Paginate through all pending transactions with configurable page size and optional upper limit.
+			for maxTransactions > 0 && resumedTransactions < maxTransactions {
+				limit := pageSize
+				if resumedTransactions+limit > maxTransactions {
+					limit = maxTransactions - resumedTransactions
+				}
+
+				query := query.NewQueryBuilder().
+					Limit(limit).
+					Sort("created")
+				if lastCreatedTime > 0 {
+					log.L(sMgr.ctx).Debugf("Retrieving the next %d incomplete transactions to resume from timestamp %d", limit, lastCreatedTime)
+					query.GreaterThan("created", lastCreatedTime)
+				} else {
+					log.L(sMgr.ctx).Debugf("Retrieving the next %d incomplete transactions to resume", limit)
+				}
+				q := query.Query()
+
+				pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(sMgr.ctx, q, sMgr.components.Persistence().NOTX(), true)
 				if err != nil {
-					log.L(sMgr.ctx).Errorf("Error resuming pending transaction %s: %s", tx.Transaction.ID, err)
+					log.L(sMgr.ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
+					break
+				}
+
+				resumedTransactions += len(pendingTx)
+				log.L(sMgr.ctx).Tracef("Resuming %d transactions", len(pendingTx))
+				for _, tx := range pendingTx {
+					err = sMgr.HandleTxResume(sMgr.ctx, &components.ValidatedTransaction{
+						ResolvedTransaction: *tx,
+					})
+					if err != nil {
+						log.L(sMgr.ctx).Errorf("Error resuming pending transaction %s: %s", tx.Transaction.ID, err)
+					}
+				}
+				if len(pendingTx) > 0 {
+					lastCreatedTime = int64(pendingTx[len(pendingTx)-1].Transaction.Created)
+				}
+				if len(pendingTx) < pageSize {
+					break
 				}
 			}
 
-			// Repeat DB poll every 5 minutes to check for incomplete transactions to resume
+			// Repeat DB poll every N minutes to check for incomplete transactions to resume
 			timeoutCtx, cancel := context.WithTimeout(sMgr.ctx, rePollInterval)
 			defer cancel()
 
@@ -336,7 +368,13 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 
 	var tryFinalize func()
 	tryFinalize = func() {
-		sMgr.syncPoints.QueueTransactionFinalize(ctx, tx.Domain, pldtypes.EthAddress{}, tx.From, tx.ID, deployError.Error(),
+		sMgr.syncPoints.QueueTransactionFinalize(ctx, &syncpoints.TransactionFinalizeRequest{
+			Domain:          tx.Domain,
+			ContractAddress: pldtypes.EthAddress{},
+			Originator:      tx.From,
+			TransactionID:   tx.ID,
+			FailureMessage:  deployError.Error(),
+		},
 			func(ctx context.Context) {
 				log.L(ctx).Debugf("finalized deployment transaction: %s", tx.ID)
 			},
@@ -353,6 +391,19 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 // has committed before passing any events to the sequencer to process the tranasction.
 func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction) error {
 	tx := txi.Transaction
+
+	// First check if the TX has incomplete or failed dependencies
+	blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, dbTX, txi)
+	if err != nil {
+		return err
+	}
+	if blockedByDependencies {
+		// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
+		// 1. The periodic sequencer poll loop will attempt to resume it, making this same check
+		// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
+		return nil
+	}
+
 	if tx.To == nil {
 		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
 			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
@@ -381,36 +432,50 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 	}, &txi.ResolvedTransaction, false)
 }
 
-// Resume a transaction we have read from the DB on startup. There is no DBTX because we don't need to delay
-// the sequencer running while we wait for the original DB insert to commit.
+// Resume a transaction we have read from the DB on startup.
 func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *components.ValidatedTransaction) error {
-	tx := txi.Transaction
-	if tx.To == nil {
-		if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
-			return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
+	return sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		tx := txi.Transaction
+
+		// First check if the TX has incomplete or failed dependencies
+		blockedByDependencies, err := sMgr.components.TxManager().BlockedByDependencies(ctx, dbTX, txi)
+		if err != nil {
+			return err
 		}
-		log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
-		return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
-			ID:     *tx.ID,
-			Domain: tx.Domain,
-			From:   tx.From,
-			Inputs: tx.Data,
-		})
-	}
-	intent := prototk.TransactionSpecification_SEND_TRANSACTION
-	if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
-		intent = prototk.TransactionSpecification_PREPARE_TRANSACTION
-	}
-	if txi.Function == nil || txi.Function.Definition == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
-	}
-	log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
-	return sMgr.handleTx(ctx, sMgr.components.Persistence().NOTX(), &components.PrivateTransaction{
-		ID:      *tx.ID,
-		Domain:  tx.Domain,
-		Address: *tx.To,
-		Intent:  intent,
-	}, &txi.ResolvedTransaction, true)
+		if blockedByDependencies {
+			// There are 2 ways this TX will be resumed given that it has incomplete dependencies:
+			// 1. The periodic sequencer poll loop will attempt to resume it, calling us again at which point we will make this same check
+			// 2. The dependency listener will see a receipt and tap the sequencer manager to check if dependents can be processed
+			return nil
+		}
+
+		if tx.To == nil {
+			if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
+				return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
+			}
+			log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
+			return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
+				ID:     *tx.ID,
+				Domain: tx.Domain,
+				From:   tx.From,
+				Inputs: tx.Data,
+			})
+		}
+		intent := prototk.TransactionSpecification_SEND_TRANSACTION
+		if txi.Transaction.SubmitMode.V() == pldapi.SubmitModeExternal {
+			intent = prototk.TransactionSpecification_PREPARE_TRANSACTION
+		}
+		if txi.Function == nil || txi.Function.Definition == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
+		}
+		log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
+		return sMgr.handleTx(ctx, dbTX, &components.PrivateTransaction{
+			ID:      *tx.ID,
+			Domain:  tx.Domain,
+			Address: *tx.To,
+			Intent:  intent,
+		}, &txi.ResolvedTransaction, true)
+	})
 }
 
 // Start processing a new or resumed transaction. The state machine is designed to be idempotent to new transactions with the same ID being resumed, so there is no checking
@@ -496,7 +561,7 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 	log.L(sMgr.ctx).Tracef("HandleTransactionCollected %s %s %s", signerAddress, contractAddress, txID.String())
 
 	// Get the sequencer for the signer address
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *pldtypes.MustEthAddress(contractAddress), nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if err != nil {
 		return err
 	}
@@ -511,7 +576,10 @@ func (sMgr *sequencerManager) HandleTransactionCollected(ctx context.Context, si
 			SignerAddress: *pldtypes.MustEthAddress(signerAddress),
 		}
 
-		sequencer.GetCoordinator().QueueEvent(ctx, collectedEvent)
+		// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+		// orchestrator polling so it is critical we do not block here waiting on a full event queue.
+		// TODO - return to the idea of substates for these
+		sequencer.GetCoordinator().TryQueueEvent(ctx, collectedEvent)
 	}
 
 	return nil
@@ -522,7 +590,7 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 	log.L(sMgr.ctx).Tracef("HandleNonceAssigned %d %s %s", nonce, contractAddress, txID.String())
 
 	// Get the sequencer for the signer address
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *pldtypes.MustEthAddress(contractAddress), nil, nil)
+	sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(contractAddress))
 	if err != nil {
 		return err
 	}
@@ -536,36 +604,21 @@ func (sMgr *sequencerManager) HandleNonceAssigned(ctx context.Context, nonce uin
 			},
 			Nonce: nonce,
 		}
-
-		sequencer.GetCoordinator().QueueEvent(ctx, coordinatorNonceAllocatedEvent)
-
-		coordTx := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
-
-		if coordTx == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction %s not found in coordinator, cannot handle nonce assignment event", txID)
-		}
-
-		// Forward the event to the originator
-		originatorNode := coordTx.OriginatorNode()
-		transportWriter := sequencer.GetTransportWriter()
-		err := transportWriter.SendNonceAssigned(ctx, txID, originatorNode, pldtypes.MustEthAddress(contractAddress), nonce)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+		// orchestrator polling so it is critical we do not block here waiting on a full event queue.
+		sequencer.GetCoordinator().TryQueueEvent(ctx, coordinatorNonceAllocatedEvent)
 	}
 
 	return nil
 }
 
 // Handle public TX submission, both for our own coordination state machine(s), and by distributing this public TX submission to other parties who need to have it
-func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txID uuid.UUID) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXSubmission %s %s %s %s", txHash.String(), contractAddress, gasPricing, txID.String())
+func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, tx *pldapi.PublicTxWithBinding) error {
+	log.L(sMgr.ctx).Debugf("HandlePublicTXSubmission TXID %s", txID.String())
 
-	deploy := contractAddress == ""
+	deploy := tx.To == nil
 	if !deploy {
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *pldtypes.MustEthAddress(contractAddress), nil, nil)
+		sequencer, err := sMgr.GetSequencer(ctx, *pldtypes.MustEthAddress(tx.TransactionContractAddress))
 		if err != nil {
 			return err
 		}
@@ -577,44 +630,26 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 				BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
 					TransactionID: txID,
 				},
-				SubmissionHash: *txHash,
+				SubmissionHash: *tx.TransactionHash,
 			}
-			sequencer.GetCoordinator().QueueEvent(ctx, coordinatorSubmittedEvent)
-			sequencerTX := sequencer.GetCoordinator().GetTransactionByID(ctx, txID)
-
-			if sequencerTX != nil {
-				originatorNode := sequencerTX.OriginatorNode()
-
-				// Forward the event to the originator
-				transportWriter := sequencer.GetTransportWriter()
-				err = transportWriter.SendTransactionSubmitted(ctx, txID, originatorNode, pldtypes.MustEthAddress(contractAddress), txHash)
-				if err != nil {
-					return err
-				}
-			}
+			// Public TX manager events are informational rather than critical for the coordinator. This function is called as part of
+			// the public tx manager submission writer so it is critical we do not block here waiting on a full event queue.
+			sequencer.GetCoordinator().TryQueueEvent(ctx, coordinatorSubmittedEvent)
+			// The coordinator transaction state machine sends TransactionSubmitted to the originator when it processes this event
 		}
 
 		// As well as updating ths state machine(s) we must distribute the public TX submission to the originator who needs visibility of public transactions
 		// related to their coordinated private transaction submissions
-		publicTXSubmission := &pldapi.PublicTxToDistribute{
-			TransactionHash: txHash,
-			GasPricing:      []byte(gasPricing),
-			Bindings: []*pldapi.PublicTxBinding{
-				{
-					Transaction: txID,
-				},
-			},
-		}
-
-		senderNode, err := pldtypes.PrivateIdentityLocator(sender).Node(ctx, false)
+		senderNode, err := pldtypes.PrivateIdentityLocator(tx.TransactionSender).Node(ctx, false)
 		if err != nil {
 			return err
 		}
 		if senderNode != sMgr.nodeName {
+			log.L(ctx).Debugf("Distributing public transaction submission to node %s", senderNode)
 			// Send reliable message to the node under the current DBTX
 			err = sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
 				MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
-				Metadata:    pldtypes.JSONString(publicTXSubmission),
+				Metadata:    pldtypes.JSONString(tx),
 				Node:        senderNode,
 			})
 			if err != nil {
@@ -625,241 +660,152 @@ func (sMgr *sequencerManager) HandlePublicTXSubmission(ctx context.Context, dbTX
 	return nil
 }
 
-// Distribute locally written public transactions to the originator who also needs to have the public TX
-func (sMgr *sequencerManager) HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, persistedTxns []*pldapi.PublicTxToDistribute) error {
-	log.L(sMgr.ctx).Tracef("HandlePublicTXsWritten %d", len(persistedTxns))
-
-	for _, persistedTxn := range persistedTxns {
-		for _, binding := range persistedTxn.Bindings {
-			if persistedTxn.To == nil {
-				// Deploy not handled by sequencer
-				continue
-			}
-
-			senderNode, err := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(ctx, false)
-			if err != nil {
-				return err
-			}
-			if senderNode != sMgr.nodeName {
-				log.L(sMgr.ctx).Debugf("Send public TX to %s", binding.TransactionSender)
-				// Send reliable message to the node under the current DBTX
-				err := sMgr.components.TransportManager().SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
-					MessageType: pldapi.RMTPublicTransaction.Enum(),
-					Metadata:    pldtypes.JSONString(persistedTxn),
-					Node:        senderNode,
-				})
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-func (sMgr *sequencerManager) HandleTransactionConfirmed(ctx context.Context, confirmedTxn *components.TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error {
-	log.L(sMgr.ctx).Tracef("HandleTransactionConfirmed %s %s %+v", confirmedTxn.TransactionID.String(), from.String(), nonce)
+func (sMgr *sequencerManager) handleTransactionConfirmedSuccess(ctx context.Context, confirmedTxn *components.TxCompletion, nonce *pldtypes.HexUint64) error {
+	log.L(sMgr.ctx).Tracef("handleTransactionConfirmedSuccess %s nonce=%v", confirmedTxn.TransactionID.String(), nonce)
 	sMgr.metrics.IncConfirmedTransactions()
 
 	// A transaction can be confirmed after the coordinating node has restarted. The coordinator doesn't persist the private TX, it relies
-	// on the originating node to delegate the private TX to it. HandleTransactionConfirmed first checks if a public TX for that request has been confirmed
-	// on chain, so in in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
+	// on the originating node to delegate the private TX to it. handleTransactionConfirmedSuccess first checks if a public TX for that request has been confirmed
+	// on chain, so in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
 
-	var contractAddress pldtypes.EthAddress
-	deploy := confirmedTxn.ContractAddress != nil
-	if deploy {
-		// Creation of a new contract
-		contractAddress = *confirmedTxn.ContractAddress
-	} else {
-		// Invoke of an existing contract
-		contractAddress = confirmedTxn.PSC.Address()
+	// For a deploy we won't have tracked the transaction through the state machine
+	if confirmedTxn.ContractAddress != nil {
+		return nil
 	}
 
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), contractAddress, nil, nil)
+	// Invoke of an existing contract.
+	contractAddress := confirmedTxn.PSC.Address()
+
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
 		return err
 	}
 
-	if sequencer != nil {
-		if deploy {
-			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
-			// off by selecting the next coordinator for the contract
-			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
-			if err != nil {
-				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
-			}
-		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
-			if mtx == nil {
-				log.L(ctx).Warnf("Coordinator not tracking transaction ID %s", confirmedTxn.TransactionID)
-				// We have been told that a public TX has been confirmed on chain (either successful or failed)
-				// but we're not tracking it in the sequencer. Since we're only using this callback to
-				// update the sequencer's state we'll log a warning but ignore it
-				return nil
-			}
-
-			if from == nil {
-				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", confirmedTxn.TransactionID)
-			}
-
-			confirmedEvent := &coordinator.TransactionConfirmedEvent{
-				TxID:         confirmedTxn.TransactionID,
-				From:         from, // The base ledger signing address
-				Hash:         confirmedTxn.OnChain.TransactionHash,
-				RevertReason: confirmedTxn.RevertData,
-			}
-			confirmedEvent.EventTime = time.Now()
-
-			if nonce != nil {
-				// TODO on the coordinator node we have the nonce, but public TX distribution to other nodes currently happens pre-nonce allocation
-				// Should we distribute public transactions post nonce allocation?
-				confirmedEvent.Nonce = nonce.Uint64()
-			}
-
-			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
-
-			// Forward the event to the originating node. This is only to update the originator's state machine, not for DB confirmation
-			transportWriter := sequencer.GetTransportWriter()
-			err = transportWriter.SendTransactionConfirmed(ctx, confirmedTxn.TransactionID, mtx.OriginatorNode(), &contractAddress, nonce, confirmedTxn.RevertData)
-			if err != nil {
-				return err
-			}
-		}
+	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction.
+	if sequencer == nil {
+		return nil
 	}
 
-	return nil
-}
-
-func (sMgr *sequencerManager) HandleTransactionConfirmedByChainedTransaction(ctx context.Context, confirmedTxn *components.TxCompletion) error {
-	log.L(sMgr.ctx).Tracef("HandleTransactionConfirmedByChainedTransaction %s", confirmedTxn.TransactionID.String())
-	sMgr.metrics.IncConfirmedTransactions()
-
-	// A transaction can be confirmed after the coordinating node has restarted. The coordinator doesn't persist the private TX, it relies
-	// on the originating node to delegate the private TX to it. HandleTransactionConfirmed first checks if a public TX for that request has been confirmed
-	// on chain, so in in this context we will assume we have the private TX in memory from which we can determine the originating node for confirmation events.
-
-	var contractAddress pldtypes.EthAddress
-	deploy := confirmedTxn.ContractAddress != nil
-	if deploy {
-		// Creation of a new contract
-		contractAddress = *confirmedTxn.ContractAddress
-	} else {
-		// Invoke of an existing contract
-		contractAddress = confirmedTxn.PSC.Address()
-	}
-
-	sequencer, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), contractAddress, nil, nil)
-	if err != nil {
-		return err
-	}
-
-	if sequencer != nil {
-		if deploy {
-			// For a deploy we won't have tracked the transaction through the state machine, but we can load it ready for upcoming transactions and start
-			// off by selecting the next coordinator for the contract
-			_, err := sequencer.GetCoordinator().SelectActiveCoordinatorNode(ctx)
-			if err != nil {
-				log.L(ctx).Errorf("error selecting active coordinator node: %v", err)
-			}
-		} else if sequencer.GetCoordinator().GetActiveCoordinatorNode(ctx, false) == sMgr.nodeName {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, confirmedTxn.TransactionID)
-			if mtx == nil {
-				log.L(ctx).Warnf("Coordinator not tracking transaction ID %s", confirmedTxn.TransactionID)
-				// We have been told that a private TX has been confirmed through its chained transaction being confirmed, but we're not tracking
-				// the transaction in the sequencer. Since we're only using this callback to update the sequencer's state we'll log a warning but ignore it
-				return nil
-			}
-
-			confirmedEvent := &coordinator.TransactionConfirmedEvent{
-				TxID:         confirmedTxn.TransactionID,
-				Hash:         confirmedTxn.OnChain.TransactionHash,
-				RevertReason: confirmedTxn.RevertData,
-			}
-			confirmedEvent.EventTime = time.Now()
-
-			sequencer.GetCoordinator().QueueEvent(ctx, confirmedEvent)
-
-			// Forward the event to the originating node. This is only to update the originator's state machine, not for DB confirmation
-			transportWriter := sequencer.GetTransportWriter()
-			err = transportWriter.SendTransactionConfirmed(ctx, confirmedTxn.TransactionID, mtx.OriginatorNode(), &contractAddress, nil, confirmedTxn.RevertData)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (sMgr *sequencerManager) HandleTransactionFailed(ctx context.Context, dbTX persistence.DBTX, failures []*components.PublicTxMatch) error {
-	log.L(sMgr.ctx).Tracef("HandleTransactionFailed %d", len(failures))
-	sMgr.metrics.IncRevertedTransactions()
-
-	privateFailureReceipts := make([]*components.ReceiptInputWithOriginator, len(failures))
-
-	for i, tx := range failures {
-		// We calculate the failure message - all errors handled mapped internally here
-		privateFailureReceipts[i] = &components.ReceiptInputWithOriginator{
-			Originator:            tx.TransactionSender,
-			DomainContractAddress: tx.TransactionContractAddress,
-			ReceiptInput: components.ReceiptInput{
-				ReceiptType:   components.RT_FailedOnChainWithRevertData,
-				TransactionID: tx.TransactionID,
-				OnChain: pldtypes.OnChainLocation{
-					Type:             pldtypes.OnChainTransaction,
-					TransactionHash:  tx.Hash,
-					BlockNumber:      tx.BlockNumber,
-					TransactionIndex: tx.BlockNumber,
-				},
-				RevertData: tx.RevertReason,
+	// we leave it to the coordinator to decide whether it is in a state where it handles the event
+	// and check whether it's a transaction that it is tracking
+	// the transaction was successful
+	sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
+		BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
 			},
-		}
+			TransactionID: confirmedTxn.TransactionID,
+		},
+		Hash:  confirmedTxn.OnChain.TransactionHash,
+		Nonce: nonce,
+	})
+	return nil
+}
+
+func (sMgr *sequencerManager) queueConfirmedRevertedEventToCoordinator(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation, nonce *pldtypes.HexUint64) error {
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
+	if err != nil {
+		return err
+	}
+	// If we don't have a loaded sequencer already then a newly loaded one will not know about this transaction
+	if sequencer == nil {
+		return nil
+	}
+
+	// we leave it to the coordinator to decide whether it is in a state where it handles the event
+	// and check whether it's a transaction that it is tracking
+
+	sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		Hash:         onChain.TransactionHash,
+		RevertReason: revertData,
+		OnChain:      onChain,
+		Nonce:        nonce,
+	})
+	return nil
+}
+
+func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType components.ReceiptType, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation) {
+	log.L(ctx).Infof("HandleChainedTransactionOutcome txID=%s contract=%s receiptType=%d", txID, contractAddress, receiptType)
+
+	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
+	if err != nil {
+		log.L(ctx).Errorf("HandleChainedTransactionOutcome: error getting sequencer for %s: %s", contractAddress, err)
+		return
+	}
+	if sequencer == nil {
+		log.L(ctx).Warnf("HandleChainedTransactionOutcome: no loaded sequencer for contract %s txID=%s", contractAddress, txID)
+		return
+	}
+
+	switch receiptType {
+	case components.RT_Success:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedSuccessEvent for parent txID=%s on contract=%s", txID, contractAddress)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedSuccessEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+		})
+	case components.RT_FailedOnChainWithRevertData:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (on-chain) for parent txID=%s on contract=%s hasRevertData=%t", txID, contractAddress, len(revertData) > 0)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+			RevertReason: revertData,
+			OnChain:      onChain,
+		})
+	case components.RT_FailedWithMessage:
+		log.L(ctx).Infof("HandleChainedTransactionOutcome: queuing ConfirmedRevertedEvent (off-chain) for parent txID=%s on contract=%s", txID, contractAddress)
+		sequencer.GetCoordinator().QueueEvent(ctx, &coordinatorTx.ConfirmedRevertedEvent{
+			BaseCoordinatorEvent: coordinatorTx.BaseCoordinatorEvent{
+				BaseEvent: common.BaseEvent{
+					EventTime: time.Now(),
+				},
+				TransactionID: txID,
+			},
+		})
+	default:
+		log.L(ctx).Errorf("HandleChainedTransactionOutcome: unexpected receipt type %d for txID=%s", receiptType, txID)
+	}
+}
+
+func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, failures []*components.PublicTxMatch) error {
+	log.L(sMgr.ctx).Tracef("HandleDirectTransactionRevert %d", len(failures))
+	sMgr.metrics.IncRevertedTransactions()
+	_ = dbTX
+
+	for _, tx := range failures {
 		contractAddress := tx.To
 
-		sequencer, err := sMgr.LoadSequencer(ctx, dbTX, *contractAddress, nil, nil)
+		if tx.From == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
+		}
+
+		nonceVal := pldtypes.HexUint64(tx.Nonce)
+		onChain := pldtypes.OnChainLocation{
+			Type:             pldtypes.OnChainTransaction,
+			TransactionHash:  tx.Hash,
+			BlockNumber:      tx.BlockNumber,
+			TransactionIndex: tx.TransactionIndex,
+		}
+		err := sMgr.queueConfirmedRevertedEventToCoordinator(ctx, *contractAddress, tx.TransactionID, tx.RevertReason, onChain, &nonceVal)
 		if err != nil {
 			return err
 		}
-
-		if sequencer != nil {
-			mtx := sequencer.GetCoordinator().GetTransactionByID(ctx, tx.TransactionID)
-			if mtx == nil {
-				// Log that we're not currently tracking this transaction in the sequencer, but we can continue for the other receipts
-				// since the only purpose of this function is to update the sequencer's in memory state
-				log.L(sMgr.ctx).Warnf("coordinator not tracking transaction ID %s, no sequencer to pass failure to", tx.TransactionID)
-				return nil
-			}
-
-			if tx.From == nil {
-				return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
-			}
-
-			failedEvent := &coordinator.TransactionConfirmedEvent{
-				TxID:         tx.TransactionID,
-				From:         tx.From,
-				Hash:         tx.Hash,
-				RevertReason: tx.RevertReason,
-				Nonce:        tx.Nonce,
-			}
-			failedEvent.EventTime = time.Now()
-
-			sequencer.GetCoordinator().QueueEvent(ctx, failedEvent)
-
-			// Forward the event to the originating node
-			transportWriter := sequencer.GetTransportWriter()
-			nonce := pldtypes.HexUint64(tx.Nonce)
-			err = transportWriter.SendTransactionConfirmed(ctx, tx.TransactionID, mtx.OriginatorNode(), contractAddress, &nonce, tx.RevertReason)
-			if err != nil {
-				// Log but continue for the other receipts
-				log.L(sMgr.ctx).Errorf("failed to send transaction confirmed event to originating node %s: %v", mtx.OriginatorNode(), err)
-			}
-
-		}
 	}
-
-	// Distribute the receipts to the correct location - either local if we were the submitter, or remote.
-	return sMgr.WriteOrDistributeReceiptsPostSubmit(ctx, dbTX, privateFailureReceipts)
+	return nil
 }
 
 func (sMgr *sequencerManager) BuildNullifiers(ctx context.Context, stateDistributions []*components.StateDistributionWithData) (nullifiers []*components.NullifierUpsert, err error) {
@@ -954,54 +900,52 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 	return psc.ExecCall(dCtx, sMgr.components.Persistence().NOTX(), call, verifiers)
 }
 
-func (sMgr *sequencerManager) WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
-
-	// Note: This specifically finalises only off-chain reverts. This logic may be open for discussion, but for clarity the current logic is intentionally:
-	// 1. Off-chain reverts are considered to be final. So assembly of a transaction results in that transaction being finalised as failed. And assembly of a
-	// chained transaction causes the parent transaction to be finalised as failed.
-	// 2. On-chain reverts are considered to be (at least potentially) retriable based on decisions made in the coordinator.
-	assemblyReverts := make([]*components.ReceiptInputWithOriginator, 0, len(receipts))
-	for _, nextReceipt := range receipts {
-		if nextReceipt.OnChain.Type == 0 {
-			assemblyReverts = append(assemblyReverts, nextReceipt)
-		}
-	}
-
-	// Note & TODO: the sequencer state machines are responsible for tearing down any transactions that were assembled after this one, and which will need
-	// re-assembling and re-dispatching. See https://github.com/LFDT-Paladin/paladin/issues/941 and https://github.com/LFDT-Paladin/paladin/issues/917
-
-	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, assemblyReverts)
+// If we have a receipt for a chained transaction it is definitely finalised, regardless of result and we can persist and distribute it.
+func (sMgr *sequencerManager) WriteOrDistributeChainedTransactionReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
+	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
 }
 
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
-	return common.NewStateDistributionBuilder(sMgr.components, tx).Build(ctx)
+	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }
 
-func mapPreparedTransaction(tx *components.PrivateTransaction) *components.PreparedTransactionWithRefs {
-	pt := &components.PreparedTransactionWithRefs{
-		PreparedTransactionBase: &pldapi.PreparedTransactionBase{
-			ID:       tx.ID,
-			Domain:   tx.Domain,
-			To:       &tx.Address,
-			Metadata: tx.PreparedMetadata,
-		},
-	}
-	for _, s := range tx.PostAssembly.InputStates {
-		pt.StateRefs.Spent = append(pt.StateRefs.Spent, s.ID)
-	}
-	for _, s := range tx.PostAssembly.ReadStates {
-		pt.StateRefs.Read = append(pt.StateRefs.Read, s.ID)
-	}
-	for _, s := range tx.PostAssembly.OutputStates {
-		pt.StateRefs.Confirmed = append(pt.StateRefs.Confirmed, s.ID)
-	}
-	for _, s := range tx.PostAssembly.InfoStates {
-		pt.StateRefs.Info = append(pt.StateRefs.Info, s.ID)
-	}
-	if tx.PreparedPublicTransaction != nil {
-		pt.Transaction = *tx.PreparedPublicTransaction
-	} else {
-		pt.Transaction = *tx.PreparedPrivateTransaction
-	}
-	return pt
+func (sMgr *sequencerManager) PrivateTransactionConfirmed(ctx context.Context, completion *components.TxCompletion) {
+	// TODO: This is a PLACEHOLDER function that uses a background go-routine for each receipt to do expensive
+	// DB processing work. Needs to be replaced with a suitable construct.
+	go func() {
+		persistence := sMgr.components.Persistence()
+		publicTxManager := sMgr.components.PublicTxManager()
+		pubBindingTx, err := publicTxManager.QueryPublicTxForTransactions(ctx, persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
+		if err != nil {
+			log.L(ctx).Errorf("Error getting public transaction by ID: %s", err)
+		}
+
+		confirmedWithPublicTX := false
+
+		for _, pubTx := range pubBindingTx {
+			for _, publicTx := range pubTx {
+				log.L(ctx).Debugf("Checking public transactions for TX ID %s to find a match for the receipt we are processing %s", completion.TransactionID, publicTx.TransactionHash)
+				if publicTx.TransactionHash.Equals(&completion.OnChain.TransactionHash) {
+					confirmedWithPublicTX = true
+					log.L(ctx).Debugf("Found a match for the receipt we are processing %s", publicTx.TransactionHash)
+					err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, publicTx.Nonce)
+					if err != nil {
+						// Log but continue confirming other transactions
+						log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+					}
+				}
+			}
+		}
+
+		// For private transactions that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
+		// about the underlying chained public TX.
+		if !confirmedWithPublicTX {
+			log.L(ctx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)
+			err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
+			if err != nil {
+				// Log but continue confirming other transactions
+				log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+			}
+		}
+	}()
 }

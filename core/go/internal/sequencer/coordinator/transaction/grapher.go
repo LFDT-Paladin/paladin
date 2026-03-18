@@ -35,97 +35,102 @@ import (
 // The Grapher is not a graph data structure, but a simple index of transactions by ID and by state ID
 // the actual graph is the emergent data structure of the transactions maintaining links to each other
 type Grapher interface {
-	Add(context.Context, *Transaction)
-	TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction
-	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error)
-	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error
+	Add(context.Context, *coordinatorTransaction)
+	TransactionByID(ctx context.Context, transactionID uuid.UUID) *coordinatorTransaction
+	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*coordinatorTransaction, error)
+	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction) error
 	Forget(transactionID uuid.UUID) error
+	ForgetMints(transactionID uuid.UUID)
 }
 
 type grapher struct {
-	transactionByOutputState map[string]*Transaction
-	transactionByID          map[uuid.UUID]*Transaction
+	transactionByOutputState map[string]*coordinatorTransaction
+	transactionByID          map[uuid.UUID]*coordinatorTransaction
 	outputStatesByMinter     map[uuid.UUID][]string //used for reverse lookup to cleanup transactionByOutputState
 }
 
+// The grapher is designed to be called on a single-threaded sequencer event loop and is not thread safe.
+// It must only be called from the state machine loop to ensure assembly of a TX is based on completion of
+// any updates made by a previous change in the state machine (e.g. removing states from a previously
+// reverted transaction)
 func NewGrapher(ctx context.Context) Grapher {
 	return &grapher{
-		transactionByOutputState: make(map[string]*Transaction),
-		transactionByID:          make(map[uuid.UUID]*Transaction),
+		transactionByOutputState: make(map[string]*coordinatorTransaction),
+		transactionByID:          make(map[uuid.UUID]*coordinatorTransaction),
 		outputStatesByMinter:     make(map[uuid.UUID][]string),
 	}
 }
 
-func (s *grapher) Add(ctx context.Context, txn *Transaction) {
-	s.transactionByID[txn.ID] = txn
+func (s *grapher) Add(ctx context.Context, txn *coordinatorTransaction) {
+	s.transactionByID[txn.pt.ID] = txn
 }
 
-func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*Transaction, error) {
+func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*coordinatorTransaction, error) {
 	return s.transactionByOutputState[stateID.String()], nil
 }
 
-func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *Transaction) error {
+func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction) error {
 	if txn, ok := s.transactionByOutputState[stateID.String()]; ok {
-		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn.ID.String(), transaction.ID.String())
+		msg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn.pt.ID.String(), transaction.pt.ID.String())
 		log.L(ctx).Error(msg)
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
 	}
 	s.transactionByOutputState[stateID.String()] = transaction
-	s.outputStatesByMinter[transaction.ID] = append(s.outputStatesByMinter[transaction.ID], stateID.String())
+	s.outputStatesByMinter[transaction.pt.ID] = append(s.outputStatesByMinter[transaction.pt.ID], stateID.String())
 	return nil
 }
 
 func (s *grapher) Forget(transactionID uuid.UUID) error {
+	txn := s.transactionByID[transactionID]
+	if txn != nil {
+		s.pruneDependencyLinks(txn)
+	}
+	s.ForgetMints(transactionID)
+	delete(s.transactionByID, transactionID)
+	return nil
+}
+
+// Temporary approach that removes updates depends-on list for any transactions this is a pre-req of
+// Note - this doesn't update the grapher itself
+func (s *grapher) pruneDependencyLinks(txn *coordinatorTransaction) {
+	// Remove this TX from all dependent forward links.
+	dependentIDs := make(map[uuid.UUID]struct{})
+	if txn.dependencies != nil {
+		for _, dependentID := range txn.dependencies.PrereqOf {
+			dependentIDs[dependentID] = struct{}{}
+		}
+	}
+	for dependentID := range dependentIDs {
+		dependent := s.transactionByID[dependentID]
+		if dependent == nil {
+			continue
+		}
+		if dependent.dependencies != nil {
+			dependent.dependencies.DependsOn = removeUUID(dependent.dependencies.DependsOn, txn.pt.ID)
+		}
+	}
+}
+
+func removeUUID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
+	filtered := ids[:0]
+	for _, id := range ids {
+		if id != target {
+			filtered = append(filtered, id)
+		}
+	}
+	return filtered
+}
+
+func (s *grapher) ForgetMints(transactionID uuid.UUID) {
 	if outputStates, ok := s.outputStatesByMinter[transactionID]; ok {
 		for _, stateID := range outputStates {
 			delete(s.transactionByOutputState, stateID)
 		}
 		delete(s.outputStatesByMinter, transactionID)
 	}
-	delete(s.transactionByID, transactionID)
-	return nil
+	// Note we specifically don't delete the transaction (i.e. the minter) here. Use Forget() to do both.
 }
 
-func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *Transaction {
+func (s *grapher) TransactionByID(ctx context.Context, transactionID uuid.UUID) *coordinatorTransaction {
 	return s.transactionByID[transactionID]
-}
-
-// SortTransactions sorts the transactions based on their dependencies.
-// It ensures that transactions are sequenced in such a way that all dependencies are resolved before the transaction itself is processed.
-// It returns an error if a circular dependency is detected or if any transaction has dependencies that are not in the input list.
-// This function is used to ensure that transactions are processed in the correct order, respecting their dependencies.
-// It assumes that the transactions are provided in a state where they are ready to be sequenced.
-func SortTransactions(ctx context.Context, transactions []*Transaction) ([]*Transaction, error) {
-	sortedTransactions := make([]*Transaction, 0, len(transactions))
-	// Ensure the returned array is sorted according to the dependency graph
-
-	// continue to loop through all transactions picking off any who have no dependencies
-	//  other than transactions that have already been sequenced
-	for len(transactions) > 0 {
-
-		//assume we don't find any transaction with no dependencies in this iteration
-		found := false
-
-		// Find the next transaction that has no dependencies
-		for i, txn := range transactions {
-			// If the transaction has no dependencies, we can sequence it
-			if !txn.hasDependenciesNotIn(ctx, sortedTransactions) {
-				// Add the transaction to the sequenced transactions
-				sortedTransactions = append(sortedTransactions, txn)
-
-				// Remove the transaction from the transactions array
-				transactions = append(transactions[:i], transactions[i+1:]...)
-				found = true
-				break // Restart the loop to check for more transactions
-			}
-		}
-		if !found {
-			// If we didn't find any transaction with no dependencies, it means we have a circular dependency
-			// or some transactions are not in the input list, which should not happen in normal usage
-			msg := "Circular dependency detected or some transactions are not in the input list"
-			log.L(ctx).Error(msg)
-			return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-	}
-	return sortedTransactions, nil
 }

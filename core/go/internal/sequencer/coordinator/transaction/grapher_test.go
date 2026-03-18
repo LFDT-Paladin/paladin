@@ -21,203 +21,72 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_SortTransactions_EmptyInput(t *testing.T) {
+func Test_grapher_Add_TransactionByID(t *testing.T) {
 	ctx := context.Background()
 
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{})
-	assert.NoError(t, err)
-	assert.Len(t, sortedTransactions, 0)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, txn)
+
+	lookup := grapher.TransactionByID(ctx, txn.pt.ID)
+	require.NotNil(t, lookup)
+	assert.Equal(t, txn.pt.ID, lookup.pt.ID)
 }
 
-func Test_SortTransactions_SingleTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(context.Background())
-
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1})
-	assert.NoError(t, err)
-	require.Len(t, sortedTransactions, 1)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
-
-}
-
-func Test_SortTransactions_SameOrder(t *testing.T) {
+func Test_grapher_Forget_RemovesTransaction(t *testing.T) {
 	ctx := context.Background()
 
-	grapher := NewGrapher(context.Background())
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, txn)
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
-
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn1, txn2})
+	err := grapher.Forget(txn.pt.ID)
 	require.NoError(t, err)
-	require.Len(t, sortedTransactions, 2)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
-	assert.Equal(t, txn2.ID, sortedTransactions[1].ID)
 
+	lookup := grapher.TransactionByID(ctx, txn.pt.ID)
+	assert.Nil(t, lookup)
 }
 
-func Test_SortTransactions_ReverseOrder(t *testing.T) {
+func Test_grapher_ForgetMints_RemovesMinterLookup(t *testing.T) {
 	ctx := context.Background()
+	grapher := NewGrapher(ctx)
 
-	grapher := NewGrapher(context.Background())
+	// Build txn with nil grapher so Build() does not register output state; we add it ourselves
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
+	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
-
-	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn1})
+	grapher.Add(ctx, txn)
+	err := grapher.AddMinter(ctx, stateID, txn)
 	require.NoError(t, err)
-	require.Len(t, sortedTransactions, 2)
-	assert.Equal(t, txn1.ID, sortedTransactions[0].ID)
-	assert.Equal(t, txn2.ID, sortedTransactions[1].ID)
 
-}
-
-func Test_SortTransactions_EndlessLoopPrevention(t *testing.T) {
-	ctx := context.Background()
-
-	//When a dependency exists that is not in the input list, it should not cause an endless loop
-	// Under normal usage, this should not happen but if it does, we should handle it gracefully with an error
-
-	grapher := NewGrapher(context.Background())
-
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
-
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
-
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
-
-	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
-	assert.Error(t, err)
-	assert.Len(t, sortedTransactions, 0)
-
-}
-
-func Test_SortTransactions_ConfirmedDependency(t *testing.T) {
-	ctx := context.Background()
-
-	//When a dependency exists that is not in the input list, but the grapher has forgotten it, then it should not cause an error
-	// This is most likely when a dependency exists but has long since been confirmed and removed from the grapher
-
-	grapher := NewGrapher(context.Background())
-
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
-
-	err := grapher.Forget(txn1.ID) // Simulate that the grapher has been instructed to forget the transaction as a result of it being confirmed
-	assert.NoError(t, err)
-
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
-
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
-
-	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
+	minter, err := grapher.LookupMinter(ctx, stateID)
 	require.NoError(t, err)
-	require.Len(t, sortedTransactions, 2)
-	//Check both transactions are in the sorted transactions but we cannot guarantee the order since neither is dependent on the other
-	assert.Condition(t, func() bool {
-		for _, txn := range sortedTransactions {
-			if txn.ID == txn2.ID {
-				return true // txn1 should not be in the sorted transactions
-			}
-		}
-		return false
-	}, "txn2 should be in the sorted transactions")
-	assert.Condition(t, func() bool {
-		for _, txn := range sortedTransactions {
-			if txn.ID == txn3.ID {
-				return true // txn1 should not be in the sorted transactions
-			}
-		}
-		return false
-	}, "txn3 should be in the sorted transactions")
+	assert.Equal(t, txn.pt.ID, minter.pt.ID)
 
-}
-func Test_SortTransactions_CircularDependency(t *testing.T) {
-	ctx := context.Background()
-	// When a circular dependency exists, it should not cause an endless loop
+	grapher.ForgetMints(txn.pt.ID)
 
-	grapher := NewGrapher(context.Background())
-
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
-
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := txnBuilder2.Build()
-
-	txnBuilder3 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn3 := txnBuilder3.Build()
-
-	//Provide the transactions in reverse order to test sorting
-	sortedTransactions, err := SortTransactions(ctx, []*Transaction{txn2, txn3})
-	assert.Error(t, err)
-	assert.Len(t, sortedTransactions, 0)
-
+	minter, err = grapher.LookupMinter(ctx, stateID)
+	require.NoError(t, err)
+	assert.Nil(t, minter)
 }
 
-func TestGrapher_AddMinter_DuplicateMinter(t *testing.T) {
+func Test_grapher_AddMinter_DuplicateMinter(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	// Create two different transactions
-	txnBuilder1 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn1 := txnBuilder1.Build()
-
-	txnBuilder2 := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1)
-	txn2 := txnBuilder2.Build()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
 
 	stateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
 
@@ -226,17 +95,170 @@ func TestGrapher_AddMinter_DuplicateMinter(t *testing.T) {
 
 	minter, err := grapher.LookupMinter(ctx, stateID)
 	require.NoError(t, err)
-	assert.Equal(t, txn1.ID, minter.ID)
+	assert.Equal(t, txn1.pt.ID, minter.pt.ID)
 
 	err = grapher.AddMinter(ctx, stateID, txn2)
 	require.Error(t, err)
 
-	expectedMsg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn1.ID.String(), txn2.ID.String())
+	expectedMsg := fmt.Sprintf("Duplicate minter. stateID %s already indexed as minted by %s but attempted to add minter %s", stateID.String(), txn1.pt.ID.String(), txn2.pt.ID.String())
 	assert.ErrorContains(t, err, expectedMsg)
 
 	assert.Contains(t, err.Error(), msgs.MsgSequencerInternalError)
 
 	minter, err = grapher.LookupMinter(ctx, stateID)
 	require.NoError(t, err)
-	assert.Equal(t, txn1.ID, minter.ID, "First transaction should still be the minter")
+	assert.Equal(t, txn1.pt.ID, minter.pt.ID, "First transaction should still be the minter")
+}
+
+func Test_pruneDependencyLinks_NilDependencies(t *testing.T) {
+	ctx := context.Background()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, txn)
+
+	err := grapher.Forget(txn.pt.ID)
+	require.NoError(t, err)
+
+	assert.Nil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func Test_pruneDependencyLinks_PrereqOfNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000001")},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, txn)
+
+	err := grapher.Forget(txn.pt.ID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func Test_pruneDependencyLinks_DependentHasNilDependencies(t *testing.T) {
+	ctx := context.Background()
+
+	tx2ID := uuid.New()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
+		Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx2ID).
+		Build()
+
+	txn2.dependencies = nil
+
+	grapher := NewGrapher(ctx)
+
+	grapher.Add(ctx, txn1)
+	grapher.Add(ctx, txn2)
+
+	err := grapher.Forget(txn1.pt.ID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
+	assert.Nil(t, txn2.dependencies)
+}
+
+func Test_pruneDependencyLinks_RemovesDependsOnLink(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	tx1ID := uuid.New()
+	tx2ID := uuid.New()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx1ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
+		Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx2ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID},
+		}).
+		Build()
+
+	grapher.Add(ctx, txn1)
+	grapher.Add(ctx, txn2)
+
+	err := grapher.Forget(txn1.pt.ID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
+	assert.Empty(t, txn2.dependencies.DependsOn)
+}
+
+func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
+	ctx := context.Background()
+
+	tx1ID := uuid.New()
+	tx2ID := uuid.New()
+	tx3ID := uuid.New()
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx1ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID, tx3ID},
+		}).
+		Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx2ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID},
+		}).
+		Build()
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx3ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, txn1)
+	grapher.Add(ctx, txn2)
+	grapher.Add(ctx, txn3)
+
+	err := grapher.Forget(txn1.pt.ID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
+	assert.Empty(t, txn2.dependencies.DependsOn)
+	assert.Empty(t, txn3.dependencies.DependsOn)
+}
+
+func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
+	ctx := context.Background()
+
+	otherID := uuid.New()
+	tx1ID := uuid.New()
+	tx2ID := uuid.New()
+
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx1ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
+		Build()
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx2ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID, otherID},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+
+	grapher.Add(ctx, txn1)
+	grapher.Add(ctx, txn2)
+	err := grapher.Forget(txn1.pt.ID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
+	require.Len(t, txn2.dependencies.DependsOn, 1)
+	assert.Equal(t, otherID, txn2.dependencies.DependsOn[0])
 }

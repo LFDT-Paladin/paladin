@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCoordinatorStateEventActivated_Type(t *testing.T) {
-	event := &CoordinatorStateEventActivated{}
-	assert.Equal(t, Event_Activated, event.Type())
+func TestCoordinatorCreatedEvent_Type(t *testing.T) {
+	event := &CoordinatorCreatedEvent{}
+	assert.Equal(t, Event_CoordinatorCreated, event.Type())
 }
 
 func TestTransactionsDelegatedEvent_Type(t *testing.T) {
@@ -53,6 +53,7 @@ func TestTransactionsDelegatedEvent_GetEventTime(t *testing.T) {
 }
 
 func TestTransactionsDelegatedEvent_Fields(t *testing.T) {
+	fromNode := "testNode"
 	originator := "test@testNode"
 	blockHeight := uint64(100)
 	txID := uuid.New()
@@ -64,11 +65,13 @@ func TestTransactionsDelegatedEvent_Fields(t *testing.T) {
 		BaseEvent: common.BaseEvent{
 			EventTime: time.Now(),
 		},
+		FromNode:               fromNode,
 		Originator:             originator,
 		Transactions:           transactions,
 		OriginatorsBlockHeight: blockHeight,
 	}
 
+	assert.Equal(t, fromNode, event.FromNode)
 	assert.Equal(t, originator, event.Originator)
 	assert.Equal(t, transactions, event.Transactions)
 	assert.Equal(t, blockHeight, event.OriginatorsBlockHeight)
@@ -102,50 +105,6 @@ func TestCoordinatorFlushedEvent_Type(t *testing.T) {
 func TestCoordinatorFlushedEvent_TypeString(t *testing.T) {
 	event := &CoordinatorFlushedEvent{}
 	assert.Equal(t, "Event_Flushed", event.TypeString())
-}
-
-func TestTransactionConfirmedEvent_Type(t *testing.T) {
-	event := &TransactionConfirmedEvent{}
-	assert.Equal(t, Event_TransactionConfirmed, event.Type())
-}
-
-func TestTransactionConfirmedEvent_TypeString(t *testing.T) {
-	event := &TransactionConfirmedEvent{}
-	assert.Equal(t, "Event_TransactionConfirmed", event.TypeString())
-}
-
-func TestTransactionConfirmedEvent_GetEventTime(t *testing.T) {
-	event := &TransactionConfirmedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestTransactionConfirmedEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-	from := pldtypes.RandAddress()
-	nonce := uint64(42)
-	hash := pldtypes.RandBytes32()
-	revertReason := pldtypes.HexBytes{0x01, 0x02, 0x03}
-
-	event := &TransactionConfirmedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Now(),
-		},
-		TxID:         txID,
-		From:         from,
-		Nonce:        nonce,
-		Hash:         hash,
-		RevertReason: revertReason,
-	}
-
-	assert.Equal(t, txID, event.TxID)
-	assert.Equal(t, from, event.From)
-	assert.Equal(t, nonce, event.Nonce)
-	assert.Equal(t, hash, event.Hash)
-	assert.Equal(t, revertReason, event.RevertReason)
 }
 
 func TestTransactionDispatchConfirmedEvent_Type(t *testing.T) {
@@ -322,12 +281,12 @@ func TestHandoverReceivedEvent_GetEventTime(t *testing.T) {
 }
 
 func TestTransactionStateTransitionEvent_Type(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
+	event := &common.TransactionStateTransitionEvent[transaction.State]{}
+	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 }
 
 func TestTransactionStateTransitionEvent_TypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
+	event := &common.TransactionStateTransitionEvent[transaction.State]{}
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
 }
 
@@ -336,7 +295,8 @@ func TestTransactionStateTransitionEvent_Fields(t *testing.T) {
 	fromState := transaction.State_Pooled
 	toState := transaction.State_Ready_For_Dispatch
 
-	event := &TransactionStateTransitionEvent{
+	event := &common.TransactionStateTransitionEvent[transaction.State]{
+		BaseEvent:     common.BaseEvent{EventTime: time.Now()},
 		TransactionID: txID,
 		From:          fromState,
 		To:            toState,
@@ -352,7 +312,6 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	events := []Event{
 		&TransactionsDelegatedEvent{},
 		&CoordinatorClosedEvent{},
-		&TransactionConfirmedEvent{},
 		&TransactionDispatchConfirmedEvent{},
 		&EndorsementRequestedEvent{},
 		&HeartbeatReceivedEvent{},
@@ -375,10 +334,10 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	}
 }
 
-func TestCoordinatorStateEventActivated_TypeAndTypeString(t *testing.T) {
-	event := &CoordinatorStateEventActivated{}
-	assert.Equal(t, Event_Activated, event.Type())
-	assert.Equal(t, "Event_Activated", event.TypeString())
+func TestCoordinatorCreatedEvent_TypeAndTypeString(t *testing.T) {
+	event := &CoordinatorCreatedEvent{}
+	assert.Equal(t, Event_CoordinatorCreated, event.Type())
+	assert.Equal(t, "Event_CoordinatorCreated", event.TypeString())
 }
 
 func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
@@ -388,7 +347,14 @@ func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
 }
 
 func TestTransactionStateTransitionEvent_TypeAndTypeString(t *testing.T) {
-	event := &TransactionStateTransitionEvent{}
-	assert.Equal(t, Event_TransactionStateTransition, event.Type())
+	event := &common.TransactionStateTransitionEvent[int]{}
+	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
+}
+
+func TestOriginatorNodePoolUpdateRequestedEvent_TypeAndTypeString(t *testing.T) {
+	event := &OriginatorNodePoolUpdateRequestedEvent{Nodes: []string{"node1", "node2"}}
+	assert.Equal(t, Event_OriginatorNodePoolUpdateRequested, event.Type())
+	assert.Equal(t, "Event_OriginatorNodePoolUpdateRequested", event.TypeString())
+	assert.Len(t, event.Nodes, 2)
 }

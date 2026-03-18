@@ -124,4 +124,16 @@ public class TestDomain extends DomainInstance {
     protected CompletableFuture<WrapPrivacyGroupEVMTXResponse> wrapPrivacyGroupTransaction(WrapPrivacyGroupEVMTXRequest request) {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
+
+    @Override
+    protected CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
+
+    @Override
+    protected CompletableFuture<IsBaseLedgerRevertRetryableResponse> isBaseLedgerRevertRetryable(IsBaseLedgerRevertRetryableRequest request) {
+        return CompletableFuture.completedFuture(
+            IsBaseLedgerRevertRetryableResponse.newBuilder().setRetryable(false).build()
+        );
+    }
 }

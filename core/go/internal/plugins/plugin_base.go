@@ -311,8 +311,8 @@ func (ph *pluginHandler[M]) RequestReply(ctx context.Context, reqFn func(plugint
 	inflight := ph.inflight.AddInflight(ctx, reqID)
 	defer inflight.Cancel()
 	l.Infof("[%s] ==> %T", reqID, req.RequestToPlugin())
-	if log.IsDebugEnabled() {
-		l.Debugf("[%s] ==> %s", reqID, plugintk.PluginMessageToJSON(req))
+	if log.IsTraceEnabled() {
+		l.Tracef("[%s] ==> %s", reqID, plugintk.PluginMessageToJSON(req))
 	}
 
 	// Send the request
@@ -342,8 +342,8 @@ func (ph *pluginHandler[M]) RequestReply(ctx context.Context, reqFn func(plugint
 	}
 
 	l.Infof("[%s] <== [%s] %T [%s]", reqID, res.Header().MessageId, req.ResponseFromPlugin(), inflight.Age())
-	if log.IsDebugEnabled() {
-		l.Debugf("[%s] <== %s", reqID, plugintk.PluginMessageToJSON(res))
+	if log.IsTraceEnabled() {
+		l.Tracef("[%s] <== %s", reqID, plugintk.PluginMessageToJSON(res))
 	}
 	return nil
 }

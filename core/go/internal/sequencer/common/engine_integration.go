@@ -94,7 +94,12 @@ func (f *FakeEngineIntegrationForTesting) ResetTransactions(ctx context.Context,
 }
 
 func (f *FakeEngineIntegrationForTesting) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
-	return f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight).Get(0).(*components.TransactionPostAssembly), nil
+	ret := f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight)
+	var r0 *components.TransactionPostAssembly
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*components.TransactionPostAssembly)
+	}
+	return r0, ret.Error(1)
 }
 
 type engineIntegration struct {
@@ -264,11 +269,6 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 		switch attRequest.AttestationType {
 		case prototk.AttestationType_ENDORSE:
 		case prototk.AttestationType_SIGN:
-		case prototk.AttestationType_GENERATE_PROOF:
-			errorMessage := "AttestationType_GENERATE_PROOF is not implemented yet"
-			log.L(ctx).Error(errorMessage)
-			return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, errorMessage)
-
 		default:
 			errorMessage := fmt.Sprintf("Unsupported attestation type: %s", attRequest.AttestationType)
 			log.L(ctx).Error(errorMessage)

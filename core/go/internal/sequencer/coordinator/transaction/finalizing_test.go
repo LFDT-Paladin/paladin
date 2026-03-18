@@ -16,125 +16,114 @@ package transaction
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 3 (less than grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 3
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(3).
+		Build()
 
 	// Should return false when heartbeat intervals is less than grace period
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 5 (equal to grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 5
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(5).
+		Build()
 
 	// Should return true when heartbeat intervals equals grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 7 (greater than grace period)
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 7
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(7).
+		Build()
 
 	// Should return true when heartbeat intervals is greater than grace period
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 0 and heartbeat intervals to 0
-	txn.finalizingGracePeriod = 0
-	txn.heartbeatIntervalsSinceStateChange = 0
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(0).
+		HeartbeatIntervalsSinceStateChange(0).
+		Build()
 
 	// Should return true when both are zero (0 >= 0)
-	assert.True(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.True(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestGuard_HasGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
+func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := newTransactionForUnitTesting(t, nil)
-
-	// Set grace period to 5 and heartbeat intervals to 0
-	txn.finalizingGracePeriod = 5
-	txn.heartbeatIntervalsSinceStateChange = 0
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		FinalizingGracePeriod(5).
+		HeartbeatIntervalsSinceStateChange(0).
+		Build()
 
 	// Should return false when heartbeat intervals is 0 and grace period is positive
-	assert.False(t, guard_HasGracePeriodPassedSinceStateChange(ctx, txn))
+	assert.False(t, guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
-func TestAction_Cleanup_Success(t *testing.T) {
+func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	txn, _ := newTransactionForUnitTesting(t, grapher)
+	cancelCalled := false
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
+		Build()
 
-	// Add transaction to grapher so we can verify it's removed
-	grapher.Add(ctx, txn)
-
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
-
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
+	// Call action_FinalizeAsUnknownByOriginator
+	err := action_FinalizeAsUnknownByOriginator(ctx, txn, nil)
 	require.NoError(t, err)
 
-	// Verify onCleanup was called
-	assert.True(t, cleanupCalled, "onCleanup should have been called")
-
-	// Verify transaction was removed from grapher
-	assert.Nil(t, grapher.TransactionByID(ctx, txn.ID), "Transaction should be removed from grapher")
+	// Verify the cancel function was called
+	assert.True(t, cancelCalled, "assemble request timeout cancel should have been called")
 }
 
-func TestAction_Cleanup_ForgetError(t *testing.T) {
+func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
 	ctx := context.Background()
-	// Create a transaction first to get its ID
-	txn, _ := newTransactionForUnitTesting(t, nil)
-	
-	// Create a mock grapher that returns an error
-	mockGrapher := NewMockGrapher(t)
-	expectedError := errors.New("forget error")
-	mockGrapher.EXPECT().Forget(txn.ID).Return(expectedError)
-	
-	// Set the mock grapher on the transaction
-	txn.grapher = mockGrapher
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(1).
+		Build()
+	assert.False(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 
-	// Track if onCleanup was called
-	cleanupCalled := false
-	txn.onCleanup = func(ctx context.Context) {
-		cleanupCalled = true
-	}
+	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(2).
+		Build()
+	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 
-	// Call action_Cleanup
-	err := action_Cleanup(ctx, txn)
-	
-	// Verify error is returned
-	assert.Error(t, err)
-	assert.Equal(t, expectedError, err)
-
-	// Verify onCleanup was still called (cleanup should call onCleanup before grapher.Forget)
-	assert.True(t, cleanupCalled, "onCleanup should have been called even if Forget returns error")
+	txn, _ = NewTransactionBuilderForTesting(t, State_Confirmed).
+		ConfirmedLockRetentionGracePeriod(2).
+		HeartbeatIntervalsSinceStateChange(2).
+		ConfirmedLocksReleased(true).
+		Build()
+	assert.True(t, guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx, txn))
 }
 
+func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+
+	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
+	require.NoError(t, err)
+	assert.True(t, txn.confirmedLocksReleased)
+
+	err = action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
+	require.NoError(t, err)
+}

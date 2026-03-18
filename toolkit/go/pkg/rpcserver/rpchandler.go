@@ -34,6 +34,7 @@ type handlerResult struct {
 	sendRes bool
 	isOK    bool
 	res     any
+	postSend func()
 }
 
 func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketConnection) handlerResult {
@@ -54,8 +55,8 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 			log.L(ctx).Errorf("Bad RPC array received %s", b)
 			return s.replyRPCParseError(ctx, b, err)
 		}
-		batchRes, isOK := s.handleRPCBatch(ctx, rpcArray, wsc)
-		return handlerResult{isOK: isOK, sendRes: true, res: batchRes}
+		batchRes, isOK, postSend := s.handleRPCBatch(ctx, rpcArray, wsc)
+		return handlerResult{isOK: isOK, sendRes: true, res: batchRes, postSend: postSend}
 	}
 
 	var rpcRequest rpcclient.RPCRequest
@@ -65,7 +66,7 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	}
 	startTime := time.Now()
 	log.L(ctx).Debugf("RPC-server[%s] --> %s", rpcRequest.ID, rpcRequest.Method)
-	res, isOK := s.processRPC(ctx, &rpcRequest, wsc)
+	res, isOK, postSend := s.processRPC(ctx, &rpcRequest, wsc)
 	durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 	if res != nil && res.Error != nil {
 		log.L(ctx).Errorf("RPC-server[%s] <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), rpcRequest.Method, durationMS, res.Error.Message)
@@ -75,7 +76,7 @@ func (s *rpcServer) rpcHandler(ctx context.Context, r io.Reader, wsc *webSocketC
 	if log.IsTraceEnabled() {
 		log.L(ctx).Tracef("RPC-server[%s] <-- %s", rpcRequest.ID.StringValue(), pldtypes.JSONString(res))
 	}
-	return handlerResult{isOK: isOK, sendRes: res != nil, res: res}
+	return handlerResult{isOK: isOK, sendRes: res != nil, res: res, postSend: postSend}
 
 }
 
@@ -105,10 +106,11 @@ func (s *rpcServer) sniffFirstByte(data []byte) byte {
 	return 0x00
 }
 
-func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, bool) {
+func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RPCRequest, wsc *webSocketConnection) ([]*rpcclient.RPCResponse, bool, func()) {
 
 	// Kick off a routine to fill in each
 	rpcResponses := make([]*rpcclient.RPCResponse, len(rpcArray))
+	postSends := make([]func(), len(rpcArray))
 	results := make(chan bool)
 	for i, r := range rpcArray {
 		responseNumber := i
@@ -117,7 +119,7 @@ func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RP
 			var ok bool
 			startTime := time.Now()
 			log.L(ctx).Debugf("RPC-server[%v] (b=%d) --> %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method)
-			res, ok := s.processRPC(ctx, rpcRequest, wsc)
+			res, ok, postSend := s.processRPC(ctx, rpcRequest, wsc)
 			durationMS := float64(time.Since(startTime)) / float64(time.Millisecond)
 			if res != nil && res.Error != nil {
 				log.L(ctx).Errorf("RPC-server[%s] (b=%d) <-- %s [%.2fms]: %s", rpcRequest.ID.StringValue(), i, rpcRequest.Method, durationMS, res.Error.Message)
@@ -128,6 +130,7 @@ func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RP
 				log.L(ctx).Tracef("RPC-server[%s] (b=%d) <-- %s", rpcRequest.ID.StringValue(), i, pldtypes.JSONString(res))
 			}
 			rpcResponses[responseNumber] = res
+			postSends[responseNumber] = postSend
 			results <- ok
 		}()
 	}
@@ -139,5 +142,11 @@ func (s *rpcServer) handleRPCBatch(ctx context.Context, rpcArray []*rpcclient.RP
 		}
 	}
 	// Only return a failure response code if all the requests in the batch failed
-	return rpcResponses, failCount != len(rpcArray)
+	return rpcResponses, failCount != len(rpcArray), func() {
+		for _, postSend := range postSends {
+			if postSend != nil {
+				postSend()
+			}
+		}
+	}
 }

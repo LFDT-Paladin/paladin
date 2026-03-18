@@ -29,6 +29,14 @@ type testDomainCallbacksT struct {
 	retErr              error
 }
 
+func (dc *testDomainCallbacksT) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	panic("unimplemented")
+}
+
+func (dc *testDomainCallbacksT) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
+	panic("unimplemented")
+}
+
 func (dc *testDomainCallbacksT) FindAvailableStates(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 	if dc.retErr != nil {
 		return nil, dc.retErr

@@ -6,6 +6,7 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
@@ -25,6 +26,7 @@
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
 | rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
+| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
 | sendQueueLen | Maximum length of send queue | `int` | - |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |
 | sequencerManager | Sequencer manager configuration | [`SequencerConfig`](#sequencermanager) | - |
@@ -136,6 +138,7 @@
 | tls | TLS configuration | [`TLSConfig`](#blockchainwstls) | - |
 | url | HTTP client URL | `string` | - |
 | writeBufferSize | WebSocket write buffer size | `string` | `"16Kb"` |
+| wsRequestTimeout | WebSocket request timeout | `string` | `"2m"` |
 
 ## blockchain.ws.auth
 
@@ -338,6 +341,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | identifierCache | Identifier cache configuration | [`CacheConfig`](#keymanageridentifiercache) | - |
 | verifierCache | Verifier cache configuration | [`CacheConfig`](#keymanagerverifiercache) | - |
 
@@ -780,18 +784,26 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| assembleTimeout | Timeout for transaction assembly | `string` | `"10s"` |
+| baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
 | blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |
-| closingGracePeriod | Grace period for closing operations | `int` | `4` |
+| closingGracePeriod | Grace period for closing operations | `int` | `2` |
+| confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `1` |
+| coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
+| coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | heartbeatThreshold | Heartbeat threshold | `int` | - |
-| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `1` |
+| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
+| originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
+| originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
 | targetActiveSequencers | Target number of active sequencers | `int` | `50` |
+| transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |
+| transactionResumePageSize | Page size for reading pending transactions to resume | `int` | `1000` |
 | transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |
 | writer | Writer configuration | [`FlushWriterConfig`](#sequencermanagerwriter) | - |
 

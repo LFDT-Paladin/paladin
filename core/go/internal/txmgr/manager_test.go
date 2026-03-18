@@ -26,7 +26,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -34,6 +37,7 @@ import (
 )
 
 type mockComponents struct {
+	t                *testing.T
 	c                *componentsmocks.AllComponents
 	db               sqlmock.Sqlmock
 	ethClientFactory *ethclientmocks.EthClientFactory
@@ -58,6 +62,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 		},
 	}
 	mc := &mockComponents{
+		t:                t,
 		c:                componentsmocks.NewAllComponents(t),
 		blockIndexer:     blockindexermocks.NewBlockIndexer(t),
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
@@ -106,6 +111,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	for _, fn := range init {
 		fn(conf, mc)
 	}
+	mc.publicTxMgr.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(make(map[uuid.UUID][]*pldapi.PublicTx), nil).Maybe()
 
 	ic, err := txm.PreInit(componentsmocks)
 	require.NoError(t, err)
@@ -118,8 +124,10 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

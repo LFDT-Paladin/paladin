@@ -90,7 +90,7 @@ func NewNodeConfiguration(t *testing.T, nodeName string) *nodeConfiguration {
 	require.NoError(t, err)
 	cert, key := buildTestCertificate(t, pkix.Name{CommonName: nodeName}, nil, nil)
 	return &nodeConfiguration{
-		address: "localhost",
+		address: "127.0.0.1",
 		port:    port,
 		cert:    cert,
 		key:     key,
@@ -156,10 +156,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 	}
 	i.ctx, i.cancelCtx = context.WithCancel(log.WithLogField(t.Context(), "node-name", binding.name))
 	if binding.sequencerConfig != nil {
-		i.conf.SequencerManager.RequestTimeout = binding.sequencerConfig.RequestTimeout
-		i.conf.SequencerManager.AssembleTimeout = binding.sequencerConfig.AssembleTimeout
-		i.conf.SequencerManager.BlockHeightTolerance = binding.sequencerConfig.BlockHeightTolerance
-		i.conf.SequencerManager.ClosingGracePeriod = binding.sequencerConfig.ClosingGracePeriod
+		i.conf.SequencerManager = *binding.sequencerConfig
 	}
 
 	i.conf.BlockIndexer.FromBlock = json.RawMessage(`"latest"`)
@@ -199,9 +196,26 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 			},
 			RegistryAddress: domainRegistryAddress.String(),
 		}
+	case *domains.SimpleDomainPairConfig:
+		domainPlugin := pldconf.PluginConfig{
+			Type:    string(pldtypes.LibraryTypeCShared),
+			Library: "loaded/via/unit/test/loader",
+		}
+		i.conf.Domains["domain1"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			RegistryAddress: domainConfig.Domain1RegistryAddress,
+		}
+		i.conf.Domains["domain2"] = &pldconf.DomainConfig{
+			AllowSigning:    true,
+			Plugin:          domainPlugin,
+			Config:          map[string]any{"submitMode": domainConfig.SubmitMode},
+			RegistryAddress: domainConfig.Domain2RegistryAddress,
+		}
 	}
 
-	if identity := os.Getenv("FIXED_SIGNING_IDENTITY"); identity != "" {
+	if identity := getFixedSigningIdentity(); identity != "" {
 		for _, domainConfig := range i.conf.Domains {
 			domainConfig.FixedSigningIdentity = identity
 		}
@@ -215,7 +229,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 				Library: "loaded/via/unit/test/loader",
 			},
 			Config: map[string]any{
-				"address": "localhost",
+				"address": binding.address,
 				"port":    binding.port,
 				"tls": pldconf.TLSConfig{
 					Enabled: true,
@@ -272,6 +286,7 @@ func NewInstanceForTesting(t *testing.T, domainRegistryAddress *pldtypes.EthAddr
 
 	loaderMap := map[string]plugintk.Plugin{
 		"domain1":             domains.SimpleTokenDomain(t, i.ctx),
+		"domain2":             domains.SimpleTokenDomain(t, i.ctx),
 		"simpleStorageDomain": domains.SimpleStorageDomain(t, i.ctx),
 		"grpc":                grpc.NewPlugin(i.ctx),
 		"registry1":           static.NewPlugin(i.ctx),
@@ -390,15 +405,6 @@ func DeployDomainRegistry(t *testing.T, configPath string) *pldtypes.EthAddress 
 
 }
 
-func getBesuPort() int {
-	if portStr := os.Getenv("BESU_PORT"); portStr != "" {
-		if port, err := strconv.Atoi(portStr); err == nil {
-			return port
-		}
-	}
-	return 0
-}
-
 func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.PaladinConfig, pldconf.WSClientConfig) {
 	ctx := t.Context()
 
@@ -455,7 +461,6 @@ func testConfig(t *testing.T, enableWS bool, configPath string) (pldconf.Paladin
 
 	// Configure Besu connection with the port determined by environment variable
 	besuPort := getBesuPort()
-	require.NotZero(t, besuPort, "BESU_PORT environment variable is not set")
 	conf.Blockchain.HTTP.URL = fmt.Sprintf("http://localhost:%d", besuPort)
 	conf.Blockchain.WS.URL = fmt.Sprintf("ws://localhost:%d", besuPort+1) // WS port is typically HTTP port + 1
 
@@ -635,9 +640,23 @@ func (p *partyForTesting) Start(t *testing.T, domainConfig any, configPath strin
 }
 
 func (p *partyForTesting) Stop(t *testing.T) {
+	if p.instance == nil {
+		return
+	}
 	p.instance.GetComponentManager().Stop()
 	p.instance.GetPluginManager().Stop()
 	p.instance.CancelInstanceCtx()
+
+	// Avoid restart races by waiting for the transport listener to release its bind port.
+	listenerAddr := net.JoinHostPort(p.nodeConfig.address, strconv.Itoa(p.nodeConfig.port))
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", listenerAddr, 100*time.Millisecond)
+		if err != nil {
+			return true
+		}
+		_ = conn.Close()
+		return false
+	}, 10*time.Second, 100*time.Millisecond, "transport listener still accepting connections on %s", listenerAddr)
 }
 
 func (p *partyForTesting) ResolveEthereumAddress(identity string) string {

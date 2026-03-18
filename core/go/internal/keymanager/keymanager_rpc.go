@@ -38,6 +38,9 @@ func (km *keyManager) initRPC() {
 		Add("keymgr_reverseKeyLookup", km.rpcReverseKeyLookup()).
 		Add("keymgr_queryKeys", km.rpcQueryKeys())
 
+	if !km.conf.DisableSignRPC {
+		km.rpcModule.Add("keymgr_sign", km.rpcSign())
+	}
 }
 
 func (km *keyManager) rpcWallets() rpcserver.RPCHandler {
@@ -84,5 +87,36 @@ func (km *keyManager) rpcQueryKeys() rpcserver.RPCHandler {
 	) ([]*pldapi.KeyQueryEntry, error) {
 		ctx = log.WithComponent(ctx, "keymanager")
 		return km.QueryKeys(ctx, km.p.DB(), &jq)
+	})
+}
+
+// rpcSign signs arbitrary data using the specified algorithm and verifier type.
+//
+// Example:
+//   - algorithm: algorithms.ECDSA_SECP256K1
+//   - verifierType: verifiers.ETH_ADDRESS
+//   - payloadType: signpayloads.OPAQUE_TO_RSV
+//
+// Default handling:
+//   - The payload is hashed with keccak256 internally by the signing module before signing
+//   - Returns a 65-byte RSV signature (R=32bytes, S=32bytes, V=1byte with 0/1 recovery ID)
+func (km *keyManager) rpcSign() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod5(func(ctx context.Context,
+		identifier string,
+		algorithm string,
+		verifierType string,
+		payloadType string,
+		payload pldtypes.HexBytes,
+	) (pldtypes.HexBytes, error) {
+		ctx = log.WithComponent(ctx, "keymanager")
+		resolvedKey, err := km.ResolveKeyNewDatabaseTX(ctx, identifier, algorithm, verifierType)
+		if err != nil {
+			return nil, err
+		}
+		signature, err := km.Sign(ctx, resolvedKey, payloadType, payload)
+		if err != nil {
+			return nil, err
+		}
+		return signature, nil
 	})
 }

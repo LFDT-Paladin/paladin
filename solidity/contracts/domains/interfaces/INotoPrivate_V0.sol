@@ -6,6 +6,11 @@ pragma solidity ^0.8.20;
  * @dev Contains definitions for method signatures unique to the V0 implementation of Noto.
  */
 interface INotoPrivate_V0 {
+    struct UnlockRecipient {
+        string to;
+        uint256 amount;
+    }
+
     struct UnlockPublicParams {
         bytes32[] lockedInputs;
         bytes32[] lockedOutputs;
@@ -13,6 +18,13 @@ interface INotoPrivate_V0 {
         bytes signature;
         bytes data;
     }
+
+    function prepareUnlock(
+        bytes32 lockId,
+        string calldata from,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata data
+    ) external;
 
     function delegateLock(
         bytes32 lockId,

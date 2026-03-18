@@ -94,3 +94,54 @@ func TestStateManagerStageManagementCanSubmit(t *testing.T) {
 	assert.False(t, stateManager.CanSubmit(context.Background(), big.NewInt(29), ""))
 
 }
+
+func TestStateManagerGetPreviousGenerations(t *testing.T) {
+	ctx := context.Background()
+	stateManager, done := newTestInFlightTransactionStateManager(t)
+	defer done()
+
+	// Test with only 1 generation - should return empty slice
+	previousGenerations := stateManager.GetPreviousGenerations(ctx)
+	assert.Empty(t, previousGenerations)
+
+	// Test with 2 generations - should return first generation only
+	stateManager.NewGeneration(ctx)
+	previousGenerations = stateManager.GetPreviousGenerations(ctx)
+	require.Len(t, previousGenerations, 1)
+	assert.Equal(t, stateManager.GetGeneration(ctx, 0), previousGenerations[0])
+
+	// Test with 3 generations - should return first two generations
+	stateManager.NewGeneration(ctx)
+	previousGenerations = stateManager.GetPreviousGenerations(ctx)
+	require.Len(t, previousGenerations, 2)
+	assert.Equal(t, stateManager.GetGeneration(ctx, 0), previousGenerations[0])
+	assert.Equal(t, stateManager.GetGeneration(ctx, 1), previousGenerations[1])
+}
+
+func TestStateManagerGetStage(t *testing.T) {
+	ctx := context.Background()
+	stateManager, done := newTestInFlightTransactionStateManager(t)
+	defer done()
+
+	// Initially, stage should be empty (default value)
+	stage := stateManager.GetStage(ctx)
+	assert.Empty(t, stage)
+
+	// Set a stage on the current generation and verify GetStage returns it
+	currentGeneration := stateManager.GetCurrentGeneration(ctx).(*inFlightTransactionStateGeneration)
+	currentGeneration.stage = InFlightTxStageRetrieveGasPrice
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, stage)
+
+	// Change to a different stage
+	currentGeneration.stage = InFlightTxStageSigning
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageSigning, stage)
+
+	// Create a new generation and set its stage
+	stateManager.NewGeneration(ctx)
+	currentGeneration = stateManager.GetCurrentGeneration(ctx).(*inFlightTransactionStateGeneration)
+	currentGeneration.stage = InFlightTxStageSubmitting
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageSubmitting, stage)
+}

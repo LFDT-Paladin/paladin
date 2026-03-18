@@ -61,17 +61,26 @@ const (
 	pscValid
 )
 
-func (d *domain) initSmartContract(ctx context.Context, def *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
+func (d *domain) initSmartContract(ctx context.Context, dbTX persistence.DBTX, def *PrivateSmartContract) (pscLoadResult, *domainContract, error) {
 	dc := &domainContract{
 		dm:   d.dm,
 		d:    d,
 		api:  d.api,
 		info: def,
 	}
+	var privacyGroup *prototk.PrivacyGroup
+	pg, err := d.dm.groupManager.QueryGroups(ctx, dbTX, query.NewQueryBuilder().Equal("domain", d.name).Equal("contractAddress", &def.Address).Limit(1).Query())
+	if err != nil {
+		return pscInitError, nil, err
+	}
+	if len(pg) > 0 {
+		privacyGroup = mapPrivacyGroupToProto(pg[0].ID, pg[0].GenesisStateData())
+	}
 
 	res, err := d.api.InitContract(ctx, &prototk.InitContractRequest{
 		ContractAddress: def.Address.String(),
 		ContractConfig:  def.ConfigBytes,
+		PrivacyGroup:    privacyGroup,
 	})
 	if err != nil {
 		log.L(ctx).Errorf("Error initializing smart contract address: %s with config %s :  %s", def.Address, def.ConfigBytes.HexString(), err.Error())
@@ -302,35 +311,11 @@ func (dc *domainContract) WritePotentialStates(dCtx components.DomainContext, re
 }
 
 func (dc *domainContract) upsertPotentialStates(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, potentialStates []*prototk.NewState, isOutput bool) (writtenStates []*components.FullState, err error) {
-	newStatesToWrite := make([]*components.StateUpsert, len(potentialStates))
-	log.L(dCtx.Ctx()).Debugf("upsertPotentialStates: %d states to write", len(potentialStates))
-	domain := dc.d
-	for i, s := range potentialStates {
-		schema := domain.schemasByID[s.SchemaId]
-		if schema == nil {
-			schema = domain.schemasBySignature[s.SchemaId]
-		}
-		if schema == nil {
-			return nil, i18n.NewError(dCtx.Ctx(), msgs.MsgDomainUnknownSchema, s.SchemaId)
-		}
-		var id pldtypes.HexBytes
-		if s.Id != nil {
-			id, err = pldtypes.ParseHexBytes(dCtx.Ctx(), *s.Id)
-			if err != nil {
-				return nil, err
-			}
-		}
-		stateUpsert := &components.StateUpsert{
-			ID:     id,
-			Schema: schema.ID(),
-			Data:   pldtypes.RawJSON(s.StateDataJson),
-		}
-		if isOutput {
-			// These are marked as locked and creating in the transaction, and become available for other transaction to read
-			stateUpsert.CreatedBy = &tx.ID
-		}
-		newStatesToWrite[i] = stateUpsert
+	newStatesToWrite, err := dc.d.mapPotentialStates(dCtx, potentialStates, isOutput, tx)
+	if err != nil {
+		return nil, err
 	}
+	log.L(dCtx.Ctx()).Debugf("upsertPotentialStates: %d states to write", len(potentialStates))
 
 	contractAddr := tx.PreAssembly.TransactionSpecification.ContractInfo.ContractAddress
 	writtenStates = make([]*components.FullState, len(newStatesToWrite))
@@ -815,4 +800,13 @@ func (dc *domainContract) WrapPrivacyGroupEVMTX(ctx context.Context, pg *pldapi.
 
 	return ptx, nil
 
+}
+func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (bool, string, error) {
+	res, err := dc.api.IsBaseLedgerRevertRetryable(ctx, &prototk.IsBaseLedgerRevertRetryableRequest{
+		RevertData: revertData,
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return res.Retryable, res.DecodedReason, nil
 }

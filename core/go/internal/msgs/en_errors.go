@@ -204,17 +204,21 @@ var (
 	MsgPluginLoadFailed        = pde("PD011207", "Plugin load failed: %s")
 
 	// BlockIndexer PD0113XX
-	MsgBlockIndexerInvalidFromBlock         = pde("PD011300", "Invalid from block '%s' (must be 'latest' or number)")
-	MsgBlockIndexerESSourceError            = pde("PD011302", "Event stream sources must not be changed after creation")
-	MsgBlockIndexerESInitFail               = pde("PD011303", "Event stream initialization failed")
-	MsgBlockIndexerESAlreadyInit            = pde("PD011304", "Event stream already initialized")
-	MsgBlockIndexerConfirmedReceiptNotFound = pde("PD011305", "Receipt for confirmed transaction %s not found")
-	MsgBlockIndexerInvalidEventStreamType   = pde("PD011306", "Unsupported event stream type: %s")
-	MsgBlockIndexerNoBlocksIndexed          = pde("PD011308", "No confirmed blocks have yet been indexed")
-	MsgBlockIndexerTransactionReverted      = pde("PD011309", "Transaction reverted: %s")
-	MsgBlockIndexerConfirmedBlockNotFound   = pde("PD011310", "Block %s (%d) not found on retrieval after detection and requested number of confirmations")
-	MsgBlockIndexerLimitRequired            = pde("PD011311", "limit is required on all queries")
-	MsgBlockIndexerEventStreamNotFound      = pde("PD011312", "Event stream not found: %s")
+	MsgBlockIndexerInvalidFromBlock           = pde("PD011300", "Invalid from block '%s' (must be 'latest' or number)")
+	MsgBlockIndexerESSourceError              = pde("PD011302", "Event stream sources must not be changed after creation")
+	MsgBlockIndexerESInitFail                 = pde("PD011303", "Event stream initialization failed")
+	MsgBlockIndexerESAlreadyInit              = pde("PD011304", "Event stream already initialized")
+	MsgBlockIndexerConfirmedReceiptNotFound   = pde("PD011305", "Receipt for confirmed transaction %s not found")
+	MsgBlockIndexerInvalidEventStreamType     = pde("PD011306", "Unsupported event stream type: %s")
+	MsgBlockIndexerNoBlocksIndexed            = pde("PD011308", "No confirmed blocks have yet been indexed")
+	MsgBlockIndexerTransactionReverted        = pde("PD011309", "Transaction reverted: %s")
+	MsgBlockIndexerConfirmedBlockNotFound     = pde("PD011310", "Block %s (%d) not found on retrieval after detection and requested number of confirmations")
+	MsgBlockIndexerLimitRequired              = pde("PD011311", "limit is required on all queries")
+	MsgBlockIndexerEventStreamNotFound        = pde("PD011312", "Event stream not found: %s")
+	MsgBlockIndexerReceiptCountMismatch       = pde("PD011313", "Receipt integrity check failed for block %s (%d): expected %d receipts from block transactions, received %d")
+	MsgBlockIndexerReceiptBlockMismatch       = pde("PD011314", "Receipt integrity check failed for block %s (%d): receipt for tx %s references block %s (%d)")
+	MsgBlockIndexerReceiptIntegrityNilReceipt = pde("PD011315", "Receipt integrity check failed for block %s (%d): nil receipt entry")
+	MsgBlockIndexerReceiptMissingTxHash       = pde("PD011316", "Receipt integrity check failed for block %s (%d): missing transaction hash from receipts %s")
 
 	// EthClient module PD0115XX
 	MsgEthClientInvalidInput            = pde("PD011500", "Unable to convert to ABI function input (func=%s)")
@@ -435,6 +439,8 @@ var (
 	MsgTxMgrBlockchainEventListenerNoSources      = pde("PD012251", "Blockchain event listener '%s' has no sources configured")
 	MsgTxMgrBlockchainEventListenerNoABIs         = pde("PD012252", "Blockchain event listener '%s' has a source with no ABI configured")
 	MsgTxMgrVerifierNotEthAddress                 = pde("PD012253", "Verifier '%s' is not an Ethereum address")
+	MsgTxMgrDependencyLookupFailed                = pde("PD012254", "Failed to lookup dependency transaction %s: %s")
+	MsgTxMgrResumeTXFailed                        = pde("PD012255", "Failed to resume transaction %s: %s")
 
 	// FlushWriter module PD0123XX
 	MsgFlushWriterQuiescing      = pde("PD012300", "Writer shutting down")
@@ -510,6 +516,11 @@ var (
 	MsgSequencerAssembleRequestInvalid        = pde("PD012640", "Assemble request is invalid for transaction %s")
 	MsgSequencerAssembleTxnNotFound           = pde("PD012641", "Transaction %s not found in local node")
 	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. Transaction will be processed when in-flight transactions complete.")
+	MsgSequencerErrorNotifyingDependent       = pde("PD012643", "Error notifying dependent transaction %s of revert of TX %s")
+	MsgSequencerErrorRepoolingTX              = pde("PD012644", "Error repooling TX %s")
+	MsgSequencerGrapherDependencyNotFound     = pde("PD012645", "TX %s missing from transaction graph")
+	MsgSequencerAddMinterError                = pde("PD012646", "Error adding TX %s as minter for state %s: %s")
+	MsgSequencerInvalidEndorserCandidate      = pde("PD012647", "Invalid coordinator endorser candidate identity '%s'")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

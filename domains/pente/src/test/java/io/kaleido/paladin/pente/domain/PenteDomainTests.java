@@ -344,6 +344,9 @@ public class PenteDomainTests {
                         var domainReceipt = mapper.convertValue(tx.domainReceipt(),
                                         PenteEVMTransaction.JSONReceipt.class);
                         var expectedContractAddress = domainReceipt.receipt().contractAddress();
+                        var receiptLogs = domainReceipt.receipt().logs();
+                        assertEquals(1, receiptLogs.size());
+                        assertEquals(0, receiptLogs.get(0).logIndex());
 
                         // Prepare a "set" on Simple Storage
                         Map<String, Object> setValues = new HashMap<>() {
@@ -495,7 +498,6 @@ public class PenteDomainTests {
                         var domainReceipt = mapper.convertValue(tx.domainReceipt(),
                                         PenteEVMTransaction.JSONReceipt.class);
                         var ssLinkedAddr = domainReceipt.receipt().contractAddress();
-
                         testbed.getRpcClient().request("testbed_invoke",
                                         new Testbed.TransactionInput(
                                                         "private",

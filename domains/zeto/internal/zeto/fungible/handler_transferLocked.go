@@ -311,7 +311,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 	inputIDs := make([]any, 0, len(ids))
 	for _, input := range ids {
 		if !input.NilOrZero() {
-			inputIDs = append(inputIDs, input.String())
+			inputIDs = append(inputIDs, common.HexUint256To32ByteHexString(input))
 		}
 	}
 
@@ -347,7 +347,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 }
 
 func validateTransferLockedParams(ctx context.Context, params types.FungibleTransferLockedParams) error {
-	if params.LockedInputs == nil || len(params.LockedInputs) == 0 {
+	if len(params.LockedInputs) == 0 {
 		return i18n.NewError(ctx, msgs.MsgErrorMissingLockInputs)
 	}
 	if params.Delegate == "" {

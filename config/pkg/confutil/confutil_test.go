@@ -32,6 +32,35 @@ func TestInt(t *testing.T) {
 	assert.Equal(t, 5, IntMin(P(5), 1, 10))
 }
 
+func TestIntMinIfPositive(t *testing.T) {
+	// nil input returns default
+	assert.Equal(t, 10, IntMinIfPositive(nil, 5, 10))
+
+	// negative values are returned as-is (not clamped to min)
+	assert.Equal(t, -1, IntMinIfPositive(P(-1), 5, 10))
+	assert.Equal(t, -100, IntMinIfPositive(P(-100), 5, 10))
+
+	// zero (positive but less than min) returns min
+	assert.Equal(t, 5, IntMinIfPositive(P(0), 5, 10))
+
+	// positive values less than min return min
+	assert.Equal(t, 5, IntMinIfPositive(P(1), 5, 10))
+	assert.Equal(t, 5, IntMinIfPositive(P(4), 5, 10))
+
+	// value equal to min returns the value
+	assert.Equal(t, 5, IntMinIfPositive(P(5), 5, 10))
+
+	// values greater than min return the value
+	assert.Equal(t, 10, IntMinIfPositive(P(10), 5, 10))
+	assert.Equal(t, 100, IntMinIfPositive(P(100), 5, 10))
+
+	// edge case: min is 0
+	assert.Equal(t, 10, IntMinIfPositive(nil, 0, 10))
+	assert.Equal(t, -1, IntMinIfPositive(P(-1), 0, 10))
+	assert.Equal(t, 0, IntMinIfPositive(P(0), 0, 10))
+	assert.Equal(t, 5, IntMinIfPositive(P(5), 0, 10))
+}
+
 func TestInt64(t *testing.T) {
 	assert.Equal(t, int64(12345), Int64(nil, 12345))
 	assert.Equal(t, int64(23456), Int64(P(int64(23456)), 12345))

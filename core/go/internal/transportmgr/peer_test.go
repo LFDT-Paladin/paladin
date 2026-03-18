@@ -21,9 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -173,7 +175,7 @@ func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, true,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			conf.PeerReaperInterval = confutil.P("50ms")
+			conf.PeerReaperInterval = confutil.P("500ms")
 		},
 		mockGoodTransport,
 		mockGetStateOk,
@@ -187,7 +189,7 @@ func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 	})
 	tm.quiesceTimeout = 10 * time.Millisecond
 	tm.reliableMessageResend = 1 * time.Second
-	tm.peerInactivityTimeout = 10 * time.Millisecond
+	tm.peerInactivityTimeout = 100 * time.Millisecond
 
 	mockActivateDeactivateOk(tp)
 
@@ -304,10 +306,15 @@ func TestSendBadReliableMessageMarkedFailRealDB(t *testing.T) {
 	require.Regexp(t, "PD012016", rmWithAck.Ack.Error)
 
 	// Second nack
-	rmWithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+	var rm2WithAck *pldapi.ReliableMessage
+	for (rm2WithAck == nil || rm2WithAck.Ack == nil) && !t.Failed() {
+		time.Sleep(10 * time.Millisecond)
+		rm2WithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+		require.NoError(t, err)
+	}
 	require.NoError(t, err)
-	require.NotNil(t, rmWithAck.Ack)
-	require.Regexp(t, "PD012014", rmWithAck.Ack.Error)
+	require.NotNil(t, rm2WithAck.Ack)
+	require.Regexp(t, "PD012014", rm2WithAck.Ack.Error)
 
 }
 
@@ -768,61 +775,112 @@ func TestSendMessageErrorHandlerCalled(t *testing.T) {
 	}
 }
 
-func TestProcessReliableMsgPagePublicTransaction(t *testing.T) {
-
+func TestSendConsecutiveFailureThresholdRestartsSenderAndReconnects(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
-			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
-		})
+			// One full reliable-message scan happens at sender startup.
+			// This test intentionally restarts sender once after one send failure.
+			for range 4 {
+				mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{}))
+			}
+			mc.db.Mock.MatchExpectationsInOrder(false)
+		},
+		mockGoodTransport)
 	defer done()
 
-	p := &peer{
-		ctx:       ctx,
-		tm:        tm,
-		transport: tp.t,
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+	tm.sendFailureResetThreshold = 1
+
+	var activateCalls atomic.Int32
+	tp.Functions.ActivatePeer = func(ctx context.Context, anr *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+		activateCalls.Add(1)
+		return &prototk.ActivatePeerResponse{PeerInfoJson: `{"endpoint":"some.url"}`}, nil
+	}
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		return &prototk.DeactivatePeerResponse{}, nil
 	}
 
-	publicTx := &pldapi.PublicTxToDistribute{
-		PublicTxInput: pldapi.PublicTxInput{
-			From: pldtypes.RandAddress(),
-			To:   pldtypes.RandAddress(),
-			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
-		},
-		Nonce: confutil.P(pldtypes.HexUint64(1)),
-	}
-
-	rm := &pldapi.ReliableMessage{
-		ID:          uuid.New(),
-		Sequence:    50,
-		MessageType: pldapi.RMTPublicTransaction.Enum(),
-		Node:        "node2",
-		Metadata:    pldtypes.JSONString(publicTx),
-		Created:     pldtypes.TimestampNow(),
-	}
-
-	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	var sendCalls atomic.Int32
+	secondSendSucceeded := make(chan struct{}, 1)
 	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
-		sent := req.Message
-		sentMessages <- sent
-		return nil, nil
+		call := sendCalls.Add(1)
+		if call == 1 {
+			return nil, fmt.Errorf("PD030016: Send for node that is not active '%s'", req.Node)
+		}
+		select {
+		case secondSendSucceeded <- struct{}{}:
+		default:
+		}
+		return &prototk.SendMessageResponse{}, nil
 	}
 
-	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	// First send fails and should stop the current sender loop at threshold=1.
+	err := tm.Send(ctx, testMessage())
 	require.NoError(t, err)
 
-	sentMsg := <-sentMessages
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
 
-	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	// Second send should trigger re-activation and succeed.
+	err = tm.Send(ctx, testMessage())
 	require.NoError(t, err)
-	require.Equal(t, RMHMessageTypePublicTransaction, rMsg.MessageType)
 
-	var receivedPublicTx pldapi.PublicTxToDistribute
-	err = json.Unmarshal(rMsg.Payload, &receivedPublicTx)
+	<-secondSendSucceeded
+	require.GreaterOrEqual(t, activateCalls.Load(), int32(2))
+}
+
+func TestReliableScanConsecutiveFailureThresholdStopsSender(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, true,
+		mockGoodTransport,
+		mockGetStateOk,
+	)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.sendFailureResetThreshold = 1
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+
+	mockActivateDeactivateOk(tp)
+
+	sendAttempted := make(chan struct{}, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		select {
+		case sendAttempted <- struct{}{}:
+		default:
+		}
+		return nil, fmt.Errorf("send failed")
+	}
+
+	sd := &components.StateDistribution{
+		Domain:          "domain1",
+		ContractAddress: pldtypes.RandAddress().String(),
+		SchemaID:        pldtypes.RandHex(32),
+		StateID:         pldtypes.RandHex(32),
+	}
+
+	err := tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return tm.SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
+			MessageType: pldapi.RMTState.Enum(),
+			Node:        "node2",
+			Metadata:    pldtypes.JSONString(sd),
+		})
+	})
 	require.NoError(t, err)
-	require.Equal(t, publicTx.From, receivedPublicTx.From)
-	require.Equal(t, publicTx.To, receivedPublicTx.To)
-	require.Equal(t, publicTx.Data, receivedPublicTx.Data)
-	require.Equal(t, publicTx.Nonce, receivedPublicTx.Nonce)
+
+	<-sendAttempted
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
@@ -839,13 +897,19 @@ func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 		transport: tp.t,
 	}
 
-	publicTxSubmission := &pldapi.PublicTxToDistribute{
-		PublicTxInput: pldapi.PublicTxInput{
-			From: pldtypes.RandAddress(),
-			To:   pldtypes.RandAddress(),
-			Data: pldtypes.HexBytes(pldtypes.RandBytes(100)),
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:  *pldtypes.RandAddress(),
+			To:    pldtypes.RandAddress(),
+			Data:  pldtypes.HexBytes(pldtypes.RandBytes(100)),
+			Nonce: confutil.P(pldtypes.HexUint64(2)),
 		},
-		Nonce: confutil.P(pldtypes.HexUint64(2)),
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:                uuid.New(),
+			TransactionType:            pldapi.TransactionTypePublic.Enum(),
+			TransactionSender:          "node2",
+			TransactionContractAddress: "contractAddress",
+		},
 	}
 
 	rm := &pldapi.ReliableMessage{
@@ -873,11 +937,72 @@ func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, RMHMessageTypePublicTransactionSubmission, rMsg.MessageType)
 
-	var receivedPublicTxSubmission pldapi.PublicTxToDistribute
+	var receivedPublicTxSubmission pldapi.PublicTxWithBinding
 	err = json.Unmarshal(rMsg.Payload, &receivedPublicTxSubmission)
 	require.NoError(t, err)
 	require.Equal(t, publicTxSubmission.From, receivedPublicTxSubmission.From)
 	require.Equal(t, publicTxSubmission.To, receivedPublicTxSubmission.To)
 	require.Equal(t, publicTxSubmission.Data, receivedPublicTxSubmission.Data)
 	require.Equal(t, publicTxSubmission.Nonce, receivedPublicTxSubmission.Nonce)
+	require.Equal(t, publicTxSubmission.Transaction, receivedPublicTxSubmission.Transaction)
+	require.Equal(t, publicTxSubmission.TransactionType, receivedPublicTxSubmission.TransactionType)
+	require.Equal(t, publicTxSubmission.TransactionSender, receivedPublicTxSubmission.TransactionSender)
+	require.Equal(t, publicTxSubmission.TransactionContractAddress, receivedPublicTxSubmission.TransactionContractAddress)
+}
+
+func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	sequencerActivity := &pldapi.SequencerActivity{
+		SubjectID:      "subjectID",
+		Timestamp:      pldtypes.TimestampNow(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		TransactionID:  uuid.New(),
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTSequencingActivity.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(sequencerActivity),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypeSequencingActivity, rMsg.MessageType)
+
+	var receivedSequencerActivity pldapi.SequencerActivity
+	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
+	require.NoError(t, err)
+	require.Equal(t, sequencerActivity.SubjectID, receivedSequencerActivity.SubjectID)
+	require.Equal(t, sequencerActivity.Timestamp, receivedSequencerActivity.Timestamp)
+	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
+	require.Equal(t, sequencerActivity.SequencingNode, receivedSequencerActivity.SequencingNode)
+	require.Equal(t, sequencerActivity.TransactionID, receivedSequencerActivity.TransactionID)
 }

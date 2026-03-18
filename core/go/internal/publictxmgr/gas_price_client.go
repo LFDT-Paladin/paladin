@@ -44,6 +44,7 @@ type GasPriceClient interface {
 	GetGasPriceObject(ctx context.Context, txFixedGasPrice *pldapi.PublicTxGasPricing, previouslySubmittedGPO *pldapi.PublicTxGasPricing, underpriced bool) (gasPrice *pldapi.PublicTxGasPricing, err error)
 	Init(ctx context.Context) error
 	Start(ctx context.Context, ethClient ethclient.EthClient)
+	Stop()
 }
 
 // The hybrid gas price client handles fixed gas pricing from configuration or on a transaction
@@ -54,6 +55,9 @@ type GasPriceClient interface {
 // This means that is is safe to pass "fixed" prices to it without them being unintentionally changed
 // for future transactions.
 type HybridGasPriceClient struct {
+	bgCtx       context.Context
+	cancelBgCtx context.CancelFunc
+
 	hasZeroGasPrice bool
 	fixedGasPrice   *pldapi.PublicTxGasPricing
 	ethClient       ethclient.EthClient
@@ -66,7 +70,7 @@ type HybridGasPriceClient struct {
 	gasPriceIncreasePercent int
 
 	// Gas oracle HTTP client for external gas price retrieval
-	gasOracleHTTPClient *resty.Client
+	gasOracleHTTPClient *pldresty.PLDClient
 	gasOracleTemplate   *template.Template
 	gasOracleMethod     string
 	gasOracleBody       *string
@@ -77,10 +81,11 @@ type HybridGasPriceClient struct {
 	baseFeeBufferFactor   int
 
 	// Shared cache for gas price data
-	gasPriceCache         cache.Cache[string, *pldapi.PublicTxGasPricing]
-	gasPriceRefreshTicker *time.Ticker
-	refreshTime           time.Duration
-	cacheMux              sync.RWMutex
+	gasPriceCache              cache.Cache[string, *pldapi.PublicTxGasPricing]
+	gasPriceRefreshTicker      *time.Ticker
+	gasPriceRefreshRoutineDone chan struct{}
+	refreshTime                time.Duration
+	cacheMux                   sync.RWMutex
 }
 
 func (hGpc *HybridGasPriceClient) HasZeroGasPrice(ctx context.Context) bool {
@@ -372,6 +377,8 @@ func (hGpc *HybridGasPriceClient) GetGasPriceObject(ctx context.Context, txFixed
 }
 
 func (hGpc *HybridGasPriceClient) Init(ctx context.Context) error {
+	hGpc.bgCtx, hGpc.cancelBgCtx = context.WithCancel(ctx)
+
 	// config that is relevant to all gas price retrieval methods
 	if hGpc.conf.MaxPriorityFeePerGasCap != nil {
 		maxPriorityFeePerGasCap, err := pldtypes.ParseHexUint256(ctx, *hGpc.conf.MaxPriorityFeePerGasCap)
@@ -495,7 +502,14 @@ func (hGpc *HybridGasPriceClient) Start(ctx context.Context, ethClient ethclient
 
 	// Start cache refresh ticker if cache is enabled
 	if hGpc.gasPriceCache != nil {
-		hGpc.startGasPriceRefresh(ctx)
+		hGpc.startGasPriceRefresh(hGpc.bgCtx)
+	}
+}
+
+func (hGpc *HybridGasPriceClient) Stop() {
+	hGpc.cancelBgCtx()
+	if hGpc.gasPriceRefreshRoutineDone != nil {
+		<-hGpc.gasPriceRefreshRoutineDone
 	}
 }
 
@@ -589,15 +603,22 @@ func (hGpc *HybridGasPriceClient) startGasPriceRefresh(ctx context.Context) {
 
 	// Create ticker for refresh interval
 	hGpc.gasPriceRefreshTicker = time.NewTicker(hGpc.refreshTime)
+	hGpc.gasPriceRefreshRoutineDone = make(chan struct{})
 
 	// Start background goroutine that waits for ticker or context cancellation
 	go func() {
-		defer hGpc.gasPriceRefreshTicker.Stop()
+		defer func() {
+			close(hGpc.gasPriceRefreshRoutineDone)
+			hGpc.gasPriceRefreshTicker.Stop()
+		}()
 
 		for {
 			select {
 			case <-ctx.Done():
 				// Context cancelled, stop refreshing
+				if hGpc.gasOracleHTTPClient != nil {
+					hGpc.gasOracleHTTPClient.Close()
+				}
 				return
 			case <-hGpc.gasPriceRefreshTicker.C:
 				// Ticker fired, refresh cache

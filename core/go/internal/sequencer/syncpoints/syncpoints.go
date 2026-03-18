@@ -22,7 +22,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
-	"github.com/google/uuid"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -48,10 +47,11 @@ type SyncPoints interface {
 	// Deploy is a special case of dispatch batch, where there are no private states, so no domain context is required
 	PersistDeployDispatchBatch(ctx context.Context, dispatchBatch *DispatchBatch) error
 
-	// QueueTransactionFinalize integrates with TxManager to mark a transaction as finalized with the given formatter revert reason
-	// this is an async operation so it can safely be called from the sequencer event loop thread
-	// the onCommit and onRollback callbacks are called, on a separate goroutine when the transaction is committed or rolled back
-	QueueTransactionFinalize(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, originator string, transactionID uuid.UUID, failureMessage string, onCommit func(context.Context), onRollback func(context.Context, error))
+	// QueueTransactionFinalize integrates with TxManager to mark a transaction as finalized.
+	// For off-chain failures, req.FailureMessage is set. For on-chain failures, req.OnChain and req.RevertData are set.
+	// This is an async operation so it can safely be called from the sequencer event loop thread.
+	// The onCommit and onRollback callbacks are called on a separate goroutine when the transaction is committed or rolled back.
+	QueueTransactionFinalize(ctx context.Context, req *TransactionFinalizeRequest, onCommit func(context.Context), onRollback func(context.Context, error))
 
 	// This is a recursive callback between syncpoints when flushing receipts, and FinalizeTransactions on txMgr
 	WriteOrDistributeReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error

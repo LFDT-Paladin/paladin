@@ -29,13 +29,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
 	originatorTransaction "github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -43,7 +40,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	//TODO this need to become an ultra low latency, non blocking, handover to the event loop thread.
 	// need some thought on how to handle errors, retries, buffering, swapping idle sequencers in and out of memory etc...
 
-	sMgr.logPaladinMessage(ctx, message)
+	log.L(ctx).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 
 	//Send the event to the sequencer handler
 	switch message.MessageType {
@@ -56,9 +53,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	case transport.MessageType_CoordinatorHeartbeatNotification:
 		go sMgr.handleCoordinatorHeartbeatNotification(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequest:
-		// This is the only message type we put the message onto the coordinator state queue synchronously. This is to
-		// provide best effort FIFO ordering for transactions that are originated and coordinated within a single node.
-		sMgr.handleDelegationRequest(sMgr.ctx, message)
+		go sMgr.handleDelegationRequest(sMgr.ctx, message)
 	case transport.MessageType_DelegationRequestAcknowledgment:
 		go sMgr.handleDelegationRequestAcknowledgment(sMgr.ctx, message)
 	case transport.MessageType_Dispatched:
@@ -79,13 +74,11 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleTransactionSubmitted(sMgr.ctx, message)
 	case transport.MessageType_TransactionConfirmed:
 		go sMgr.handleTransactionConfirmed(sMgr.ctx, message)
+	case transport.MessageType_TransactionUnknown:
+		go sMgr.handleTransactionUnknown(sMgr.ctx, message)
 	default:
 		log.L(ctx).Errorf("Unknown message type: %s", message.MessageType)
 	}
-}
-
-func (sMgr *sequencerManager) logPaladinMessage(ctx context.Context, message *components.ReceivedMessage) {
-	log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_MSGRX)).Debugf("%+v received from %s", message.MessageType, message.FromNode)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
@@ -140,7 +133,7 @@ func (sMgr *sequencerManager) handleAssembleRequest(ctx context.Context, message
 	assembleRequestEvent := &originatorTransaction.AssembleRequestReceivedEvent{}
 	assembleRequestEvent.TransactionID = uuid.MustParse(assembleRequest.TransactionId)
 	assembleRequestEvent.RequestID = uuid.MustParse(assembleRequest.AssembleRequestId)
-	assembleRequestEvent.Coordinator = seq.GetCoordinator().GetActiveCoordinatorNode(ctx, true)
+	assembleRequestEvent.Coordinator = message.FromNode
 	assembleRequestEvent.CoordinatorsBlockHeight = assembleRequest.BlockHeight
 	assembleRequestEvent.StateLocksJSON = assembleRequest.StateLocks
 	assembleRequestEvent.PreAssembly = assembleRequest.PreAssembly
@@ -268,18 +261,11 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	heartbeatEvent.CoordinatorSnapshot = *coordinatorSnapshot
 	heartbeatEvent.EventTime = time.Now()
 
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
+	// we only pass heartbeat notifications to sequencers that are already loaded in memory
+	seq, err := sMgr.GetSequencer(ctx, *contractAddress)
 	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass heartbeat event to %v:", err)
+		log.L(ctx).Debugf("ignoring heartbeat for contract %s as sequencer is not loaded: %v", contractAddress, err)
 		return
-	}
-
-	for _, transaction := range coordinatorSnapshot.ConfirmedTransactions {
-		log.L(ctx).Debugf("received a heartbeat containing a confirmed transaction: %s", transaction.ID.String())
-		heartbeatIntervalEvent := &coordTransaction.HeartbeatIntervalEvent{}
-		heartbeatIntervalEvent.TransactionID = transaction.ID
-		heartbeatIntervalEvent.EventTime = time.Now()
-		seq.GetCoordinator().QueueEvent(ctx, heartbeatIntervalEvent)
 	}
 
 	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
@@ -433,13 +419,11 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	}
 
 	transactionDelegatedEvent := &coordinator.TransactionsDelegatedEvent{}
+	transactionDelegatedEvent.FromNode = message.FromNode
 	transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
 	transactionDelegatedEvent.Transactions = append(transactionDelegatedEvent.Transactions, privateTransaction)
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.BlockHeight)
 	transactionDelegatedEvent.EventTime = time.Now()
-
-	// Anyone who delegates a transaction to us is a candidate originator and should be sent heartbeats for TX confirmation processing
-	seq.GetCoordinator().UpdateOriginatorNodePool(ctx, message.FromNode)
 
 	seq.GetCoordinator().QueueEvent(ctx, transactionDelegatedEvent)
 }
@@ -478,76 +462,6 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 	err = proto.Unmarshal(endorsementRequest.TransactionSpecification.Value, transactionSpecification)
 	if err != nil {
 		return
-	}
-
-	// If this TX ID doesn't exist in the "transactions" DB, insert here.
-	theUUID := pldtypes.MustParseBytes32(transactionSpecification.TransactionId).UUIDFirst16()
-	txID := theUUID
-	if err != nil {
-		log.L(ctx).Errorf("failed to parse transaction ID %s: %s", transactionSpecification.TransactionId, err)
-		return
-	}
-	tx, err := sMgr.components.TxManager().GetTransactionByID(ctx, txID)
-	if err != nil {
-		log.L(ctx).Errorf("failed to get transaction %s from the 'transactions' DB: %s", transactionSpecification.TransactionId, err)
-		return
-	}
-	if tx == nil {
-		var functionABI abi.Entry // MRW TODO - parse function sig into ABI entry?
-		err = json.Unmarshal([]byte(transactionSpecification.FunctionAbiJson), &functionABI)
-		if err != nil {
-			log.L(ctx).Errorf("failed to unmarshall function abi: %s", err)
-			return
-		}
-		functionSig, err := functionABI.Signature()
-		if err != nil {
-			log.L(ctx).Errorf("failed to get signature for function ABI: %s", err)
-			return
-		}
-
-		// Create pldtypes ethaddress from string
-		fn, _, _, err := sMgr.components.TxManager().ResolveTransactionInputs(ctx, sMgr.components.Persistence().NOTX(), &pldapi.TransactionInput{
-			ABI: abi.ABI{&functionABI},
-			TransactionBase: pldapi.TransactionBase{
-				Domain:   psc.Domain().Name(),
-				From:     transactionSpecification.From,
-				Function: functionSig,
-				To:       pldtypes.MustEthAddress(transactionSpecification.ContractInfo.ContractAddress),
-				Type:     pldapi.TransactionTypePrivate.Enum(),
-				Data:     pldtypes.RawJSON(transactionSpecification.FunctionParamsJson),
-			},
-		})
-		if err != nil {
-			log.L(ctx).Errorf("failed to resolve transaction inputs: %s", err)
-			return
-		}
-		log.L(ctx).Infof("transaction %s not found in the 'transactions' DB, inserting it", transactionSpecification.TransactionId)
-		err = sMgr.components.Persistence().Transaction(ctx, func(ctx context.Context, dbTx persistence.DBTX) error {
-			validatedTransaction := &components.ValidatedTransaction{
-				ResolvedTransaction: components.ResolvedTransaction{
-					Function: fn,
-					Transaction: &pldapi.Transaction{
-						ID: &txID,
-						TransactionBase: pldapi.TransactionBase{
-							From:         transactionSpecification.From,
-							Function:     transactionSpecification.FunctionSignature,
-							ABIReference: fn.ABIReference,
-							To:           pldtypes.MustEthAddress(transactionSpecification.ContractInfo.ContractAddress),
-							Domain:       psc.Domain().Name(),
-							Type:         pldapi.TransactionTypePrivate.Enum(),
-							Data:         pldtypes.RawJSON(transactionSpecification.FunctionParamsJson),
-						},
-					},
-				},
-			}
-			_, err := sMgr.components.TxManager().InsertRemoteTransaction(ctx, dbTx, validatedTransaction, true)
-			// If this fails we reject the request to endorse. We need to persist the remote TX. A future endorsement request will eventually be received again
-			return err
-		})
-		if err != nil {
-			log.L(ctx).Errorf("failed to insert transaction %s into the 'transactions' DB: %s", transactionSpecification.TransactionId, err)
-			return
-		}
 	}
 
 	transactionVerifiers := make([]*prototk.ResolvedVerifier, len(endorsementRequest.Verifiers))
@@ -852,6 +766,7 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedRevertedEvent{}
 		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
 		transactionSubmittedEvent.RevertReason = transactionConfirmed.RevertReason
+		transactionSubmittedEvent.WillRetry = transactionConfirmed.WillRetry
 		transactionSubmittedEvent.EventTime = time.Now()
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
 	} else {
@@ -860,4 +775,42 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		transactionSubmittedEvent.EventTime = time.Now()
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)
 	}
+}
+
+func (sMgr *sequencerManager) handleTransactionUnknown(ctx context.Context, message *components.ReceivedMessage) {
+	// Handle a response from an originator indicating that it doesn't recognize a transaction.
+	// The most likely cause is that the transaction reverted during assembly but the response was lost,
+	// and the transaction has since been removed from memory on the originator after reaching a terminal state.
+	transactionUnknown := &engineProto.TransactionUnknown{}
+	err := proto.Unmarshal(message.Payload, transactionUnknown)
+	if err != nil {
+		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
+		return
+	}
+
+	contractAddress := sMgr.parseContractAddressString(ctx, transactionUnknown.ContractAddress, message)
+	if contractAddress == nil {
+		return
+	}
+
+	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
+	if seq == nil || err != nil {
+		log.L(ctx).Errorf("handleTransactionUnknown failed to obtain sequencer: %v", err)
+		return
+	}
+
+	txID, err := uuid.Parse(transactionUnknown.TransactionId)
+	if err != nil {
+		log.L(ctx).Errorf("handleTransactionUnknown failed to parse transaction ID: %v", err)
+		return
+	}
+
+	log.L(ctx).Warnf("received transaction unknown response for tx %s from originator, queuing cleanup event", txID)
+
+	unknownEvent := &coordTransaction.TransactionUnknownByOriginatorEvent{
+		BaseCoordinatorEvent: coordTransaction.BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	seq.GetCoordinator().QueueEvent(ctx, unknownEvent)
 }

@@ -139,15 +139,15 @@ func (ptm *pubTxManager) poll(ctx context.Context) (polled int, total int) {
 			// (raw SQL as couldn't convince gORM to build this)
 			const dbQueryBase = `SELECT DISTINCT t."from" FROM "public_txns" AS t ` +
 				`LEFT JOIN "public_completions" AS c ON t."pub_txn_id" = c."pub_txn_id" ` +
-				`WHERE c."pub_txn_id" IS NULL AND "suspended" IS FALSE`
+				`WHERE c."pub_txn_id" IS NULL AND "suspended" IS FALSE AND (dispatcher = ? OR dispatcher = '')`
 
 			const dbQueryNothingInFlight = dbQueryBase + ` LIMIT ?`
 			if len(inFlightSigningAddresses) == 0 {
-				return true, ptm.p.DB().Raw(dbQueryNothingInFlight, spaces).Scan(&additionalNonInFlightSigners).Error
+				return true, ptm.p.DB().Raw(dbQueryNothingInFlight, ptm.nodeName, spaces).Scan(&additionalNonInFlightSigners).Error
 			}
 
 			const dbQueryInFlight = dbQueryBase + ` AND t."from" NOT IN (?) LIMIT ?`
-			return true, ptm.p.DB().Raw(dbQueryInFlight, inFlightSigningAddresses, spaces).Scan(&additionalNonInFlightSigners).Error
+			return true, ptm.p.DB().Raw(dbQueryInFlight, ptm.nodeName, inFlightSigningAddresses, spaces).Scan(&additionalNonInFlightSigners).Error
 		})
 		if err != nil {
 			log.L(ctx).Infof("Engine polling context cancelled while retrying")

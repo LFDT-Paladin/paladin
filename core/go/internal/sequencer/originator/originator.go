@@ -17,6 +17,7 @@ package originator
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
@@ -25,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/google/uuid"
 
@@ -32,37 +34,42 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
-type SeqOriginator interface {
-	// Asynchronously update the state machine by queueing an event to be processed. Most
-	// callers should use this interface.
+// Originator is the interface that consumers use to interact with the originator.
+type Originator interface {
+	// Asynchronously update the state machine by queueing an event to be processed
+	// This the only interface by which consumers should update the state of the originator
 	QueueEvent(ctx context.Context, event common.Event)
 
-	// Synchronously update the state machine by processing this event. Primarily used for testing the state machine.
-	ProcessEvent(ctx context.Context, event common.Event) error
-
-	SetActiveCoordinator(ctx context.Context, coordinator string) error
-	GetCurrentCoordinator() string
 	GetTxStatus(ctx context.Context, txID uuid.UUID) (status components.PrivateTxStatus, err error)
-	Stop()
+	GetCurrentState() State
+
+	WaitForDone(ctx context.Context)
 }
 
 type originator struct {
-	/* State */
-	stateMachine                *StateMachine
-	activeCoordinatorNode       string
-	timeOfMostRecentHeartbeat   common.Time
-	transactionsByID            map[uuid.UUID]*transaction.Transaction
-	submittedTransactionsByHash map[pldtypes.Bytes32]*uuid.UUID
-	transactionsOrdered         []*uuid.UUID
-	currentBlockHeight          uint64
-	latestCoordinatorSnapshot   *common.CoordinatorSnapshot
+	// Mutex for thread-safe event processing (implements statemachine.Lockable)
+	// Any functions passed to the state machine do not need to take the lock themselves
+	// since the state machine takes the lock for the duration of the event processing.
+	// Any functions that expose non atomic state outside of the originator must
+	// take the read lock when called.
+	sync.RWMutex
+	ctx context.Context
+
+	/* State machine - using generic statemachine.StateMachineEventLoop */
+	stateMachineEventLoop     *statemachine.StateMachineEventLoop[State, *originator]
+	activeCoordinatorNode     string
+	timeOfMostRecentHeartbeat *time.Time
+	transactionsByID          map[uuid.UUID]*transaction.OriginatorTransaction
+	transactionsOrdered       []*transaction.OriginatorTransaction
+	currentBlockHeight        uint64
+	latestCoordinatorSnapshot *common.CoordinatorSnapshot
 
 	/* Config */
-	nodeName             string
-	blockRangeSize       uint64
-	contractAddress      *pldtypes.EthAddress
-	heartbeatThresholdMs common.Duration
-	delegateTimeout      common.Duration
+	nodeName           string
+	blockRangeSize     uint64
+	contractAddress    *pldtypes.EthAddress
+	heartbeatThreshold time.Duration
+	delegateTimeout    time.Duration
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
@@ -70,11 +77,7 @@ type originator struct {
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
 
-	/* Event loop and delegate loop*/
-	originatorEvents    chan common.Event
-	stopEventLoop       chan struct{}
-	eventLoopStopped    chan struct{}
-	stopDelegateLoop    chan struct{}
+	/* Delegate loop */
 	delegateLoopStopped chan struct{}
 }
 
@@ -90,50 +93,56 @@ func NewOriginator(
 	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
+	origCtx := log.WithLogField(ctx, "role", "originator")
 	o := &originator{
-		nodeName:                    nodeName,
-		transactionsByID:            make(map[uuid.UUID]*transaction.Transaction),
-		submittedTransactionsByHash: make(map[pldtypes.Bytes32]*uuid.UUID),
-		transportWriter:             transportWriter,
-		blockRangeSize:              confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
-		contractAddress:             contractAddress,
-		clock:                       clock,
-		engineIntegration:           engineIntegration,
-		heartbeatThresholdMs:        clock.Duration(heartbeatPeriodMs * heartbeatThresholdIntervals),
-		delegateTimeout:             confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
-		metrics:                     metrics,
-		originatorEvents:            make(chan common.Event, 50), // TODO >1 only required for sqlite coarse-grained locks. Should this be DB-dependent?
-		stopEventLoop:               make(chan struct{}),
-		eventLoopStopped:            make(chan struct{}),
-		stopDelegateLoop:            make(chan struct{}),
-		delegateLoopStopped:         make(chan struct{}),
+		ctx:                 origCtx,
+		nodeName:            nodeName,
+		transactionsByID:    make(map[uuid.UUID]*transaction.OriginatorTransaction),
+		transportWriter:     transportWriter,
+		blockRangeSize:      confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
+		contractAddress:     contractAddress,
+		clock:               clock,
+		engineIntegration:   engineIntegration,
+		heartbeatThreshold:  time.Duration(heartbeatPeriodMs*heartbeatThresholdIntervals) * time.Millisecond,
+		delegateTimeout:     confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
+		metrics:             metrics,
+		delegateLoopStopped: make(chan struct{}),
 	}
-	o.InitializeStateMachine(State_Idle)
+	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
+	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
+	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
-	go o.eventLoop(ctx)
-
-	go o.delegateLoop(ctx)
+	go o.stateMachineEventLoop.Start(origCtx)
+	go o.delegateLoop(origCtx)
 
 	return o, nil
 }
 
-func (o *originator) eventLoop(ctx context.Context) {
-	defer close(o.eventLoopStopped)
-	log.L(ctx).Debugf("originator event loop started for contract %s", o.contractAddress.String())
-	for {
-		log.L(ctx).Debugf("originator for contract %s event loop waiting for next event", o.contractAddress.String())
-		select {
-		case event := <-o.originatorEvents:
-			log.L(ctx).Debugf("originator for contract %s pulled event from the queue: %s", o.contractAddress.String(), event.TypeString())
-			err := o.ProcessEvent(ctx, event)
-			if err != nil {
-				log.L(ctx).Errorf("error processing event: %v", err)
-			}
-		case <-o.stopEventLoop:
-			log.L(ctx).Debugf("originator event loop stopped for contract %s", o.contractAddress.String())
-			return
-		}
+func (o *originator) WaitForDone(ctx context.Context) {
+	select {
+	case <-o.delegateLoopStopped:
+	case <-ctx.Done():
+		return
 	}
+	o.stateMachineEventLoop.WaitForDone(ctx)
+}
+
+func (o *originator) GetCurrentState() State {
+	o.RLock()
+	defer o.RUnlock()
+	return o.stateMachineEventLoop.GetCurrentState()
+}
+
+func (o *originator) QueueEvent(ctx context.Context, event common.Event) {
+	log.L(ctx).Tracef("Pushing originator event onto event queue: %s", event.TypeString())
+	o.stateMachineEventLoop.QueueEvent(ctx, event)
+	log.L(ctx).Tracef("Pushed originator event onto event queue: %s", event.TypeString())
+}
+
+func (o *originator) queueEventInternal(ctx context.Context, event common.Event) {
+	log.L(ctx).Tracef("Pushing internal originator event onto priority queue: %s", event.TypeString())
+	o.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
+	log.L(ctx).Tracef("Pushed internal originator event onto priority queue: %s", event.TypeString())
 }
 
 func (o *originator) delegateLoop(ctx context.Context) {
@@ -141,7 +150,7 @@ func (o *originator) delegateLoop(ctx context.Context) {
 	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
 
 	// Check for transactions still waiting to be delegated
-	ticker := time.NewTicker(o.delegateTimeout.(time.Duration))
+	ticker := time.NewTicker(o.delegateTimeout)
 	defer func() {
 		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
 		ticker.Stop()
@@ -153,8 +162,10 @@ func (o *originator) delegateLoop(ctx context.Context) {
 			delegateTimeoutEvent := &DelegateTimeoutEvent{}
 			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
 			delegateTimeoutEvent.EventTime = time.Now()
-			o.QueueEvent(ctx, delegateTimeoutEvent)
-		case <-o.stopDelegateLoop:
+			// TryQueueEvent is acceptable here as if the event cannot be queued, it will be retried on
+			// the next tick. Not blocking on a full channel also avoids stalling shutdown.
+			o.stateMachineEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
+		case <-ctx.Done():
 			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
 			return
 		}
@@ -164,47 +175,39 @@ func (o *originator) delegateLoop(ctx context.Context) {
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
 	if txn := o.transactionsByID[event.GetTransactionID()]; txn != nil {
 		return txn.HandleEvent(ctx, event)
-	} else {
-		log.L(ctx).Debugf("ignoring event because transaction not known to this originator %s", event.GetTransactionID().String())
 	}
-	return nil
+
+	// Transaction not known to this originator.
+	// The most likely cause is that the transaction reached a terminal state (e.g., reverted during assembly)
+	// and has since been removed from memory after cleanup. We need to tell the coordinator so they can clean up.
+	log.L(ctx).Debugf("transaction not known to this originator %s", event.GetTransactionID().String())
+
+	// Extract coordinator from events that require a response
+	var coordinator string
+
+	switch e := event.(type) {
+	case *transaction.AssembleRequestReceivedEvent:
+		coordinator = e.Coordinator
+	case *transaction.PreDispatchRequestReceivedEvent:
+		coordinator = e.Coordinator
+	default:
+		// Other events can be safely ignored
+		return nil
+	}
+
+	log.L(ctx).Warnf("received %s for unknown transaction %s, notifying coordinator %s",
+		event.TypeString(), event.GetTransactionID(), coordinator)
+	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
-func (o *originator) createTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
-	newTxn, err := transaction.NewTransaction(ctx, txn, o.transportWriter, o.ProcessEvent, o.engineIntegration, o.metrics)
-	if err != nil {
-		log.L(ctx).Errorf("error creating transaction: %v", err)
-		return err
-	}
-	o.transactionsByID[txn.ID] = newTxn
-	o.transactionsOrdered = append(o.transactionsOrdered, &txn.ID)
-	createdEvent := &transaction.CreatedEvent{}
-	createdEvent.TransactionID = txn.ID
-	err = newTxn.HandleEvent(ctx, createdEvent)
-	if err != nil {
-		log.L(ctx).Errorf("error handling CreatedEvent for transaction %s: %v", txn.ID.String(), err)
-		return err
-	}
-	return nil
-}
-
-func (o *originator) transactionsOrderedByCreatedTime(ctx context.Context) ([]*transaction.Transaction, error) {
-	//TODO are we actually saving anything by transactionsOrdered being an array of IDs rather than an array of *transaction.Transaction
-	ordered := make([]*transaction.Transaction, len(o.transactionsOrdered))
-	for i, id := range o.transactionsOrdered {
-		ordered[i] = o.transactionsByID[*id]
-	}
-	return ordered, nil
-}
-
-func (o *originator) getTransactionsInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	matchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		matchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if matchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)
@@ -213,14 +216,14 @@ func (o *originator) getTransactionsInStates(ctx context.Context, states []trans
 	return matchingTxns
 }
 
-func (o *originator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []*transaction.Transaction {
+func (o *originator) getTransactionsNotInStates(states []transaction.State) []*transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	nonMatchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		nonMatchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.Transaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if !nonMatchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)
@@ -231,30 +234,4 @@ func (o *originator) getTransactionsNotInStates(ctx context.Context, states []tr
 
 func ptrTo[T any](v T) *T {
 	return &v
-}
-
-// A sequencer can be asked to page itself out at any time to make space for other sequencers.
-// This hook point provides a place to perform any tidy up actions needed in the originator
-func (o *originator) Stop() {
-	log.L(context.Background()).Infof("Stopping originator for contract %s", o.contractAddress.String())
-
-	// Make Stop() idempotent - make sure we've not already been stopped
-	select {
-	case <-o.eventLoopStopped:
-		return
-	default:
-	}
-
-	// Stop the event and delegate loops
-	o.stopEventLoop <- struct{}{}
-	o.stopDelegateLoop <- struct{}{}
-	<-o.eventLoopStopped
-	<-o.delegateLoopStopped
-}
-
-//TODO the following getter methods are not safe to call on anything other than the sequencer goroutine because they are reading data structures that are being modified by the state machine.
-// We should consider making them safe to call from any goroutine by reading maintaining a copy of the data structures that are updated async from the sequencer thread under a mutex
-
-func (o *originator) GetCurrentState() State {
-	return o.stateMachine.currentState
 }

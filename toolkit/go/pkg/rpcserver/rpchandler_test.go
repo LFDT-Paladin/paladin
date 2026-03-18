@@ -18,18 +18,49 @@ package rpcserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/go-resty/resty/v2"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type asyncHandlerForTest struct {
+	postSendDone chan struct{}
+}
+
+func (h *asyncHandlerForTest) StartMethod() string {
+	return "ut_asyncStart"
+}
+
+func (h *asyncHandlerForTest) LifecycleMethods() []string {
+	return nil
+}
+
+func (h *asyncHandlerForTest) HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse, func()) {
+	res := &rpcclient.RPCResponse{
+		JSONRpc: "2.0",
+		ID:      req.ID,
+		Result:  pldtypes.JSONString("started"),
+	}
+	afterSend := func() {
+		close(h.postSendDone)
+	}
+	return nil, res, afterSend
+}
+
+func (h *asyncHandlerForTest) HandleLifecycle(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse {
+	return rpcclient.NewRPCErrorResponse(fmt.Errorf("not used"), req.ID, rpcclient.RPCCodeInvalidRequest)
+}
 
 func TestRPCMessageBatch(t *testing.T) {
 
@@ -256,4 +287,46 @@ func TestRPCBadArrayError(t *testing.T) {
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
 
+}
+
+func TestRPCBatchPostSendCalls(t *testing.T) {
+	postSendDone := make(chan struct{})
+	asyncHandler := &asyncHandlerForTest{postSendDone: postSendDone}
+
+	wsURL, s, done := newTestServerWebSockets(t, &pldconf.RPCServerConfig{})
+	defer done()
+
+	s.Register(NewRPCModule("ut").AddAsync(asyncHandler))
+	regTestRPC(s, "ut_sync", RPCMethod0(func(ctx context.Context) (string, error) {
+		return "syncResult", nil
+	}))
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Batch: async start (returns afterSend) + a regular sync method (nil afterSend)
+	batchReq := `[
+		{"jsonrpc":"2.0","id":"1","method":"ut_asyncStart","params":[]},
+		{"jsonrpc":"2.0","id":"2","method":"ut_sync","params":[]}
+	]`
+	err = conn.WriteMessage(websocket.TextMessage, []byte(batchReq))
+	require.NoError(t, err)
+
+	_, respBytes, err := conn.ReadMessage()
+	require.NoError(t, err)
+
+	var batchRes []*rpcclient.RPCResponse
+	err = json.Unmarshal(respBytes, &batchRes)
+	require.NoError(t, err)
+	require.Len(t, batchRes, 2)
+	assert.Nil(t, batchRes[0].Error)
+	assert.Nil(t, batchRes[1].Error)
+
+	select {
+	case <-postSendDone:
+		// success
+	case <-time.After(10 * time.Second):
+		t.Fatal("postSend callback was not invoked within timeout")
+	}
 }

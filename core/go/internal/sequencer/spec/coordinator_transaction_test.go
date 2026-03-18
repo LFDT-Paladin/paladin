@@ -19,25 +19,28 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCoordinatorTransaction_Initial_ToPooled_OnReceived_IfNoInflightDependencies(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
+	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
@@ -49,56 +52,52 @@ func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDepend
 	grapher := transaction.NewGrapher(ctx)
 
 	//transaction2 depends on transaction 1 and transaction 1 gets reverted
-	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
-		Grapher(grapher)
-
-	txn1 := builder1.Build()
-
-	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
+	txn1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
 		Grapher(grapher).
-		Originator(builder1.GetOriginator()).
-		PredefinedDependencies(txn1.ID)
-	txn2 := builder2.Build()
+		Build()
 
-	err := txn2.HandleEvent(ctx, &transaction.ReceivedEvent{
+	txn2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
+		Grapher(grapher).
+		PredefinedDependencies(txn1.GetID()).
+		Build()
+
+	err := txn2.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn2.ID,
+			TransactionID: txn2.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
-
 }
 
 func TestCoordinatorTransaction_Initial_ToPreAssemblyBlocked_OnReceived_IfDependencyUnknown(t *testing.T) {
 	ctx := context.Background()
-	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
-		PredefinedDependencies(uuid.New())
-	txn := builder.Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Initial).
+		PredefinedDependencies(uuid.New()).
+		Build()
 
-	err := txn.HandleEvent(ctx, &transaction.ReceivedEvent{
+	err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-
 }
 
 func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 	ctx := context.Background()
 
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).BuildWithMocks()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
+	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	err := txn.HandleEvent(ctx, &transaction.SelectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 	assert.Equal(t, true, mocks.SentMessageRecorder.HasSentAssembleRequest())
@@ -106,32 +105,31 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 
 func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		NumberOfOutputStates(1).
+		AddPendingAssembleRequest()
+	txn, mocks := txnBuilder.Build()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleSuccessEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		PostAssembly: txnBuilder.BuildPostAssembly(),
-		PreAssembly:  txnBuilder.BuildPreAssembly(),
-		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
+	successEvent := txnBuilder.BuildAssembleSuccessEvent()
+	outputState := successEvent.PostAssembly.OutputStates[0]
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Run(func(ctx context.Context, txn *components.PrivateTransaction) {
+		assert.Equal(t, outputState.ID, txn.PostAssembly.OutputStates[0].ID)
+	}).Return(nil)
+
+	err := txn.HandleEvent(ctx, successEvent)
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 	assert.Equal(t, 3, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-	//TODO some assertions that WriteLockAndDistributeStatesForTransaction was called with the expected states
-
 }
 
 func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleResponse_IfResponseDoesNotMatchPendingRequest(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn := txnBuilder.Build()
+	txn, _ := txnBuilder.Build()
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleSuccessEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		PostAssembly: txnBuilder.BuildPostAssembly(),
 		RequestID:    uuid.New(), //generate a new random request ID so that it won't match the pending request
@@ -140,60 +138,57 @@ func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleResponse_IfRes
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout_IfNotAssembleTimeoutExpired(t *testing.T) {
+func TestCoordinatorTransaction_Assembling_NoTransition_OnRequestTimeout(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	hasNudged := false
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		RequestTimeout(1).
+		AddPendingAssembleRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error {
+			hasNudged = true
+			return nil
+		}).
+		Build()
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() - 1)
-
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentAssembleRequests())
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfSentAssembleRequests())
-
+	require.NoError(t, err)
+	assert.True(t, hasNudged)
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Assembling_ToPooled_OnRequestTimeout_IfAssembleTimeoutExpired(t *testing.T) {
+func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeoutExpired(t *testing.T) {
 	ctx := context.Background()
-	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling)
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		StateTimeout(1).
+		Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
-	mocks.Clock.Advance(txnBuilder.GetAssembleTimeout() + 1)
-
-	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
+	err := txn.HandleEvent(ctx, &transaction.StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
 	assert.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-	assert.Equal(t, 1, txn.GetErrorCount(), "expected error count to be 1, but it was %d", txn.GetErrorCount())
 }
 
 func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		AddPendingAssembleRequest().
 		Reverts("some revert reason")
 
-	txn, mocks := txnBuilder.BuildWithMocks()
+	txn, mocks := txnBuilder.Build()
 
-	mocks.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
-	err := txn.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		PostAssembly: txnBuilder.BuildPostAssembly(),
-		RequestID:    mocks.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
+	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleRevertEvent())
+	require.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
@@ -201,73 +196,44 @@ func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t
 func TestCoordinatorTransaction_Assembling_NoTransition_OnAssembleRevertResponse_IfResponseDoesNotMatchPendingRequest(t *testing.T) {
 	ctx := context.Background()
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		AddPendingAssembleRequest().
 		Reverts("some revert reason")
 
-	txn := txnBuilder.Build()
+	txn, _ := txnBuilder.Build()
 
 	err := txn.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		PostAssembly: txnBuilder.BuildPostAssembly(),
 		RequestID:    uuid.New(), //generate a new random request ID so that it won't match the pending request,
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Assembling, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Pooled_ToPreAssemblyBlocked_OnDependencyReverted(t *testing.T) {
-	ctx := context.Background()
-
-	//we need 2 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
-
-	//transaction2 depends on transaction 1 and transaction 1 gets reverted
-	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
-		Grapher(grapher).
-		Reverts("some revert reason")
-	txn1, mocks1 := builder1.BuildWithMocks()
-
-	mocks1.SyncPoints.(*syncpoints.MockSyncPoints).On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).
-		Grapher(grapher).
-		Originator(builder1.GetOriginator()).
-		PredefinedDependencies(txn1.ID)
-	txn2 := builder2.Build()
-
-	err := txn1.HandleEvent(ctx, &transaction.AssembleRevertResponseEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn1.ID,
-		},
-		PostAssembly: builder1.BuildPostAssembly(),
-		RequestID:    mocks1.SentMessageRecorder.SentAssembleRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, transaction.State_PreAssembly_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
-
-}
-
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests(t *testing.T) {
 	ctx := context.Background()
-	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
-		NumberOfRequiredEndorsers(3)
-
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 3, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-
-	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
+	var requestCount int
+	incrementCount := func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		requestCount++
+		return nil
+	}
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
+		NumberOfRequiredEndorsers(3).
+		AddPendingEndorsementRequestWithCallback(0, incrementCount).
+		AddPendingEndorsementRequestWithCallback(1, incrementCount).
+		AddPendingEndorsementRequestWithCallback(2, incrementCount).
+		Build()
 
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, 6, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
-
+	require.NoError(t, err)
+	assert.Equal(t, 3, requestCount)
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 
 }
@@ -275,47 +241,47 @@ func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTim
 func TestCoordinatorTransaction_Endorsement_Gathering_NudgeRequests_OnRequestTimeout_IfPendingRequests_Partial(t *testing.T) {
 	//emulate the case where only a subset of the endorsement requests have timed out
 	ctx := context.Background()
+	var requestCount int
+	incrementCount := func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		requestCount++
+		return nil
+	}
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
-		NumberOfRequiredEndorsers(4)
+		NumberOfRequiredEndorsers(4).
+		AddPendingEndorsementRequestWithCallback(0, incrementCount).
+		AddPendingEndorsementRequestWithCallback(1, incrementCount).
+		AddPendingEndorsementRequestWithCallback(2, incrementCount).
+		AddPendingEndorsementRequestWithCallback(3, incrementCount)
 
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 4, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests())
+	txn, _ := builder.Build()
 
 	//2 endorsements come back in a timely manner
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(0))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, builder.BuildEndorsedEvent(1))
-	assert.NoError(t, err)
-
-	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
+	require.NoError(t, err)
 
 	err = txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-	assert.Equal(t, 6, mocks.SentMessageRecorder.NumberOfSentEndorsementRequests()) // the 4 original requests plus 2 nudge requests
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[0]))
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[1]))
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[2]))
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfEndorsementRequestsForParty(builder.GetEndorsers()[3]))
-
+	require.NoError(t, err)
+	assert.Equal(t, 2, requestCount)
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-
 }
 
 func TestCoordinatorTransaction_Endorsement_Gathering_ToConfirmingDispatch_OnEndorsed_IfAttestationPlanComplete(t *testing.T) {
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest(2)
 
-	txn, mocks := builder.BuildWithMocks()
+	txn, mocks := builder.Build()
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(2))
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 	assert.True(t, mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest(), "expected a dispatch confirmation request to be sent, but none were sent")
 
@@ -325,13 +291,14 @@ func TestCoordinatorTransaction_Endorsement_GatheringNoTransition_IfNotAttestati
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(1) //only 1 existing endorsement so the next one does not complete the attestation plan
+		NumberOfEndorsements(1). //only 1 existing endorsement so the next one does not complete the attestation plan
+		AddPendingEndorsementRequest(1).
+		AddPendingEndorsementRequest(2)
 
-	txn, mocks := builder.BuildWithMocks()
+	txn, mocks := builder.Build()
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorsedEvent(1))
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Endorsement_Gathering, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 	assert.False(t, mocks.SentMessageRecorder.HasSentDispatchConfirmationRequest(), "did not expected a dispatch confirmation request to be sent, but one was sent")
 
@@ -343,22 +310,24 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 	//we need 2 transactions to know about each other so they need to share a state index
 	grapher := transaction.NewGrapher(ctx)
 
-	builder1 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
+	txn1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
-	txn1 := builder1.Build()
+		NumberOfEndorsements(2).
+		Build()
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		InputStateIDs(txn1.PostAssembly.OutputStates[0].ID)
-	txn2 := builder2.Build()
+		AddPendingEndorsementRequest(2).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txn1.GetID()},
+		})
+	txn2, _ := builder2.Build()
 
 	err := txn2.HandleEvent(ctx, builder2.BuildEndorsedEvent(2))
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Blocked, txn2.GetCurrentState(), "current state is %s", txn2.GetCurrentState().String())
 
 }
@@ -367,62 +336,61 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 	ctx := context.Background()
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2)
+		NumberOfEndorsements(2).
+		AddPendingEndorsementRequest(2)
 
-	txn := builder.Build()
+	txn, mocks := builder.Build()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
-	assert.Equal(t, 1, txn.GetErrorCount())
-
 }
 
 func TestCoordinatorTransaction_ConfirmingDispatch_NudgeRequest_OnRequestTimeout(t *testing.T) {
 	ctx := context.Background()
-	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable)
-	txn, mocks := builder.BuildWithMocks()
-	assert.Equal(t, 1, mocks.SentMessageRecorder.NumberOfSentDispatchConfirmationRequests())
-
-	mocks.Clock.Advance(builder.GetRequestTimeout() + 1)
+	var nudged bool
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error {
+			nudged = true
+			return nil
+		}).
+		Build()
 
 	err := txn.HandleEvent(ctx, &transaction.RequestTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, 2, mocks.SentMessageRecorder.NumberOfSentDispatchConfirmationRequests())
+	require.NoError(t, err)
+	assert.True(t, nudged)
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_ConfirmingDispatch_ToReadyForDispatch_OnDispatchConfirmed(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).BuildWithMocks()
+	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error {
+			return nil
+		})
+	txn, _ := builder.Build()
 
-	err := txn.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
-		},
-		RequestID: mocks.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
-
+	err := txn.HandleEvent(ctx, builder.BuildDispatchRequestApprovedEvent())
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Ready_For_Dispatch, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_ConfirmingDispatch_NoTransition_OnDispatchConfirmed_IfResponseDoesNotMatchPendingRequest(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 		RequestID: uuid.New(),
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
@@ -437,35 +405,38 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	//we need 3 transactions to know about each other so they need to share a state index
 	grapher := transaction.NewGrapher(ctx)
 
-	builderB := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
-		Grapher(grapher)
-	txnB := builderB.Build()
+	txAID := uuid.New()
+	txBID := uuid.New()
+	txCID := uuid.New()
+
+	_, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Grapher(grapher).
+		TransactionID(txBID).
+		Build()
 
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher)
-	txnC, mocksC := builderC.BuildWithMocks()
+		Grapher(grapher).
+		TransactionID(txCID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{txAID},
+		}).
+		AddPendingPreDispatchRequest()
+	txnC, _ := builderC.Build()
 
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
-		InputStateIDs(
-			txnB.PostAssembly.OutputStates[0].ID,
-			txnC.PostAssembly.OutputStates[0].ID,
-		)
-	txnA := builderA.Build()
+		TransactionID(txAID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txBID, txCID},
+		})
+	txnA, _ := builderA.Build()
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing C to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
-	err := txnC.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txnC.ID,
-		},
-		RequestID: mocksC.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
-
+	err := txnC.HandleEvent(ctx, builderC.BuildDispatchRequestApprovedEvent())
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
-
 }
 
 func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDependenciesNotReady(t *testing.T) {
@@ -476,33 +447,39 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 
 	//we need 3 transactions to know about each other so they need to share a state index
 	grapher := transaction.NewGrapher(ctx)
+	txAID := uuid.New()
+	txBID := uuid.New()
+	txCID := uuid.New()
 
 	builderB := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher)
-	txnB, mocksB := builderB.BuildWithMocks()
-
-	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher)
-	txnC := builderC.Build()
-
-	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
-		InputStateIDs(
-			txnB.PostAssembly.OutputStates[0].ID,
-			txnC.PostAssembly.OutputStates[0].ID,
-		)
-	txnA := builderA.Build()
+		TransactionID(txBID).
+		AddPendingPreDispatchRequest().
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{txAID},
+		})
+	txnB, _ := builderB.Build()
+
+	_, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
+		Grapher(grapher).
+		TransactionID(txCID).
+		AddPendingPreDispatchRequest().
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{txAID},
+		}).Build()
+
+	txnA, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
+		Grapher(grapher).
+		TransactionID(txAID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txBID, txCID},
+		}).Build()
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing B to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
-	err := txnB.HandleEvent(ctx, &transaction.DispatchRequestApprovedEvent{
-		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txnB.ID,
-		},
-		RequestID: mocksB.SentMessageRecorder.SentDispatchConfirmationRequestIdempotencyKey(),
-	})
-	assert.NoError(t, err)
+	err := txnB.HandleEvent(ctx, builderB.BuildDispatchRequestApprovedEvent())
+	require.NoError(t, err)
 
 	assert.Equal(t, transaction.State_Blocked, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 
@@ -510,91 +487,171 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 
 func TestCoordinatorTransaction_ReadyForDispatch_ToDispatched_OnDispatched(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_PREPARE_TRANSACTION,
+				From:   "sender@node1",
+			},
+		}).
+		PostAssembly(&components.TransactionPostAssembly{}).
+		Build()
+	mocks.DomainAPI.On("PrepareTransaction", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		tx := args.Get(2).(*components.PrivateTransaction)
+		tx.PreparedPrivateTransaction = &pldapi.TransactionInput{}
+	}).Return(nil)
+	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, &transaction.DispatchedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Dispatched_ToSubmissionPrepared_OnCollected(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_NoTransition_OnCollected(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.CollectedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, transaction.State_SubmissionPrepared, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_SubmissionPrepared_ToSubmitted_OnSubmitted(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_NoTransition_OnSubmitted(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_SubmissionPrepared).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
 
 	err := txn.HandleEvent(ctx, &transaction.SubmittedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
-	assert.Equal(t, transaction.State_Submitted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Dispatched, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Submitted_ToPooled_OnConfirmed_IfRevert(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryable(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	revertReason := pldtypes.HexBytes("0x01020304")
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
+	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
 		},
-		RevertReason: pldtypes.HexBytes("0x01020304"),
+		RevertReason: revertReason,
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
-func TestCoordinatorTransaction_Submitted_ToConfirmed_IfNoRevert(t *testing.T) {
+func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRetryable(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted).Build()
+	revertReason := pldtypes.HexBytes("0x01020304")
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded error", nil)
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return()
 
-	err := txn.HandleEvent(ctx, &transaction.ConfirmedEvent{
+	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-			TransactionID: txn.ID,
+			TransactionID: txn.GetID(),
+		},
+		RevertReason: revertReason,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfThresholdExceeded(t *testing.T) {
+	ctx := context.Background()
+	revertReason := pldtypes.HexBytes("0x01020304")
+	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		BaseLedgerRevertRetryThreshold(1).
+		RevertCount(1).
+		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Build()
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return()
+
+	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.GetID(),
+		},
+		RevertReason: revertReason,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Reverted, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_Dispatched_ToConfirmed_OnConfirmedSuccess(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+
+	err := txn.HandleEvent(ctx, &transaction.ConfirmedSuccessEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.GetID(),
 		},
 	})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_Confirmed_ToFinal_OnHeartbeatInterval_IfHasBeenIncludedInEnoughHeartbeats(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(4).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		ConfirmedLocksReleased(true).
+		HeartbeatIntervalsSinceStateChange(4).
+		Build()
 
-	err := txn.HandleEvent(ctx, &transaction.HeartbeatIntervalEvent{})
-	assert.NoError(t, err)
-
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }
 
 func TestCoordinatorTransaction_Confirmed_NoTransition_OnHeartbeatInterval_IfNotHasBeenIncludedInEnoughHeartbeats(t *testing.T) {
 	ctx := context.Background()
-	txn := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).HeartbeatIntervalsSinceStateChange(3).Build()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
+		ConfirmedLocksReleased(true).
+		HeartbeatIntervalsSinceStateChange(3).
+		Build()
 
-	err := txn.HandleEvent(ctx, &transaction.HeartbeatIntervalEvent{})
-	assert.NoError(t, err)
-
+	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
+	require.NoError(t, err)
 	assert.Equal(t, transaction.State_Confirmed, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
+}
+
+func TestCoordinatorTransaction_Assembling_ToFinal_OnTransactionUnknownByOriginator(t *testing.T) {
+	// Test that when an originator reports a transaction as unknown (most likely because
+	// it reverted during assembly but the response was lost and the transaction has since
+	// been cleaned up on the originator), the coordinator transitions to State_Final
+	ctx := context.Background()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+
+	err := txn.HandleEvent(ctx, &transaction.TransactionUnknownByOriginatorEvent{
+		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+			TransactionID: txn.GetID(),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transaction.State_Final, txn.GetCurrentState(), "current state is %s", txn.GetCurrentState().String())
 }

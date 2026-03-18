@@ -37,8 +37,8 @@ const (
 	RMHMessageTypeNack                        = "nack"
 	RMHMessageTypeStateDistribution           = string(pldapi.RMTState)
 	RMHMessageTypeReceipt                     = string(pldapi.RMTReceipt)
-	RMHMessageTypePublicTransaction           = string(pldapi.RMTPublicTransaction)
 	RMHMessageTypePublicTransactionSubmission = string(pldapi.RMTPublicTransactionSubmission)
+	RMHMessageTypeSequencingActivity          = string(pldapi.RMTSequencingActivity)
 	RMHMessageTypePreparedTransaction         = string(pldapi.RMTPreparedTransaction)
 	RMHMessageTypePrivacyGroup                = string(pldapi.RMTPrivacyGroup)
 	RMHMessageTypePrivacyGroupMessage         = string(pldapi.RMTPrivacyGroupMessage)
@@ -90,8 +90,8 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	nullifierUpserts := make(map[string][]*components.NullifierUpsert)
 	var preparedTxnToAdd []*components.PreparedTransactionWithRefs
 	var txReceiptsToFinalize []*components.ReceiptInput
-	var txPublicTransactionsToPersist []*pldapi.PublicTxToDistribute  // public transactions
-	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxToDistribute // public transaction submissions
+	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxWithBinding // public transaction submissions
+	var sequencingActivitiesToPersist []*pldapi.SequencerActivity
 	var msgsToReceive []*receivedPrivacyGroupMessage
 	var privacyGroupsToAdd []*receivedPrivacyGroup
 
@@ -175,24 +175,10 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
 				txReceiptsToFinalize = append(txReceiptsToFinalize, &receipt)
 			}
-		case RMHMessageTypePublicTransaction:
-			log.L(ctx).Debugf("received public TX, parsePublicTransactionMsg: %+v", v.msg)
-			var publicTXToDistribute pldapi.PublicTxToDistribute
-			err := json.Unmarshal(v.msg.Payload, &publicTXToDistribute)
-			if err != nil {
-				acksToSend = append(acksToSend,
-					&ackInfo{node: v.p.Name, id: v.msg.MessageID, Error: err.Error()}, // reject the message permanently
-				)
-			} else {
-				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
-				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
-				txPublicTransactionsToPersist = append(txPublicTransactionsToPersist, &publicTXToDistribute)
-			}
-
 		case RMHMessageTypePublicTransactionSubmission:
 			log.L(ctx).Debugf("received public TX submission, parsePublicTransactionSubmissionMsg: %+v", v.msg)
-			var publicTXSubmissionToDistribute pldapi.PublicTxToDistribute
-			err := json.Unmarshal(v.msg.Payload, &publicTXSubmissionToDistribute)
+			var publicTXSubmission pldapi.PublicTxWithBinding
+			err := json.Unmarshal(v.msg.Payload, &publicTXSubmission)
 			if err != nil {
 				acksToSend = append(acksToSend,
 					&ackInfo{node: v.p.Name, id: v.msg.MessageID, Error: err.Error()}, // reject the message permanently
@@ -200,7 +186,25 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			} else {
 				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
 				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
-				txPublicTXSubmissionsToPersist = append(txPublicTXSubmissionsToPersist, &publicTXSubmissionToDistribute)
+
+				// Before persisting, assert that the dispatcher is the source node of the reliable message
+				// rather than assume the dispatched in the payload is valid.
+				publicTXSubmission.Dispatcher = v.msg.FromNode
+				txPublicTXSubmissionsToPersist = append(txPublicTXSubmissionsToPersist, &publicTXSubmission)
+			}
+		case RMHMessageTypeSequencingActivity:
+			log.L(ctx).Debugf("received sequencing activity, parseSequencingActivityMsg: %+v", v.msg)
+			var sequencingActivity pldapi.SequencerActivity
+			err := json.Unmarshal(v.msg.Payload, &sequencingActivity)
+			if err != nil {
+				acksToSend = append(acksToSend,
+					&ackInfo{node: v.p.Name, id: v.msg.MessageID, Error: err.Error()}, // reject the message permanently
+				)
+			} else {
+				// Build the ack now, as we'll fail the whole TX and not send any acks if the write fails
+				acksToSend = append(acksToSend, &ackInfo{node: v.p.Name, id: v.msg.MessageID})
+				sequencingActivity.SequencingNode = v.msg.FromNode // Don't trust the payload, populate from the peer source node
+				sequencingActivitiesToPersist = append(sequencingActivitiesToPersist, &sequencingActivity)
 			}
 		case RMHMessageTypeAck, RMHMessageTypeNack:
 			ackNackToWrite := tm.parseReceivedAckNack(ctx, v.msg)
@@ -301,15 +305,8 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	}
 
 	// Insert any public transaction submissions
-	if len(txPublicTransactionsToPersist) > 0 {
-		if _, err := tm.publicTxManager.WriteReceivedTransactions(ctx, dbTX, txPublicTransactionsToPersist); err != nil {
-			return nil, err
-		}
-	}
-
-	// Insert any public transaction submissions
 	if len(txPublicTXSubmissionsToPersist) > 0 {
-		if _, err := tm.publicTxManager.WriteReceivedPublicTransactionSubmissions(ctx, dbTX, txPublicTXSubmissionsToPersist); err != nil {
+		if err := tm.publicTxManager.WriteReceivedPublicTransactionSubmissions(ctx, dbTX, txPublicTXSubmissionsToPersist); err != nil {
 			return nil, err
 		}
 	}
@@ -365,6 +362,13 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 				errStr = validateErr.Error()
 			}
 			acksToSend = append(acksToSend, &ackInfo{node: m.node, id: m.rMsgID, Error: errStr})
+		}
+	}
+
+	// Insert any sequencing activities
+	if len(sequencingActivitiesToPersist) > 0 {
+		if err := tm.sequencerManager.WriteReceivedSequencingActivities(ctx, dbTX, sequencingActivitiesToPersist); err != nil {
+			return nil, err
 		}
 	}
 
@@ -602,10 +606,10 @@ func parseMessageReceiptDistribution(ctx context.Context, msgID uuid.UUID, data 
 	return
 }
 
-func (tm *transportManager) buildPublicTransactionMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
+func (tm *transportManager) buildSequencingProgressActivityMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
 
 	// Validate the message first (not retryable)
-	submission, parseErr := parseMessagePublicTransactionDistribution(ctx, rm.ID, rm.Metadata)
+	sequencingProgress, parseErr := parseMessageSequencingProgress(ctx, rm.ID, rm.Metadata)
 	if parseErr != nil {
 		return nil, parseErr, nil
 	}
@@ -613,9 +617,17 @@ func (tm *transportManager) buildPublicTransactionMsg(ctx context.Context, dbTX 
 	return &prototk.PaladinMsg{
 		MessageId:   rm.ID.String(),
 		Component:   prototk.PaladinMsg_RELIABLE_MESSAGE_HANDLER,
-		MessageType: RMHMessageTypePublicTransaction,
-		Payload:     pldtypes.JSONString(submission),
+		MessageType: RMHMessageTypeSequencingActivity,
+		Payload:     pldtypes.JSONString(sequencingProgress),
 	}, nil, nil
+}
+
+func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *pldapi.SequencerActivity, err error) {
+	err = json.Unmarshal(data, &sequencingProgress)
+	if err != nil {
+		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)
+	}
+	return
 }
 
 func (tm *transportManager) buildPublicTransactionSubmissionMsg(ctx context.Context, dbTX persistence.DBTX, rm *pldapi.ReliableMessage) (*prototk.PaladinMsg, error, error) {
@@ -634,7 +646,7 @@ func (tm *transportManager) buildPublicTransactionSubmissionMsg(ctx context.Cont
 	}, nil, nil
 }
 
-func parseMessagePublicTransactionDistribution(ctx context.Context, msgID uuid.UUID, data []byte) (submission *pldapi.PublicTxToDistribute, err error) {
+func parseMessagePublicTransactionDistribution(ctx context.Context, msgID uuid.UUID, data []byte) (submission *pldapi.PublicTxWithBinding, err error) {
 	err = json.Unmarshal(data, &submission)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)

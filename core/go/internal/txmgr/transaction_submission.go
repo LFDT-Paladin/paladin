@@ -95,6 +95,7 @@ type persistedChainedPrivateTxn struct {
 	Sender             string    `gorm:"column:sender;primaryKey"`
 	Domain             string    `gorm:"column:domain;primaryKey"`
 	ContractAddress    string    `gorm:"column:contract_address;primaryKey"`
+	ID                 uuid.UUID `gorm:"column:id"`
 }
 
 func (persistedChainedPrivateTxn) TableName() string {
@@ -370,61 +371,6 @@ func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX 
 	return chained, err
 }
 
-func (tm *txManager) InsertRemoteTransaction(ctx context.Context, dbTX persistence.DBTX, txi *components.ValidatedTransaction, ignoreConflicts bool) (int64, error) {
-	var ptx *persistedTransaction
-	var transactionDeps []*transactionDep
-	// Resolve the finalized fields on the input object for return
-	tx := txi.Transaction
-	tx.Created = pldtypes.TimestampNow()
-	tx.ABIReference = txi.Function.ABIReference
-	tx.Function = txi.Function.Signature
-	// Build the object to insert
-	ptx = &persistedTransaction{
-		ID:             *tx.ID,
-		SubmitMode:     pldapi.SubmitModeRemote.Enum(),
-		Created:        tx.Created,
-		IdempotencyKey: notEmptyOrNull(tx.IdempotencyKey),
-		Type:           tx.Type,
-		ABIReference:   tx.ABIReference,
-		Function:       notEmptyOrNull(txi.Function.Signature),
-		Domain:         notEmptyOrNull(tx.Domain),
-		From:           tx.From,
-		To:             tx.To,
-		Data:           tx.Data,
-	}
-	for _, d := range txi.DependsOn {
-		transactionDeps = append(transactionDeps, &transactionDep{
-			Transaction: *tx.ID,
-			DependsOn:   d,
-		})
-	}
-
-	log.L(ctx).Tracef("insertTransactions to table 'transactions'")
-	insert := dbTX.DB().
-		WithContext(ctx).
-		Table("transactions").
-		Omit("TransactionDeps")
-	if ignoreConflicts {
-		insert = insert.Clauses(clause.OnConflict{DoNothing: true})
-	}
-	txInsertResult := insert.Create(ptx)
-	err := txInsertResult.Error
-	if err == nil && len(transactionDeps) > 0 {
-		log.L(ctx).Debugf("insertTransactions to table 'transaction_deps'")
-		err = dbTX.DB().
-			Table("transaction_deps").
-			Clauses(clause.OnConflict{DoNothing: true}). // for idempotency retry
-			Create(transactionDeps).
-			Error
-	}
-	if err != nil {
-		return -1, err
-	}
-	rowsAffected := txInsertResult.RowsAffected
-
-	return rowsAffected, nil
-}
-
 func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, chainedTxns []*components.ChainedPrivateTransaction) error {
 
 	txis := make([]*components.ValidatedTransaction, len(chainedTxns))
@@ -437,6 +383,7 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 			Domain:             chainedTxn.OriginalDomain,
 			ContractAddress:    chainedTxn.OriginalContractAddress,
 			ChainedTransaction: *chainedTxn.NewTransaction.Transaction.ID,
+			ID:                 chainedTxn.ID,
 		}
 	}
 
@@ -486,15 +433,6 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 
 	// Note deliberately no notification to private TX manager here, as this function is for it to call us.
 	// So when it's flushed its internal transaction, it notifies itself.
-}
-
-func (tm *txManager) HasChainedTransaction(ctx context.Context, txID uuid.UUID) (bool, error) {
-	var chainingRecords []*persistedChainedPrivateTxn
-	err := tm.p.NOTX().DB().
-		Where(`"transaction" = ?`, txID).
-		Find(&chainingRecords).
-		Error
-	return len(chainingRecords) > 0, err
 }
 
 func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedPrivateTxn) error {
@@ -601,6 +539,11 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 
 	for _, txi := range txis {
 		if txi.Transaction.Type.V() == pldapi.TransactionTypePrivate {
+			// Note: dependency checking for explicit (app-defined) dependencies will be checked in the sequencer manager
+			// so we just give the TX to the sequencer manager. The sequencer manager has to enforce dependency checks for
+			// resumed transactions (e.g. after a restart), so even though dependencies are not scoped to a specific domain
+			// contract, the sequencer manager enforces them. The txmgr's dependency listener has responsibility for tapping
+			// the sequencer manager if a receipt is processed that might unblock one of its tranasactions.
 			if err := tm.sequencerMgr.HandleNewTx(ctx, dbTX, txi); err != nil {
 				return nil, err
 			}
@@ -868,6 +811,7 @@ func (tm *txManager) UpdateTransaction(ctx context.Context, id uuid.UUID, tx *pl
 	}
 
 	if oldTX == nil {
+		log.L(ctx).Errorf("Transaction not found locally in UpdateTransaction: %s", id)
 		return id, i18n.NewError(ctx, msgs.MsgTxMgrTransactionNotFound, id)
 	}
 

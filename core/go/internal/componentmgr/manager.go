@@ -355,6 +355,10 @@ func (cm *componentManager) startEthClient() error {
 	})
 }
 
+func (cm *componentManager) stopEthClient() {
+	cm.ethClientFactory.Stop()
+}
+
 func (cm *componentManager) StartManagers() (err error) {
 
 	// start the eth client before any managers - this connects the WebSocket, and gathers the ChainID
@@ -437,6 +441,12 @@ func (cm *componentManager) CompleteStart() error {
 	// Wait for RPC auth plugins if configured
 	if len(cm.conf.RPCAuthorizers) > 0 {
 		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_RPC_AUTH)
+		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
+	}
+
+	// Wait for transport plugins to complete ConfigureTransport before starting sequencer
+	if err == nil {
+		err = cm.pluginManager.WaitForInit(cm.bgCtx, prototk.PluginInfo_TRANSPORT)
 		err = cm.wrapIfErr(err, msgs.MsgComponentWaitPluginStartError)
 	}
 
@@ -577,6 +587,11 @@ func (cm *componentManager) Stop() {
 		c.Close()
 		log.L(cm.bgCtx).Debugf("Stopped %s", name)
 	}
+
+	log.L(cm.bgCtx).Infof("Stopping eth client")
+	cm.stopEthClient()
+	log.L(cm.bgCtx).Debugf("Stopped eth client")
+
 	log.L(cm.bgCtx).Debug("Stopped")
 }
 

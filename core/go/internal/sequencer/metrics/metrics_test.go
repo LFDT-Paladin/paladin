@@ -335,4 +335,3 @@ func TestSetActiveSequencers(t *testing.T) {
 	assert.NotNil(t, sequencersMetric, "active_sequencers metric should exist")
 	assert.Equal(t, sequencersMetric.GetMetric()[0].GetGauge().GetValue(), float64(3))
 }
-

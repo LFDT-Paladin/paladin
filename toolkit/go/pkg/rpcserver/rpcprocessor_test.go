@@ -451,8 +451,7 @@ func TestRPCProcessor_ChainAuthorize_ReturnsError(t *testing.T) {
 
 func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	// Test HTTP request where context doesn't have authentication results
-	// This covers the case where getAuthenticationResults returns nil for HTTP (line 37)
-	ctx := context.Background() // Context without authResultKey
+	ctx := context.Background()
 
 	// Create server with authorizers
 	_, server, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
@@ -479,7 +478,7 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 	}
 
 	// Call processRPC directly with HTTP context (wsc == nil) that has no authentication results
-	response, isOK := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, nil /* HTTP request, no WebSocket connection */)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)
@@ -489,7 +488,6 @@ func TestRPCProcessor_HTTP_NoStoredAuthenticationResults(t *testing.T) {
 }
 
 func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
-	// Create a minimal webSocketConnection with no authentication results
 	ctx := context.Background()
 	wsc := &webSocketConnection{
 		authenticationResults: []string{}, // Empty authentication results
@@ -520,7 +518,7 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has no identities
-	response, isOK := server.processRPC(ctx, rpcReq, wsc)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)
@@ -530,7 +528,6 @@ func TestRPCProcessor_WebSocket_NoStoredIdentities(t *testing.T) {
 }
 
 func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
-	// Create a webSocketConnection with fewer authentication results than authorizers
 	ctx := context.Background()
 	wsc := &webSocketConnection{
 		authenticationResults: []string{`{"plugin":"auth1"}`}, // Only one authentication result, but we'll have 2 authorizers
@@ -569,7 +566,7 @@ func TestRPCProcessor_AuthenticationResultMismatch(t *testing.T) {
 	}
 
 	// Call processRPC directly with WebSocket connection that has authentication result mismatch
-	response, isOK := server.processRPC(ctx, rpcReq, wsc)
+	response, isOK, _ := server.processRPC(ctx, rpcReq, wsc)
 
 	assert.False(t, isOK)
 	assert.NotNil(t, response)

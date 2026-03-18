@@ -137,6 +137,14 @@ type DomainContext interface {
 	// This is an in-memory record that will be lost on Reset, and can be deleted using ClearTransaction
 	AddStateLocks(locks ...*pldapi.StateLock) (err error)
 
+	// ValidateStates performs the processing to verify states against their schema, without inserting them into the database.
+	//
+	// In the common case that a domain delegates hash generation to the server, this allows a domain to
+	// request early generation of the ID from the server in-line in processing.
+	//
+	// The dbTX is passed in to allow re-use of a connection during read operations.
+	ValidateStates(dbTX persistence.DBTX, stateUpserts ...*StateUpsert) (states []*pldapi.StateBase, err error)
+
 	// UpsertStates creates or updates states.
 	// They are available immediately within the domain for return in FindAvailableStates
 	// on the domain (even before the flush).

@@ -76,20 +76,38 @@ type SequencerManager interface {
 	// Synchronous function to call an existing deployed smart contract
 	CallPrivateSmartContract(ctx context.Context, call *ResolvedTransaction) (*abi.ComponentValue, error)
 
-	// Events from the public transaction manager
-	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error
-	HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error
-	HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txHash *pldtypes.Bytes32, sender string, contractAddress string, gasPricing string, txnID uuid.UUID) error
-	HandlePublicTXsWritten(ctx context.Context, dbTX persistence.DBTX, newPtxs []*pldapi.PublicTxToDistribute) error
-	HandleTransactionConfirmed(ctx context.Context, receipt *TxCompletion, from *pldtypes.EthAddress, nonce *pldtypes.HexUint64) error
-	HandleTransactionConfirmedByChainedTransaction(ctx context.Context, receipt *TxCompletion) error
-	HandleTransactionFailed(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
-	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
-	WriteOrDistributeReceiptsPostSubmit(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
+	// Callback for notification of the in-memory engine of completion of a private transaction
+	// MUST not perform expensive DB processing on the goroutine used to call it, rather generate background tasks
+	// for relevant state machines if such work exists.
+	PrivateTransactionConfirmed(ctx context.Context, receipt *TxCompletion)
 
+	// Synchronous functions to build state distributions and nullifiers
+	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
 	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*NullifierUpsert, error)
 	BuildNullifiers(ctx context.Context, distributions []*StateDistributionWithData) (nullifiers []*NullifierUpsert, err error)
 
-	// Only used for test bed
-	BuildStateDistributions(ctx context.Context, tx *PrivateTransaction) (*StateDistributionSet, error)
+	// Synchronous functions to write received sequencing activities from other nodes
+	WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error
+
+	// Synchronous function to return the data needed for rpc_debugTransactionStatus
+	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
+
+	// Synchronous function to write receipts for chained transaction propagation.
+	// Chained transaction receipts are final outcomes and should be written/distributed as-is.
+	WriteOrDistributeChainedTransactionReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*ReceiptInputWithOriginator) error
+
+	// Events from the public transaction manager
+	HandleTransactionCollected(ctx context.Context, signerAddress string, contractAddress string, txID uuid.UUID) error
+	HandleNonceAssigned(ctx context.Context, nonce uint64, contractAddress string, txID uuid.UUID) error
+	HandlePublicTXSubmission(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txSubmission *pldapi.PublicTxWithBinding) error
+
+	// HandleDirectTransactionRevert handles on-chain reverts discovered from direct public transaction matches.
+	HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
+
+	// HandleChainedTransactionOutcome routes any chained transaction completion (success,
+	// on-chain revert, or off-chain/assembly revert) to the original (parent) transaction's
+	// coordinator. Called on the node that persisted the chained_private_txns mapping, which is
+	// by definition the dispatch-creator node.
+	// If the sequencer for the contract is not currently loaded, this is a no-op.
+	HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType ReceiptType, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)
 }

@@ -18,15 +18,39 @@ import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func guard_HasGracePeriodPassedSinceStateChange(ctx context.Context, txn *Transaction) bool {
+func guard_HasFinalizingGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
 	// Has this transaction been in the same state for longer than the finalizing grace period?
 	// most useful to know this once we have reached one of the terminal states - Reverted or Committed
 	return txn.heartbeatIntervalsSinceStateChange >= txn.finalizingGracePeriod
 }
 
-func action_Cleanup(ctx context.Context, txn *Transaction) error {
-	log.L(ctx).Infof("action_Cleanup - cleaning up transaction %s", txn.ID.String())
-	return txn.cleanup(ctx)
+func guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.heartbeatIntervalsSinceStateChange >= txn.confirmedLockRetentionGracePeriod
+}
+
+func action_ResetConfirmedTransactionLocksOnce(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	if txn.confirmedLocksReleased {
+		return nil
+	}
+	log.L(ctx).Debugf("releasing confirmed transaction locks for %s", txn.pt.ID.String())
+	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	txn.confirmedLocksReleased = true
+	return nil
+}
+
+// action_FinalizeAsUnknownByOriginator is called when the originator reports that it doesn't recognize
+// a transaction. The most likely cause is that the transaction reached a terminal state (e.g. reverted
+// during assembly) but the response was lost, and the transaction has since been removed from memory
+// on the originator after cleanup. The coordinator should clean up this transaction.
+func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Warnf("action_FinalizeAsUnknownByOriginator - transaction %s reported as unknown by originator", txn.pt.ID)
+	return txn.finalizeAsUnknownByOriginator(ctx)
+}
+
+func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
+	t.clearTimeoutSchedules()
+	return nil
 }

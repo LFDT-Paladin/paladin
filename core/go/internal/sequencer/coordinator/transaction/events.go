@@ -37,19 +37,19 @@ func (e *BaseCoordinatorEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
-// TransactionReceivedEvent is "emitted" when the coordinator receives a transaction.
+// TransactionDelegatedEvent is "emitted" when the coordinator receives a transaction.
 // Feels slightly artificial to model this as an event because it happens every time we create a transaction object
 // but rather than bury the logic in NewTransaction func, modeling this event allows us to define the initial state transition rules in the same declarative stateDefinitions structure as all other state transitions
-type ReceivedEvent struct {
+type DelegatedEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*ReceivedEvent) Type() EventType {
-	return Event_Received
+func (*DelegatedEvent) Type() EventType {
+	return Event_Delegated
 }
 
-func (*ReceivedEvent) TypeString() string {
-	return "Event_Received"
+func (*DelegatedEvent) TypeString() string {
+	return "Event_Delegated"
 }
 
 // TransactionSelectedEvent
@@ -63,6 +63,19 @@ func (*SelectedEvent) Type() EventType {
 
 func (*SelectedEvent) TypeString() string {
 	return "Event_Selected"
+}
+
+// AssembleCancelledEvent
+type AssembleCancelledEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*AssembleCancelledEvent) Type() EventType {
+	return Event_Assemble_Cancelled
+}
+
+func (*AssembleCancelledEvent) TypeString() string {
+	return "Event_Assemble_Cancelled"
 }
 
 // AssembleRequestSentEvent
@@ -155,19 +168,6 @@ func (*DispatchRequestApprovedEvent) TypeString() string {
 	return "Event_DispatchRequestApproved"
 }
 
-// DispatchRequestRejectedEvent
-type DispatchRequestRejectedEvent struct {
-	BaseCoordinatorEvent
-}
-
-func (*DispatchRequestRejectedEvent) Type() EventType {
-	return Event_DispatchRequestRejected
-}
-
-func (*DispatchRequestRejectedEvent) TypeString() string {
-	return "Event_DispatchRequestRejected"
-}
-
 // CollectedEvent
 // Collected by the public transaction manager after being dispatched
 type CollectedEvent struct {
@@ -225,25 +225,38 @@ func (*SubmittedEvent) TypeString() string {
 	return "Event_Submitted"
 }
 
-// ConfirmedEvent
-type ConfirmedEvent struct {
+type ConfirmedSuccessEvent struct {
 	BaseCoordinatorEvent
-	Nonce        uint64
+	Nonce *pldtypes.HexUint64
+	Hash  pldtypes.Bytes32
+}
+
+func (*ConfirmedSuccessEvent) Type() EventType {
+	return Event_ConfirmedSuccess
+}
+
+func (*ConfirmedSuccessEvent) TypeString() string {
+	return "Event_ConfirmedSuccess"
+}
+
+type ConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+	Nonce        *pldtypes.HexUint64
 	Hash         pldtypes.Bytes32
 	RevertReason pldtypes.HexBytes
+	OnChain      pldtypes.OnChainLocation
 }
 
-func (*ConfirmedEvent) Type() EventType {
-	return Event_Confirmed
+func (*ConfirmedRevertedEvent) Type() EventType {
+	return Event_ConfirmedReverted
 }
 
-func (*ConfirmedEvent) TypeString() string {
-	return "Event_Confirmed"
+func (*ConfirmedRevertedEvent) TypeString() string {
+	return "Event_ConfirmedReverted"
 }
 
 type DependencyAssembledEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyAssembledEvent) Type() EventType {
@@ -256,7 +269,6 @@ func (*DependencyAssembledEvent) TypeString() string {
 
 type DependencyRevertedEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyRevertedEvent) Type() EventType {
@@ -267,9 +279,32 @@ func (*DependencyRevertedEvent) TypeString() string {
 	return "Event_DependencyReverted"
 }
 
+type DependencyResetEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*DependencyResetEvent) Type() EventType {
+	return Event_DependencyReset
+}
+
+func (*DependencyResetEvent) TypeString() string {
+	return "Event_DependencyReset"
+}
+
+type DependencyConfirmedRevertedEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*DependencyConfirmedRevertedEvent) Type() EventType {
+	return Event_DependencyConfirmedReverted
+}
+
+func (*DependencyConfirmedRevertedEvent) TypeString() string {
+	return "Event_DependencyConfirmedReverted"
+}
+
 type DependencyReadyEvent struct {
 	BaseCoordinatorEvent
-	DependencyID uuid.UUID
 }
 
 func (*DependencyReadyEvent) Type() EventType {
@@ -292,6 +327,18 @@ func (*RequestTimeoutIntervalEvent) TypeString() string {
 	return "Event_RequestTimeoutInterval"
 }
 
+type StateTimeoutIntervalEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*StateTimeoutIntervalEvent) Type() EventType {
+	return Event_StateTimeoutInterval
+}
+
+func (*StateTimeoutIntervalEvent) TypeString() string {
+	return "Event_StateTimeoutInterval"
+}
+
 // events emitted by the transaction state machine whenever a state transition occurs
 type StateTransitionEvent struct {
 	BaseCoordinatorEvent
@@ -307,15 +354,18 @@ func (*StateTransitionEvent) TypeString() string {
 	return "Event_StateTransition"
 }
 
-// events emitted by the transaction state machine whenever a state transition occurs
-type HeartbeatIntervalEvent struct {
+// TransactionUnknownByOriginatorEvent is sent by an originator when it receives a message
+// for a transaction it doesn't recognize. The most likely cause is that the transaction reached
+// a terminal state (e.g. reverted during assembly) but the response was lost, and the transaction
+// has since been removed from memory on the originator after cleanup.
+type TransactionUnknownByOriginatorEvent struct {
 	BaseCoordinatorEvent
 }
 
-func (*HeartbeatIntervalEvent) Type() EventType {
-	return Event_HeartbeatInterval
+func (*TransactionUnknownByOriginatorEvent) Type() EventType {
+	return Event_TransactionUnknownByOriginator
 }
 
-func (*HeartbeatIntervalEvent) TypeString() string {
-	return "Event_HeartbeatInterval"
+func (*TransactionUnknownByOriginatorEvent) TypeString() string {
+	return "Event_TransactionUnknownByOriginator"
 }

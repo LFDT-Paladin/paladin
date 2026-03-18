@@ -20,23 +20,30 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/require"
 )
 
-type identityForTesting struct {
-	identity        string
-	identityLocator string
-	verifier        string
-	keyHandle       string
+// pendingEndorsementRequestAddition is used by the builder to add one pending endorsement request (builder creates IdempotentRequest from clock/requestTimeout).
+type pendingEndorsementRequestAddition struct {
+	attName string
+	party   string
+	sendFn  func(context.Context, uuid.UUID) error
 }
 
 type SentMessageRecorder struct {
@@ -63,10 +70,10 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.numberOfSentDispatchConfirmationRequests = 0
 }
 
-func (r *SentMessageRecorder) StartLoopbackWriter(ctx context.Context) {
+func (r *SentMessageRecorder) StartLoopbackWriter() {
 }
 
-func (r *SentMessageRecorder) StopLoopbackWriter() {
+func (r *SentMessageRecorder) WaitForDone(ctx context.Context) {
 }
 
 func (r *SentMessageRecorder) HasSentAssembleRequest() bool {
@@ -177,7 +184,11 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes) error {
+func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
+	return nil
+}
+
+func (r *SentMessageRecorder) SendTransactionUnknown(ctx context.Context, coordinatorNode string, txID uuid.UUID) error {
 	return nil
 }
 
@@ -209,71 +220,84 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 }
 
 type TransactionBuilderForTesting struct {
+	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
-	originator                         *identityForTesting
-	dispatchConfirmed                  bool
+	originator                         string
+	queueEventForCoordinator           func(context.Context, common.Event)
+	domainSigningIdentity              string
+	coordinatorSigningIdentity         string
 	signerAddress                      *pldtypes.EthAddress
 	latestSubmissionHash               *pldtypes.Bytes32
 	nonce                              *uint64
+	revertReason                       pldtypes.HexBytes
+	errorCount                         int
+	dependencies                       *pldapi.TransactionDependencies
 	state                              State
-	sentMessageRecorder                *SentMessageRecorder
-	fakeClock                          *common.FakeClockForTesting
-	fakeEngineIntegration              *common.FakeEngineIntegrationForTesting
-	syncPoints                         syncpoints.SyncPoints
+	useMockTransportWriter             bool
+	useMockClock                       bool
 	grapher                            Grapher
-	txn                                *Transaction
+	txn                                *coordinatorTransaction
 	requestTimeout                     int
-	assembleTimeout                    int
+	stateTimeout                       int
+	finalizingGracePeriod              int
+	confirmedLockRetentionGracePeriod  int
 	heartbeatIntervalsSinceStateChange int
+	cancelRequestTimeoutSchedule       func()
+	cancelStateTimeoutSchedule         func()
+	pendingAssembleRequestSend         func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
+	pendingEndorsementRequestAdditions []pendingEndorsementRequestAddition
+	pendingPreDispatchRequestSend      func(context.Context, uuid.UUID) error // if set, builder builds IdempotentRequest from clock/requestTimeout
+	confirmedLocksReleased             bool
+	submitterSelection                 prototk.ContractConfig_SubmitterSelection
+	nodeName                           string
+	baseLedgerRevertRetryThreshold     int
+	revertCount                        int
 }
 
 // Function NewTransactionBuilderForTesting creates a TransactionBuilderForTesting with random values for all fields
 // use the builder methods to set specific values for fields before calling Build to create a new Transaction
 func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuilderForTesting {
-	originatorName := "sender"
-	originatorNode := "senderNode"
 	builder := &TransactionBuilderForTesting{
-		originator: &identityForTesting{
-			identityLocator: fmt.Sprintf("%s@%s", originatorName, originatorNode),
-			identity:        originatorName,
-			verifier:        pldtypes.RandAddress().String(),
-			keyHandle:       originatorName + "_KeyHandle",
-		},
-		dispatchConfirmed:         false,
-		signerAddress:             nil,
-		latestSubmissionHash:      nil,
-		state:                     state,
-		sentMessageRecorder:       NewSentMessageRecorder(),
-		fakeClock:                 &common.FakeClockForTesting{},
-		fakeEngineIntegration:     &common.FakeEngineIntegrationForTesting{},
-		assembleTimeout:           5000,
-		requestTimeout:            100,
-		syncPoints:                &syncpoints.MockSyncPoints{},
-		privateTransactionBuilder: testutil.NewPrivateTransactionBuilderForTesting(),
+		t:                                 t,
+		originator:                        "sender@node1",
+		queueEventForCoordinator:          func(context.Context, common.Event) {},
+		signerAddress:                     nil,
+		latestSubmissionHash:              nil,
+		state:                             state,
+		stateTimeout:                      5000,
+		requestTimeout:                    1000,
+		finalizingGracePeriod:             5,
+		confirmedLockRetentionGracePeriod: 1,
+		privateTransactionBuilder:         testutil.NewPrivateTransactionBuilderForTesting(),
+		submitterSelection:                prototk.ContractConfig_SUBMITTER_COORDINATOR,
+		nodeName:                          "node1",
 	}
 
 	switch state {
-	case State_Submitted:
+	case State_Dispatched:
 		nonce := rand.Uint64()
 		builder.nonce = &nonce
 		builder.signerAddress = pldtypes.RandAddress()
 		latestSubmissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 		builder.latestSubmissionHash = &latestSubmissionHash
+		builder.privateTransactionBuilder.EndorsementComplete()
 	case State_Endorsement_Gathering:
 		//fine grained detail in this state needed to emulate what has already happened wrt endorsement requests and responses so far
-	case State_Blocked:
-		fallthrough
-	case State_Confirming_Dispatchable:
-		fallthrough
-	case State_Ready_For_Dispatch:
-		fallthrough
-	case State_Dispatched:
-		fallthrough
-	case State_Confirmed:
+	case State_Blocked, State_Confirming_Dispatchable, State_Ready_For_Dispatch, State_Confirmed:
 		//we are emulating a transaction that has been passed State_Endorsement_Gathering so default to complete attestation plan
 		builder.privateTransactionBuilder.EndorsementComplete()
 	}
 	return builder
+}
+
+func (b *TransactionBuilderForTesting) UseMockTransportWriter() *TransactionBuilderForTesting {
+	b.useMockTransportWriter = true
+	return b
+}
+
+func (b *TransactionBuilderForTesting) UseMockClock() *TransactionBuilderForTesting {
+	b.useMockClock = true
+	return b
 }
 
 func (b *TransactionBuilderForTesting) NumberOfRequiredEndorsers(num int) *TransactionBuilderForTesting {
@@ -316,8 +340,13 @@ func (b *TransactionBuilderForTesting) Grapher(grapher Grapher) *TransactionBuil
 	return b
 }
 
-func (b *TransactionBuilderForTesting) Originator(originator *identityForTesting) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) Originator(originator string) *TransactionBuilderForTesting {
 	b.originator = originator
+	return b
+}
+
+func (b *TransactionBuilderForTesting) NodeName(nodeName string) *TransactionBuilderForTesting {
+	b.nodeName = nodeName
 	return b
 }
 
@@ -326,12 +355,193 @@ func (b *TransactionBuilderForTesting) HeartbeatIntervalsSinceStateChange(heartb
 	return b
 }
 
-func (b *TransactionBuilderForTesting) GetOriginator() *identityForTesting {
-	return b.originator
+func (b *TransactionBuilderForTesting) DomainSigningIdentity(domainSigningIdentity string) *TransactionBuilderForTesting {
+	b.domainSigningIdentity = domainSigningIdentity
+	return b
 }
 
-func (b *TransactionBuilderForTesting) GetAssembleTimeout() int {
-	return b.assembleTimeout
+func (b *TransactionBuilderForTesting) CoordinatorSigningIdentity(identity string) *TransactionBuilderForTesting {
+	b.coordinatorSigningIdentity = identity
+	return b
+}
+
+func (b *TransactionBuilderForTesting) QueueEventForCoordinator(queueFn func(context.Context, common.Event)) *TransactionBuilderForTesting {
+	b.queueEventForCoordinator = queueFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) RequestTimeout(requestTimeout int) *TransactionBuilderForTesting {
+	b.requestTimeout = requestTimeout
+	return b
+}
+
+func (b *TransactionBuilderForTesting) StateTimeout(stateTimeout int) *TransactionBuilderForTesting {
+	b.stateTimeout = stateTimeout
+	return b
+}
+
+func (b *TransactionBuilderForTesting) FinalizingGracePeriod(finalizingGracePeriod int) *TransactionBuilderForTesting {
+	b.finalizingGracePeriod = finalizingGracePeriod
+	return b
+}
+
+func (b *TransactionBuilderForTesting) ConfirmedLockRetentionGracePeriod(gracePeriod int) *TransactionBuilderForTesting {
+	b.confirmedLockRetentionGracePeriod = gracePeriod
+	return b
+}
+
+func (b *TransactionBuilderForTesting) CurrentState(state State) *TransactionBuilderForTesting {
+	b.state = state
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SignerAddress(address *pldtypes.EthAddress) *TransactionBuilderForTesting {
+	b.signerAddress = address
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Nonce(nonce *uint64) *TransactionBuilderForTesting {
+	b.nonce = nonce
+	return b
+}
+
+// SubmissionHash sets the transaction's latest submission hash (e.g. for State_Dispatched). Overrides any default.
+func (b *TransactionBuilderForTesting) SubmissionHash(hash pldtypes.Bytes32) *TransactionBuilderForTesting {
+	b.latestSubmissionHash = &hash
+	return b
+}
+
+func (b *TransactionBuilderForTesting) LatestSubmissionHash(hash *pldtypes.Bytes32) *TransactionBuilderForTesting {
+	b.latestSubmissionHash = hash
+	return b
+}
+
+func (b *TransactionBuilderForTesting) RevertReason(revertReason pldtypes.HexBytes) *TransactionBuilderForTesting {
+	b.revertReason = revertReason
+	return b
+}
+
+func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBuilderForTesting {
+	b.errorCount = errorCount
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Dependencies(dependencies *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
+	b.dependencies = dependencies
+	return b
+}
+
+// AddPendingAssembleRequest adds a pending assemble request with a no-op send callback; the builder creates the
+// IdempotentRequest in Build() using its clock and requestTimeout.
+func (b *TransactionBuilderForTesting) AddPendingAssembleRequest() *TransactionBuilderForTesting {
+	return b.AddPendingAssembleRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
+// AddPendingAssembleRequestWithCallback sets the send function for the assemble request; the builder will create the
+// IdempotentRequest using its clock and requestTimeout in Build(), so tests need not construct the request.
+func (b *TransactionBuilderForTesting) AddPendingAssembleRequestWithCallback(sendFn func(context.Context, uuid.UUID) error) *TransactionBuilderForTesting {
+	b.pendingAssembleRequestSend = sendFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AddPendingEndorsementRequest(index int) *TransactionBuilderForTesting {
+	return b.AddPendingEndorsementRequestWithCallback(index, func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
+// AddPendingEndorsementRequestWithCallback adds one pending endorsement request; the builder will create the IdempotentRequest
+// using its clock and requestTimeout in Build(). The map is always initialised on the transaction (empty if no additions).
+func (b *TransactionBuilderForTesting) AddPendingEndorsementRequestWithCallback(index int, sendFn func(context.Context, uuid.UUID) error) *TransactionBuilderForTesting {
+	b.pendingEndorsementRequestAdditions = append(b.pendingEndorsementRequestAdditions, pendingEndorsementRequestAddition{
+		attName: fmt.Sprintf("endorse-%d", index),
+		party:   fmt.Sprintf("endorser-%d@node-%d", index, index),
+		sendFn:  sendFn,
+	})
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AddPendingPreDispatchRequest() *TransactionBuilderForTesting {
+	return b.AddPendingPreDispatchRequestWithCallback(func(ctx context.Context, idempotencyKey uuid.UUID) error { return nil })
+}
+
+// AddPendingPreDispatchRequestWithCallback sets the send function for the pre-dispatch request; the builder will create the
+// IdempotentRequest using its clock and requestTimeout in Build(), so tests need not construct the request.
+func (b *TransactionBuilderForTesting) AddPendingPreDispatchRequestWithCallback(sendFn func(context.Context, uuid.UUID) error) *TransactionBuilderForTesting {
+	b.pendingPreDispatchRequestSend = sendFn
+	return b
+}
+
+func (b *TransactionBuilderForTesting) CancelRequestTimeoutSchedule(cancel func()) *TransactionBuilderForTesting {
+	b.cancelRequestTimeoutSchedule = cancel
+	return b
+}
+
+func (b *TransactionBuilderForTesting) CancelStateTimeoutSchedule(cancel func()) *TransactionBuilderForTesting {
+	b.cancelStateTimeoutSchedule = cancel
+	return b
+}
+
+func (b *TransactionBuilderForTesting) ConfirmedLocksReleased(released bool) *TransactionBuilderForTesting {
+	b.confirmedLocksReleased = released
+	return b
+}
+
+func (b *TransactionBuilderForTesting) BaseLedgerRevertRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.baseLedgerRevertRetryThreshold = threshold
+	return b
+}
+
+func (b *TransactionBuilderForTesting) RevertCount(count int) *TransactionBuilderForTesting {
+	b.revertCount = count
+	return b
+}
+
+func (b *TransactionBuilderForTesting) SubmitterSelection(selection prototk.ContractConfig_SubmitterSelection) *TransactionBuilderForTesting {
+	b.submitterSelection = selection
+	return b
+}
+
+func (b *TransactionBuilderForTesting) TransactionID(id uuid.UUID) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.ID(id)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Domain(domain string) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.Domain(domain)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Address(address pldtypes.EthAddress) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.Address(address)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PreAssembly(preAssembly *components.TransactionPreAssembly) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.PreAssembly(preAssembly)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PostAssembly(postAssembly *components.TransactionPostAssembly) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.PostAssembly(postAssembly)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PreparedPrivateTransaction(tx *pldapi.TransactionInput) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.PreparedPrivateTransaction(tx)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PreparedPublicTransaction(tx *pldapi.TransactionInput) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.PreparedPublicTransaction(tx)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) Signer(signer string) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.Signer(signer)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) GetStateTimeout() int {
+	return b.stateTimeout
 }
 
 func (b *TransactionBuilderForTesting) GetRequestTimeout() int {
@@ -346,100 +556,180 @@ func (b *TransactionBuilderForTesting) GetEndorsers() []string {
 	return endorsers
 }
 
-type transactionDependencyFakes struct {
+type transactionDependencyMocks struct {
+	TransportWriter     *transport.MockTransportWriter
+	Clock               *common.MockClock
+	EngineIntegration   *common.MockEngineIntegration
 	SentMessageRecorder *SentMessageRecorder
-	Clock               *common.FakeClockForTesting
-	EngineIntegration   *common.FakeEngineIntegrationForTesting
-	SyncPoints          syncpoints.SyncPoints
+	SyncPoints          *syncpoints.MockSyncPoints
+	AllComponents       *componentsmocks.AllComponents
+	DomainAPI           *componentsmocks.DomainSmartContract
+	Domain              *componentsmocks.Domain
+	DomainContext       *componentsmocks.DomainContext
+	KeyManager          *componentsmocks.KeyManager
+	PublicTxManager     *componentsmocks.PublicTxManager
+	TXManager           *componentsmocks.TXManager
+	SequenceManager     *componentsmocks.SequencerManager
+	DB                  sqlmock.Sqlmock
 }
 
-func (b *TransactionBuilderForTesting) BuildWithMocks() (*Transaction, *transactionDependencyFakes) {
-	mocks := &transactionDependencyFakes{
-		SentMessageRecorder: b.sentMessageRecorder,
-		Clock:               b.fakeClock,
-		EngineIntegration:   b.fakeEngineIntegration,
-		SyncPoints:          b.syncPoints,
-	}
-	return b.Build(), mocks
-}
-
-func (b *TransactionBuilderForTesting) Build() *Transaction {
+func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
 	}
-	metrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
+
+	mp, err := mockpersistence.NewSQLMockProvider()
+	require.NoError(b.t, err)
+
+	mocks := &transactionDependencyMocks{
+		TransportWriter:     transport.NewMockTransportWriter(b.t),
+		Clock:               common.NewMockClock(b.t),
+		EngineIntegration:   common.NewMockEngineIntegration(b.t),
+		SentMessageRecorder: NewSentMessageRecorder(),
+		SyncPoints:          syncpoints.NewMockSyncPoints(b.t),
+		AllComponents:       componentsmocks.NewAllComponents(b.t),
+		KeyManager:          componentsmocks.NewKeyManager(b.t),
+		PublicTxManager:     componentsmocks.NewPublicTxManager(b.t),
+		TXManager:           componentsmocks.NewTXManager(b.t),
+		SequenceManager:     componentsmocks.NewSequencerManager(b.t),
+		DomainAPI:           componentsmocks.NewDomainSmartContract(b.t),
+		Domain:              componentsmocks.NewDomain(b.t),
+		DomainContext:       componentsmocks.NewDomainContext(b.t),
+		DB:                  mp.Mock,
+	}
+
+	// link the mocks which return other mocks
+	mocks.AllComponents.On("KeyManager").Return(mocks.KeyManager).Maybe()
+	mocks.AllComponents.On("PublicTxManager").Return(mocks.PublicTxManager).Maybe()
+	mocks.AllComponents.On("TxManager").Return(mocks.TXManager).Maybe()
+	mocks.AllComponents.On("SequencerManager").Return(mocks.SequenceManager).Maybe()
+	mocks.AllComponents.On("Persistence").Return(mp.P).Maybe()
+	mocks.DomainAPI.On("Domain").Return(mocks.Domain).Maybe()
+
+	// create the mocks needed for the NewTransaction call below
+	// the return values of these can be set by builder methods if needed
+	mocks.Domain.On("FixedSigningIdentity").Return("")
+	mocks.DomainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
+		SubmitterSelection: b.submitterSelection,
+	})
 
 	privateTransaction := b.privateTransactionBuilder.Build()
 
-	txn, err := NewTransaction(
+	var transportWriter transport.TransportWriter
+	if b.useMockTransportWriter {
+		transportWriter = mocks.TransportWriter
+	} else {
+		transportWriter = mocks.SentMessageRecorder
+	}
+
+	var clock common.Clock
+	if b.useMockClock {
+		clock = mocks.Clock
+		// newTransaction results in a call to clock.Now(), so we need to mock that once
+		mocks.Clock.On("Now").Return(time.Now()).Once()
+	} else {
+		clock = common.RealClock()
+	}
+
+	txn, err := newTransaction(
 		ctx,
-		b.originator.identityLocator,
+		b.originator,
+		b.nodeName,
 		privateTransaction,
-		b.sentMessageRecorder,
-		b.fakeClock,
-		func(ctx context.Context, event common.Event) error {
-			return nil
-		},
-		b.fakeEngineIntegration,
-		b.syncPoints,
-		b.fakeClock.Duration(b.requestTimeout),
-		b.fakeClock.Duration(b.assembleTimeout),
-		5,
+		b.coordinatorSigningIdentity,
+		transportWriter,
+		clock,
+		b.queueEventForCoordinator,
+		mocks.EngineIntegration,
+		mocks.SyncPoints,
+		mocks.AllComponents,
+		mocks.DomainAPI,
+		mocks.DomainContext,
+		time.Duration(b.requestTimeout),
+		time.Duration(b.stateTimeout),
+		b.finalizingGracePeriod,
+		b.confirmedLockRetentionGracePeriod,
+		b.baseLedgerRevertRetryThreshold,
 		b.grapher,
-		metrics,
-		func(context.Context, *Transaction) {}, // addToPool function, not used in tests
-		func(context.Context, *Transaction) {}, // onReadyForDispatch function, not used in tests
-		nil,
-		func(context.Context) {}, // onCleanup function, not used in tests
+		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
-	if err != nil {
-		panic(fmt.Sprintf("Error from NewTransaction: %v", err))
+	require.NoError(b.t, err)
+
+	txn.signerAddress = b.signerAddress
+	txn.domainSigningIdentity = b.domainSigningIdentity
+	txn.latestSubmissionHash = b.latestSubmissionHash
+	txn.nonce = b.nonce
+	txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
+	txn.cancelRequestTimeoutSchedule = b.cancelRequestTimeoutSchedule
+	txn.cancelStateTimeoutSchedule = b.cancelStateTimeoutSchedule
+	txn.confirmedLocksReleased = b.confirmedLocksReleased
+	txn.stateMachine.CurrentState = b.state
+	txn.revertReason = b.revertReason
+	txn.revertCount = b.revertCount
+
+	if b.dependencies != nil {
+		txn.dependencies = b.dependencies
 	}
+	if b.pendingAssembleRequestSend != nil {
+		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)
+	}
+
+	if len(b.pendingEndorsementRequestAdditions) > 0 {
+		txn.pendingEndorsementRequests = make(map[string]map[string]*common.IdempotentRequest)
+		for _, add := range b.pendingEndorsementRequestAdditions {
+			if txn.pendingEndorsementRequests[add.attName] == nil {
+				txn.pendingEndorsementRequests[add.attName] = make(map[string]*common.IdempotentRequest)
+			}
+			txn.pendingEndorsementRequests[add.attName][add.party] = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, add.sendFn)
+		}
+	}
+
+	if b.pendingPreDispatchRequestSend != nil {
+		txn.pendingPreDispatchRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingPreDispatchRequestSend)
+	}
+
+	if privateTransaction.PostAssembly != nil {
+		if _, isRealGrapher := b.grapher.(*grapher); isRealGrapher {
+			for _, state := range privateTransaction.PostAssembly.OutputStates {
+				err := b.grapher.AddMinter(ctx, state.ID, txn)
+				require.NoError(b.t, err)
+			}
+		}
+	}
+
 	b.txn = txn
+	return b.txn, mocks
+}
 
-	//Update the private transaction struct to the accumulation that resulted from what ever events that we expect to have happened leading up to the current state
-	// We don't attempt to emulate any other history of those past events but rather assert that the state machine's behavior is determined purely by its current finite state
-	// and the contents of the PrivateTransaction struct
-
-	if b.state == State_Endorsement_Gathering ||
-		b.state == State_Blocked ||
-		b.state == State_Confirming_Dispatchable ||
-		b.state == State_Ready_For_Dispatch {
-
-		err := b.txn.applyPostAssembly(ctx, b.BuildPostAssembly())
-		if err != nil {
-			panic("error from applyPostAssembly")
-		}
+// BuildAssembleSuccessEvent returns an AssembleSuccessEvent for the transaction built by this builder.
+// The builder must have added a pending assemble request (e.g. AddPendingAssembleRequest()) before Build().
+func (b *TransactionBuilderForTesting) BuildAssembleSuccessEvent() *AssembleSuccessEvent {
+	return &AssembleSuccessEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: b.txn.pt.ID,
+		},
+		PostAssembly: b.BuildPostAssembly(),
+		PreAssembly:  b.BuildPreAssembly(),
+		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
+}
 
-	if b.state == State_Confirmed ||
-		b.state == State_Reverted {
-		b.txn.heartbeatIntervalsSinceStateChange = b.heartbeatIntervalsSinceStateChange
+func (b *TransactionBuilderForTesting) BuildAssembleRevertEvent() *AssembleRevertResponseEvent {
+	return &AssembleRevertResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: b.txn.pt.ID,
+		},
+		PostAssembly: b.BuildPostAssembly(),
+		RequestID:    b.txn.pendingAssembleRequest.IdempotencyKey(),
 	}
-
-	//enter the current state
-	onTransitionFunction := stateDefinitionsMap[b.state].OnTransitionTo
-	if onTransitionFunction != nil {
-		err := onTransitionFunction(ctx, b.txn)
-		if err != nil {
-			panic(fmt.Sprintf("Error from initializeDependencies: %v", err))
-		}
-	}
-
-	b.txn.signerAddress = b.signerAddress
-	b.txn.latestSubmissionHash = b.latestSubmissionHash
-	b.txn.nonce = b.nonce
-	b.txn.stateMachine.currentState = b.state
-	return b.txn
-
 }
 
 func (b *TransactionBuilderForTesting) BuildEndorsedEvent(endorserIndex int) *EndorsedEvent {
 
 	return &EndorsedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.pt.ID,
 		},
 		RequestID:   b.txn.pendingEndorsementRequests[b.privateTransactionBuilder.GetEndorsementName(endorserIndex)][b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex)].IdempotencyKey(),
 		Endorsement: b.privateTransactionBuilder.BuildEndorsement(endorserIndex),
@@ -452,7 +742,7 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 	attReqName := fmt.Sprintf("endorse-%d", endorserIndex)
 	return &EndorsedRejectedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: b.txn.ID,
+			TransactionID: b.txn.pt.ID,
 		},
 		RevertReason:           "some reason for rejection",
 		AttestationRequestName: attReqName,
@@ -460,6 +750,15 @@ func (b *TransactionBuilderForTesting) BuildEndorseRejectedEvent(endorserIndex i
 		Party:                  b.privateTransactionBuilder.GetEndorserIdentityLocator(endorserIndex),
 	}
 
+}
+
+func (b *TransactionBuilderForTesting) BuildDispatchRequestApprovedEvent() *DispatchRequestApprovedEvent {
+	return &DispatchRequestApprovedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: b.txn.pt.ID,
+		},
+		RequestID: b.txn.pendingPreDispatchRequest.IdempotencyKey(),
+	}
 }
 
 func (b *TransactionBuilderForTesting) BuildPostAssembly() *components.TransactionPostAssembly {

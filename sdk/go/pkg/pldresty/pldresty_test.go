@@ -60,6 +60,7 @@ func TestRequestOK(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
+	defer c.Close()
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
 
@@ -88,6 +89,7 @@ func TestRequestOKForGzip(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
+	defer c.Close()
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
 
@@ -127,6 +129,7 @@ func TestRequestRetry(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
+	defer c.Close()
 
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
@@ -151,6 +154,7 @@ func TestRequestRetryErrorStatusCodeRegex(t *testing.T) {
 		},
 	})
 	require.Nil(t, err)
+	defer c.Close()
 
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
@@ -186,6 +190,7 @@ func TestLongResponse(t *testing.T) {
 		URL: "http://localhost:12345",
 	})
 	require.Nil(t, err)
+	defer c.Close()
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
 
@@ -207,6 +212,7 @@ func TestErrResponse(t *testing.T) {
 		URL: "http://localhost:12345",
 	})
 	require.Nil(t, err)
+	defer c.Close()
 	httpmock.ActivateNonDefault(c.GetClient())
 	defer httpmock.DeactivateAndReset()
 
@@ -322,6 +328,7 @@ func TestMTLSClientWithServer(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	defer c.Close()
 
 	httpsAddr := fmt.Sprintf("https://%s/hello", ln.Addr())
 	fmt.Println(httpsAddr)

@@ -47,6 +47,7 @@ message TransactionConfirmed {
     string transaction_id = 3;
     int64 nonce = 4;
     bytes revert_reason = 5;
+    bool will_retry = 6;
 }
 
 message EndorsementRequest {
@@ -178,4 +179,13 @@ message CoordinatorHeartbeatNotification {
 
 message HandoverRequest {
     string contract_address = 1; // Represent as hex address?
+}
+
+// Sent by an originator when it receives a message for a transaction it doesn't recognize.
+// The most likely cause is that the transaction reached a terminal state (e.g. reverted during assembly)
+// but the response was lost, and the transaction has since been removed from memory on the originator after cleanup.
+message TransactionUnknown {
+    string id = 1;
+    string transaction_id = 2;
+    string contract_address = 3;
 }

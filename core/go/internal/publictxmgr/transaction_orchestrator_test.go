@@ -94,8 +94,13 @@ func TestNewOrchestratorLoadsSecondTxAndQueuesBalanceCheck(t *testing.T) {
 
 	addressBalanceChecked := make(chan bool)
 	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(pldtypes.Uint64ToUint256(100), nil).Run(func(args mock.Arguments) {
-		close(addressBalanceChecked)
-	}).Once()
+		select {
+		case <-addressBalanceChecked:
+			// the channel only needs to be closed the first time
+		default:
+			close(addressBalanceChecked)
+		}
+	})
 	oDone, _ := o.Start(ctx)
 	<-addressBalanceChecked
 	o.Stop()
