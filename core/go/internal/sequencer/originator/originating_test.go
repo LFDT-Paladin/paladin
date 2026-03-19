@@ -178,6 +178,26 @@ func Test_transactionFoundInHeartbeat_FalseWhenOnlyOtherTxnsInSnapshot(t *testin
 	assert.False(t, transactionFoundInHeartbeat(o, txn))
 }
 
+func Test_sendDelegationRequest_NoActiveCoordinatorDefersAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	originatorLocator := "sender@senderNode"
+	coordinatorLocator := "coordinator@coordinatorNode"
+
+	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
+	builder := NewOriginatorBuilderForTesting(State_Sending).
+		CommitteeMembers(originatorLocator, coordinatorLocator).
+		TransactionBuilders(txBuilder)
+	o, mocks, cleanup := builder.Build(ctx)
+	defer cleanup()
+
+	o.activeCoordinatorNode = ""
+
+	err := sendDelegationRequest(ctx, o)
+	require.NoError(t, err)
+	assert.False(t, mocks.SentMessageRecorder.HasSentDelegationRequest(),
+		"delegation request should not be sent when there is no active coordinator")
+}
+
 func Test_sendDelegationRequest_TransactionsWithErrorsAppendedLast(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"

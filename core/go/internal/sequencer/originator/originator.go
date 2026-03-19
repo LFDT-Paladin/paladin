@@ -205,6 +205,9 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
+// getTransactionsInStates returns transactions in any of the given states.
+//
+//nolint:unused // retaining until we decide we don't have any reasons for retrieving transactions by state
 func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors

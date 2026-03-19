@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -63,6 +64,30 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 	err := action_NudgeEndorsementRequests(ctx, txn, nil)
 	require.NoError(t, err)
 	// Assert state: pending endorsement requests were initialized (sendEndorsementRequests path)
+	assert.NotNil(t, txn.pendingEndorsementRequests)
+}
+
+func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndContinues(t *testing.T) {
+	ctx := context.Background()
+	sendErr := errors.New("transport send failed")
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
+		UseMockTransportWriter().
+		Build()
+
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementRequest(
+			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
+			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(sendErr)
+
+	err := txn.sendEndorsementRequests(ctx)
+	require.NoError(t, err)
 	assert.NotNil(t, txn.pendingEndorsementRequests)
 }
 
