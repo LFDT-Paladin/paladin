@@ -187,7 +187,7 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 	}
 
 	if rejectedMaxInFlight > 0 {
-		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, len(transactions), acceptedTransactions, inProgressTransactions, rejectedMaxInFlight)
+		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, originatorNode, len(transactions), acceptedTransactions, inProgressTransactions, rejectedMaxInFlight)
 		return err
 	}
 

@@ -515,7 +515,7 @@ var (
 	MsgSequencerFunctionNotProvided           = pde("PD012639", "Function abi not provided in transaction input")
 	MsgSequencerAssembleRequestInvalid        = pde("PD012640", "Assemble request is invalid for transaction %s")
 	MsgSequencerAssembleTxnNotFound           = pde("PD012641", "Transaction %s not found in local node")
-	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. %d transactions delegated, %d already being coordinated, %d accepted, %d rejected")
+	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. %d transactions delegated from node %s, %d already being coordinated on this node, %d new transactions accepted for coordination, %d rejected")
 	MsgSequencerErrorNotifyingDependent       = pde("PD012643", "Error notifying dependent transaction %s of revert of TX %s")
 	MsgSequencerErrorRepoolingTX              = pde("PD012644", "Error repooling TX %s")
 	MsgSequencerGrapherDependencyNotFound     = pde("PD012645", "TX %s missing from transaction graph")
