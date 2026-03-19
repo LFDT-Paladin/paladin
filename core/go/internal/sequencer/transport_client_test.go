@@ -708,6 +708,7 @@ func TestHandleTransactionConfirmed_RevertedWhenWillRetryTrueAndNoRevertReason(t
 	transactionConfirmed := &engineProto.TransactionConfirmed{
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
 		WillRetry:       true,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)

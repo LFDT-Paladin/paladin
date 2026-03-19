@@ -56,8 +56,17 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 				log.L(ctx).Errorf("error checking if revert is retryable for transaction %s, treating as non-retryable: %s", t.pt.ID.String(), err)
 				retryable = false
 			}
-			t.decodedRevertReason = decodedReason
-			if t.decodedRevertReason == "" && e.FailureMessage != "" {
+			if decodedReason != "" {
+				// Keep coordinator-originated decode text aligned with tx manager failure formatting.
+				// This could be perceived as a misuse of another components error code, but the alternatives are
+				// - have a separate error code here- but why should the user care that we did the decoding in a different place
+				// - stop decoding the revert reason in the domain so we don't have two decode place- but this might result in us
+				//   decoding fewer reverts, since transaction manager doesn't necessarily have each domain's ABI
+				t.decodedRevertReason = i18n.NewError(ctx, msgs.MsgTxMgrRevertedDecodedData, decodedReason).Error()
+			} else {
+				t.decodedRevertReason = ""
+			}
+			if decodedReason == "" && e.FailureMessage != "" {
 				// Chained transaction outcomes can carry a decoded failure string from the child domain.
 				// Use it when this coordinator cannot decode revert bytes.
 				t.decodedRevertReason = e.FailureMessage

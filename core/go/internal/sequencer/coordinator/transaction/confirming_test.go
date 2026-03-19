@@ -418,7 +418,7 @@ func Test_action_RecordConfirmation_RevertRetryableAndUnderThreshold(t *testing.
 	})
 	require.NoError(t, err)
 	assert.True(t, txn.lastCanRetryRevert)
-	assert.Equal(t, "decoded", txn.decodedRevertReason)
+	assert.Equal(t, "PD012216: Transaction reverted decoded", txn.decodedRevertReason)
 	assert.Equal(t, 1, txn.revertCount)
 }
 
@@ -470,7 +470,7 @@ func Test_action_RecordConfirmation_RevertNotRetryable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, txn.lastCanRetryRevert)
-	assert.Equal(t, "decoded error", txn.decodedRevertReason)
+	assert.Equal(t, "PD012216: Transaction reverted decoded error", txn.decodedRevertReason)
 }
 
 func Test_action_RecordConfirmation_OffChainFailureMessageSkipsDomainRetryCheck(t *testing.T) {
@@ -507,7 +507,7 @@ func Test_action_RecordConfirmation_OnChainRevertWithFailureMessageStillUsesDoma
 	})
 	require.NoError(t, err)
 	assert.False(t, txn.lastCanRetryRevert)
-	assert.Equal(t, "decoded by coordinator domain", txn.decodedRevertReason)
+	assert.Equal(t, "PD012216: Transaction reverted decoded by coordinator domain", txn.decodedRevertReason)
 	assert.Equal(t, revertReason, txn.revertReason)
 }
 
