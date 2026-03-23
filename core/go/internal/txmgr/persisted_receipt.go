@@ -198,9 +198,8 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			Where(`"chained_transaction" IN ?`, transactionIDs).
 			Find(&chainingRecords).
 			Error
-		// Recurse into the sequencer manager, who will call us back, or send via the transport mgr
+		// Recurse into the sequencer manager to notify the original coordinator of chained outcomes.
 		if err == nil {
-			receiptsToWrite := make([]*components.ReceiptInputWithOriginator, 0, len(chainingRecords))
 			for _, cr := range chainingRecords {
 				for _, receipt := range info {
 					if receipt.TransactionID == cr.ChainedTransaction {
@@ -226,27 +225,8 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, revertBytesCopy, onChainCopy)
 							})
 						}
-
-						// For on-chain reverts with revert data, the coordinator evaluates retryability
-						// and handles finalization, so skip immediate receipt propagation.
-						if receipt.ReceiptType != components.RT_Success && len(receipt.RevertData) > 0 {
-							continue
-						}
-
-						// For success and off-chain reverts, propagate the receipt to A's originator.
-						upstreamReceipt := &components.ReceiptInputWithOriginator{
-							Originator:            cr.Sender,
-							DomainContractAddress: cr.ContractAddress,
-							ReceiptInput:          *receipt, // note copy by value
-						}
-						upstreamReceipt.TransactionID = cr.Transaction
-						upstreamReceipt.Domain = cr.Domain
-						receiptsToWrite = append(receiptsToWrite, upstreamReceipt)
 					}
 				}
-			}
-			if len(receiptsToWrite) > 0 {
-				err = tm.sequencerMgr.WriteOrDistributeChainedTransactionReceipts(ctx, dbTX, receiptsToWrite)
 			}
 		}
 		if err != nil {
