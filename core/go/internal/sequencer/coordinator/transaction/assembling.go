@@ -216,7 +216,7 @@ func action_AssembleRevertResponse(ctx context.Context, t *coordinatorTransactio
 }
 
 func guard_CanRetryErroredAssemble(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.assembleErrorCount < txn.assembleErrorRetryThreshhold
+	return txn.assembleErrorCount <= txn.assembleErrorRetryThreshhold
 }
 
 func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
