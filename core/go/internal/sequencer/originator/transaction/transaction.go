@@ -44,7 +44,6 @@ type OriginatorTransaction interface {
 	GetID() uuid.UUID
 	GetCurrentState() State
 	GetPrivateTransaction() *components.PrivateTransaction
-	GetAssembleErrorCount() int
 	GetStatus(ctx context.Context) components.PrivateTxStatus
 }
 
@@ -68,7 +67,6 @@ type originatorTransaction struct {
 	nonce                            *uint64
 	metrics                          metrics.DistributedSequencerMetrics
 	lastReceivedWillRetry            bool
-	assembleErrorCount               int
 }
 
 func NewTransaction(
@@ -238,10 +236,4 @@ func (t *originatorTransaction) GetLastDelegatedTime() *time.Time {
 	t.RLock()
 	defer t.RUnlock()
 	return t.lastDelegatedTime
-}
-
-func (t *originatorTransaction) GetAssembleErrorCount() int {
-	t.RLock()
-	defer t.RUnlock()
-	return t.assembleErrorCount
 }

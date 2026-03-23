@@ -95,7 +95,7 @@ func (s *grapher) Forget(transactionID uuid.UUID) error {
 //   - reverse links on prerequisites that include this tx as a dependent (prereq.PrereqOf)
 //
 // Note - this mutates transaction dependency metadata; it does not mutate grapher indexes directly.
-func (s *grapher) pruneDependencyLinks(txn *coordinatorTransaction) {
+func (s *grapher) pruneDependencyLinks(txn CoordinatorTransaction) {
 	// Remove this TX from all dependent forward links (dependent.DependsOn).
 	dependentIDs := make(map[uuid.UUID]struct{})
 	if txn.GetDependencies() != nil {
@@ -118,8 +118,8 @@ func (s *grapher) pruneDependencyLinks(txn *coordinatorTransaction) {
 	// chained transactions will be finalised in the order they were dispatched in, which means a dependent
 	// may be cleaned up before the prerequisite.
 	prereqIDs := make(map[uuid.UUID]struct{})
-	if txn.dependencies != nil {
-		for _, prereqID := range txn.dependencies.DependsOn {
+	if txn.GetDependencies() != nil {
+		for _, prereqID := range txn.GetDependencies().DependsOn {
 			prereqIDs[prereqID] = struct{}{}
 		}
 	}
@@ -128,8 +128,8 @@ func (s *grapher) pruneDependencyLinks(txn *coordinatorTransaction) {
 		if prereq == nil {
 			continue
 		}
-		if prereq.dependencies != nil {
-			prereq.dependencies.PrereqOf = removeUUID(prereq.dependencies.PrereqOf, txn.pt.ID)
+		if prereq.GetDependencies() != nil {
+			prereq.GetDependencies().PrereqOf = removeUUID(prereq.GetDependencies().PrereqOf, txn.GetID())
 		}
 	}
 }

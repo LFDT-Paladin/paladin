@@ -357,24 +357,18 @@ func Test_action_AssemblePark_SetsPostAssemblyAndRequestID(t *testing.T) {
 	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
 }
 
-func Test_action_AssembleError_SetsRequestIDAndIncrementsErrorCount(t *testing.T) {
+func Test_action_AssembleError_SetsLatestFulfilledAssembleRequestID(t *testing.T) {
 	ctx := context.Background()
 	builder := NewTransactionBuilderForTesting(t, State_Assembling)
 	txn, _ := builder.BuildWithMocks()
 	requestID := uuid.New()
 	event := &AssembleErrorEvent{
-		BaseEvent:  BaseEvent{TransactionID: txn.pt.ID},
-		RequestID:  requestID,
+		BaseEvent: BaseEvent{TransactionID: txn.pt.ID},
+		RequestID: requestID,
 	}
 	err := action_AssembleError(ctx, txn, event)
 	require.NoError(t, err)
 	assert.Equal(t, requestID, txn.latestFulfilledAssembleRequestID)
-	assert.Equal(t, 1, txn.assembleErrorCount)
-
-	// Call again to verify count increments
-	err = action_AssembleError(ctx, txn, event)
-	require.NoError(t, err)
-	assert.Equal(t, 2, txn.assembleErrorCount)
 }
 
 func Test_action_SendAssembleErrorResponse_Success(t *testing.T) {

@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -198,6 +199,66 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 
 	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
+}
+
+func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
+	ctx := context.Background()
+	mockGrapher := NewMockGrapher(t)
+	dependentID := uuid.New()
+
+	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
+	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
+
+	mockDependentTxn := NewMockCoordinatorTransaction(t)
+	expectedError := errors.New("dependency reset notification failed")
+	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
+
+	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
+
+	mainTxnID := uuid.New()
+	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		TransactionID(mainTxnID).
+		Grapher(mockGrapher).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
+		Build()
+
+	err := mainTxn.notifyDependentsOfReset(ctx)
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
+}
+
+func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *testing.T) {
+	ctx := context.Background()
+	mockGrapher := NewMockGrapher(t)
+	dependentID := uuid.New()
+
+	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
+	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
+
+	mockDependentTxn := NewMockCoordinatorTransaction(t)
+	expectedError := errors.New("dependency reset notification failed")
+	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
+
+	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
+
+	mainTxnID := uuid.New()
+	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		TransactionID(mainTxnID).
+		Grapher(mockGrapher).
+		PreAssembly(&components.TransactionPreAssembly{}).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
+		Build()
+
+	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
+	require.Error(t, err)
+	assert.Equal(t, expectedError, err)
+	require.Len(t, mainTxn.dependencies.PrereqOf, 1, "dependencies must not be cleared when notify fails")
+	assert.Equal(t, dependentID, mainTxn.dependencies.PrereqOf[0])
 }
 
 func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {

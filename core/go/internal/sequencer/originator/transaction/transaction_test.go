@@ -20,8 +20,12 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +35,22 @@ func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
+}
+
+func TestNewTransaction_Success_ReturnsOriginatorTransaction(t *testing.T) {
+	ctx := context.Background()
+	pt := testutil.NewPrivateTransactionBuilderForTesting().Build()
+	engine := &common.FakeEngineIntegrationForTesting{}
+	recorder := NewSentMessageRecorder()
+	queue := func(context.Context, common.Event) {}
+	m := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
+
+	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m)
+	require.NoError(t, err)
+	require.NotNil(t, ot)
+	assert.Equal(t, pt.ID, ot.GetID())
+	assert.Equal(t, State_Initial, ot.GetCurrentState())
+	assert.Same(t, pt, ot.GetPrivateTransaction())
 }
 
 func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
@@ -306,23 +326,4 @@ func TestTransaction_GetNonce_ReturnsSetNonce(t *testing.T) {
 	assert.Equal(t, &expectedNonce, nonce, "GetNonce should return the nonce that was set")
 	assert.NotNil(t, nonce, "GetNonce should return a non-nil nonce")
 	assert.Equal(t, expectedNonce, *nonce, "GetNonce should return the correct nonce value")
-}
-
-func TestTransaction_GetAssembleErrorCount_ReturnsZeroInitially(t *testing.T) {
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	count := txn.GetAssembleErrorCount()
-	assert.Equal(t, 0, count, "GetAssembleErrorCount should return 0 for a newly created transaction")
-}
-
-func TestTransaction_GetAssembleErrorCount_ReturnsSetCount(t *testing.T) {
-	builder := NewTransactionBuilderForTesting(t, State_Initial)
-	txn, _ := builder.BuildWithMocks()
-
-	expectedCount := 3
-	txn.assembleErrorCount = expectedCount
-
-	count := txn.GetAssembleErrorCount()
-	assert.Equal(t, expectedCount, count, "GetAssembleErrorCount should return the count that was set")
 }

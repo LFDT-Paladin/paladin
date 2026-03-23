@@ -41,6 +41,18 @@ func Test_action_ActiveCoordinatorUpdated_EmptyCoordinatorReturnsError(t *testin
 	assert.Contains(t, err.Error(), "Cannot set active coordinator to an empty string")
 }
 
+func Test_action_ActiveCoordinatorUpdated_SetsActiveCoordinator(t *testing.T) {
+	ctx := context.Background()
+	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+
+	coordinator := "new-coordinator@node2"
+	err := action_ActiveCoordinatorUpdated(ctx, o, &ActiveCoordinatorUpdatedEvent{Coordinator: coordinator})
+	require.NoError(t, err)
+	assert.Equal(t, coordinator, o.activeCoordinatorNode)
+}
+
 func Test_guard_HasDroppedTransactions_TrueWhenDelegatedTxnNotInSnapshot(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -270,32 +282,6 @@ func Test_sendDelegationRequest_HandleEventError_ReturnsWrappedError(t *testing.
 	assert.Contains(t, err.Error(), "error handling delegated event for transaction")
 	assert.Contains(t, err.Error(), txnID.String())
 	assert.Contains(t, err.Error(), expectedErr.Error())
-}
-
-func Test_sendDelegationRequest_TransactionsWithErrorsAppendedLast(t *testing.T) {
-	ctx := context.Background()
-	originatorLocator := "sender@senderNode"
-	coordinatorLocator := "coordinator@coordinatorNode"
-
-	txBuilderOK := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending)
-	txBuilderWithErrors := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pending).AssembleErrorCount(1)
-
-	builder := NewOriginatorBuilderForTesting(State_Sending).
-		CommitteeMembers(originatorLocator, coordinatorLocator).
-		TransactionBuilders(txBuilderOK, txBuilderWithErrors)
-	o, mocks, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	err := o.stateMachineEventLoop.ProcessEvent(ctx, &ActiveCoordinatorUpdatedEvent{Coordinator: coordinatorLocator})
-	require.NoError(t, err)
-
-	require.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "delegation request should have been sent")
-	delegated := mocks.SentMessageRecorder.GetDelegatedTransactions()
-	require.Len(t, delegated, 2, "should have delegated 2 transactions")
-
-	txnWithErrorsID := txBuilderWithErrors.GetBuiltTransaction().GetID()
-	assert.Equal(t, txnWithErrorsID, delegated[1].ID,
-		"transaction with assemble errors should be last in the delegation request (transactionsWithErrors appended after privateTransactions)")
 }
 
 func Test_validator_TransactionDoesNotExist_InvalidEventTypeReturnsFalse(t *testing.T) {

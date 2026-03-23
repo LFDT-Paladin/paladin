@@ -758,7 +758,7 @@ func Test_guard_CanRetryErroredAssemble_WhenBelowThreshold(t *testing.T) {
 func Test_guard_CanRetryErroredAssemble_WhenAtThreshold(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		AssembleErrorCount(3).
+		AssembleErrorCount(4). // 4 errors, 3 retries allowed
 		AssembleErrorRetryThreshold(3).
 		Build()
 

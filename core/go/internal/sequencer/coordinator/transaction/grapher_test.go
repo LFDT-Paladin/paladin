@@ -141,6 +141,29 @@ func Test_pruneDependencyLinks_PrereqOfNotInGrapher(t *testing.T) {
 	assert.Nil(t, grapher.TransactionByID(ctx, txn.pt.ID))
 }
 
+// When a dependent is finalized before its prerequisite is still in the grapher (chained dispatch),
+// DependsOn may list a prereq ID that is no longer indexed — prune must skip updating that prereq.
+func Test_pruneDependencyLinks_DependsOnPrereqNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+
+	prereqID := uuid.New()
+	dependentID := uuid.New()
+
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(dependentID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{prereqID},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, dependentTxn)
+
+	err := grapher.Forget(dependentID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, dependentID))
+}
+
 func Test_pruneDependencyLinks_DependentHasNilDependencies(t *testing.T) {
 	ctx := context.Background()
 

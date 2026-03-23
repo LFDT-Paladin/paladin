@@ -60,7 +60,6 @@ func action_AssemblePark(ctx context.Context, t *originatorTransaction, event co
 func action_AssembleError(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleErrorEvent)
 	t.latestFulfilledAssembleRequestID = e.RequestID
-	t.assembleErrorCount++
 	return nil
 }
 

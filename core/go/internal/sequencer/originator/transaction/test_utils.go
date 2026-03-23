@@ -187,8 +187,6 @@ type TransactionBuilderForTesting struct {
 	signerAddress        *pldtypes.EthAddress
 	nonce                *uint64
 
-	assembleErrorCount int
-
 	metrics metrics.DistributedSequencerMetrics
 }
 
@@ -242,11 +240,6 @@ func (b *TransactionBuilderForTesting) GetLatestSubmissionHash() pldtypes.Bytes3
 
 func (b *TransactionBuilderForTesting) QueueEventsTo(emit func(ctx context.Context, event common.Event)) *TransactionBuilderForTesting {
 	b.queueEventForOriginator = emit
-	return b
-}
-
-func (b *TransactionBuilderForTesting) AssembleErrorCount(n int) *TransactionBuilderForTesting {
-	b.assembleErrorCount = n
 	return b
 }
 
@@ -335,8 +328,6 @@ func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
 		txn.signerAddress = ptrTo(b.GetSignerAddress())
 
 	}
-
-	txn.assembleErrorCount = b.assembleErrorCount
 
 	b.txn = txn
 

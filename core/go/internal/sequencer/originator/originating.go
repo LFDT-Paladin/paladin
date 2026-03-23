@@ -68,25 +68,18 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 		return nil
 	}
 
-	transactionsWithErrors := make([]*components.PrivateTransaction, 0)
+	// Re-delegate all transactions. Every delegation request must include all transaction, sent in the order they were created
+	// on the originating node.
 
-	// Re-delegate transactions
-	privateTransactions := make([]*components.PrivateTransaction, 0)
-	transactionsToDelegate := make([]transaction.OriginatorTransaction, 0)
-	for _, txn := range o.transactionsOrdered {
-		// Every delegation request must include all transaction, sent in the order they were created on the originating node.
-		// This allows the coordinator to respect FIFO ordering within an originator up until first assembly.
-		if txn.GetAssembleErrorCount() > 0 {
-			// These get re-delegated but are put to the end of the list
-			transactionsWithErrors = append(transactionsWithErrors, txn.GetPrivateTransaction())
-		} else {
-			privateTransactions = append(privateTransactions, txn.GetPrivateTransaction())
-		}
-		transactionsToDelegate = append(transactionsToDelegate, txn)
-	}
+	// Note: we could track assemble errors here (not reverts, but domain bugs that prevent successful assembly) and penalise
+	// transactions who assemble at error time by putting them to the back of the list. The coordinator already gives a limited
+	// number of retries in such scenarios so the current worst case is a slightly delay before we give up on the failing TX anyway
+	// so for now we just re-delegate all transactions in their original order.
 
 	// Update internal TX state machines before sending delegation requests to avoid race condition
-	for _, txn := range transactionsToDelegate {
+	transactionsToDelegate := make([]*components.PrivateTransaction, 0)
+	for _, txn := range o.transactionsOrdered {
+		transactionsToDelegate = append(transactionsToDelegate, txn.GetPrivateTransaction())
 		err := txn.HandleEvent(ctx, &transaction.DelegatedEvent{
 			BaseEvent: transaction.BaseEvent{
 				TransactionID: txn.GetID(),
@@ -99,10 +92,10 @@ func sendDelegationRequest(ctx context.Context, o *originator) error {
 		}
 	}
 
-	log.L(ctx).Debugf("sending delegation request for %d transactions", len(transactionsWithErrors)+len(privateTransactions))
+	log.L(ctx).Debugf("sending delegation request for %d transactions", len(o.transactionsOrdered))
 
 	// Don't send delegation request before internal TX state machine has been updated
-	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, append(privateTransactions, transactionsWithErrors...), o.currentBlockHeight)
+	return o.transportWriter.SendDelegationRequest(ctx, o.activeCoordinatorNode, transactionsToDelegate, o.currentBlockHeight)
 }
 
 func action_SendDelegationRequest(ctx context.Context, o *originator, _ common.Event) error {
