@@ -9,6 +9,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -1196,16 +1197,16 @@ func (_c *MockTransportWriter_SendPreDispatchResponse_Call) RunAndReturn(run fun
 }
 
 // SendTransactionConfirmed provides a mock function for the type MockTransportWriter
-func (_mock *MockTransportWriter) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
-	ret := _mock.Called(ctx, txID, originatorNode, contractAddress, nonce, revertReason, willRetry)
+func (_mock *MockTransportWriter) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
+	ret := _mock.Called(ctx, txID, originatorNode, contractAddress, nonce, outcome, revertReason, failureMessage, willRetry)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendTransactionConfirmed")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, *pldtypes.EthAddress, *pldtypes.HexUint64, pldtypes.HexBytes, bool) error); ok {
-		r0 = returnFunc(ctx, txID, originatorNode, contractAddress, nonce, revertReason, willRetry)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, *pldtypes.EthAddress, *pldtypes.HexUint64, engine.TransactionConfirmed_Outcome, pldtypes.HexBytes, string, bool) error); ok {
+		r0 = returnFunc(ctx, txID, originatorNode, contractAddress, nonce, outcome, revertReason, failureMessage, willRetry)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1223,13 +1224,15 @@ type MockTransportWriter_SendTransactionConfirmed_Call struct {
 //   - originatorNode string
 //   - contractAddress *pldtypes.EthAddress
 //   - nonce *pldtypes.HexUint64
+//   - outcome engine.TransactionConfirmed_Outcome
 //   - revertReason pldtypes.HexBytes
+//   - failureMessage string
 //   - willRetry bool
-func (_e *MockTransportWriter_Expecter) SendTransactionConfirmed(ctx interface{}, txID interface{}, originatorNode interface{}, contractAddress interface{}, nonce interface{}, revertReason interface{}, willRetry interface{}) *MockTransportWriter_SendTransactionConfirmed_Call {
-	return &MockTransportWriter_SendTransactionConfirmed_Call{Call: _e.mock.On("SendTransactionConfirmed", ctx, txID, originatorNode, contractAddress, nonce, revertReason, willRetry)}
+func (_e *MockTransportWriter_Expecter) SendTransactionConfirmed(ctx interface{}, txID interface{}, originatorNode interface{}, contractAddress interface{}, nonce interface{}, outcome interface{}, revertReason interface{}, failureMessage interface{}, willRetry interface{}) *MockTransportWriter_SendTransactionConfirmed_Call {
+	return &MockTransportWriter_SendTransactionConfirmed_Call{Call: _e.mock.On("SendTransactionConfirmed", ctx, txID, originatorNode, contractAddress, nonce, outcome, revertReason, failureMessage, willRetry)}
 }
 
-func (_c *MockTransportWriter_SendTransactionConfirmed_Call) Run(run func(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool)) *MockTransportWriter_SendTransactionConfirmed_Call {
+func (_c *MockTransportWriter_SendTransactionConfirmed_Call) Run(run func(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool)) *MockTransportWriter_SendTransactionConfirmed_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -1251,13 +1254,21 @@ func (_c *MockTransportWriter_SendTransactionConfirmed_Call) Run(run func(ctx co
 		if args[4] != nil {
 			arg4 = args[4].(*pldtypes.HexUint64)
 		}
-		var arg5 pldtypes.HexBytes
+		var arg5 engine.TransactionConfirmed_Outcome
 		if args[5] != nil {
-			arg5 = args[5].(pldtypes.HexBytes)
+			arg5 = args[5].(engine.TransactionConfirmed_Outcome)
 		}
-		var arg6 bool
+		var arg6 pldtypes.HexBytes
 		if args[6] != nil {
-			arg6 = args[6].(bool)
+			arg6 = args[6].(pldtypes.HexBytes)
+		}
+		var arg7 string
+		if args[7] != nil {
+			arg7 = args[7].(string)
+		}
+		var arg8 bool
+		if args[8] != nil {
+			arg8 = args[8].(bool)
 		}
 		run(
 			arg0,
@@ -1267,6 +1278,8 @@ func (_c *MockTransportWriter_SendTransactionConfirmed_Call) Run(run func(ctx co
 			arg4,
 			arg5,
 			arg6,
+			arg7,
+			arg8,
 		)
 	})
 	return _c
@@ -1277,7 +1290,7 @@ func (_c *MockTransportWriter_SendTransactionConfirmed_Call) Return(err error) *
 	return _c
 }
 
-func (_c *MockTransportWriter_SendTransactionConfirmed_Call) RunAndReturn(run func(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error) *MockTransportWriter_SendTransactionConfirmed_Call {
+func (_c *MockTransportWriter_SendTransactionConfirmed_Call) RunAndReturn(run func(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error) *MockTransportWriter_SendTransactionConfirmed_Call {
 	_c.Call.Return(run)
 	return _c
 }

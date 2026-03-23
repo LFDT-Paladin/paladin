@@ -215,6 +215,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 						} else {
 							origTxID := cr.Transaction
 							outcomeType := receipt.ReceiptType
+							failureMessage := receipt.FailureMessage
 							// take a copy of the on chain data and the revert bytes so we have original data when the post commit is called
 							onChainCopy := receipt.OnChain
 							var revertBytesCopy pldtypes.HexBytes
@@ -223,7 +224,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 								copy(revertBytesCopy, receipt.RevertData)
 							}
 							dbTX.AddPostCommit(func(ctx context.Context) {
-								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, revertBytesCopy, onChainCopy)
+								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, failureMessage, revertBytesCopy, onChainCopy)
 							})
 						}
 
@@ -297,6 +298,11 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 				if !existing.Success /* do not override success */ && receipt.Success /* do not replace the first failure */ {
 					log.L(ctx).Warnf("Duplicate receipt for transaction %s replaces existing failure receipt. Previous error: %s", receipt.TransactionID, stringOrEmpty(existing.FailureMessage))
 					replacementIDsToDelete = append(replacementIDsToDelete, existing.TransactionID)
+					// Copy and clear sequence so replacement rows always allocate a fresh DB identity value.
+					// This works around GORM behaviour, where if we entered this function after inserting
+					// transactions A,B,C where B failed on a conflict so we only inserted A and C, the sequence
+					// for C gets written to B, which results in an unrecoverable insert error on B the retry for B.
+					receipt.Sequence = 0
 					replacementInserts = append(replacementInserts, receipt)
 				} else {
 					log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded (success=%t) Error: %s", receipt.TransactionID, receipt.Success, stringOrEmpty(receipt.FailureMessage))

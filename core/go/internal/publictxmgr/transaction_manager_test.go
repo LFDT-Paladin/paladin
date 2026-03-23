@@ -622,7 +622,7 @@ func TestEngineSuspendResumeRealDB(t *testing.T) {
 
 }
 
-func TestUpdateTransactionRealDB(t *testing.T) {
+func TestUpdateTransactionRealDB_LocalIDNotFound(t *testing.T) {
 	ctx, ptm, m, done := newTestPublicTxManager(t, true, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Manager.Interval = confutil.P("50ms")
 		conf.Orchestrator.Interval = confutil.P("50ms")
@@ -630,15 +630,14 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 	})
 	defer done()
 
-	fakeTx := &pldapi.Transaction{}
-	fakeTx.From = "sender@node1"
-
 	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 	resolvedKey := pldtypes.MustEthAddress(keyMapping.Verifier.Verifier)
 
 	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
-	m.ethClient.On("ChainID").Return(chainID.Int64())
+	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(confutil.P(pldtypes.HexUint64(1122334455)), nil).Maybe()
+	m.ethClient.On("SendRawTransaction", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop")).Maybe()
 
 	txID := uuid.New()
 	pubTxSub := &components.PublicTxSubmission{
@@ -652,63 +651,44 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 			},
 		},
 	}
-
-	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(confutil.P(pldtypes.HexUint64(1122334455)), nil)
-
-	confirmations := make(chan *blockindexer.IndexedTransactionNotify, 1)
-	srtx := m.ethClient.On("SendRawTransaction", mock.Anything, mock.Anything)
-	srtx.Run(func(args mock.Arguments) {
-		signedMessage := args[1].(pldtypes.HexBytes)
-
-		signer, ethTx, err := ethsigner.RecoverRawTransaction(ctx, ethtypes.HexBytes0xPrefix(signedMessage), m.ethClient.ChainID())
-		require.NoError(t, err)
-		assert.Equal(t, *resolvedKey, pldtypes.EthAddress(*signer))
-
-		if ethTx.GasLimit.Int64() == int64(2223451) {
-			// We need to decode the TX to find the nonce
-			txHash := calculateTransactionHash(signedMessage)
-			confirmation := &blockindexer.IndexedTransactionNotify{
-				IndexedTransaction: pldapi.IndexedTransaction{
-					Hash:             *txHash,
-					BlockNumber:      11223344,
-					TransactionIndex: 10,
-					From:             resolvedKey,
-					To:               (*pldtypes.EthAddress)(ethTx.To),
-					Nonce:            ethTx.Nonce.Uint64(),
-					Result:           pldapi.TXResult_SUCCESS.Enum(),
-				},
-			}
-			confirmations <- confirmation
-
-			srtx.Return(&confirmation.Hash, nil)
-		} else {
-			srtx.Return(nil, fmt.Errorf("pop"))
-		}
-	})
-
-	pubTx, err := ptm.SingleTransactionSubmit(ctx, pubTxSub)
+	_, err = ptm.SingleTransactionSubmit(ctx, pubTxSub)
 	require.NoError(t, err)
 
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	// Wait for the orchestrator to kick off and pick this TX up
-	var ift *inFlightTransactionStageController
-	for ift == nil {
-		<-ticker.C
-		if t.Failed() {
-			panic("test failed")
-		}
-		o := ptm.getOrchestratorForAddress(*resolvedKey)
-		if o != nil {
-			ift = o.getFirstInFlight()
-		}
-	}
-
-	// pub_txn_id not found
 	err = ptm.UpdateTransaction(ctx, txID, uint64(2), resolvedKey, &pldapi.TransactionInput{}, nil, func(dbTX persistence.DBTX) error { return nil })
-
 	require.Error(t, err)
+}
+
+func TestUpdateTransactionRealDB_GasEstimateErrors(t *testing.T) {
+	ctx, ptm, m, done := newTestPublicTxManager(t, true, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Manager.Interval = confutil.P("50ms")
+		conf.Orchestrator.Interval = confutil.P("50ms")
+		conf.Manager.OrchestratorIdleTimeout = confutil.P("1ms")
+	})
+	defer done()
+
+	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	resolvedKey := pldtypes.MustEthAddress(keyMapping.Verifier.Verifier)
+
+	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
+	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(confutil.P(pldtypes.HexUint64(1122334455)), nil).Maybe()
+	m.ethClient.On("SendRawTransaction", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop")).Maybe()
+
+	txID := uuid.New()
+	pubTxSub := &components.PublicTxSubmission{
+		Bindings: []*components.PaladinTXReference{
+			{TransactionID: txID, TransactionType: pldapi.TransactionTypePublic.Enum()},
+		},
+		PublicTxInput: pldapi.PublicTxInput{
+			From: resolvedKey,
+			PublicTxOptions: pldapi.PublicTxOptions{
+				Gas: confutil.P(pldtypes.HexUint64(1223451)),
+			},
+		},
+	}
+	pubTx, err := ptm.SingleTransactionSubmit(ctx, pubTxSub)
+	require.NoError(t, err)
 
 	// gas estimate failure with revert data
 	sampleRevertData := pldtypes.HexBytes("some data")
@@ -726,8 +706,40 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 		Return(ethclient.EstimateGasResult{}, fmt.Errorf("GasEstimate error")).Once()
 	err = ptm.UpdateTransaction(ctx, txID, *pubTx.LocalID, resolvedKey, &pldapi.TransactionInput{}, nil, func(dbTX persistence.DBTX) error { return errors.New("db write failed") })
 	require.EqualError(t, err, "GasEstimate error")
+}
 
-	// txmgr db write fails
+func TestUpdateTransactionRealDB_DBWriteFails(t *testing.T) {
+	ctx, ptm, m, done := newTestPublicTxManager(t, true, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Manager.Interval = confutil.P("50ms")
+		conf.Orchestrator.Interval = confutil.P("50ms")
+		conf.Manager.OrchestratorIdleTimeout = confutil.P("1ms")
+	})
+	defer done()
+
+	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	resolvedKey := pldtypes.MustEthAddress(keyMapping.Verifier.Verifier)
+
+	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
+	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(confutil.P(pldtypes.HexUint64(1122334455)), nil).Maybe()
+	m.ethClient.On("SendRawTransaction", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop")).Maybe()
+
+	txID := uuid.New()
+	pubTxSub := &components.PublicTxSubmission{
+		Bindings: []*components.PaladinTXReference{
+			{TransactionID: txID, TransactionType: pldapi.TransactionTypePublic.Enum()},
+		},
+		PublicTxInput: pldapi.PublicTxInput{
+			From: resolvedKey,
+			PublicTxOptions: pldapi.PublicTxOptions{
+				Gas: confutil.P(pldtypes.HexUint64(1223451)),
+			},
+		},
+	}
+	pubTx, err := ptm.SingleTransactionSubmit(ctx, pubTxSub)
+	require.NoError(t, err)
+
 	err = ptm.UpdateTransaction(ctx, txID, *pubTx.LocalID, resolvedKey, &pldapi.TransactionInput{
 		TransactionBase: pldapi.TransactionBase{
 			PublicTxOptions: pldapi.PublicTxOptions{
@@ -735,10 +747,76 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 			},
 		},
 	}, nil, func(dbTX persistence.DBTX) error { return errors.New("db write failed") })
-
 	require.Error(t, err)
+}
 
-	// update the transaction
+func TestUpdateTransactionRealDB_SuccessfulUpdateAndConfirmation(t *testing.T) {
+	ctx, ptm, m, done := newTestPublicTxManager(t, true, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		conf.Manager.Interval = confutil.P("50ms")
+		conf.Orchestrator.Interval = confutil.P("50ms")
+		conf.Manager.OrchestratorIdleTimeout = confutil.P("1ms")
+	})
+	defer done()
+
+	keyMapping, err := m.keyManager.ResolveKeyNewDatabaseTX(ctx, "signer1", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	resolvedKey := pldtypes.MustEthAddress(keyMapping.Verifier.Verifier)
+
+	chainID, _ := rand.Int(rand.Reader, big.NewInt(100000000000000))
+	m.ethClient.On("ChainID").Return(chainID.Int64()).Maybe()
+	m.ethClient.On("GetTransactionCount", mock.Anything, mock.Anything).Return(confutil.P(pldtypes.HexUint64(1122334455)), nil).Maybe()
+
+	confirmations := make(chan *blockindexer.IndexedTransactionNotify, 1)
+	firstSubmissionAttempted := make(chan struct{}, 1)
+	srtx := m.ethClient.On("SendRawTransaction", mock.Anything, mock.Anything).Maybe()
+	srtx.Run(func(args mock.Arguments) {
+		signedMessage := args[1].(pldtypes.HexBytes)
+
+		signer, ethTx, err := ethsigner.RecoverRawTransaction(ctx, ethtypes.HexBytes0xPrefix(signedMessage), m.ethClient.ChainID())
+		require.NoError(t, err)
+		assert.Equal(t, *resolvedKey, pldtypes.EthAddress(*signer))
+
+		if ethTx.GasLimit.Int64() == int64(2223451) {
+			txHash := calculateTransactionHash(signedMessage)
+			confirmation := &blockindexer.IndexedTransactionNotify{
+				IndexedTransaction: pldapi.IndexedTransaction{
+					Hash:             *txHash,
+					BlockNumber:      11223344,
+					TransactionIndex: 10,
+					From:             resolvedKey,
+					To:               (*pldtypes.EthAddress)(ethTx.To),
+					Nonce:            ethTx.Nonce.Uint64(),
+					Result:           pldapi.TXResult_SUCCESS.Enum(),
+				},
+			}
+			confirmations <- confirmation
+			srtx.Return(&confirmation.Hash, nil)
+		} else {
+			select {
+			case firstSubmissionAttempted <- struct{}{}:
+			default:
+			}
+			srtx.Return(nil, fmt.Errorf("pop"))
+		}
+	})
+
+	txID := uuid.New()
+	pubTxSub := &components.PublicTxSubmission{
+		Bindings: []*components.PaladinTXReference{
+			{TransactionID: txID, TransactionType: pldapi.TransactionTypePublic.Enum()},
+		},
+		PublicTxInput: pldapi.PublicTxInput{
+			From: resolvedKey,
+			PublicTxOptions: pldapi.PublicTxOptions{
+				Gas: confutil.P(pldtypes.HexUint64(1223451)),
+			},
+		},
+	}
+	pubTx, err := ptm.SingleTransactionSubmit(ctx, pubTxSub)
+	require.NoError(t, err)
+
+	<-firstSubmissionAttempted
+
 	m.ethClient.On("EstimateGasNoResolve", mock.Anything, mock.Anything, mock.Anything).
 		Return(ethclient.EstimateGasResult{
 			GasLimit: pldtypes.HexUint64(2223451),
@@ -752,11 +830,11 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 		},
 		ABI: abi.ABI{{Type: abi.Function, Name: "set", Inputs: abi.ParameterArray{{Type: "uint256", Name: "value"}}}},
 	}, nil, func(dbTX persistence.DBTX) error { return nil })
-
 	require.NoError(t, err)
 
-	// simulate the confirmation so we can check that the inflight transaction is able to complete and be removed
-	// we don't want any previous state to block this
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
 	waitingForConfirmation := true
 	for waitingForConfirmation {
 		select {
@@ -773,7 +851,6 @@ func TestUpdateTransactionRealDB(t *testing.T) {
 		}
 	}
 
-	// wait to flush out the whole orchestrator as this is the only thing in flight
 	for ptm.getOrchestratorCount() > 0 {
 		<-ticker.C
 		if t.Failed() {
@@ -1070,7 +1147,9 @@ func TestWriteNewTransactionsEmptyList(t *testing.T) {
 
 func TestWriteNewTransactionsTraceLogging(t *testing.T) {
 	ctx := context.Background()
-	_, ptm, _, done := newTestPublicTxManager(t, true)
+	_, ptm, _, done := newTestPublicTxManager(t, true, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
+		mocks.disableManagerStart = true
+	})
 	defer done()
 
 	// Enable trace so the "WriteNewTransactions transaction ID" block runs

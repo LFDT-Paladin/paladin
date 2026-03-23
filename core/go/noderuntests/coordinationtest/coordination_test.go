@@ -1335,7 +1335,9 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 		stopNode(t, alice)
 	})
 
-	customDuration := 10 * time.Second
+	// this has the potential to be slow on a GH action runner that might be struggling for resource
+	// as the nodes have to all restart, then catch up on any missed blocks, and then index the receipt
+	customDuration := 20 * time.Second
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
 		transactionLatencyThresholdCustom(t, &customDuration),

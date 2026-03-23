@@ -17,6 +17,7 @@ package grpctransport
 
 import (
 	"context"
+	"crypto/x509/pkix"
 	"fmt"
 	"net"
 	"testing"
@@ -257,4 +258,21 @@ func TestConnectSendStreamBadSecurityCtx(t *testing.T) {
 		})
 	}
 	assert.Error(t, err)
+}
+
+func TestStopTransportIsIdempotentAndReleasesListener(t *testing.T) {
+	nodeCert, nodeKey := buildTestCertificate(t, pkix.Name{CommonName: "node1"}, nil, nil)
+	plugin, _, _, done := newTestGRPCTransport(t, nodeCert, nodeKey, &Config{})
+	defer done()
+
+	listenAddr := plugin.listener.Addr().String()
+
+	_, err := plugin.StopTransport(context.Background(), &prototk.StopTransportRequest{})
+	require.NoError(t, err)
+	_, err = plugin.StopTransport(context.Background(), &prototk.StopTransportRequest{})
+	require.NoError(t, err)
+
+	reboundListener, err := net.Listen("tcp", listenAddr)
+	require.NoError(t, err)
+	_ = reboundListener.Close()
 }

@@ -232,6 +232,65 @@ func TestFinalizeTransactionsRedactFailureOverSuccessPersistedDoesNotSkip(t *tes
 
 }
 
+func TestFinalizeTransactionsOverwriteFailureWithSuccessRealDB(t *testing.T) {
+	ctx, txm, done := newTestTransactionManager(t, true)
+	defer done()
+
+	txA := uuid.New()
+	txB := uuid.New()
+	txC := uuid.New()
+
+	// Seed an existing failure receipt.
+	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID:  txB,
+				ReceiptType:    components.RT_FailedWithMessage,
+				FailureMessage: "seed failure",
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	initialReceipt, err := txm.GetTransactionReceiptByID(ctx, txB)
+	require.NoError(t, err)
+	require.False(t, initialReceipt.Success)
+	require.NotZero(t, initialReceipt.Sequence)
+
+	// Trigger the duplicate handling path with a partial conflict pattern (A inserted, B conflicts, C inserted).
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
+			{
+				TransactionID: txA,
+				ReceiptType:   components.RT_Success,
+			},
+			{
+				TransactionID: txB, // conflicts with seeded failure and must be replaced with success
+				ReceiptType:   components.RT_Success,
+			},
+			{
+				TransactionID: txC,
+				ReceiptType:   components.RT_Success,
+			},
+		})
+	})
+	require.NoError(t, err)
+
+	updatedReceipt, err := txm.GetTransactionReceiptByID(ctx, txB)
+	require.NoError(t, err)
+	require.True(t, updatedReceipt.Success)
+	require.Empty(t, updatedReceipt.FailureMessage)
+	require.Greater(t, updatedReceipt.Sequence, initialReceipt.Sequence, "replacement must allocate a new sequence")
+
+	receiptA, err := txm.GetTransactionReceiptByID(ctx, txA)
+	require.NoError(t, err)
+	require.True(t, receiptA.Success)
+
+	receiptC, err := txm.GetTransactionReceiptByID(ctx, txC)
+	require.NoError(t, err)
+	require.True(t, receiptC.Success)
+}
+
 func TestFinalizeTransactionsChainedLookupFail(t *testing.T) {
 
 	txID := uuid.New()
@@ -415,7 +474,7 @@ func TestFinalizeTransactionsInsertOkChained(t *testing.T) {
 
 	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 		mc.sequencerMgr.On("WriteOrDistributeChainedTransactionReceipts", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+		mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 
 		mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(
 			&pldapi.TransactionStates{None: true}, nil,
@@ -1082,7 +1141,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 			// HandleChainedTransactionOutcome is called post-commit for A's coordinator notification
 			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.MatchedBy(func(addr pldtypes.EthAddress) bool {
 				return addr == *pldtypes.MustEthAddress(contractAddress)
-			}), originalTxID, components.RT_Success, mock.Anything, mock.Anything).Return()
+			}), originalTxID, components.RT_Success, mock.Anything, mock.Anything, mock.Anything).Return()
 			mc.db.ExpectCommit()
 		})
 	defer done()
@@ -1175,7 +1234,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationMultipleMatches(t *testing
 				return found1 && found2
 			})).Return(nil)
 			// HandleChainedTransactionOutcome is called post-commit for both A's coordinator notifications
-			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 			mc.db.ExpectCommit()
 		})
 	defer done()
@@ -1318,7 +1377,7 @@ func TestFinalizeTransactionsChainedOnChainRevertNotifiesCoordinator(t *testing.
 			// On-chain revert: coordinator is notified but receipt is NOT propagated
 			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.MatchedBy(func(addr pldtypes.EthAddress) bool {
 				return addr == *pldtypes.MustEthAddress(contractAddress)
-			}), originalTxID, components.RT_FailedOnChainWithRevertData, mock.MatchedBy(func(rd pldtypes.HexBytes) bool {
+			}), originalTxID, components.RT_FailedOnChainWithRevertData, mock.Anything, mock.MatchedBy(func(rd pldtypes.HexBytes) bool {
 				return len(rd) == 2 && rd[0] == 0xde
 			}), mock.Anything).Return()
 			mc.db.ExpectCommit()
@@ -1363,7 +1422,7 @@ func TestFinalizeTransactionsChainedOffChainRevertNotifiesCoordinator(t *testing
 			// Off-chain revert: coordinator notified AND receipt propagated
 			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.MatchedBy(func(addr pldtypes.EthAddress) bool {
 				return addr == *pldtypes.MustEthAddress(contractAddress)
-			}), originalTxID, components.RT_FailedWithMessage, mock.Anything, mock.Anything).Return()
+			}), originalTxID, components.RT_FailedWithMessage, mock.Anything, mock.Anything, mock.Anything).Return()
 			mc.sequencerMgr.On("WriteOrDistributeChainedTransactionReceipts", mock.Anything, mock.Anything, mock.MatchedBy(func(receipts []*components.ReceiptInputWithOriginator) bool {
 				return len(receipts) == 1 && receipts[0].TransactionID == originalTxID
 			})).Return(nil)

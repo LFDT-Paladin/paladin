@@ -262,3 +262,63 @@ func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
 	require.Len(t, txn2.dependencies.DependsOn, 1)
 	assert.Equal(t, otherID, txn2.dependencies.DependsOn[0])
 }
+
+func Test_pruneDependencyLinks_RemovesSelfFromPrerequisitePrereqOf(t *testing.T) {
+	ctx := context.Background()
+
+	txPrereqID := uuid.New()
+	txDependentID := uuid.New()
+
+	prereqTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txPrereqID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{txDependentID},
+		}).
+		Build()
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txDependentID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txPrereqID},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, prereqTxn)
+	grapher.Add(ctx, dependentTxn)
+
+	err := grapher.Forget(txDependentID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txDependentID))
+	assert.Empty(t, prereqTxn.dependencies.PrereqOf)
+}
+
+func Test_pruneDependencyLinks_PrereqOfRetainsOtherDependents(t *testing.T) {
+	ctx := context.Background()
+
+	txPrereqID := uuid.New()
+	txDependentID := uuid.New()
+	otherDependentID := uuid.New()
+
+	prereqTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txPrereqID).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{txDependentID, otherDependentID},
+		}).
+		Build()
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txDependentID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txPrereqID},
+		}).
+		Build()
+
+	grapher := NewGrapher(ctx)
+	grapher.Add(ctx, prereqTxn)
+	grapher.Add(ctx, dependentTxn)
+
+	err := grapher.Forget(txDependentID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txDependentID))
+	require.Len(t, prereqTxn.dependencies.PrereqOf, 1)
+	assert.Equal(t, otherDependentID, prereqTxn.dependencies.PrereqOf[0])
+}

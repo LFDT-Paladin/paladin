@@ -382,6 +382,43 @@ func TestTransferLockedAssemble(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestTransferLockedLoadCoinsLeadingZeroID(t *testing.T) {
+	leadingZeroID := pldtypes.MustParseHexUint256("0x00f212ae0727d9d928346f112a728b54130662f6b0cf9dd05fe90386322f4e70")
+	expectedID := common.HexUint256To32ByteHexString(leadingZeroID)
+	queryChecked := false
+
+	h := transferLockedHandler{
+		baseHandler: baseHandler{
+			stateSchemas: &common.StateSchemas{
+				CoinSchema: &prototk.StateSchema{Id: "coin"},
+			},
+		},
+		callbacks: &domain.MockDomainCallbacks{
+			MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
+				assert.Contains(t, req.QueryJson, expectedID)
+				assert.Contains(t, req.QueryJson, "00f212ae0727d9d928346f112a728b54130662f6b0cf9dd05fe90386322f4e70")
+				queryChecked = true
+				return &prototk.FindAvailableStatesResponse{
+					States: []*prototk.StoredState{
+						{
+							Id:       "0x" + expectedID,
+							SchemaId: "coin",
+							DataJson: "{\"salt\":\"0x042fac32983b19d76425cc54dd80e8a198f5d477c6a327cb286eb81a0c2b95ec\",\"owner\":\"0x19d2ee6b9770a4f8d7c3b7906bc7595684509166fa42d718d1d880b62bcb7922\",\"amount\":\"0x0a\",\"locked\":true}",
+						},
+					},
+				}, nil
+			},
+		},
+	}
+
+	inputs, revert, err := h.loadCoins(context.Background(), []*pldtypes.HexUint256{leadingZeroID}, false, "")
+	assert.NoError(t, err)
+	assert.False(t, revert)
+	assert.True(t, queryChecked)
+	assert.Len(t, inputs.states, 1)
+	assert.Len(t, inputs.coins, 1)
+}
+
 func TestTransferLockedEndorse(t *testing.T) {
 	h := transferLockedHandler{}
 	ctx := context.Background()
