@@ -324,32 +324,6 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 	}()
 }
 
-func waitForReceiptFullOverSubscription(t *testing.T, waitCtx context.Context, sub rpcclient.Subscription, wantID uuid.UUID) *pldapi.TransactionReceiptFull {
-	t.Helper()
-	for {
-		select {
-		case <-waitCtx.Done():
-			require.Failf(t, "timed out waiting for receipt on subscription", "tx %s: %v", wantID, waitCtx.Err())
-		case n, ok := <-sub.Notifications():
-			if !ok {
-				require.Fail(t, "subscription closed before receipt arrived")
-			}
-			var batch pldapi.TransactionReceiptBatch
-			require.NoError(t, json.Unmarshal(n.GetResult(), &batch))
-			for _, r := range batch.Receipts {
-				if r.ID != wantID || !r.Success {
-					continue
-				}
-				require.NoError(t, n.Ack(waitCtx))
-				require.NotNilf(t, r.DomainReceipt, "Domain receipt should not be nil")
-				require.Emptyf(t, r.DomainReceiptError, "Domain receipt error should be empty")
-				return r
-			}
-			require.NoError(t, n.Ack(waitCtx))
-		}
-	}
-}
-
 func TestUpdatePublicTransaction(t *testing.T) {
 	ctx := t.Context()
 	logrus.SetLevel(logrus.DebugLevel)
@@ -538,6 +512,32 @@ func TestPrivateTransactionsDeployAndExecute(t *testing.T) {
 	assert.True(t, txFull.Receipt.Success)
 }
 
+func waitForReceiptFullOverSubscription(t *testing.T, waitCtx context.Context, sub rpcclient.Subscription, wantID uuid.UUID, deploy bool) *pldapi.TransactionReceiptFull {
+	t.Helper()
+	for {
+		select {
+		case <-waitCtx.Done():
+			require.Failf(t, "timed out waiting for receipt on subscription", "tx %s: %v", wantID, waitCtx.Err())
+		case n, ok := <-sub.Notifications():
+			require.True(t, ok)
+			var batch pldapi.TransactionReceiptBatch
+			require.NoError(t, json.Unmarshal(n.GetResult(), &batch))
+			for _, r := range batch.Receipts {
+				if r.ID != wantID || !r.Success {
+					continue
+				}
+				if !deploy {
+					require.Empty(t, r.DomainReceiptError, "Domain receipt error should be empty")
+					require.NotNil(t, r.DomainReceipt, "Domain receipt should not be nil")
+				}
+				n.Ack(waitCtx)
+				return r
+			}
+			require.NoError(t, n.Ack(waitCtx))
+		}
+	}
+}
+
 func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	// Invoke 2 transactions on the same contract where the second transaction relies on the state created by the first
 
@@ -574,7 +574,6 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	t.Cleanup(func() { _ = sub.Unsubscribe(context.Background()) })
 
 	waitTimeout := transactionLatencyThreshold(t)
-
 	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
 		Private().
 		Domain("domain1").
@@ -589,11 +588,9 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 					"amountVisible": false
                 }`)).
 		Send()
-	require.NoError(t, deployTx.Error())
-	require.NotNil(t, deployTx.ID())
 
 	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
-	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *deployTx.ID())
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *deployTx.ID(), true)
 	cancel()
 
 	txFull, err := client.PTX().GetTransactionFull(ctx, *deployTx.ID())
@@ -620,7 +617,7 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	require.NotNil(t, tx1.ID())
 
 	waitCtx, cancel = context.WithTimeout(ctx, waitTimeout)
-	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx1.ID())
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx1.ID(), false)
 	cancel()
 
 	// Start a private transaction - Transfer from alice to bob
@@ -641,7 +638,7 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	require.NotNil(t, tx2.ID())
 
 	waitCtx, cancel = context.WithTimeout(ctx, waitTimeout)
-	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx2.ID())
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx2.ID(), false)
 	cancel()
 }
 

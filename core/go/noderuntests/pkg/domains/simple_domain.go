@@ -1246,6 +1246,22 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				}
 				return &res, nil
 			},
+			BuildReceipt: func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
+				receiptJSON, err := json.Marshal(map[string]interface{}{
+					"transactionId":     req.TransactionId,
+					"unavailableStates": req.UnavailableStates,
+					"inputs":            req.InputStates,
+					"reads":             req.ReadStates,
+					"outputs":           req.OutputStates,
+					"info":              req.InfoStates,
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &prototk.BuildReceiptResponse{
+					ReceiptJson: string(receiptJSON),
+				}, nil
+			},
 			IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
 				if len(req.RevertData) < 4 {
 					return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: false}, nil
