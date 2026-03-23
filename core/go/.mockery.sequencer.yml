@@ -10,6 +10,12 @@ packages:
       dir: "{{.InterfaceDir}}"
       pkgname: "{{.SrcPackageName}}"
       structname: "Mock{{.InterfaceName}}"
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction:
+    config:
+      all: true
+      dir: "{{.InterfaceDir}}"
+      pkgname: "{{.SrcPackageName}}"
+      structname: "Mock{{.InterfaceName}}"
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction:
     config:
       all: true

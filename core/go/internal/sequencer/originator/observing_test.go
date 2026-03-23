@@ -317,33 +317,6 @@ func Test_applyHeartbeatReceived_DispatchedTransactionNonceOnlySucceeds(t *testi
 	assert.NoError(t, err)
 }
 
-type mockOriginatorTransactionFailingSubmitted struct {
-	id           uuid.UUID
-	pt           *components.PrivateTransaction
-	submittedErr error
-}
-
-func (m *mockOriginatorTransactionFailingSubmitted) HandleEvent(_ context.Context, ev common.Event) error {
-	if _, ok := ev.(*transaction.SubmittedEvent); ok {
-		return m.submittedErr
-	}
-	return nil
-}
-
-func (m *mockOriginatorTransactionFailingSubmitted) GetID() uuid.UUID { return m.id }
-func (m *mockOriginatorTransactionFailingSubmitted) GetAssembleErrorCount() int {
-	return 0
-}
-func (m *mockOriginatorTransactionFailingSubmitted) GetPrivateTransaction() *components.PrivateTransaction {
-	return m.pt
-}
-func (m *mockOriginatorTransactionFailingSubmitted) GetCurrentState() transaction.State {
-	return transaction.State_Pending
-}
-func (m *mockOriginatorTransactionFailingSubmitted) GetStatus(_ context.Context) components.PrivateTxStatus {
-	return components.PrivateTxStatus{TxID: m.id.String(), Status: "pending"}
-}
-
 func Test_applyHeartbeatReceived_SubmittedHandleEventError_ReturnsWrappedError(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -356,11 +329,11 @@ func Test_applyHeartbeatReceived_SubmittedHandleEventError_ReturnsWrappedError(t
 
 	txnID := uuid.New()
 	innerErr := fmt.Errorf("simulated submitted handling failure")
-	mockTxn := &mockOriginatorTransactionFailingSubmitted{
-		id:           txnID,
-		pt:           &components.PrivateTransaction{ID: txnID},
-		submittedErr: innerErr,
-	}
+
+	mockTxn := transaction.NewMockOriginatorTransaction(t)
+	mockTxn.EXPECT().GetID().Return(txnID)
+	mockTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.SubmittedEvent")).Return(innerErr)
+
 	o.transactionsByID[txnID] = mockTxn
 
 	signerAddress := pldtypes.RandAddress()
@@ -401,20 +374,6 @@ func (m *mockOriginatorTransactionFailingNonceAssigned) HandleEvent(_ context.Co
 	return nil
 }
 
-func (m *mockOriginatorTransactionFailingNonceAssigned) GetID() uuid.UUID { return m.id }
-func (m *mockOriginatorTransactionFailingNonceAssigned) GetAssembleErrorCount() int {
-	return 0
-}
-func (m *mockOriginatorTransactionFailingNonceAssigned) GetPrivateTransaction() *components.PrivateTransaction {
-	return m.pt
-}
-func (m *mockOriginatorTransactionFailingNonceAssigned) GetCurrentState() transaction.State {
-	return transaction.State_Pending
-}
-func (m *mockOriginatorTransactionFailingNonceAssigned) GetStatus(_ context.Context) components.PrivateTxStatus {
-	return components.PrivateTxStatus{TxID: m.id.String(), Status: "pending"}
-}
-
 func Test_applyHeartbeatReceived_NonceAssignedHandleEventError_ReturnsWrappedError(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"
@@ -427,11 +386,10 @@ func Test_applyHeartbeatReceived_NonceAssignedHandleEventError_ReturnsWrappedErr
 
 	txnID := uuid.New()
 	innerErr := fmt.Errorf("simulated nonce handling failure")
-	mockTxn := &mockOriginatorTransactionFailingNonceAssigned{
-		id:       txnID,
-		pt:       &components.PrivateTransaction{ID: txnID},
-		nonceErr: innerErr,
-	}
+
+	mockTxn := transaction.NewMockOriginatorTransaction(t)
+	mockTxn.EXPECT().GetID().Return(txnID)
+	mockTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.NonceAssignedEvent")).Return(innerErr)
 	o.transactionsByID[txnID] = mockTxn
 
 	nonce := uint64(99)
