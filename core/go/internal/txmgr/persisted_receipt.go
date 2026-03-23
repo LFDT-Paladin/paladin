@@ -214,6 +214,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 						} else {
 							origTxID := cr.Transaction
 							outcomeType := receipt.ReceiptType
+							failureMessage := receipt.FailureMessage
 							// take a copy of the on chain data and the revert bytes so we have original data when the post commit is called
 							onChainCopy := receipt.OnChain
 							var revertBytesCopy pldtypes.HexBytes
@@ -222,7 +223,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 								copy(revertBytesCopy, receipt.RevertData)
 							}
 							dbTX.AddPostCommit(func(ctx context.Context) {
-								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, revertBytesCopy, onChainCopy)
+								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, failureMessage, revertBytesCopy, onChainCopy)
 							})
 						}
 					}

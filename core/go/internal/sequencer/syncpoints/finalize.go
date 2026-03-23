@@ -35,8 +35,8 @@ type TransactionFinalizeRequest struct {
 	ContractAddress pldtypes.EthAddress
 	Originator      string
 	TransactionID   uuid.UUID
-	FailureMessage  string                   // pre-formatted message for off-chain failures
-	RevertData      pldtypes.HexBytes        // raw revert data for on-chain failures
+	FailureMessage  string                    // pre-formatted message for off-chain failures
+	RevertData      pldtypes.HexBytes         // raw revert data for on-chain failures
 	OnChain         *pldtypes.OnChainLocation // populated when the failure was on-chain
 }
 
@@ -67,15 +67,19 @@ func (s *syncPoints) QueueTransactionFinalize(ctx context.Context, req *Transact
 }
 
 func (s *syncPoints) writeFailureOperations(ctx context.Context, dbTX persistence.DBTX, finalizeOperations []*finalizeOperation) error {
-
-	// We are only responsible for failures. Success receipts are written on the DB transaction of the event handler,
-	// so they are guaranteed to be written in sequence for each confirmed domain private transaction.
+	// SyncPoints finalize operations are failure-only.
+	// For normal (non-chained) private transactions, success receipts are indexed by the
+	// domain event handler in its DB transaction, which preserves on-chain ordering.
 	//
-	// However, a syncpoint gets triggered for every finalize so that we can flush the Domain Context to the DB
-	// so that all states are stored, before we clear out the transaction from the in-memory Domain Context.
+	// Chained outcomes are handled separately in txmgr receipt propagation; in this code path,
+	// only off-chain assembly reverts are propagated post-submit (on-chain reverts are handled
+	// by coordinator retry logic, and chained successes are not propagated here).
+	//
+	// We still trigger a syncpoint for each finalize so Domain Context state is flushed before
+	// removing the transaction from in-memory Domain Context.
 	receiptsToDistribute := make([]*components.ReceiptInputWithOriginator, 0, len(finalizeOperations))
 	for _, op := range finalizeOperations {
-		if op.OnChain != nil {
+		if op.OnChain != nil && op.OnChain.Type != pldtypes.NotOnChain && len(op.RevertData) > 0 {
 			receiptsToDistribute = append(receiptsToDistribute, &components.ReceiptInputWithOriginator{
 				Originator: op.Originator,
 				ReceiptInput: components.ReceiptInput{

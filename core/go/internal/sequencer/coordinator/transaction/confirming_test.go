@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -123,7 +124,7 @@ func Test_action_NotifyOriginatorOfConfirmation_Success(t *testing.T) {
 	}
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, pldtypes.HexBytes(nil), false).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_SUCCESS, pldtypes.HexBytes(nil), "", false).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfConfirmation(ctx, txn, event)
@@ -145,9 +146,10 @@ func Test_action_NotifyOriginatorOfRetryableRevert(t *testing.T) {
 		Nonce:        &nonce,
 		RevertReason: revertReason,
 	}
+	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, revertReason, true).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", true).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfRetryableRevert(ctx, txn, event)
@@ -169,9 +171,10 @@ func Test_action_NotifyOriginatorOfNonRetryableRevert(t *testing.T) {
 		Nonce:        &nonce,
 		RevertReason: revertReason,
 	}
+	txn.revertReason = revertReason
 
 	mocks.TransportWriter.EXPECT().
-		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, revertReason, false).
+		SendTransactionConfirmed(ctx, txn.pt.ID, txn.originatorNode, &txn.pt.Address, &nonce, engine.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "", false).
 		Return(nil)
 
 	err := action_NotifyOriginatorOfNonRetryableRevert(ctx, txn, event)
@@ -415,7 +418,7 @@ func Test_action_RecordConfirmation_RevertRetryableAndUnderThreshold(t *testing.
 	})
 	require.NoError(t, err)
 	assert.True(t, txn.lastCanRetryRevert)
-	assert.Equal(t, "decoded", txn.decodedRevertReason)
+	assert.Equal(t, "PD012216: Transaction reverted decoded", txn.decodedRevertReason)
 	assert.Equal(t, 1, txn.revertCount)
 }
 
@@ -467,7 +470,65 @@ func Test_action_RecordConfirmation_RevertNotRetryable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, txn.lastCanRetryRevert)
-	assert.Equal(t, "decoded error", txn.decodedRevertReason)
+	assert.Equal(t, "PD012216: Transaction reverted decoded error", txn.decodedRevertReason)
+}
+
+func Test_action_RecordConfirmation_OffChainFailureMessageSkipsDomainRetryCheck(t *testing.T) {
+	ctx := context.Background()
+	failureMessage := "assembly failed upstream"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+
+	err := action_RecordConfirmation(ctx, txn, &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		FailureMessage:       failureMessage,
+	})
+	require.NoError(t, err)
+	assert.False(t, txn.lastCanRetryRevert)
+	assert.Equal(t, failureMessage, txn.decodedRevertReason)
+	assert.Empty(t, txn.revertReason)
+	assert.Nil(t, txn.revertOnChain)
+}
+
+func Test_action_RecordConfirmation_OnChainRevertWithFailureMessageStillUsesDomainRetryability(t *testing.T) {
+	ctx := context.Background()
+	revertReason := pldtypes.MustParseHexBytes("0xdead")
+	failureMessage := "decoded by chained tx domain"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded by coordinator domain", nil)
+
+	err := action_RecordConfirmation(ctx, txn, &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RevertReason:         revertReason,
+		FailureMessage:       failureMessage,
+	})
+	require.NoError(t, err)
+	assert.False(t, txn.lastCanRetryRevert)
+	assert.Equal(t, "PD012216: Transaction reverted decoded by coordinator domain", txn.decodedRevertReason)
+	assert.Equal(t, revertReason, txn.revertReason)
+}
+
+func Test_action_RecordConfirmation_OnChainRevertFallsBackToEventFailureMessageWhenDecodeEmpty(t *testing.T) {
+	ctx := context.Background()
+	revertReason := pldtypes.MustParseHexBytes("0xdead")
+	failureMessage := "decoded by chained tx domain"
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "", nil)
+
+	err := action_RecordConfirmation(ctx, txn, &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		RevertReason:         revertReason,
+		FailureMessage:       failureMessage,
+	})
+	require.NoError(t, err)
+	assert.False(t, txn.lastCanRetryRevert)
+	assert.Equal(t, failureMessage, txn.decodedRevertReason)
+	assert.Equal(t, revertReason, txn.revertReason)
 }
 
 func Test_action_RecordConfirmation_RevertDomainAPIError_TreatedAsNonRetryable(t *testing.T) {
@@ -675,4 +736,3 @@ func Test_DependencyConfirmedReverted_PreDispatchStates_TransitionsToPooled(t *t
 		})
 	}
 }
-

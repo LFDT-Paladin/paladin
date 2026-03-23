@@ -1171,7 +1171,7 @@ func TestSendTransactionConfirmed_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1206,7 +1206,7 @@ func TestSendTransactionConfirmed_WithoutNonce(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nil, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nil, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1229,7 +1229,7 @@ func TestSendTransactionConfirmed_NilContractAddress(t *testing.T) {
 		contractAddress:   nil,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, nil, nonce, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, nil, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contract address")
 	mockTransportManager.AssertNotCalled(t, "Send")
@@ -1257,7 +1257,7 @@ func TestSendTransactionConfirmed_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.Error(t, err)
 	assert.Equal(t, sendError, err)
 	mockTransportManager.AssertExpectations(t)
@@ -1286,7 +1286,7 @@ func TestSendTransactionConfirmed_Loopback(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, true)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true)
 	require.NoError(t, err)
 
 	// Verify message was sent to loopback queue
@@ -1348,7 +1348,7 @@ func TestSendTransactionConfirmed_WillRetryTrue(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, true)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", true)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1384,7 +1384,7 @@ func TestSendTransactionConfirmed_WillRetryFalse(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1425,7 +1425,7 @@ func TestSendTransactionConfirmed_NilRevertReason(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, nil, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_SUCCESS, nil, "", false)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -1453,7 +1453,7 @@ func TestSendTransactionConfirmed_Loopback_WillRetryFalse(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, revertReason, false)
+	err := tw.SendTransactionConfirmed(ctx, txID, originatorNode, contractAddress, nonce, engineProto.TransactionConfirmed_OUTCOME_REVERTED, revertReason, "decoded failure", false)
 	require.NoError(t, err)
 
 	select {

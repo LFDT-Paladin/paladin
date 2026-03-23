@@ -1345,7 +1345,7 @@ func (n *Noto) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsB
 	}
 	return &prototk.IsBaseLedgerRevertRetryableResponse{
 		Retryable:     false,
-		DecodedReason: pldtypes.HexBytes(req.RevertData).String(),
+		DecodedReason: "",
 	}, nil
 }
 

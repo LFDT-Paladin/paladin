@@ -623,6 +623,7 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 	transactionConfirmed := &engineProto.TransactionConfirmed{
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_SUCCESS,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
 
@@ -660,10 +661,13 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	txID := uuid.New()
 	revertReason := pldtypes.HexBytes("test revert reason")
+	failureMessage := "decoded revert"
 	transactionConfirmed := &engineProto.TransactionConfirmed{
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
 		RevertReason:    revertReason,
+		FailureMessage:  failureMessage,
 		WillRetry:       true,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
@@ -686,7 +690,47 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.WillRetry
+		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.FailureMessage == failureMessage && event.WillRetry
+	})).Once()
+
+	sm.handleTransactionConfirmed(ctx, message)
+
+	mocks.originator.AssertExpectations(t)
+}
+
+func TestHandleTransactionConfirmed_RevertedWhenWillRetryTrueAndNoRevertReason(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	transactionConfirmed := &engineProto.TransactionConfirmed{
+		TransactionId:   txID.String(),
+		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
+		WillRetry:       true,
+	}
+	payload, _ := proto.Marshal(transactionConfirmed)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_TransactionConfirmed,
+		Payload:     payload,
+	}
+
+	setupDefaultMocks(ctx, mocks, contractAddr)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
+		return ok && event.TransactionID == txID && event.WillRetry && len(event.RevertReason) == 0
 	})).Once()
 
 	sm.handleTransactionConfirmed(ctx, message)
