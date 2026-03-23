@@ -513,6 +513,7 @@ func TestPrepareDeployUnqualifiedNotary(t *testing.T) {
 }
 
 func TestPrepareDeployV1Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 1}}
 	ctx := context.Background()
 
@@ -567,6 +568,7 @@ func TestPrepareDeployV1Factory(t *testing.T) {
 }
 
 func TestPrepareDeployV2Factory(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
 	ctx := context.Background()
 
@@ -621,6 +623,7 @@ func TestPrepareDeployV2Factory(t *testing.T) {
 }
 
 func TestPrepareDeployV2FactoryImplementation(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{Callbacks: mockCallbacks, config: types.DomainConfig{FactoryVersion: 2}}
 	ctx := context.Background()
 
