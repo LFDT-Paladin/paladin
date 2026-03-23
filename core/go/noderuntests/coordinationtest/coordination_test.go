@@ -1046,9 +1046,11 @@ func TestTransactionErrorDuringAssembly(t *testing.T) {
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.MaxInflightTransactions = confutil.P(1) // Limit the coordinator to 1 transaction at a time. If the assemble error takes up this slot for ever other transactions will fail to complete and the test will fail.
-	sequencerConfig.StateTimeout = confutil.P("60s")        // Make this nice and big - we shouldn't observe any such timeouts if the assemble error is handled cleanly
-	sequencerConfig.HeartbeatInterval = confutil.P("1s")    // Allow the coordinator to heartbeat frequently to cause the originator to re-delegate as often as it needs
+	// Limit the coordinator to 2 transactions at a time. If the assemble error causes all transactions delegated after it to be stuck forever in a dependency queue they will fail to complete and the test will fail.
+	sequencerConfig.MaxInflightTransactions = confutil.P(2)
+
+	sequencerConfig.StateTimeout = confutil.P("240s")    // Make this nice and big - we shouldn't observe any such timeouts if the assemble error is handled cleanly, so make sure the test fails/times out if we do
+	sequencerConfig.HeartbeatInterval = confutil.P("1s") // Allow the coordinator to heartbeat frequently to cause the originator to re-delegate as often as it needs
 	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())

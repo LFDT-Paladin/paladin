@@ -113,10 +113,10 @@ func (c *coordinator) addToDelegatedTransactions(
 			continue
 		}
 
-		// We use the order in which transaction are delegated to establish preassembly dependencies, which
-		// is what allows us to ensure FIFO ordering within an originator up until first assembly.
+		// We use the order in which transaction are delegated to establish preassembly dependencies, which is what allows us to
+		// ensure FIFO ordering within an originator up until first assembly.
 		//
-		// An originator sends all the transactions that it believes have not yet been assembled with ever delegation request.
+		// An originator sends all of its known transactions (i.e. all that have not yet been confirmed) with every delegation request.
 		// If an originator believes a transaction has been assembled for the first time, it definitely has been, so we can
 		// trust that we have all the information we need in this request to ensure the ordering.
 		// We cannot rely on an originator to know that that a transaction has never been assembled, so we need to check our
