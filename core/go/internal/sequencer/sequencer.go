@@ -901,11 +901,6 @@ func (sMgr *sequencerManager) CallPrivateSmartContract(ctx context.Context, call
 	return psc.ExecCall(dCtx, sMgr.components.Persistence().NOTX(), call, verifiers)
 }
 
-// If we have a receipt for a chained transaction it is definitely finalised, regardless of result and we can persist and distribute it.
-func (sMgr *sequencerManager) WriteOrDistributeChainedTransactionReceipts(ctx context.Context, dbTX persistence.DBTX, receipts []*components.ReceiptInputWithOriginator) error {
-	return sMgr.syncPoints.WriteOrDistributeReceipts(ctx, dbTX, receipts)
-}
-
 func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *components.PrivateTransaction) (*components.StateDistributionSet, error) {
 	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }
