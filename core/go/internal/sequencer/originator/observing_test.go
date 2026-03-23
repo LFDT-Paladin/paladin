@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
@@ -356,22 +355,9 @@ func Test_applyHeartbeatReceived_SubmittedHandleEventError_ReturnsWrappedError(t
 
 	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "error handling transaction submitted event")
+	assert.ErrorContains(t, err, "error handling transaction submitted event")
 	assert.Contains(t, err.Error(), txnID.String())
 	assert.Contains(t, err.Error(), innerErr.Error())
-}
-
-type mockOriginatorTransactionFailingNonceAssigned struct {
-	id       uuid.UUID
-	pt       *components.PrivateTransaction
-	nonceErr error
-}
-
-func (m *mockOriginatorTransactionFailingNonceAssigned) HandleEvent(_ context.Context, ev common.Event) error {
-	if _, ok := ev.(*transaction.NonceAssignedEvent); ok {
-		return m.nonceErr
-	}
-	return nil
 }
 
 func Test_applyHeartbeatReceived_NonceAssignedHandleEventError_ReturnsWrappedError(t *testing.T) {
@@ -409,7 +395,7 @@ func Test_applyHeartbeatReceived_NonceAssignedHandleEventError_ReturnsWrappedErr
 
 	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "error handling nonce assigned event")
+	assert.ErrorContains(t, err, "error handling nonce assigned event")
 	assert.Contains(t, err.Error(), txnID.String())
 	assert.Contains(t, err.Error(), innerErr.Error())
 }
