@@ -37,6 +37,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
@@ -323,6 +324,32 @@ func subscribeAndSendDataToChannel(ctx context.Context, t *testing.T, wsClient p
 	}()
 }
 
+func waitForReceiptFullOverSubscription(t *testing.T, waitCtx context.Context, sub rpcclient.Subscription, wantID uuid.UUID) *pldapi.TransactionReceiptFull {
+	t.Helper()
+	for {
+		select {
+		case <-waitCtx.Done():
+			require.Failf(t, "timed out waiting for receipt on subscription", "tx %s: %v", wantID, waitCtx.Err())
+		case n, ok := <-sub.Notifications():
+			if !ok {
+				require.Fail(t, "subscription closed before receipt arrived")
+			}
+			var batch pldapi.TransactionReceiptBatch
+			require.NoError(t, json.Unmarshal(n.GetResult(), &batch))
+			for _, r := range batch.Receipts {
+				if r.ID != wantID || !r.Success {
+					continue
+				}
+				require.NoError(t, n.Ack(waitCtx))
+				require.NotNilf(t, r.DomainReceipt, "Domain receipt should not be nil")
+				require.Emptyf(t, r.DomainReceiptError, "Domain receipt error should be empty")
+				return r
+			}
+			require.NoError(t, n.Ack(waitCtx))
+		}
+	}
+}
+
 func TestUpdatePublicTransaction(t *testing.T) {
 	ctx := t.Context()
 	logrus.SetLevel(logrus.DebugLevel)
@@ -522,6 +549,32 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 	txns, err := client.PTX().QueryTransactionsFull(ctx, query.NewQueryBuilder().Limit(1).Query())
 	require.NoError(t, err)
 	assert.Len(t, txns, 0)
+
+	listenerName := "mint-then-transfer-" + uuid.New().String()
+	privateType := pldtypes.Enum[pldapi.TransactionType](pldapi.TransactionTypePrivate)
+	_, err = client.PTX().CreateReceiptListener(ctx, &pldapi.TransactionReceiptListener{
+		Name: listenerName,
+		Filters: pldapi.TransactionReceiptFilters{
+			Type:   &privateType,
+			Domain: "domain1",
+		},
+		Options: pldapi.TransactionReceiptListenerOptions{
+			DomainReceipts:                 true,
+			IncompleteStateReceiptBehavior: pldapi.IncompleteStateReceiptBehaviorCompleteOnly.Enum(),
+		},
+	})
+	require.NoError(t, err)
+
+	wsClient, err := client.WebSocket(ctx, instance.GetWSConfig())
+	require.NoError(t, err)
+	t.Cleanup(wsClient.Close)
+
+	sub, err := wsClient.PTX().SubscribeReceipts(ctx, listenerName)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sub.Unsubscribe(context.Background()) })
+
+	waitTimeout := transactionLatencyThreshold(t)
+
 	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
 		Private().
 		Domain("domain1").
@@ -535,9 +588,19 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 					"hookAddress": "",
 					"amountVisible": false
                 }`)).
-		Send().Wait(transactionLatencyThreshold(t))
+		Send()
 	require.NoError(t, deployTx.Error())
-	contractAddress := deployTx.Receipt().ContractAddress
+	require.NotNil(t, deployTx.ID())
+
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *deployTx.ID())
+	cancel()
+
+	txFull, err := client.PTX().GetTransactionFull(ctx, *deployTx.ID())
+	require.NoError(t, err)
+	require.NotNil(t, txFull.Receipt)
+	contractAddress := txFull.Receipt.ContractAddress
+	require.NotNil(t, contractAddress)
 
 	// Start a private transaction - Mint to alice
 	tx1 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
@@ -552,8 +615,13 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
                 "to": "wallets.org1.bbbbbb",
                 "amount": "123000000000000000000"
             }`)).
-		Send().Wait(transactionLatencyThreshold(t))
+		Send()
 	require.NoError(t, tx1.Error())
+	require.NotNil(t, tx1.ID())
+
+	waitCtx, cancel = context.WithTimeout(ctx, waitTimeout)
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx1.ID())
+	cancel()
 
 	// Start a private transaction - Transfer from alice to bob
 	tx2 := client.ForABI(ctx, *domains.SimpleTokenTransferABI()).
@@ -568,8 +636,13 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
                 "to": "wallets.org1.aaaaaa",
                 "amount": "123000000000000000000"
             }`)).
-		Send().Wait(transactionLatencyThreshold(t))
+		Send()
 	require.NoError(t, tx2.Error())
+	require.NotNil(t, tx2.ID())
+
+	waitCtx, cancel = context.WithTimeout(ctx, waitTimeout)
+	_ = waitForReceiptFullOverSubscription(t, waitCtx, sub, *tx2.ID())
+	cancel()
 }
 
 func TestPrivateTransactionRevertedAssembleFailed(t *testing.T) {
@@ -1753,4 +1826,3 @@ func TestBaseLedgerRevertNonRetryable_FailsImmediately(t *testing.T) {
 	// Should only have 1 public transaction since it failed immediately without retry
 	assert.Len(t, txFull.Public, 1)
 }
-
