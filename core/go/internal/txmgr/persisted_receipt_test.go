@@ -473,12 +473,7 @@ func TestFinalizeTransactionsInsertOkEvent(t *testing.T) {
 func TestFinalizeTransactionsInsertOkChained(t *testing.T) {
 
 	ctx, txm, done := newTestTransactionManager(t, true, mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-<<<<<<< HEAD
-		mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-=======
-		mc.sequencerMgr.On("WriteOrDistributeChainedTransactionReceipts", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
->>>>>>> origin/chained-transaction-fixes
 
 		mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, mock.Anything).Return(
 			&pldapi.TransactionStates{None: true}, nil,
@@ -1149,74 +1144,6 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
 	require.NoError(t, err)
 }
 
-<<<<<<< HEAD
-=======
-func TestFinalizeTransactionsChainedReceiptPropagationMultipleMatches(t *testing.T) {
-	chainedTxID1 := uuid.New()
-	chainedTxID2 := uuid.New()
-	originalTxID1 := uuid.New()
-	originalTxID2 := uuid.New()
-	contractAddr1 := "0x1111111111111111111111111111111111111111"
-	contractAddr2 := "0x2222222222222222222222222222222222222222"
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectBegin()
-			// Mock the receipt insert (with RETURNING clause, so it's a Query)
-			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1).AddRow(2))
-			// Mock the chaining records query - return multiple chaining records
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
-				WithArgs(sqlmock.AnyArg()).
-				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
-					AddRow(chainedTxID1, originalTxID1, "sender1", "domain1", contractAddr1).
-					AddRow(chainedTxID2, originalTxID2, "sender2", "domain2", contractAddr2))
-			// Mock the transaction_deps query used by dependency notification pre-commit (2 receipts = 2 calls, no dependents)
-			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
-			// Mock WriteOrDistributeChainedTransactionReceipts with 2 receipts
-			mc.sequencerMgr.On("WriteOrDistributeChainedTransactionReceipts", mock.Anything, mock.Anything, mock.MatchedBy(func(receipts []*components.ReceiptInputWithOriginator) bool {
-				if len(receipts) != 2 {
-					return false
-				}
-				found1, found2 := false, false
-				for _, r := range receipts {
-					if r.TransactionID == originalTxID1 {
-						found1 = true
-					}
-					if r.TransactionID == originalTxID2 {
-						found2 = true
-					}
-				}
-				return found1 && found2
-			})).Return(nil)
-			// HandleChainedTransactionOutcome is called post-commit for both A's coordinator notifications
-			mc.sequencerMgr.On("HandleChainedTransactionOutcome", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
-			mc.db.ExpectCommit()
-		})
-	defer done()
-
-	err := txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		return txm.FinalizeTransactions(ctx, dbTX, []*components.ReceiptInput{
-			{
-				TransactionID: chainedTxID1,
-				Domain:        "chainedDomain1",
-				ReceiptType:   components.RT_Success,
-			},
-			{
-				TransactionID:  chainedTxID2,
-				Domain:         "chainedDomain2",
-				ReceiptType:    components.RT_FailedWithMessage,
-				FailureMessage: "test failure",
-			},
-		})
-	})
-	require.NoError(t, err)
-	mc := txm.sequencerMgr.(*componentsmocks.SequencerManager)
-	mc.AssertExpectations(t)
-}
-
->>>>>>> origin/chained-transaction-fixes
 func TestFinalizeTransactionsChainedReceiptPropagationQueryError(t *testing.T) {
 	chainedTxID := uuid.New()
 
