@@ -13,18 +13,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package sequencer
+package common
 
 import (
 	"context"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/google/uuid"
-
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/google/uuid"
 )
 
 type DBSequencingActivity struct {
@@ -40,27 +37,25 @@ func (DBSequencingActivity) TableName() string {
 	return "sequencer_activities"
 }
 
-func (sMgr *sequencerManager) WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error {
-	log.L(ctx).Debugf("WriteReceivedSequencingActivities sequencingActivities: %+v", sequencingActivities)
+func WriteSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error {
 	dbActivities := make([]*DBSequencingActivity, 0, len(sequencingActivities))
 	for _, sequencingActivity := range sequencingActivities {
-		dbSequencingActivity := &DBSequencingActivity{
+		dbActivities = append(dbActivities, &DBSequencingActivity{
 			SubjectID:      sequencingActivity.SubjectID,
 			Timestamp:      sequencingActivity.Timestamp,
 			TransactionID:  sequencingActivity.TransactionID,
 			ActivityType:   sequencingActivity.ActivityType,
 			SequencingNode: sequencingActivity.SequencingNode,
-		}
-		dbActivities = append(dbActivities, dbSequencingActivity)
+		})
 	}
 
-	if len(dbActivities) > 0 {
-		err := dbTX.DB().
-			Table("sequencer_activities").
-			Create(dbActivities).
-			Error
-		return err
+	if len(dbActivities) == 0 {
+		return nil
 	}
 
-	return nil
+	return dbTX.DB().
+		WithContext(ctx).
+		Table("sequencer_activities").
+		Create(dbActivities).
+		Error
 }

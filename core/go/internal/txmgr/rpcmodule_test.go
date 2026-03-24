@@ -847,3 +847,43 @@ func TestRPCBlockchainEventListenersCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, l)
 }
+
+func TestDispatchAndChainedTransactionRPCs(t *testing.T) {
+	ctx, url, _, done := newTestTransactionManagerWithRPC(t)
+	defer done()
+
+	rpcClient, err := rpcclient.NewHTTPClient(ctx, &pldconf.HTTPClientConfig{URL: url})
+	require.NoError(t, err)
+
+	// Query dispatches - empty result
+	var dispatches []*pldapi.Dispatch
+	err = rpcClient.CallRPC(ctx, &dispatches, "ptx_queryDispatches", query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	assert.Empty(t, dispatches)
+
+	// Get dispatch - not found
+	var dispatch *pldapi.Dispatch
+	err = rpcClient.CallRPC(ctx, &dispatch, "ptx_getDispatch", uuid.New().String())
+	require.NoError(t, err)
+	assert.Nil(t, dispatch)
+
+	// Query dispatches missing limit
+	err = rpcClient.CallRPC(ctx, &dispatches, "ptx_queryDispatches", query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
+
+	// Query chained transactions - empty result
+	var chainedTxns []*pldapi.ChainedTransaction
+	err = rpcClient.CallRPC(ctx, &chainedTxns, "ptx_queryChainedTransactions", query.NewQueryBuilder().Limit(10).Query())
+	require.NoError(t, err)
+	assert.Empty(t, chainedTxns)
+
+	// Get chained transaction - not found
+	var chainedTxn *pldapi.ChainedTransaction
+	err = rpcClient.CallRPC(ctx, &chainedTxn, "ptx_getChainedTransaction", uuid.New().String())
+	require.NoError(t, err)
+	assert.Nil(t, chainedTxn)
+
+	// Query chained transactions missing limit
+	err = rpcClient.CallRPC(ctx, &chainedTxns, "ptx_queryChainedTransactions", query.NewQueryBuilder().Query())
+	require.Regexp(t, "PD010721", err)
+}

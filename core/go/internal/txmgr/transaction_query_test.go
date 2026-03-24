@@ -26,7 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
@@ -54,8 +54,6 @@ func TestGetTransactionByIDFullPublicFail(t *testing.T) {
 			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(txID))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(sqlmock.NewRows([]string{"id", "tx_id"}).AddRow(uuid.New(), txID))
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(sqlmock.NewRows([]string{}))
 		}, mockQueryPublicTxForTransactions(func(ids []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error) {
 			return nil, fmt.Errorf("pop")
@@ -88,47 +86,12 @@ func TestGetTransactionByIDFullSequencerActivityFail(t *testing.T) {
 			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(txID))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(sqlmock.NewRows([]string{"id", "tx_id"}).AddRow(uuid.New(), txID))
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnError(fmt.Errorf("pop"))
 		})
 	defer done()
 
 	_, err := txm.GetTransactionByIDFull(ctx, txID)
 	assert.Regexp(t, "pop", err)
-}
-
-func TestGetTransactionByIDFullDispatchesFail(t *testing.T) {
-	txID := uuid.New()
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(txID))
-			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(sqlmock.NewRows([]string{"id", "tx_id"}).AddRow(uuid.New(), txID))
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnError(fmt.Errorf("pop"))
-		})
-	defer done()
-
-	_, err := txm.GetTransactionByIDFull(ctx, txID)
-	assert.Regexp(t, "pop", err)
-}
-
-func TestGetTransactionByIDFullChainedTransactionsFail(t *testing.T) {
-	txID := uuid.New()
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectQuery("SELECT.*transactions").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(txID))
-			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(sqlmock.NewRows([]string{"id", "tx_id"}).AddRow(uuid.New(), txID))
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnError(fmt.Errorf("chained transactions query error"))
-		})
-	defer done()
-
-	_, err := txm.GetTransactionByIDFull(ctx, txID)
-	assert.Regexp(t, "chained transactions query error", err)
 }
 
 func TestGetTransactionByIDFullPublicHistory(t *testing.T) {
@@ -144,8 +107,6 @@ func TestGetTransactionByIDFullPublicHistory(t *testing.T) {
 				AddRow(uuid.New(), txID, to1).
 				AddRow(uuid.New(), txID, to2)
 			mc.db.ExpectQuery("SELECT.*transaction_history").WillReturnRows(rows)
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*sequencer_activities").WillReturnRows(sqlmock.NewRows([]string{}))
 		}, mockQueryPublicTxForTransactions(func(ids []uuid.UUID, jq *query.QueryJSON) (map[uuid.UUID][]*pldapi.PublicTx, error) {
 			pubTX := map[uuid.UUID][]*pldapi.PublicTx{
@@ -313,7 +274,7 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	sequencingNode := "node-abc"
 	transactionID := uuid.New()
 
-	psa := &sequencer.DBSequencingActivity{
+	psa := &seqcommon.DBSequencingActivity{
 		LocalID:        &localID,
 		SubjectID:      subjectID,
 		Timestamp:      timestamp,
@@ -343,7 +304,7 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 	sequencingNode := "node-xyz"
 	transactionID := uuid.New()
 
-	psa := &sequencer.DBSequencingActivity{
+	psa := &seqcommon.DBSequencingActivity{
 		LocalID:        nil,
 		SubjectID:      subjectID,
 		Timestamp:      timestamp,
@@ -536,178 +497,6 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 	assert.Equal(t, "dispatch", result[0].SequencerActivity[2].ActivityType)
 }
 
-func TestAddDispatches_WithDispatches(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	dispatchID1 := "dispatch-1"
-	dispatchID2 := "dispatch-2"
-	dispatchID3 := "dispatch-3"
-	publicTxAddr1 := pldtypes.RandAddress()
-	publicTxAddr2 := pldtypes.RandAddress()
-	publicTxAddr3 := pldtypes.RandAddress()
-	publicTxID1 := uint64(100)
-	publicTxID2 := uint64(200)
-	publicTxID3 := uint64(300)
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "private_transaction_id", "public_transaction_address", "public_transaction_id"}).
-				AddRow(dispatchID1, txID1.String(), publicTxAddr1, publicTxID1).
-				AddRow(dispatchID2, txID1.String(), publicTxAddr2, publicTxID2).
-				AddRow(dispatchID3, txID2.String(), publicTxAddr3, publicTxID3)
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-	}
-
-	result, err := txm.AddDispatches(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(result))
-
-	// First transaction should have 2 dispatches
-	require.NotNil(t, result[0].Dispatches)
-	require.Equal(t, 2, len(result[0].Dispatches))
-	assert.Equal(t, dispatchID1, result[0].Dispatches[0].ID)
-	assert.Equal(t, txID1.String(), result[0].Dispatches[0].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr1.String(), result[0].Dispatches[0].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID1, result[0].Dispatches[0].PublicTransactionID)
-
-	assert.Equal(t, dispatchID2, result[0].Dispatches[1].ID)
-	assert.Equal(t, txID1.String(), result[0].Dispatches[1].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr2.String(), result[0].Dispatches[1].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID2, result[0].Dispatches[1].PublicTransactionID)
-
-	// Second transaction should have 1 dispatch
-	require.NotNil(t, result[1].Dispatches)
-	require.Equal(t, 1, len(result[1].Dispatches))
-	assert.Equal(t, dispatchID3, result[1].Dispatches[0].ID)
-	assert.Equal(t, txID2.String(), result[1].Dispatches[0].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr3.String(), result[1].Dispatches[0].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID3, result[1].Dispatches[0].PublicTransactionID)
-}
-
-func TestAddDispatches_WithoutDispatches(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-	}
-
-	result, err := txm.AddDispatches(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(result))
-
-	// Transactions should not have Dispatches set (nil or empty)
-	assert.Nil(t, result[0].Dispatches)
-	assert.Nil(t, result[1].Dispatches)
-}
-
-func TestAddDispatches_PartialDispatches(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	txID3 := uuid.New()
-	dispatchID1 := "dispatch-1"
-	publicTxAddr1 := pldtypes.RandAddress()
-	publicTxID1 := uint64(100)
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "private_transaction_id", "public_transaction_address", "public_transaction_id"}).
-				AddRow(dispatchID1, txID1.String(), publicTxAddr1, publicTxID1)
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-		{Transaction: &pldapi.Transaction{ID: &txID3}},
-	}
-
-	result, err := txm.AddDispatches(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2, txID3}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 3, len(result))
-
-	// First transaction should have dispatch
-	require.NotNil(t, result[0].Dispatches)
-	require.Equal(t, 1, len(result[0].Dispatches))
-	assert.Equal(t, dispatchID1, result[0].Dispatches[0].ID)
-	assert.Equal(t, txID1.String(), result[0].Dispatches[0].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr1.String(), result[0].Dispatches[0].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID1, result[0].Dispatches[0].PublicTransactionID)
-
-	// Second and third transactions should not have dispatches
-	assert.Nil(t, result[1].Dispatches)
-	assert.Nil(t, result[2].Dispatches)
-}
-
-func TestAddDispatches_MultipleDispatchesForSameTransaction(t *testing.T) {
-	txID := uuid.New()
-	dispatchID1 := "dispatch-1"
-	dispatchID2 := "dispatch-2"
-	dispatchID3 := "dispatch-3"
-	publicTxAddr1 := pldtypes.RandAddress()
-	publicTxAddr2 := pldtypes.RandAddress()
-	publicTxAddr3 := pldtypes.RandAddress()
-	publicTxID1 := uint64(100)
-	publicTxID2 := uint64(200)
-	publicTxID3 := uint64(300)
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"id", "private_transaction_id", "public_transaction_address", "public_transaction_id"}).
-				AddRow(dispatchID1, txID.String(), publicTxAddr1, publicTxID1).
-				AddRow(dispatchID2, txID.String(), publicTxAddr2, publicTxID2).
-				AddRow(dispatchID3, txID.String(), publicTxAddr3, publicTxID3)
-			mc.db.ExpectQuery("SELECT.*dispatches").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID}},
-	}
-
-	result, err := txm.AddDispatches(ctx, txm.p.NOTX(), []uuid.UUID{txID}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-
-	// Transaction should have all 3 dispatches
-	require.NotNil(t, result[0].Dispatches)
-	require.Equal(t, 3, len(result[0].Dispatches))
-
-	// Verify all dispatches are mapped correctly
-	assert.Equal(t, dispatchID1, result[0].Dispatches[0].ID)
-	assert.Equal(t, txID.String(), result[0].Dispatches[0].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr1.String(), result[0].Dispatches[0].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID1, result[0].Dispatches[0].PublicTransactionID)
-
-	assert.Equal(t, dispatchID2, result[0].Dispatches[1].ID)
-	assert.Equal(t, txID.String(), result[0].Dispatches[1].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr2.String(), result[0].Dispatches[1].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID2, result[0].Dispatches[1].PublicTransactionID)
-
-	assert.Equal(t, dispatchID3, result[0].Dispatches[2].ID)
-	assert.Equal(t, txID.String(), result[0].Dispatches[2].PrivateTransactionID)
-	assert.Equal(t, publicTxAddr3.String(), result[0].Dispatches[2].PublicTransactionAddress.String())
-	assert.Equal(t, publicTxID3, result[0].Dispatches[2].PublicTransactionID)
-}
-
 func TestMapPersistedChainedTransaction(t *testing.T) {
 	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
 	defer done()
@@ -731,162 +520,4 @@ func TestMapPersistedChainedTransaction(t *testing.T) {
 	assert.Equal(t, chainedTxID.String(), result.ChainedTransactionID)
 	assert.Equal(t, transactionID.String(), result.TransactionID)
 	assert.Equal(t, localID.String(), result.LocalID)
-}
-
-func TestAddChainedTranasctions_WithChainedTransactions(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	chainedTxID1 := uuid.New()
-	chainedTxID2 := uuid.New()
-	chainedTxID3 := uuid.New()
-	localID1 := uuid.New()
-	localID2 := uuid.New()
-	localID3 := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address", "id"}).
-				AddRow(chainedTxID1, txID1, "sender1", "domain1", "0x1111", localID1).
-				AddRow(chainedTxID2, txID1, "sender2", "domain2", "0x2222", localID2).
-				AddRow(chainedTxID3, txID2, "sender3", "domain3", "0x3333", localID3)
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-	}
-
-	result, err := txm.AddChainedTranasctions(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(result))
-
-	// First transaction should have 2 chained transactions
-	require.NotNil(t, result[0].ChainedPrivateTransactions)
-	require.Equal(t, 2, len(result[0].ChainedPrivateTransactions))
-	assert.Equal(t, chainedTxID1.String(), result[0].ChainedPrivateTransactions[0].ChainedTransactionID)
-	assert.Equal(t, txID1.String(), result[0].ChainedPrivateTransactions[0].TransactionID)
-	assert.Equal(t, localID1.String(), result[0].ChainedPrivateTransactions[0].LocalID)
-
-	assert.Equal(t, chainedTxID2.String(), result[0].ChainedPrivateTransactions[1].ChainedTransactionID)
-	assert.Equal(t, txID1.String(), result[0].ChainedPrivateTransactions[1].TransactionID)
-	assert.Equal(t, localID2.String(), result[0].ChainedPrivateTransactions[1].LocalID)
-
-	// Second transaction should have 1 chained transaction
-	require.NotNil(t, result[1].ChainedPrivateTransactions)
-	require.Equal(t, 1, len(result[1].ChainedPrivateTransactions))
-	assert.Equal(t, chainedTxID3.String(), result[1].ChainedPrivateTransactions[0].ChainedTransactionID)
-	assert.Equal(t, txID2.String(), result[1].ChainedPrivateTransactions[0].TransactionID)
-	assert.Equal(t, localID3.String(), result[1].ChainedPrivateTransactions[0].LocalID)
-}
-
-func TestAddChainedTranasctions_WithoutChainedTransactions(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-	}
-
-	result, err := txm.AddChainedTranasctions(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(result))
-
-	// Transactions should not have ChainedPrivateTransactions set (nil or empty)
-	assert.Nil(t, result[0].ChainedPrivateTransactions)
-	assert.Nil(t, result[1].ChainedPrivateTransactions)
-}
-
-func TestAddChainedTranasctions_PartialChainedTransactions(t *testing.T) {
-	txID1 := uuid.New()
-	txID2 := uuid.New()
-	txID3 := uuid.New()
-	chainedTxID1 := uuid.New()
-	localID1 := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address", "id"}).
-				AddRow(chainedTxID1, txID1, "sender1", "domain1", "0x1111", localID1)
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID1}},
-		{Transaction: &pldapi.Transaction{ID: &txID2}},
-		{Transaction: &pldapi.Transaction{ID: &txID3}},
-	}
-
-	result, err := txm.AddChainedTranasctions(ctx, txm.p.NOTX(), []uuid.UUID{txID1, txID2, txID3}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 3, len(result))
-
-	// First transaction should have chained transaction
-	require.NotNil(t, result[0].ChainedPrivateTransactions)
-	require.Equal(t, 1, len(result[0].ChainedPrivateTransactions))
-	assert.Equal(t, chainedTxID1.String(), result[0].ChainedPrivateTransactions[0].ChainedTransactionID)
-	assert.Equal(t, txID1.String(), result[0].ChainedPrivateTransactions[0].TransactionID)
-	assert.Equal(t, localID1.String(), result[0].ChainedPrivateTransactions[0].LocalID)
-
-	// Second and third transactions should not have chained transactions
-	assert.Nil(t, result[1].ChainedPrivateTransactions)
-	assert.Nil(t, result[2].ChainedPrivateTransactions)
-}
-
-func TestAddChainedTranasctions_MultipleChainedTransactionsForSameTransaction(t *testing.T) {
-	txID := uuid.New()
-	chainedTxID1 := uuid.New()
-	chainedTxID2 := uuid.New()
-	chainedTxID3 := uuid.New()
-	localID1 := uuid.New()
-	localID2 := uuid.New()
-	localID3 := uuid.New()
-
-	ctx, txm, done := newTestTransactionManager(t, false,
-		mockEmptyReceiptListeners,
-		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			rows := sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address", "id"}).
-				AddRow(chainedTxID1, txID, "sender1", "domain1", "0x1111", localID1).
-				AddRow(chainedTxID2, txID, "sender2", "domain2", "0x2222", localID2).
-				AddRow(chainedTxID3, txID, "sender3", "domain3", "0x3333", localID3)
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(rows)
-		})
-	defer done()
-
-	ptxs := []*pldapi.TransactionFull{
-		{Transaction: &pldapi.Transaction{ID: &txID}},
-	}
-
-	result, err := txm.AddChainedTranasctions(ctx, txm.p.NOTX(), []uuid.UUID{txID}, ptxs)
-	require.NoError(t, err)
-	require.Equal(t, 1, len(result))
-
-	// Transaction should have all 3 chained transactions
-	require.NotNil(t, result[0].ChainedPrivateTransactions)
-	require.Equal(t, 3, len(result[0].ChainedPrivateTransactions))
-
-	// Verify all chained transactions are mapped correctly
-	assert.Equal(t, chainedTxID1.String(), result[0].ChainedPrivateTransactions[0].ChainedTransactionID)
-	assert.Equal(t, txID.String(), result[0].ChainedPrivateTransactions[0].TransactionID)
-	assert.Equal(t, localID1.String(), result[0].ChainedPrivateTransactions[0].LocalID)
-
-	assert.Equal(t, chainedTxID2.String(), result[0].ChainedPrivateTransactions[1].ChainedTransactionID)
-	assert.Equal(t, txID.String(), result[0].ChainedPrivateTransactions[1].TransactionID)
-	assert.Equal(t, localID2.String(), result[0].ChainedPrivateTransactions[1].LocalID)
-
-	assert.Equal(t, chainedTxID3.String(), result[0].ChainedPrivateTransactions[2].ChainedTransactionID)
-	assert.Equal(t, txID.String(), result[0].ChainedPrivateTransactions[2].TransactionID)
-	assert.Equal(t, localID3.String(), result[0].ChainedPrivateTransactions[2].LocalID)
 }

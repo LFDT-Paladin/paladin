@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -367,7 +368,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 
 	// Insert any sequencing activities
 	if len(sequencingActivitiesToPersist) > 0 {
-		if err := tm.sequencerManager.WriteReceivedSequencingActivities(ctx, dbTX, sequencingActivitiesToPersist); err != nil {
+		if err := seqcommon.WriteSequencingActivities(ctx, dbTX, sequencingActivitiesToPersist); err != nil {
 			return nil, err
 		}
 	}

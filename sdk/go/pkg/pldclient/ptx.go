@@ -42,6 +42,11 @@ type PTX interface {
 	QueryTransactions(ctx context.Context, jq *query.QueryJSON) (txs []*pldapi.Transaction, err error)
 	QueryTransactionsFull(ctx context.Context, jq *query.QueryJSON) (txs []*pldapi.TransactionFull, err error)
 
+	QueryDispatches(ctx context.Context, jq *query.QueryJSON) (dispatches []*pldapi.Dispatch, err error)
+	GetDispatch(ctx context.Context, id string) (dispatch *pldapi.Dispatch, err error)
+	QueryChainedTransactions(ctx context.Context, jq *query.QueryJSON) (chainedTxns []*pldapi.ChainedTransaction, err error)
+	GetChainedTransaction(ctx context.Context, localID string) (chainedTxn *pldapi.ChainedTransaction, err error)
+
 	GetTransactionReceipt(ctx context.Context, txID uuid.UUID) (receipt *pldapi.TransactionReceipt, err error)
 	GetTransactionReceiptFull(ctx context.Context, txID uuid.UUID) (receipt *pldapi.TransactionReceiptFull, err error)
 	GetDomainReceipt(ctx context.Context, domain string, txID uuid.UUID) (domainReceipt pldtypes.RawJSON, err error)
@@ -161,6 +166,22 @@ var ptxInfo = &rpcModuleInfo{
 		"ptx_queryPreparedTransactions": {
 			Inputs: []string{"query"},
 			Output: "preparedTransactions",
+		},
+		"ptx_queryDispatches": {
+			Inputs: []string{"query"},
+			Output: "dispatches",
+		},
+		"ptx_getDispatch": {
+			Inputs: []string{"id"},
+			Output: "dispatch",
+		},
+		"ptx_queryChainedTransactions": {
+			Inputs: []string{"query"},
+			Output: "chainedTransactions",
+		},
+		"ptx_getChainedTransaction": {
+			Inputs: []string{"localId"},
+			Output: "chainedTransaction",
 		},
 		"ptx_storeABI": {
 			Inputs: []string{"abi"},
@@ -318,6 +339,26 @@ func (p *ptx) QueryTransactions(ctx context.Context, jq *query.QueryJSON) (txs [
 
 func (p *ptx) QueryTransactionsFull(ctx context.Context, jq *query.QueryJSON) (txs []*pldapi.TransactionFull, err error) {
 	err = p.c.CallRPC(ctx, &txs, "ptx_queryTransactionsFull", jq)
+	return
+}
+
+func (p *ptx) QueryDispatches(ctx context.Context, jq *query.QueryJSON) (dispatches []*pldapi.Dispatch, err error) {
+	err = p.c.CallRPC(ctx, &dispatches, "ptx_queryDispatches", jq)
+	return
+}
+
+func (p *ptx) GetDispatch(ctx context.Context, id string) (dispatch *pldapi.Dispatch, err error) {
+	err = p.c.CallRPC(ctx, &dispatch, "ptx_getDispatch", id)
+	return
+}
+
+func (p *ptx) QueryChainedTransactions(ctx context.Context, jq *query.QueryJSON) (chainedTxns []*pldapi.ChainedTransaction, err error) {
+	err = p.c.CallRPC(ctx, &chainedTxns, "ptx_queryChainedTransactions", jq)
+	return
+}
+
+func (p *ptx) GetChainedTransaction(ctx context.Context, localID string) (chainedTxn *pldapi.ChainedTransaction, err error) {
+	err = p.c.CallRPC(ctx, &chainedTxn, "ptx_getChainedTransaction", localID)
 	return
 }
 

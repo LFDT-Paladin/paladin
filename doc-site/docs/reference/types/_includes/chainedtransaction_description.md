@@ -1,0 +1,1 @@
+A chained transaction record tracks a private transaction that was created as a consequence of another private transaction (the original). The `localId` correlates with the `subjectId` field on sequencer activity records of type `chained_dispatch`. Query chained transactions using `ptx_queryChainedTransactions` or retrieve one by local ID using `ptx_getChainedTransaction`.

@@ -14,6 +14,7 @@ import (
 	testutils "github.com/LFDT-Paladin/paladin/core/noderuntests/pkg"
 	"github.com/LFDT-Paladin/paladin/core/noderuntests/pkg/domains"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -140,11 +141,13 @@ func TestChainedTransactionSuccess(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.True(t, tx.Receipt().Success)
 
-	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	_, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
+	require.Len(t, chainedTxns, 1)
 
-	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	chainedTxID, err := uuid.Parse(chainedTxns[0].ChainedTransactionID)
 	require.NoError(t, err)
 
 	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
@@ -190,11 +193,13 @@ func TestChainedTransactionRetryableRevertThenSucceeds(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.True(t, tx.Receipt().Success)
 
-	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	_, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
+	require.Len(t, chainedTxns, 1)
 
-	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	chainedTxID, err := uuid.Parse(chainedTxns[0].ChainedTransactionID)
 	require.NoError(t, err)
 
 	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
@@ -244,11 +249,13 @@ func TestChainedTransactionAssemblyFailure(t *testing.T) {
 	require.NotNil(t, tx.Receipt())
 	assert.False(t, tx.Receipt().Success)
 
-	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	_, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
+	require.Len(t, chainedTxns, 1)
 
-	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	chainedTxID, err := uuid.Parse(chainedTxns[0].ChainedTransactionID)
 	require.NoError(t, err)
 
 	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
@@ -297,11 +304,13 @@ func TestChainedTransactionBaseLedgerRevertFailure(t *testing.T) {
 	assert.False(t, tx.Receipt().Success)
 	assert.Contains(t, tx.Receipt().FailureMessage, "SimpleTokenNonRetryableError")
 
-	txFull, err := client.PTX().GetTransactionFull(ctx, tx.ID())
+	_, err := client.PTX().GetTransactionFull(ctx, tx.ID())
 	require.NoError(t, err)
-	require.Len(t, txFull.ChainedPrivateTransactions, 1)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
+	require.Len(t, chainedTxns, 1)
 
-	chainedTxID, err := uuid.Parse(txFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	chainedTxID, err := uuid.Parse(chainedTxns[0].ChainedTransactionID)
 	require.NoError(t, err)
 
 	chainedTx, err := client.PTX().GetTransactionFull(ctx, chainedTxID)
@@ -360,8 +369,10 @@ func TestChainedTransactionRetryableRevert_OnlyChainedFails_ThenSucceeds(t *test
 	require.NoError(t, err)
 	require.NotNil(t, txFull.Receipt)
 	assert.True(t, txFull.Receipt.Success)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
 	// Should have more than 1 chained transaction due to the retry
-	assert.Greater(t, len(txFull.ChainedPrivateTransactions), 1)
+	assert.Greater(t, len(chainedTxns), 1)
 }
 
 func TestChainedTransactionNonRetryableRevert_OnlyChainedFails(t *testing.T) {
@@ -407,8 +418,10 @@ func TestChainedTransactionNonRetryableRevert_OnlyChainedFails(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, txFull.Receipt)
 	assert.False(t, txFull.Receipt.Success)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
 	// Should have only 1 chained transaction since it failed without retry
-	assert.Len(t, txFull.ChainedPrivateTransactions, 1)
+	require.Len(t, chainedTxns, 1)
 }
 
 func TestChainedTransactionRetryableRevert_OnlyChainedFails_ExceedsThreshold(t *testing.T) {
@@ -458,6 +471,8 @@ func TestChainedTransactionRetryableRevert_OnlyChainedFails_ExceedsThreshold(t *
 	require.NoError(t, err)
 	require.NotNil(t, txFull.Receipt)
 	assert.False(t, txFull.Receipt.Success)
+	chainedTxns, err := client.PTX().QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", tx.ID()).Query())
+	require.NoError(t, err)
 	// Should have more than 1 chained transaction due to the retry before exceeding threshold
-	assert.Greater(t, len(txFull.ChainedPrivateTransactions), 1)
+	assert.Greater(t, len(chainedTxns), 1)
 }

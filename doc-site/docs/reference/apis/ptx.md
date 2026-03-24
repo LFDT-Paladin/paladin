@@ -105,6 +105,26 @@ title: ptx_*
 
 0. `listenerStatus`: [`BlockchainEventListenerStatus`](../types/blockchaineventlistenerstatus.md#blockchaineventlistenerstatus)
 
+## `ptx_getChainedTransaction`
+
+### Parameters
+
+0. `localId`: `string`
+
+### Returns
+
+0. `chainedTransaction`: [`ChainedTransaction`](../types/chainedtransaction.md#chainedtransaction)
+
+## `ptx_getDispatch`
+
+### Parameters
+
+0. `id`: `string`
+
+### Returns
+
+0. `dispatch`: [`Dispatch`](../types/dispatch.md#dispatch)
+
 ## `ptx_getDomainReceipt`
 
 ### Parameters
@@ -235,6 +255,26 @@ title: ptx_*
 ### Returns
 
 0. `listeners`: [`BlockchainEventListener[]`](../types/blockchaineventlistener.md#blockchaineventlistener)
+
+## `ptx_queryChainedTransactions`
+
+### Parameters
+
+0. `query`: [`QueryJSON`](../types/queryjson.md#queryjson)
+
+### Returns
+
+0. `chainedTransactions`: [`ChainedTransaction[]`](../types/chainedtransaction.md#chainedtransaction)
+
+## `ptx_queryDispatches`
+
+### Parameters
+
+0. `query`: [`QueryJSON`](../types/queryjson.md#queryjson)
+
+### Returns
+
+0. `dispatches`: [`Dispatch[]`](../types/dispatch.md#dispatch)
 
 ## `ptx_queryPreparedTransactions`
 
