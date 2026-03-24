@@ -138,6 +138,7 @@ func newSequencerManagerForTesting(t *testing.T, mocks *sequencerLifecycleTestMo
 		metrics:                       mocks.metrics,
 		targetActiveCoordinatorsLimit: 2,
 		targetActiveSequencersLimit:   2,
+		completionQueue:               make(chan []*components.TxCompletion, 5),
 	}
 
 	return sm
@@ -1530,4 +1531,164 @@ func TestSequencerManager_GetTxStatus_OriginatorError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
 	assert.Equal(t, "", status.TxID) // Empty status when error occurs
+}
+
+func TestSequencerManager_processCompletionBatch_PreservesOrder(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	txID1 := uuid.New()
+	txID2 := uuid.New()
+	txID3 := uuid.New()
+	txHash1 := pldtypes.RandBytes32()
+	txHash2 := pldtypes.RandBytes32()
+	txHash3 := pldtypes.RandBytes32()
+
+	completions := []*components.TxCompletion{
+		{
+			ReceiptInput: components.ReceiptInput{
+				TransactionID: txID1,
+				OnChain:       pldtypes.OnChainLocation{TransactionHash: txHash1, BlockNumber: 100, TransactionIndex: 0},
+			},
+			PSC: mocks.domainAPI,
+		},
+		{
+			ReceiptInput: components.ReceiptInput{
+				TransactionID: txID2,
+				OnChain:       pldtypes.OnChainLocation{TransactionHash: txHash2, BlockNumber: 100, TransactionIndex: 1},
+			},
+			PSC: mocks.domainAPI,
+		},
+		{
+			ReceiptInput: components.ReceiptInput{
+				TransactionID: txID3,
+				OnChain:       pldtypes.OnChainLocation{TransactionHash: txHash3, BlockNumber: 100, TransactionIndex: 2},
+			},
+			PSC: mocks.domainAPI,
+		},
+	}
+
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.components.EXPECT().PublicTxManager().Return(mocks.publicTxManager).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Times(3)
+	mocks.publicTxManager.EXPECT().QueryPublicTxForTransactions(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Times(3)
+
+	mocks.metrics.EXPECT().IncConfirmedTransactions().Times(3)
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Times(3)
+
+	var confirmedOrder []uuid.UUID
+	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*coordinatorTx.ConfirmedSuccessEvent)
+		if ok {
+			confirmedOrder = append(confirmedOrder, event.TransactionID)
+		}
+		return ok
+	})).Times(3)
+
+	sm.processCompletionBatch(ctx, completions)
+
+	require.Len(t, confirmedOrder, 3)
+	assert.Equal(t, txID1, confirmedOrder[0], "first confirmation should be txID1")
+	assert.Equal(t, txID2, confirmedOrder[1], "second confirmation should be txID2")
+	assert.Equal(t, txID3, confirmedOrder[2], "third confirmation should be txID3")
+}
+
+func TestSequencerManager_processCompletionBatch_SkipsDeploys(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	contractAddr := pldtypes.RandAddress()
+	txID := uuid.New()
+
+	completions := []*components.TxCompletion{
+		{
+			ReceiptInput: components.ReceiptInput{
+				TransactionID:   txID,
+				ContractAddress: contractAddr,
+				OnChain:         pldtypes.OnChainLocation{TransactionHash: pldtypes.RandBytes32(), BlockNumber: 100},
+			},
+			PSC: mocks.domainAPI,
+		},
+	}
+
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.components.EXPECT().PublicTxManager().Return(mocks.publicTxManager).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.publicTxManager.EXPECT().QueryPublicTxForTransactions(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
+
+	sm.processCompletionBatch(ctx, completions)
+}
+
+func TestSequencerManager_PrivateTransactionsConfirmed_EnqueuesAndWorkerProcesses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	contractAddr := pldtypes.RandAddress()
+
+	sm := &sequencerManager{
+		ctx:                           ctx,
+		config:                        &pldconf.SequencerConfig{},
+		components:                    mocks.components,
+		nodeName:                      "test-node",
+		sequencersLock:                sync.RWMutex{},
+		sequencers:                    make(map[string]*sequencer),
+		metrics:                       mocks.metrics,
+		targetActiveCoordinatorsLimit: 2,
+		targetActiveSequencersLimit:   2,
+		completionQueue:               make(chan []*components.TxCompletion, 100),
+	}
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	txID := uuid.New()
+	txHash := pldtypes.RandBytes32()
+	completions := []*components.TxCompletion{
+		{
+			ReceiptInput: components.ReceiptInput{
+				TransactionID: txID,
+				OnChain:       pldtypes.OnChainLocation{TransactionHash: txHash, BlockNumber: 100},
+			},
+			PSC: mocks.domainAPI,
+		},
+	}
+
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Once()
+	mocks.components.EXPECT().PublicTxManager().Return(mocks.publicTxManager).Once()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Once()
+	mocks.publicTxManager.EXPECT().QueryPublicTxForTransactions(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
+	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()
+
+	processed := make(chan struct{})
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		_, ok := e.(*coordinatorTx.ConfirmedSuccessEvent)
+		if ok {
+			close(processed)
+		}
+		return ok
+	})).Once()
+
+	sm.completionWG.Add(1)
+	go func() {
+		defer sm.completionWG.Done()
+		sm.completionWorker(ctx)
+	}()
+
+	sm.PrivateTransactionsConfirmed(ctx, completions)
+
+	<-processed
+
+	cancel()
+	sm.completionWG.Wait()
 }
