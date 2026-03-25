@@ -123,6 +123,7 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 	return nonRegisterEvents, txCompletions, nil
 }
 
+// Direct waiters are only used by the testbed
 func (dm *domainManager) notifyWaiters(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
 		inflight := dm.privateTxWaiter.GetInflight(completion.TransactionID)
