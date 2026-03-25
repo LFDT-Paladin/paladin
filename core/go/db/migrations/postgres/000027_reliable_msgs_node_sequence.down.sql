@@ -1,2 +1,7 @@
-CREATE INDEX CONCURRENTLY reliable_msgs_node ON reliable_msgs ("node");
-DROP INDEX CONCURRENTLY reliable_msgs_node_sequence;
+BEGIN;
+
+DROP INDEX reliable_msgs_node_sequence;
+CREATE INDEX reliable_msgs_node ON reliable_msgs ("node");
+
+COMMIT;
+
