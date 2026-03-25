@@ -544,3 +544,37 @@ func TestDomainFunction_IsBaseLedgerRevertRetryable(t *testing.T) {
 		assert.IsType(t, &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}, res.ResponseFromDomain)
 	})
 }
+
+func TestDomainFunction_GetCodeHash(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	funcs.GetCodeHash = func(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
+		return &prototk.GetCodeHashResponse{CodeHash: "0x1234"}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_GetCodeHash{
+			GetCodeHash: &prototk.GetCodeHashRequest{Address: "0xabcd"},
+		}
+	}, func(res *prototk.DomainMessage) {
+		r := res.ResponseFromDomain.(*prototk.DomainMessage_GetCodeHashRes)
+		assert.Equal(t, "0x1234", r.GetCodeHashRes.CodeHash)
+	})
+}
+
+func TestDomainFunction_GetCode(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	funcs.GetCode = func(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
+		return &prototk.GetCodeResponse{Code: "0xdeadbeef"}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_GetCode{
+			GetCode: &prototk.GetCodeRequest{Address: "0xabcd"},
+		}
+	}, func(res *prototk.DomainMessage) {
+		r := res.ResponseFromDomain.(*prototk.DomainMessage_GetCodeRes)
+		assert.Equal(t, "0xdeadbeef", r.GetCodeRes.Code)
+	})
+}
