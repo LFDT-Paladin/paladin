@@ -48,6 +48,8 @@
      protected abstract CompletableFuture<WrapPrivacyGroupEVMTXResponse> wrapPrivacyGroupTransaction(WrapPrivacyGroupEVMTXRequest request);
      protected abstract CompletableFuture<CheckStateCompletionResponse> checkStateCompletion(CheckStateCompletionRequest request);
      protected abstract CompletableFuture<IsBaseLedgerRevertRetryableResponse> isBaseLedgerRevertRetryable(IsBaseLedgerRevertRetryableRequest request);
+     protected abstract CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request);
+     protected abstract CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request);
 
      protected DomainInstance(String grpcTarget, String instanceId) {
          super(grpcTarget, instanceId);
@@ -128,6 +130,8 @@
                  case WRAP_PRIVACY_GROUP_EVMTX -> wrapPrivacyGroupTransaction(request.getWrapPrivacyGroupEvmtx()).thenApply(response::setWrapPrivacyGroupEvmtxRes);
                  case CHECK_STATE_COMPLETION -> checkStateCompletion(request.getCheckStateCompletion()).thenApply(response::setCheckStateCompletionRes);
                  case IS_BASE_LEDGER_REVERT_RETRYABLE -> isBaseLedgerRevertRetryable(request.getIsBaseLedgerRevertRetryable()).thenApply(response::setIsBaseLedgerRevertRetryableRes);
+                 case GET_CODE_HASH -> getCodeHash(request.getGetCodeHash()).thenApply(response::setGetCodeHashRes);
+                 case GET_CODE -> getCode(request.getGetCode()).thenApply(response::setGetCodeRes);
                  default -> throw new IllegalArgumentException("unknown request: %s".formatted(request.getRequestToDomainCase()));
              };
              return resultApplied.thenApply((ra) -> {

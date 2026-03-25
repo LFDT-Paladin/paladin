@@ -1055,6 +1055,22 @@ export default class PaladinClient {
       );
       return res.data.result;
     },
+
+    getCodeHash: async (domainName: string, groupID: string, address: string) => {
+      const res = await this.post<JsonRpcResult<string>>(
+        "pgroup_getCodeHash",
+        [domainName, groupID, address]
+      );
+      return res.data.result;
+    },
+
+    getCode: async (domainName: string, groupID: string, address: string) => {
+      const res = await this.post<JsonRpcResult<string>>(
+        "pgroup_getCode",
+        [domainName, groupID, address]
+      );
+      return res.data.result;
+    },
   };
 
   transport = {

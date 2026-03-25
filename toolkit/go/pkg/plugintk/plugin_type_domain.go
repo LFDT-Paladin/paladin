@@ -46,6 +46,8 @@ type DomainAPI interface {
 	InitPrivacyGroup(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
 	IsBaseLedgerRevertRetryable(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
+	GetCodeHash(context.Context, *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error)
+	GetCode(context.Context, *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error)
 }
 
 type DomainCallbacks interface {
@@ -225,6 +227,14 @@ func (dp *domainHandler) RequestToPlugin(ctx context.Context, iReq PluginMessage
 		resMsg := &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}
 		resMsg.IsBaseLedgerRevertRetryableRes, err = dp.api.IsBaseLedgerRevertRetryable(ctx, input.IsBaseLedgerRevertRetryable)
 		res.ResponseFromDomain = resMsg
+	case *prototk.DomainMessage_GetCodeHash:
+		resMsg := &prototk.DomainMessage_GetCodeHashRes{}
+		resMsg.GetCodeHashRes, err = dp.api.GetCodeHash(ctx, input.GetCodeHash)
+		res.ResponseFromDomain = resMsg
+	case *prototk.DomainMessage_GetCode:
+		resMsg := &prototk.DomainMessage_GetCodeRes{}
+		resMsg.GetCodeRes, err = dp.api.GetCode(ctx, input.GetCode)
+		res.ResponseFromDomain = resMsg
 	default:
 		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
 	}
@@ -336,27 +346,29 @@ func (dp *domainHandler) ValidateStates(ctx context.Context, req *prototk.Valida
 }
 
 type DomainAPIFunctions struct {
-	ConfigureDomain       func(context.Context, *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error)
-	InitDomain            func(context.Context, *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error)
-	InitDeploy            func(context.Context, *prototk.InitDeployRequest) (*prototk.InitDeployResponse, error)
-	PrepareDeploy         func(context.Context, *prototk.PrepareDeployRequest) (*prototk.PrepareDeployResponse, error)
-	InitContract          func(context.Context, *prototk.InitContractRequest) (*prototk.InitContractResponse, error)
-	InitTransaction       func(context.Context, *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error)
-	AssembleTransaction   func(context.Context, *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error)
-	EndorseTransaction    func(context.Context, *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error)
-	PrepareTransaction    func(context.Context, *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error)
-	HandleEventBatch      func(context.Context, *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error)
-	Sign                  func(context.Context, *prototk.SignRequest) (*prototk.SignResponse, error)
-	GetVerifier           func(context.Context, *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error)
-	ValidateStateHashes   func(context.Context, *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error)
-	InitCall              func(context.Context, *prototk.InitCallRequest) (*prototk.InitCallResponse, error)
-	ExecCall              func(context.Context, *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error)
-	BuildReceipt          func(context.Context, *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error)
-	ConfigurePrivacyGroup func(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
-	InitPrivacyGroup      func(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
-	WrapPrivacyGroupEVMTX func(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
-	CheckStateCompletion          func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
-	IsBaseLedgerRevertRetryable   func(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
+	ConfigureDomain             func(context.Context, *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error)
+	InitDomain                  func(context.Context, *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error)
+	InitDeploy                  func(context.Context, *prototk.InitDeployRequest) (*prototk.InitDeployResponse, error)
+	PrepareDeploy               func(context.Context, *prototk.PrepareDeployRequest) (*prototk.PrepareDeployResponse, error)
+	InitContract                func(context.Context, *prototk.InitContractRequest) (*prototk.InitContractResponse, error)
+	InitTransaction             func(context.Context, *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error)
+	AssembleTransaction         func(context.Context, *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error)
+	EndorseTransaction          func(context.Context, *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error)
+	PrepareTransaction          func(context.Context, *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error)
+	HandleEventBatch            func(context.Context, *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error)
+	Sign                        func(context.Context, *prototk.SignRequest) (*prototk.SignResponse, error)
+	GetVerifier                 func(context.Context, *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error)
+	ValidateStateHashes         func(context.Context, *prototk.ValidateStateHashesRequest) (*prototk.ValidateStateHashesResponse, error)
+	InitCall                    func(context.Context, *prototk.InitCallRequest) (*prototk.InitCallResponse, error)
+	ExecCall                    func(context.Context, *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error)
+	BuildReceipt                func(context.Context, *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error)
+	ConfigurePrivacyGroup       func(context.Context, *prototk.ConfigurePrivacyGroupRequest) (*prototk.ConfigurePrivacyGroupResponse, error)
+	InitPrivacyGroup            func(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
+	WrapPrivacyGroupEVMTX       func(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
+	CheckStateCompletion        func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
+	IsBaseLedgerRevertRetryable func(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
+	GetCodeHash                 func(context.Context, *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error)
+	GetCode                     func(context.Context, *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error)
 }
 
 type DomainAPIBase struct {
@@ -445,4 +457,12 @@ func (db *DomainAPIBase) CheckStateCompletion(ctx context.Context, req *prototk.
 
 func (db *DomainAPIBase) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
 	return callPluginImpl(ctx, req, db.Functions.IsBaseLedgerRevertRetryable)
+}
+
+func (db *DomainAPIBase) GetCodeHash(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
+	return callPluginImpl(ctx, req, db.Functions.GetCodeHash)
+}
+
+func (db *DomainAPIBase) GetCode(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
+	return callPluginImpl(ctx, req, db.Functions.GetCode)
 }

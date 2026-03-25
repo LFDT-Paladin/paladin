@@ -696,6 +696,124 @@ func TestSendTransactionSendPreparedTx(t *testing.T) {
 
 }
 
+func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldtypes.Bytes32, groupID pldtypes.HexBytes, contractAddr *pldtypes.EthAddress) *componentsmocks.DomainSmartContract {
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	psc := componentsmocks.NewDomainSmartContract(t)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(psc, nil)
+	psc.On("Domain").Return(mc.domain).Maybe()
+	mdc := componentsmocks.NewDomainContext(t)
+	mc.stateManager.On("NewDomainContext", mock.Anything, mc.domain, *contractAddr).Return(mdc)
+	mdc.On("Close").Return()
+	return psc
+}
+
+func TestGetCodeHashGroupNotFound(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
+
+	addr := pldtypes.RandAddress()
+	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), *addr)
+	require.Regexp(t, "PD012502", err)
+}
+
+func TestGetCodeHashGroupNotReady(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	mockDBPrivacyGroup(mc, schemaID, groupID, nil)
+
+	addr := pldtypes.RandAddress()
+	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.Regexp(t, "PD012503", err)
+}
+
+func TestGetCodeHashGroupGetContractFail(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
+	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(nil, fmt.Errorf("pop"))
+
+	addr := pldtypes.RandAddress()
+	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.Regexp(t, "pop", err)
+}
+
+func TestGetCodeHashOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	addr := pldtypes.RandAddress()
+	expectedHash := pldtypes.RandBytes32()
+	psc.On("GetCodeHash", mock.Anything, mock.Anything, mock.Anything, *addr).Return(expectedHash, nil)
+
+	result, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.NoError(t, err)
+	assert.Equal(t, expectedHash, result)
+}
+
+func TestGetCodeHashPSCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	addr := pldtypes.RandAddress()
+	psc.On("GetCodeHash", mock.Anything, mock.Anything, mock.Anything, *addr).Return(pldtypes.Bytes32{}, fmt.Errorf("pop"))
+
+	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.Regexp(t, "pop", err)
+}
+
+func TestGetCodeOK(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	addr := pldtypes.RandAddress()
+	expectedCode := pldtypes.MustParseHexBytes("0xdeadbeef")
+	psc.On("GetCode", mock.Anything, mock.Anything, mock.Anything, *addr).Return(expectedCode, nil)
+
+	result, err := gm.GetCode(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.NoError(t, err)
+	assert.Equal(t, expectedCode, result)
+}
+
+func TestGetCodePSCError(t *testing.T) {
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
+	defer done()
+
+	schemaID := pldtypes.RandBytes32()
+	groupID := pldtypes.RandBytes(32)
+	contractAddr := pldtypes.RandAddress()
+	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
+
+	addr := pldtypes.RandAddress()
+	psc.On("GetCode", mock.Anything, mock.Anything, mock.Anything, *addr).Return(pldtypes.HexBytes(nil), fmt.Errorf("pop"))
+
+	_, err := gm.GetCode(ctx, gm.p.NOTX(), "domain1", groupID, *addr)
+	require.Regexp(t, "pop", err)
+}
+
 func newValidPGState() *pldapi.State {
 	return &pldapi.State{
 		StateBase: pldapi.StateBase{

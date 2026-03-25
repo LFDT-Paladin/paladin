@@ -258,6 +258,24 @@ message WrapPrivacyGroupEVMTXResponse {
   PreparedTransaction transaction = 1; // The transaction that will result from this against the domain
 }
 
+message GetCodeHashRequest {
+  string state_query_context = 1; // handle to supply to state queries performed during this call
+  string address = 2; // the ethereum address of the account to query
+}
+
+message GetCodeHashResponse {
+  string code_hash = 1; // bytes32 hex; zero if address is not a contract or does not exist
+}
+
+message GetCodeRequest {
+  string state_query_context = 1; // handle to supply to state queries performed during this call
+  string address = 2; // the ethereum address of the account to query
+}
+
+message GetCodeResponse {
+  string code = 1; // hex-encoded runtime bytecode; empty string if not a contract or does not exist
+}
+
 message UnavailableStates {
   optional string first_unavailable_id = 1; // convenience check - set in the order info, input, output, read
   repeated string input_state_ids = 2; // unavailable input state ids

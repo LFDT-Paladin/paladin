@@ -926,6 +926,37 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          );
      }
 
+     @Override
+     protected CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request) {
+         try {
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
+             var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
+             var codeHash = accountLoader.load(address)
+                     .map(PersistedAccount::getCodeHashOrZero)
+                     .orElse(org.hyperledger.besu.datatypes.Hash.ZERO);
+             return CompletableFuture.completedFuture(
+                     GetCodeHashResponse.newBuilder().setCodeHash(codeHash.toHexString()).build());
+         } catch (Exception e) {
+             return CompletableFuture.failedFuture(e);
+         }
+     }
+
+     @Override
+     protected CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request) {
+         try {
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
+             var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
+             var codeBytes = accountLoader.load(address)
+                     .map(PersistedAccount::getCode)
+                     .orElse(null);
+             var codeHex = (codeBytes != null) ? codeBytes.toHexString() : "";
+             return CompletableFuture.completedFuture(
+                     GetCodeResponse.newBuilder().setCode(codeHex).build());
+         } catch (Exception e) {
+             return CompletableFuture.failedFuture(e);
+         }
+     }
+
      private static boolean matchesSelector(byte[] data, byte[] selector) {
          return data[0] == selector[0] && data[1] == selector[1] && data[2] == selector[2] && data[3] == selector[3];
      }

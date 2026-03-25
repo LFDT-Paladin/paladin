@@ -136,4 +136,14 @@ public class TestDomain extends DomainInstance {
             IsBaseLedgerRevertRetryableResponse.newBuilder().setRetryable(false).build()
         );
     }
+
+    @Override
+    protected CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
+
+    @Override
+    protected CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
 }

@@ -770,3 +770,11 @@ func (z *Zeto) IsBaseLedgerRevertRetryable(_ context.Context, _ *prototk.IsBaseL
 	// TODO: this is just defaulting to the sequencer retry threshold and could be customized by the domain
 	return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true}, nil
 }
+
+func (z *Zeto) GetCodeHash(ctx context.Context, _ *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
+	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}
+
+func (z *Zeto) GetCode(ctx context.Context, _ *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
+	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}

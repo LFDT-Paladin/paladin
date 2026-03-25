@@ -194,6 +194,7 @@ type PrivacyGroupGenesisState struct {
 	Configuration KeyValueStringProperties `docstruct:"PrivacyGroupGenesisState" json:"configuration"`
 }
 
+
 func (pg *PrivacyGroup) GenesisStateData() *PrivacyGroupGenesisState {
 	return &PrivacyGroupGenesisState{
 		GenesisSalt:   pg.GenesisSalt,
