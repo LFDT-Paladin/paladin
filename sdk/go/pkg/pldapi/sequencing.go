@@ -18,7 +18,6 @@ package pldapi
 
 import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/google/uuid"
 )
 
 type SequencerActivityType string
@@ -29,10 +28,8 @@ const (
 )
 
 type SequencerActivity struct {
-	LocalID        *uint64            `docstruct:"SequencerActivity" json:"localId,omitempty"`   // only a local DB identifier for the sequencing activity
 	SubjectID      string             `docstruct:"SequencerActivity" json:"subjectId,omitempty"` // Optional depending on the activity type. It may have an ID that correlates with something on this node or another node
 	Timestamp      pldtypes.Timestamp `docstruct:"SequencerActivity" json:"timestamp,omitempty"`
 	ActivityType   string             `docstruct:"SequencerActivity" json:"activityType,omitempty"`
 	SequencingNode string             `docstruct:"SequencerActivity" json:"sequencingNode,omitempty"` // The node where this activity took place
-	TransactionID  uuid.UUID          `docstruct:"SequencerActivity" json:"transactionId,omitempty"`
 }

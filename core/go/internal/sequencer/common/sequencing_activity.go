@@ -18,8 +18,8 @@ package common
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
@@ -37,7 +37,11 @@ func (DBSequencingActivity) TableName() string {
 	return "sequencer_activities"
 }
 
-func WriteSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error {
+func WriteSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*components.SequencingActivity) error {
+	if sequencingActivities == nil {
+		return nil
+	}
+
 	dbActivities := make([]*DBSequencingActivity, 0, len(sequencingActivities))
 	for _, sequencingActivity := range sequencingActivities {
 		dbActivities = append(dbActivities, &DBSequencingActivity{
@@ -47,10 +51,6 @@ func WriteSequencingActivities(ctx context.Context, dbTX persistence.DBTX, seque
 			ActivityType:   sequencingActivity.ActivityType,
 			SequencingNode: sequencingActivity.SequencingNode,
 		})
-	}
-
-	if len(dbActivities) == 0 {
-		return nil
 	}
 
 	return dbTX.DB().

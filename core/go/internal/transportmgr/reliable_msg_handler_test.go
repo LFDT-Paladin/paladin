@@ -1357,7 +1357,7 @@ func TestHandleSequencingActivityOk(t *testing.T) {
 	)
 	defer done()
 
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node2",
@@ -1429,7 +1429,7 @@ func TestHandleSequencingActivityFail(t *testing.T) {
 	)
 	defer done()
 
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node2",

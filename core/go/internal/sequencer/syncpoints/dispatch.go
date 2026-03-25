@@ -34,7 +34,7 @@ type dispatchOperation struct {
 	privateDispatches       []*components.ChainedPrivateTransaction
 	localPreparedTxns       []*components.PreparedTransactionWithRefs
 	preparedReliableMsgs    []*pldapi.ReliableMessage
-	localSequencerActivites []*pldapi.SequencerActivity
+	localSequencerActivites []*components.SequencingActivity
 }
 
 type DispatchPersisted struct {
@@ -95,12 +95,12 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
-	var localSequencerActivities []*pldapi.SequencerActivity
+	var localSequencerActivities []*components.SequencingActivity
 
 	// Sequencer activity dispatch records for public transactions
 	for _, publicDispatch := range dispatchBatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
-			sequencingProgress := &pldapi.SequencerActivity{
+			sequencingProgress := &components.SequencingActivity{
 				SubjectID:      privateTx.ID, // This is the dispatch ID (not the TX ID)
 				Timestamp:      pldtypes.TimestampNow(),
 				ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
@@ -134,7 +134,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	// Sequencer activity dispatch records for chained private transactions
 	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
 		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
-		sequencingProgress := &pldapi.SequencerActivity{
+		sequencingProgress := &components.SequencingActivity{
 			SubjectID:      privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID)
 			Timestamp:      pldtypes.TimestampNow(),
 			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),

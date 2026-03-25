@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -42,7 +43,7 @@ func TestWriteSequencingActivities_EmptyList(t *testing.T) {
 	require.NoError(t, err)
 	defer mp.Mock.ExpectationsWereMet()
 
-	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*pldapi.SequencerActivity{})
+	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*components.SequencingActivity{})
 	require.NoError(t, err)
 }
 
@@ -53,7 +54,7 @@ func TestWriteSequencingActivities_SingleActivity(t *testing.T) {
 	defer mp.Mock.ExpectationsWereMet()
 
 	txID := uuid.New()
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		SubjectID:      "subject-123",
 		Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 		TransactionID:  txID,
@@ -71,7 +72,7 @@ func TestWriteSequencingActivities_SingleActivity(t *testing.T) {
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 
-	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*pldapi.SequencerActivity{sequencingActivity})
+	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*components.SequencingActivity{sequencingActivity})
 	require.NoError(t, err)
 }
 
@@ -81,7 +82,7 @@ func TestWriteSequencingActivities_MultipleActivities(t *testing.T) {
 	require.NoError(t, err)
 	defer mp.Mock.ExpectationsWereMet()
 
-	activities := []*pldapi.SequencerActivity{
+	activities := []*components.SequencingActivity{
 		{
 			SubjectID:      "subject-1",
 			Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
@@ -124,7 +125,7 @@ func TestWriteSequencingActivities_DatabaseError(t *testing.T) {
 	defer mp.Mock.ExpectationsWereMet()
 
 	dbError := errors.New("database connection error")
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		SubjectID:      "subject-123",
 		Timestamp:      pldtypes.Timestamp(time.Now().UnixNano()),
 		TransactionID:  uuid.New(),
@@ -142,7 +143,7 @@ func TestWriteSequencingActivities_DatabaseError(t *testing.T) {
 		).
 		WillReturnError(dbError)
 
-	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*pldapi.SequencerActivity{sequencingActivity})
+	err = WriteSequencingActivities(ctx, mp.P.NOTX(), []*components.SequencingActivity{sequencingActivity})
 	assert.Error(t, err)
 	assert.Equal(t, dbError, err)
 }

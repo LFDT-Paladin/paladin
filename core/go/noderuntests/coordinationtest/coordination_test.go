@@ -161,7 +161,6 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch)) // Only 1 activity type supported currently
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID, aliceTx.ID())
 
 	// Check Bob has the dispatch
 	bobDispatches, err := bob.GetClient().PTX().QueryDispatches(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", bobTxFull.ID.String()).Query())
@@ -798,7 +797,6 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 
 	assert.True(t, len(aliceChainedTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].TransactionID.String(), aliceChainedDispatch.ChainedTransactionID)
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch))
 
 	// Finally check that Bob who coordinated the chained transaction has dispatch records that correlate with Alice's sequencing activity
@@ -891,7 +889,6 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID.String(), aliceTx.ID().String())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_ChainedDispatch)) // The coordination resulted in a chained transaction, not a public dispatch
 
 	// Query chained dispatch on Bob's node by subject ID from Alice's sequencing activity

@@ -60,4 +60,11 @@ title: TransactionFull
 
 ## SequencerActivity
 
+| Field Name | Description | Type |
+|------------|-------------|------|
+| `subjectId` | Identifier of the dispatch/chained dispatch this activity refers to | `string` |
+| `timestamp` | Timestamp when this sequencer activity occurred | [`Timestamp`](simpletypes.md#timestamp) |
+| `activityType` | Type of sequencer activity | `string` |
+| `sequencingNode` | Node that generated this sequencer activity | `string` |
+
 

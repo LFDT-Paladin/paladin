@@ -286,12 +286,10 @@ func TestMapPersistedTXSequencingActivity(t *testing.T) {
 	result := txm.mapPersistedTXSequencingActivity(psa)
 
 	require.NotNil(t, result)
-	assert.Equal(t, &localID, result.LocalID)
 	assert.Equal(t, subjectID, result.SubjectID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
 	assert.Equal(t, sequencingNode, result.SequencingNode)
-	assert.Equal(t, transactionID, result.TransactionID)
 }
 
 func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
@@ -316,12 +314,10 @@ func TestMapPersistedTXSequencingActivityWithNilLocalID(t *testing.T) {
 	result := txm.mapPersistedTXSequencingActivity(psa)
 
 	require.NotNil(t, result)
-	assert.Nil(t, result.LocalID)
 	assert.Equal(t, subjectID, result.SubjectID)
 	assert.Equal(t, timestamp, result.Timestamp)
 	assert.Equal(t, activityType, result.ActivityType)
 	assert.Equal(t, sequencingNode, result.SequencingNode)
-	assert.Equal(t, transactionID, result.TransactionID)
 }
 
 func TestAddSequencerActivity_WithActivities(t *testing.T) {
@@ -359,29 +355,23 @@ func TestAddSequencerActivity_WithActivities(t *testing.T) {
 	// First transaction should have 2 sequencer activities
 	require.NotNil(t, result[0].SequencerActivity)
 	require.Equal(t, 2, len(result[0].SequencerActivity))
-	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
 	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
 	assert.Equal(t, timestamp1, result[0].SequencerActivity[0].Timestamp)
 	assert.Equal(t, "dispatch", result[0].SequencerActivity[0].ActivityType)
 	assert.Equal(t, "node1", result[0].SequencerActivity[0].SequencingNode)
-	assert.Equal(t, txID1, result[0].SequencerActivity[0].TransactionID)
 
-	assert.Equal(t, &localID2, result[0].SequencerActivity[1].LocalID)
 	assert.Equal(t, subjectID2, result[0].SequencerActivity[1].SubjectID)
 	assert.Equal(t, timestamp2, result[0].SequencerActivity[1].Timestamp)
 	assert.Equal(t, "chained_dispatch", result[0].SequencerActivity[1].ActivityType)
 	assert.Equal(t, "node1", result[0].SequencerActivity[1].SequencingNode)
-	assert.Equal(t, txID1, result[0].SequencerActivity[1].TransactionID)
 
 	// Second transaction should have 1 sequencer activity
 	require.NotNil(t, result[1].SequencerActivity)
 	require.Equal(t, 1, len(result[1].SequencerActivity))
-	assert.Nil(t, result[1].SequencerActivity[0].LocalID)
 	assert.Equal(t, subjectID3, result[1].SequencerActivity[0].SubjectID)
 	assert.Equal(t, timestamp3, result[1].SequencerActivity[0].Timestamp)
 	assert.Equal(t, "dispatch", result[1].SequencerActivity[0].ActivityType)
 	assert.Equal(t, "node2", result[1].SequencerActivity[0].SequencingNode)
-	assert.Equal(t, txID2, result[1].SequencerActivity[0].TransactionID)
 }
 
 func TestAddSequencerActivity_WithoutActivities(t *testing.T) {
@@ -439,9 +429,7 @@ func TestAddSequencerActivity_PartialActivities(t *testing.T) {
 	// First transaction should have sequencer activity
 	require.NotNil(t, result[0].SequencerActivity)
 	require.Equal(t, 1, len(result[0].SequencerActivity))
-	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
 	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
-	assert.Equal(t, txID1, result[0].SequencerActivity[0].TransactionID)
 
 	// Second and third transactions should not have sequencer activities
 	assert.Nil(t, result[1].SequencerActivity)
@@ -484,15 +472,12 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 	require.Equal(t, 3, len(result[0].SequencerActivity))
 
 	// Verify all activities are mapped correctly
-	assert.Equal(t, &localID1, result[0].SequencerActivity[0].LocalID)
 	assert.Equal(t, subjectID1, result[0].SequencerActivity[0].SubjectID)
 	assert.Equal(t, "dispatch", result[0].SequencerActivity[0].ActivityType)
 
-	assert.Equal(t, &localID2, result[0].SequencerActivity[1].LocalID)
 	assert.Equal(t, subjectID2, result[0].SequencerActivity[1].SubjectID)
 	assert.Equal(t, "chained_dispatch", result[0].SequencerActivity[1].ActivityType)
 
-	assert.Equal(t, &localID3, result[0].SequencerActivity[2].LocalID)
 	assert.Equal(t, subjectID3, result[0].SequencerActivity[2].SubjectID)
 	assert.Equal(t, "dispatch", result[0].SequencerActivity[2].ActivityType)
 }

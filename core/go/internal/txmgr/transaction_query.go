@@ -121,12 +121,10 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 
 func (tm *txManager) mapPersistedTXSequencingActivity(psa *seqcommon.DBSequencingActivity) *pldapi.SequencerActivity {
 	return &pldapi.SequencerActivity{
-		LocalID:        psa.LocalID,
 		SubjectID:      psa.SubjectID,
 		Timestamp:      psa.Timestamp,
 		ActivityType:   psa.ActivityType,
 		SequencingNode: psa.SequencingNode,
-		TransactionID:  psa.TransactionID,
 	}
 }
 
