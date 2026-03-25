@@ -567,11 +567,11 @@ func TestPrivateTransactionsMintThenTransfer(t *testing.T) {
 
 	wsClient, err := client.WebSocket(ctx, instance.GetWSConfig())
 	require.NoError(t, err)
-	t.Cleanup(wsClient.Close)
+	defer wsClient.Close()
 
 	sub, err := wsClient.PTX().SubscribeReceipts(ctx, listenerName)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = sub.Unsubscribe(context.Background()) })
+	defer func() { _ = sub.Unsubscribe(ctx) }()
 
 	waitTimeout := transactionLatencyThreshold(t)
 	deployTx := client.ForABI(ctx, *domains.SimpleTokenConstructorABI(domains.SelfEndorsement)).
