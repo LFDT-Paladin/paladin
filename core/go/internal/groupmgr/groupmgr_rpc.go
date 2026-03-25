@@ -192,13 +192,14 @@ func (gm *groupManager) rpcDeleteMessageListener() rpcserver.RPCHandler {
 }
 
 func (gm *groupManager) rpcGetCodeHash() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod3(func(ctx context.Context,
+	return rpcserver.RPCMethod4(func(ctx context.Context,
 		domainName string,
 		groupID pldtypes.HexBytes,
 		address pldtypes.EthAddress,
+		qualifier pldapi.PrivacyGroupStateQualifier,
 	) (*pldtypes.Bytes32, error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
-		codeHash, err := gm.GetCodeHash(ctx, gm.p.NOTX(), domainName, groupID, address)
+		codeHash, err := gm.GetCodeHash(ctx, gm.p.NOTX(), domainName, groupID, address, qualifier)
 		if err != nil {
 			return nil, err
 		}
@@ -207,12 +208,13 @@ func (gm *groupManager) rpcGetCodeHash() rpcserver.RPCHandler {
 }
 
 func (gm *groupManager) rpcGetCode() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod3(func(ctx context.Context,
+	return rpcserver.RPCMethod4(func(ctx context.Context,
 		domainName string,
 		groupID pldtypes.HexBytes,
 		address pldtypes.EthAddress,
+		qualifier pldapi.PrivacyGroupStateQualifier,
 	) (pldtypes.HexBytes, error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
-		return gm.GetCode(ctx, gm.p.NOTX(), domainName, groupID, address)
+		return gm.GetCode(ctx, gm.p.NOTX(), domainName, groupID, address, qualifier)
 	})
 }

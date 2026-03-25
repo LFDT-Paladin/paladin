@@ -929,6 +929,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request) {
          try {
+             var qualifier = request.getStateQualifier();
+             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
+                 return CompletableFuture.failedFuture(
+                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
+             }
              var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
              var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
              var codeHash = accountLoader.load(address)
@@ -944,6 +949,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      @Override
      protected CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request) {
          try {
+             var qualifier = request.getStateQualifier();
+             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
+                 return CompletableFuture.failedFuture(
+                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
+             }
              var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
              var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
              var codeBytes = accountLoader.load(address)

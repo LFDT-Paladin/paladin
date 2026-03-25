@@ -1790,7 +1790,7 @@ func TestGetCodeHashOK(t *testing.T) {
 		return &prototk.GetCodeHashResponse{CodeHash: expectedHash.String()}, nil
 	}
 
-	got, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr)
+	got, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
 	require.NoError(t, err)
 	assert.Equal(t, expectedHash, got)
 }
@@ -1807,7 +1807,7 @@ func TestGetCodeHashError(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr)
+	_, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
 	require.Regexp(t, "pop", err)
 }
 
@@ -1825,7 +1825,7 @@ func TestGetCodeOK(t *testing.T) {
 		return &prototk.GetCodeResponse{Code: expectedCode.String()}, nil
 	}
 
-	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr)
+	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
 	require.NoError(t, err)
 	assert.Equal(t, expectedCode, got)
 }
@@ -1842,7 +1842,7 @@ func TestGetCodeEmptyForEOA(t *testing.T) {
 		return &prototk.GetCodeResponse{Code: ""}, nil
 	}
 
-	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr)
+	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -1859,6 +1859,6 @@ func TestGetCodeError(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr)
+	_, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
 	require.Regexp(t, "pop", err)
 }

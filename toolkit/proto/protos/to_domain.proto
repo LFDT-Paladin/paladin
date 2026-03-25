@@ -261,6 +261,7 @@ message WrapPrivacyGroupEVMTXResponse {
 message GetCodeHashRequest {
   string state_query_context = 1; // handle to supply to state queries performed during this call
   string address = 2; // the ethereum address of the account to query
+  string state_qualifier = 3; // default "available"; reserved for future extension (e.g. domain context UUID or historic state snapshot)
 }
 
 message GetCodeHashResponse {
@@ -270,6 +271,7 @@ message GetCodeHashResponse {
 message GetCodeRequest {
   string state_query_context = 1; // handle to supply to state queries performed during this call
   string address = 2; // the ethereum address of the account to query
+  string state_qualifier = 3; // default "available"; reserved for future extension (e.g. domain context UUID or historic state snapshot)
 }
 
 message GetCodeResponse {

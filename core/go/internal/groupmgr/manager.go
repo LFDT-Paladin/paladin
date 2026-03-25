@@ -566,7 +566,7 @@ func (gm *groupManager) resolvePrivateContract(ctx context.Context, dbTX persist
 	return pg, psc, nil
 }
 
-func (gm *groupManager) GetCodeHash(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, address pldtypes.EthAddress) (pldtypes.Bytes32, error) {
+func (gm *groupManager) GetCodeHash(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.Bytes32, error) {
 	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
 	if err != nil {
 		return pldtypes.Bytes32{}, err
@@ -574,10 +574,10 @@ func (gm *groupManager) GetCodeHash(ctx context.Context, dbTX persistence.DBTX, 
 	dCtx := gm.stateManager.NewDomainContext(ctx, psc.Domain(), *pg.ContractAddress)
 	defer dCtx.Close()
 
-	return psc.GetCodeHash(ctx, dCtx, dbTX, address)
+	return psc.GetCodeHash(ctx, dCtx, dbTX, address, qualifier)
 }
 
-func (gm *groupManager) GetCode(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, address pldtypes.EthAddress) (pldtypes.HexBytes, error) {
+func (gm *groupManager) GetCode(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.HexBytes, error) {
 	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
 	if err != nil {
 		return nil, err
@@ -585,5 +585,5 @@ func (gm *groupManager) GetCode(ctx context.Context, dbTX persistence.DBTX, doma
 	dCtx := gm.stateManager.NewDomainContext(ctx, psc.Domain(), *pg.ContractAddress)
 	defer dCtx.Close()
 
-	return psc.GetCode(ctx, dCtx, dbTX, address)
+	return psc.GetCode(ctx, dCtx, dbTX, address, qualifier)
 }

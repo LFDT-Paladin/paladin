@@ -92,8 +92,8 @@ type DomainSmartContract interface {
 	ExecCall(dCtx DomainContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
 
 	WrapPrivacyGroupEVMTX(context.Context, *pldapi.PrivacyGroup, *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error)
-	GetCodeHash(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress) (pldtypes.Bytes32, error)
-	GetCode(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress) (pldtypes.HexBytes, error)
+	GetCodeHash(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.Bytes32, error)
+	GetCode(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.HexBytes, error)
 
 	IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (retryable bool, decodedReason string, err error)
 }

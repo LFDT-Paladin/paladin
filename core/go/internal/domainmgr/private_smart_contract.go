@@ -810,12 +810,13 @@ func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, rever
 	return res.Retryable, res.DecodedReason, nil
 }
 
-func (dc *domainContract) GetCodeHash(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress) (pldtypes.Bytes32, error) {
+func (dc *domainContract) GetCodeHash(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.Bytes32, error) {
 	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
 	defer c.close()
 	res, err := dc.api.GetCodeHash(ctx, &prototk.GetCodeHashRequest{
 		StateQueryContext: c.id,
-		Address:          address.String(),
+		Address:           address.String(),
+		StateQualifier:    string(qualifier),
 	})
 	if err != nil {
 		return pldtypes.Bytes32{}, err
@@ -823,12 +824,13 @@ func (dc *domainContract) GetCodeHash(ctx context.Context, dCtx components.Domai
 	return pldtypes.ParseBytes32(res.CodeHash)
 }
 
-func (dc *domainContract) GetCode(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress) (pldtypes.HexBytes, error) {
+func (dc *domainContract) GetCode(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.HexBytes, error) {
 	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
 	defer c.close()
 	res, err := dc.api.GetCode(ctx, &prototk.GetCodeRequest{
 		StateQueryContext: c.id,
-		Address:          address.String(),
+		Address:           address.String(),
+		StateQualifier:    string(qualifier),
 	})
 	if err != nil {
 		return nil, err

@@ -1056,18 +1056,18 @@ export default class PaladinClient {
       return res.data.result;
     },
 
-    getCodeHash: async (domainName: string, groupID: string, address: string) => {
+    getCodeHash: async (domainName: string, groupID: string, address: string, qualifier?: string) => {
       const res = await this.post<JsonRpcResult<string>>(
         "pgroup_getCodeHash",
-        [domainName, groupID, address]
+        [domainName, groupID, address, qualifier ?? ""]
       );
       return res.data.result;
     },
 
-    getCode: async (domainName: string, groupID: string, address: string) => {
+    getCode: async (domainName: string, groupID: string, address: string, qualifier?: string) => {
       const res = await this.post<JsonRpcResult<string>>(
         "pgroup_getCode",
-        [domainName, groupID, address]
+        [domainName, groupID, address, qualifier ?? ""]
       );
       return res.data.result;
     },
