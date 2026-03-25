@@ -39,7 +39,7 @@ type dispatchOperation struct {
 
 type DispatchPersisted struct {
 	ID                       string              `json:"id"`
-	PrivateTransactionID     string              `json:"privateTransactionID"`
+	TransactionID            string              `json:"transactionID"`
 	PublicTransactionAddress pldtypes.EthAddress `json:"publicTransactionAddress"`
 	PublicTransactionID      uint64              `json:"publicTransactionID"`
 }
@@ -105,14 +105,14 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 				Timestamp:      pldtypes.TimestampNow(),
 				ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 				SequencingNode: s.transportMgr.LocalNodeName(), // Us
-				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
+				TransactionID:  uuid.MustParse(privateTx.TransactionID),
 			}
 
 			localNodePersisted := false
 
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
 				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
-				if binding.TransactionID.String() != privateTx.PrivateTransactionID {
+				if binding.TransactionID.String() != privateTx.TransactionID {
 					continue
 				}
 				if node == s.transportMgr.LocalNodeName() && !localNodePersisted {
@@ -231,7 +231,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				Table("dispatches").
 				Clauses(clause.OnConflict{
 					Columns: []clause.Column{
-						{Name: "private_transaction_id"},
+						{Name: "transaction_id"},
 						{Name: "public_transaction_address"},
 						{Name: "public_transaction_id"},
 					},

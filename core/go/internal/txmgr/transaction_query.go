@@ -48,14 +48,13 @@ var transactionFilters = filters.FieldMap{
 }
 
 var dispatchFilters = filters.FieldMap{
-	"id":                       filters.StringField("id"),
-	"privateTransactionId":     filters.StringField("private_transaction_id"),
-	"publicTransactionAddress": filters.HexBytesField("public_transaction_address"),
-	"publicTransactionId":      filters.Int64Field("public_transaction_id"),
+	"id":                  filters.StringField("id"),
+	"transactionId":       filters.StringField("transaction_id"),
+	"publicTransactionId": filters.Int64Field("public_transaction_id"),
 }
 
-var chainedTransactionFilters = filters.FieldMap{
-	"localId":              filters.UUIDField("id"),
+var chainedDispatchFilters = filters.FieldMap{
+	"id":                   filters.UUIDField("id"),
 	"chainedTransactionId": filters.UUIDField("chained_transaction"),
 	"transactionId":        filters.UUIDField(`"transaction"`),
 	"sender":               filters.StringField("sender"),
@@ -131,20 +130,19 @@ func (tm *txManager) mapPersistedTXSequencingActivity(psa *seqcommon.DBSequencin
 	}
 }
 
-func (tm *txManager) mapPersistedTXDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
+func (tm *txManager) mapPersistedDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
 	return &pldapi.Dispatch{
-		ID:                       pd.ID,
-		PrivateTransactionID:     pd.PrivateTransactionID,
-		PublicTransactionAddress: pd.PublicTransactionAddress,
-		PublicTransactionID:      pd.PublicTransactionID,
+		ID:                  pd.ID,
+		TransactionID:       pd.TransactionID,
+		PublicTransactionID: pd.PublicTransactionID,
 	}
 }
 
-func (tm *txManager) mapPersistedChainedTransaction(pd *persistedChainedPrivateTxn) *pldapi.ChainedTransaction {
-	return &pldapi.ChainedTransaction{
+func (tm *txManager) mapPersistedChainedDispatch(pd *persistedChainedDispatch) *pldapi.ChainedDispatch {
+	return &pldapi.ChainedDispatch{
 		ChainedTransactionID: pd.ChainedTransaction.String(),
 		TransactionID:        pd.Transaction.String(),
-		LocalID:              pd.ID.String(),
+		ID:                   pd.ID.String(),
 	}
 }
 
@@ -482,7 +480,7 @@ func (tm *txManager) QueryDispatches(ctx context.Context, jq *query.QueryJSON) (
 		Filters:     dispatchFilters,
 		Query:       jq,
 		MapResult: func(pd *syncpoints.DispatchPersisted) (*pldapi.Dispatch, error) {
-			return tm.mapPersistedTXDispatch(pd), nil
+			return tm.mapPersistedDispatch(pd), nil
 		},
 	}
 	return qw.Run(ctx, nil)
@@ -497,24 +495,24 @@ func (tm *txManager) GetDispatchByID(ctx context.Context, id string) (*pldapi.Di
 	return results[0], nil
 }
 
-func (tm *txManager) QueryChainedTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.ChainedTransaction, error) {
+func (tm *txManager) QueryChainedDispatches(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.ChainedDispatch, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
-	qw := &filters.QueryWrapper[persistedChainedPrivateTxn, pldapi.ChainedTransaction]{
+	qw := &filters.QueryWrapper[persistedChainedDispatch, pldapi.ChainedDispatch]{
 		P:           tm.p,
-		Table:       "chained_private_txns",
-		DefaultSort: "-localId",
-		Filters:     chainedTransactionFilters,
+		Table:       "chained_dispatches",
+		DefaultSort: "-id",
+		Filters:     chainedDispatchFilters,
 		Query:       jq,
-		MapResult: func(pd *persistedChainedPrivateTxn) (*pldapi.ChainedTransaction, error) {
-			return tm.mapPersistedChainedTransaction(pd), nil
+		MapResult: func(pd *persistedChainedDispatch) (*pldapi.ChainedDispatch, error) {
+			return tm.mapPersistedChainedDispatch(pd), nil
 		},
 	}
 	return qw.Run(ctx, nil)
 }
 
-func (tm *txManager) GetChainedTransactionByLocalID(ctx context.Context, localID string) (*pldapi.ChainedTransaction, error) {
+func (tm *txManager) GetChainedDispatchByID(ctx context.Context, id string) (*pldapi.ChainedDispatch, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
-	results, err := tm.QueryChainedTransactions(ctx, query.NewQueryBuilder().Limit(1).Equal("localId", localID).Query())
+	results, err := tm.QueryChainedDispatches(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
 	if len(results) == 0 || err != nil {
 		return nil, err
 	}

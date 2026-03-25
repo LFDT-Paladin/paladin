@@ -342,7 +342,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 	sequence := &syncpoints.PublicDispatch{
 		PrivateTransactionDispatches: []*syncpoints.DispatchPersisted{
 			{
-				PrivateTransactionID: tx.ID.String(),
+				TransactionID: tx.ID.String(),
 			},
 		},
 	}

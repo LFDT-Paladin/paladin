@@ -89,7 +89,7 @@ func (persistedTransactionHistory) TableName() string {
 	return "transaction_history"
 }
 
-type persistedChainedPrivateTxn struct {
+type persistedChainedDispatch struct {
 	ChainedTransaction uuid.UUID `gorm:"column:chained_transaction;primaryKey"`
 	Transaction        uuid.UUID `gorm:"column:transaction;primaryKey"`
 	Sender             string    `gorm:"column:sender;primaryKey"`
@@ -98,8 +98,8 @@ type persistedChainedPrivateTxn struct {
 	ID                 uuid.UUID `gorm:"column:id"`
 }
 
-func (persistedChainedPrivateTxn) TableName() string {
-	return "chained_private_txns"
+func (persistedChainedDispatch) TableName() string {
+	return "chained_dispatches"
 }
 
 var defaultConstructor = &abi.Entry{Type: abi.Constructor, Inputs: abi.ParameterArray{}}
@@ -374,10 +374,10 @@ func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX 
 func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, chainedTxns []*components.ChainedPrivateTransaction) error {
 
 	txis := make([]*components.ValidatedTransaction, len(chainedTxns))
-	chainingRecords := make([]*persistedChainedPrivateTxn, len(chainedTxns))
+	chainingRecords := make([]*persistedChainedDispatch, len(chainedTxns))
 	for i, chainedTxn := range chainedTxns {
 		txis[i] = chainedTxn.NewTransaction
-		chainingRecords[i] = &persistedChainedPrivateTxn{
+		chainingRecords[i] = &persistedChainedDispatch{
 			Sender:             chainedTxn.OriginalSenderLocator,
 			Transaction:        chainedTxn.OriginalTransaction,
 			Domain:             chainedTxn.OriginalDomain,
@@ -435,7 +435,7 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 	// So when it's flushed its internal transaction, it notifies itself.
 }
 
-func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedPrivateTxn) error {
+func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedDispatch) error {
 	return dbTX.DB().
 		Clauses(clause.OnConflict{DoNothing: true}).
 		WithContext(ctx).

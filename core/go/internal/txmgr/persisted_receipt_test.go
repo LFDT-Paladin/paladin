@@ -101,7 +101,7 @@ func TestFinalizeTransactionsFailedWithRevertDataWithMessage(t *testing.T) {
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
 		},
@@ -153,7 +153,7 @@ func TestFinalizeTransactionsRedactFailureOverSuccessInBatch(t *testing.T) {
 			}).AddRow(txID, false))
 			mc.db.ExpectExec("DELETE.*transaction_receipts").WillReturnResult(driver.ResultNoRows)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{}))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
@@ -186,7 +186,7 @@ func TestFinalizeTransactionsDoNotOverrideSuccessWithFailure(t *testing.T) {
 			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{
 				"transaction", "success",
 			}).AddRow(txID, true /* do not override */))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
@@ -212,7 +212,7 @@ func TestFinalizeTransactionsRedactFailureOverSuccessPersistedDoesNotSkip(t *tes
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(txID1))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
@@ -299,7 +299,7 @@ func TestFinalizeTransactionsChainedLookupFail(t *testing.T) {
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(txID))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnError(fmt.Errorf("pop"))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnError(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -953,7 +953,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationSuccess(t *testing.T) {
 			// Mock the receipt insert (with RETURNING clause, so it's a Query)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
 			// Mock the chaining records query - return a matching chaining record
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(chainedTxID, originalTxID, originalSender, originalDomain, contractAddress))
@@ -993,7 +993,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoMatch(t *testing.T) {
 			// Mock the receipt insert (with RETURNING clause, so it's a Query)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
 			// Mock the chaining records query - return a chaining record that doesn't match any receipt
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(nonMatchingTxID, uuid.New(), "sender1", "domain1", "0x1234"))
@@ -1026,7 +1026,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationQueryError(t *testing.T) {
 			// Mock the receipt insert (with RETURNING clause, so it's a Query)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
 			// Mock the chaining records query to return an error
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnError(fmt.Errorf("database query error"))
 			mc.db.ExpectRollback()
@@ -1056,7 +1056,7 @@ func TestFinalizeTransactionsChainedReceiptPropagationNoChainingRecords(t *testi
 			// Mock the receipt insert (with RETURNING clause, so it's a Query)
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
 			// Mock the chaining records query - return no records
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}))
 			// Mock the transaction_deps query used by dependency notification pre-commit (no dependents)
@@ -1090,7 +1090,7 @@ func TestFinalizeTransactionsChainedOnChainRevertNotifiesCoordinator(t *testing.
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(chainedTxID, originalTxID, "sender1", "domain1", contractAddress))
@@ -1135,7 +1135,7 @@ func TestFinalizeTransactionsChainedOffChainRevertNotifiesCoordinator(t *testing
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns.*WHERE.*chained_transaction.*(IN|ANY)`).
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches.*WHERE.*chained_transaction.*(IN|ANY)`).
 				WithArgs(sqlmock.AnyArg()).
 				WillReturnRows(sqlmock.NewRows([]string{"chained_transaction", "transaction", "sender", "domain", "contract_address"}).
 					AddRow(chainedTxID, originalTxID, "sender1", "domain1", contractAddress))

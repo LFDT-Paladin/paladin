@@ -88,7 +88,7 @@ var allTypes = []interface{}{
 	pldapi.Transaction{},
 	pldapi.PreparedTransaction{},
 	pldapi.Dispatch{},
-	pldapi.ChainedTransaction{},
+	pldapi.ChainedDispatch{},
 	pldapi.PublicTx{},
 	pldapi.StoredABI{
 		ABI: abi.ABI{

@@ -497,27 +497,27 @@ func TestAddSequencerActivity_MultipleActivitiesForSameTransaction(t *testing.T)
 	assert.Equal(t, "dispatch", result[0].SequencerActivity[2].ActivityType)
 }
 
-func TestMapPersistedChainedTransaction(t *testing.T) {
+func TestMapPersistedChainedDispatch(t *testing.T) {
 	_, txm, done := newTestTransactionManager(t, false, mockEmptyReceiptListeners)
 	defer done()
 
 	chainedTxID := uuid.New()
 	transactionID := uuid.New()
-	localID := uuid.New()
+	id := uuid.New()
 
-	pd := &persistedChainedPrivateTxn{
+	pd := &persistedChainedDispatch{
 		ChainedTransaction: chainedTxID,
 		Transaction:        transactionID,
-		ID:                 localID,
+		ID:                 id,
 		Sender:             "sender-123",
 		Domain:             "domain1",
 		ContractAddress:    "0x1234567890123456789012345678901234567890",
 	}
 
-	result := txm.mapPersistedChainedTransaction(pd)
+	result := txm.mapPersistedChainedDispatch(pd)
 
 	require.NotNil(t, result)
 	assert.Equal(t, chainedTxID.String(), result.ChainedTransactionID)
 	assert.Equal(t, transactionID.String(), result.TransactionID)
-	assert.Equal(t, localID.String(), result.LocalID)
+	assert.Equal(t, id.String(), result.ID)
 }

@@ -192,7 +192,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 	}
 
 	if len(transactionIDs) > 0 {
-		var chainingRecords []*persistedChainedPrivateTxn
+		var chainingRecords []*persistedChainedDispatch
 		err := dbTX.DB().
 			Where(`"chained_transaction" IN ?`, transactionIDs).
 			Find(&chainingRecords).

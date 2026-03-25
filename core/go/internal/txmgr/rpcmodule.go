@@ -50,8 +50,8 @@ func (tm *txManager) buildRPCModule() {
 		Add("ptx_getTransactionDependencies", tm.rpcGetTransactionDependencies()).
 		Add("ptx_queryDispatches", tm.rpcQueryDispatches()).
 		Add("ptx_getDispatch", tm.rpcGetDispatch()).
-		Add("ptx_queryChainedTransactions", tm.rpcQueryChainedTransactions()).
-		Add("ptx_getChainedTransaction", tm.rpcGetChainedTransaction()).
+		Add("ptx_queryChainedDispatches", tm.rpcQueryChainedDispatches()).
+		Add("ptx_getChainedDispatch", tm.rpcGetChainedDispatch()).
 		Add("ptx_queryPublicTransactions", tm.rpcQueryPublicTransactions()).
 		Add("ptx_queryPendingPublicTransactions", tm.rpcQueryPendingPublicTransactions()).
 		Add("ptx_getPublicTransactionByNonce", tm.rpcGetPublicTransactionByNonce()).
@@ -571,22 +571,22 @@ func (tm *txManager) rpcGetDispatch() rpcserver.RPCHandler {
 	})
 }
 
-func (tm *txManager) rpcQueryChainedTransactions() rpcserver.RPCHandler {
+func (tm *txManager) rpcQueryChainedDispatches() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		query query.QueryJSON,
-	) ([]*pldapi.ChainedTransaction, error) {
+	) ([]*pldapi.ChainedDispatch, error) {
 		ctx = log.WithComponent(ctx, "txmanager")
-		tm.metrics.IncRpc("queryChainedTransactions")
-		return tm.QueryChainedTransactions(ctx, &query)
+		tm.metrics.IncRpc("queryChainedDispatches")
+		return tm.QueryChainedDispatches(ctx, &query)
 	})
 }
 
-func (tm *txManager) rpcGetChainedTransaction() rpcserver.RPCHandler {
+func (tm *txManager) rpcGetChainedDispatch() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
-		localID string,
-	) (*pldapi.ChainedTransaction, error) {
+		id string,
+	) (*pldapi.ChainedDispatch, error) {
 		ctx = log.WithComponent(ctx, "txmanager")
-		tm.metrics.IncRpc("getChainedTransaction")
-		return tm.GetChainedTransactionByLocalID(ctx, localID)
+		tm.metrics.IncRpc("getChainedDispatch")
+		return tm.GetChainedDispatchByID(ctx, id)
 	})
 }
