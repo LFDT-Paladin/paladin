@@ -523,6 +523,10 @@ func (r *PaladinReconciler) addPostgresSidecar(ss *appsv1.StatefulSet, passwordS
 					},
 				},
 			},
+			Args: []string{
+				"postgres",
+				"-c", "shared_preload_libraries=pg_stat_statements",
+			},
 			LivenessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					TCPSocket: &corev1.TCPSocketAction{
