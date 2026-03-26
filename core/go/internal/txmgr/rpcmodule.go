@@ -54,6 +54,7 @@ func (tm *txManager) buildRPCModule() {
 		Add("ptx_getChainedDispatch", tm.rpcGetChainedDispatch()).
 		Add("ptx_queryPublicTransactions", tm.rpcQueryPublicTransactions()).
 		Add("ptx_queryPendingPublicTransactions", tm.rpcQueryPendingPublicTransactions()).
+		Add("ptx_getPublicTransaction", tm.rpcGetPublicTransaction()).
 		Add("ptx_getPublicTransactionByNonce", tm.rpcGetPublicTransactionByNonce()).
 		Add("ptx_getPublicTransactionByHash", tm.rpcGetPublicTransactionByHash()).
 		Add("ptx_getPreparedTransaction", tm.rpcGetPreparedTransaction()).
@@ -319,6 +320,16 @@ func (tm *txManager) rpcGetPublicTransactionByNonce() rpcserver.RPCHandler {
 		ctx = log.WithComponent(ctx, "txmanager")
 		tm.metrics.IncRpc("getPublicTransactionByNonce")
 		return tm.GetPublicTransactionByNonce(ctx, from, nonce)
+	})
+}
+
+func (tm *txManager) rpcGetPublicTransaction() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		id uint64,
+	) (*pldapi.PublicTxWithBinding, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("getPublicTransaction")
+		return tm.GetPublicTransactionByID(ctx, id)
 	})
 }
 

@@ -385,6 +385,12 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 			ChainedTransaction: *chainedTxn.NewTransaction.Transaction.ID,
 			ID:                 chainedTxn.ID,
 		}
+		log.L(ctx).Infof(
+			"Creating chained dispatch id=%s originalTransaction=%s chainedTransaction=%s",
+			chainingRecords[i].ID,
+			chainingRecords[i].Transaction,
+			chainingRecords[i].ChainedTransaction,
+		)
 	}
 
 	// On this path we handle the idempotency key matching - noting that we validate the existence of an idempotency key in PrepareChainedPrivateTransaction

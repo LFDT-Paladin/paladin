@@ -464,6 +464,18 @@ func (tm *txManager) GetPublicTransactionByNonce(ctx context.Context, from pldty
 	return prs[0], nil
 }
 
+func (tm *txManager) GetPublicTransactionByID(ctx context.Context, id uint64) (*pldapi.PublicTxWithBinding, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	prs, err := tm.publicTxMgr.QueryPublicTxWithBindings(ctx, tm.p.NOTX(),
+		query.NewQueryBuilder().Limit(1).
+			Equal("localId", id).
+			Query())
+	if len(prs) == 0 || err != nil {
+		return nil, err
+	}
+	return prs[0], nil
+}
+
 func (tm *txManager) GetPublicTransactionByHash(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.PublicTxWithBinding, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	return tm.publicTxMgr.GetPublicTransactionForHash(ctx, tm.p.NOTX(), hash)

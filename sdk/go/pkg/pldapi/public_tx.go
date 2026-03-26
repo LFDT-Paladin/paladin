@@ -78,8 +78,8 @@ type PublicTx struct {
 type PublicTxBinding struct {
 	Transaction                uuid.UUID                      `docstruct:"PublicTxBinding" json:"transaction"`
 	TransactionType            pldtypes.Enum[TransactionType] `docstruct:"PublicTxBinding" json:"transactionType"`
-	TransactionSender          string                         `docstruct:"PublicTxBinding" json:"sender"`
-	TransactionContractAddress string                         `docstruct:"PublicTxBinding" json:"contractAddress"`
+	TransactionSender          string                         `docstruct:"PublicTxBinding" json:"sender,omitempty"`
+	TransactionContractAddress string                         `docstruct:"PublicTxBinding" json:"contractAddress,omitempty"`
 }
 type PublicTxWithBinding struct {
 	*PublicTx

@@ -90,6 +90,7 @@ var allTypes = []interface{}{
 	pldapi.Dispatch{},
 	pldapi.ChainedDispatch{},
 	pldapi.PublicTx{},
+	pldapi.PublicTxWithBinding{},
 	pldapi.StoredABI{
 		ABI: abi.ABI{
 			&abi.Entry{

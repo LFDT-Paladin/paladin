@@ -54,6 +54,7 @@ type PTX interface {
 	QueryTransactionReceipts(ctx context.Context, jq *query.QueryJSON) (receipts []*pldapi.TransactionReceipt, err error)
 	GetPreparedTransaction(ctx context.Context, txID uuid.UUID) (preparedTransaction *pldapi.PreparedTransaction, err error)
 	QueryPreparedTransactions(ctx context.Context, jq *query.QueryJSON) (preparedTransactions []*pldapi.PreparedTransaction, err error)
+	GetPublicTransaction(ctx context.Context, id uint64) (tx *pldapi.PublicTxWithBinding, err error)
 	DecodeError(ctx context.Context, revertData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedError *pldapi.ABIDecodedData, err error)
 	DecodeCall(ctx context.Context, callData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedCall *pldapi.ABIDecodedData, err error)
 	DecodeEvent(ctx context.Context, topics []pldtypes.Bytes32, eventData pldtypes.HexBytes, dataFormat pldtypes.JSONFormatOptions) (decodedEvent *pldapi.ABIDecodedData, err error)
@@ -166,6 +167,10 @@ var ptxInfo = &rpcModuleInfo{
 		"ptx_queryPreparedTransactions": {
 			Inputs: []string{"query"},
 			Output: "preparedTransactions",
+		},
+		"ptx_getPublicTransaction": {
+			Inputs: []string{"id"},
+			Output: "publicTransaction",
 		},
 		"ptx_queryDispatches": {
 			Inputs: []string{"query"},
@@ -394,6 +399,11 @@ func (p *ptx) QueryTransactionReceipts(ctx context.Context, jq *query.QueryJSON)
 
 func (p *ptx) QueryPreparedTransactions(ctx context.Context, jq *query.QueryJSON) (preparedTransactions []*pldapi.PreparedTransaction, err error) {
 	err = p.c.CallRPC(ctx, &preparedTransactions, "ptx_queryPreparedTransactions", jq)
+	return
+}
+
+func (p *ptx) GetPublicTransaction(ctx context.Context, id uint64) (tx *pldapi.PublicTxWithBinding, err error) {
+	err = p.c.CallRPC(ctx, &tx, "ptx_getPublicTransaction", id)
 	return
 }
 

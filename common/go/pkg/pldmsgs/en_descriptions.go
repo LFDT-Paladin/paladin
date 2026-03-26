@@ -109,6 +109,8 @@ var (
 	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher that submitted this public transaction")
 	PublicTxBindingTransaction             = pdm("PublicTxBinding.transaction", "The transaction ID")
 	PublicTxBindingTransactionType         = pdm("PublicTxBinding.transactionType", "The transaction type")
+	PublicTxBindingSender                  = pdm("PublicTxBinding.sender", "The sender identity associated with this binding")
+	PublicTxBindingContractAddress         = pdm("PublicTxBinding.contractAddress", "The contract address associated with this binding")
 )
 
 // pldapi/stored_abi.go

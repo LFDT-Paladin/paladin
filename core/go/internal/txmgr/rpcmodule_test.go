@@ -483,9 +483,27 @@ func TestPublicTransactionPassthroughQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sampleTxns[0], txn)
 
+	// Query by local id
+	localID := uint64(12345)
+	mockQuery = func(jq *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) {
+		assert.JSONEq(t, `{
+			"limit": 1,
+			"eq": [{"field":"localId","value":12345}]
+		}`, string(pldtypes.JSONString(jq)))
+		return sampleTxns, nil
+	}
+	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransaction", localID)
+	require.NoError(t, err)
+	assert.Equal(t, sampleTxns[0], txn)
+
 	// Query by nonce err
 	mockQuery = func(_ *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) { return nil, fmt.Errorf("pop") }
 	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransactionByNonce", tx.From, tx.Nonce)
+	require.Regexp(t, "pop", err)
+
+	// Query by local id err
+	mockQuery = func(_ *query.QueryJSON) ([]*pldapi.PublicTxWithBinding, error) { return nil, fmt.Errorf("pop") }
+	err = rpcClient.CallRPC(ctx, &txn, "ptx_getPublicTransaction", localID)
 	require.Regexp(t, "pop", err)
 
 	// Query by hash

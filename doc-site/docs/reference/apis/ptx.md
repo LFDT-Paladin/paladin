@@ -146,6 +146,16 @@ title: ptx_*
 
 0. `preparedTransaction`: [`PreparedTransaction`](../types/preparedtransaction.md#preparedtransaction)
 
+## `ptx_getPublicTransaction`
+
+### Parameters
+
+0. `id`: `uint64`
+
+### Returns
+
+0. `publicTransaction`: [`PublicTxWithBinding`](../types/publictxwithbinding.md#publictxwithbinding)
+
 ## `ptx_getReceiptListener`
 
 ### Parameters
