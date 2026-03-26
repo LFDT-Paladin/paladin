@@ -72,6 +72,9 @@ type domain struct {
 
 	inFlight     map[string]*inFlightDomainRequest
 	inFlightLock sync.Mutex
+
+	completionQueue chan []*components.TxCompletion
+	completionWG    sync.WaitGroup
 }
 
 type inFlightDomainRequest struct {
@@ -97,6 +100,7 @@ func (dm *domainManager) newDomain(name string, conf *pldconf.DomainConfig, toDo
 		fixedSigningIdentity: conf.FixedSigningIdentity,
 		schemasByID:          make(map[string]components.Schema),
 		inFlight:             make(map[string]*inFlightDomainRequest),
+		completionQueue:      make(chan []*components.TxCompletion, 100),
 	}
 	if conf.DefaultGasLimit != nil {
 		d.defaultGasLimit = pldtypes.HexUint64(*conf.DefaultGasLimit)
@@ -223,6 +227,7 @@ func (d *domain) init() {
 	} else {
 		log.L(d.ctx).Debugf("domain initialization complete")
 		d.dm.setDomainAddress(d)
+		d.startCompletionLoop()
 		d.initialized.Store(true)
 		// Inform the plugin manager callback
 		d.api.Initialized()
@@ -674,6 +679,36 @@ func emptyJSONIfBlank(js string) []byte {
 func (d *domain) close() {
 	d.cancelCtx()
 	<-d.initDone
+	d.completionWG.Wait()
+}
+
+func (d *domain) startCompletionLoop() {
+	d.completionWG.Add(1)
+	go func() {
+		defer d.completionWG.Done()
+		d.completionLoop()
+	}()
+}
+
+func (d *domain) completionLoop() {
+	log.L(d.ctx).Debugf("domain %s completion loop started", d.name)
+	for {
+		select {
+		case batch := <-d.completionQueue:
+			d.dm.sequencerManager.PrivateTransactionsConfirmed(d.ctx, batch)
+		case <-d.ctx.Done():
+			log.L(d.ctx).Debugf("domain %s completion loop stopping", d.name)
+			return
+		}
+	}
+}
+
+func (d *domain) enqueueCompletions(completions []*components.TxCompletion) {
+	select {
+	case d.completionQueue <- completions:
+	case <-d.ctx.Done():
+		log.L(d.ctx).Warnf("domain %s context cancelled, dropping %d completion notifications", d.name, len(completions))
+	}
 }
 
 func (d *domain) getVerifier(ctx context.Context, algorithm string, verifierType string, privateKey []byte) (verifier string, err error) {
