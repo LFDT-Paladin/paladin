@@ -122,6 +122,11 @@ func clearAllData(utDBName string) {
 
 	for _, table := range reversedDropTables {
 		_, err := dbConn.Exec(fmt.Sprintf(`DELETE FROM "%s"`, table))
+		if err != nil && strings.Contains(err.Error(), "does not exist") {
+			// Migrations can rename tables; cleanup list is derived from create/drop statements,
+			// so ignore missing legacy names when truncating test data.
+			continue
+		}
 		requireNoError(err)
 	}
 }
