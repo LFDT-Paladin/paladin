@@ -84,7 +84,7 @@ func mapPersistedReceipt(receipt *transactionReceipt) *pldapi.TransactionReceipt
 
 var transactionReceiptFilters = filters.FieldMap{
 	"id":              filters.UUIDField(`"transaction"`),
-	"sequence":        filters.Int64Field("sequence"),
+	"sequence":        filters.Int64Field(`"sequence"`),
 	"indexed":         filters.TimestampField("indexed"),
 	"success":         filters.BooleanField("success"),
 	"domain":          filters.StringField("domain"),
@@ -475,13 +475,28 @@ func (tm *txManager) QueryTransactionReceipts(ctx context.Context, jq *query.Que
 
 func (tm *txManager) getTransactionReceiptByIDWithTX(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.TransactionReceipt, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
-	// Log the query details
 	log.L(ctx).Debugf("Querying transaction receipt by ID: %s", id)
-	prs, err := tm.queryTransactionReceiptsWithTX(ctx, dbTX, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
-	if len(prs) == 0 || err != nil {
+	if dbTX == nil {
+		dbTX = tm.p.NOTX()
+	}
+	var prs []*transactionReceipt
+	err := dbTX.DB().Table("transaction_receipts").
+		WithContext(ctx).
+		Where(`"transaction" = ?`, id).
+		Order(`"sequence" DESC`).
+		Limit(1).
+		Find(&prs).
+		Error
+	if err != nil {
 		return nil, err
 	}
-	return prs[0], nil
+	if len(prs) == 0 {
+		return nil, nil
+	}
+	return &pldapi.TransactionReceipt{
+		ID:                     prs[0].TransactionID,
+		TransactionReceiptData: *mapPersistedReceipt(prs[0]),
+	}, nil
 }
 
 func (tm *txManager) addStateReceipt(ctx context.Context, receipt *pldapi.TransactionReceiptFull) (err error) {

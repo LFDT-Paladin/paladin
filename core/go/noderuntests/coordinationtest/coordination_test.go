@@ -1600,6 +1600,14 @@ func TestTransactionWaitsUntilExplicitPrereqTransactionSuccessful(t *testing.T) 
 	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
 
+	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial
+	// fire-and-forget delegate fails because node B is still coming up.
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
+	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
+
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
 

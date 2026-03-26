@@ -271,22 +271,28 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			ackQuery[i] = a.MessageID
 		}
 		var matchedMsgs []*pldapi.ReliableMessage
-		err := dbTX.DB().WithContext(ctx).Select("id").Find(&matchedMsgs).Error
+		err := dbTX.DB().WithContext(ctx).
+			Model(&pldapi.ReliableMessage{}).
+			Select("id").
+			Where("id IN ?", ackQuery).
+			Find(&matchedMsgs).Error
 		if err != nil {
 			return nil, err
 		}
+		matchedIDs := make(map[uuid.UUID]struct{}, len(matchedMsgs))
+		for _, mm := range matchedMsgs {
+			matchedIDs[mm.ID] = struct{}{}
+		}
 		validatedAcks := make([]*pldapi.ReliableMessageAck, 0, len(acksToWrite))
 		for _, a := range acksToWrite {
-			for _, mm := range matchedMsgs {
-				if mm.ID == a.MessageID {
-					log.L(ctx).Infof("Writing ack for message %s", a.MessageID)
-					validatedAcks = append(validatedAcks, a)
-				}
+			if _, ok := matchedIDs[a.MessageID]; ok {
+				log.L(ctx).Infof("Writing ack for message %s", a.MessageID)
+				validatedAcks = append(validatedAcks, a)
 			}
 		}
 		if len(validatedAcks) > 0 {
 			// Now we're actually ready to insert them
-			if err := tm.writeAcks(ctx, dbTX, acksToWrite...); err != nil {
+			if err := tm.writeAcks(ctx, dbTX, validatedAcks...); err != nil {
 				return nil, err
 			}
 		}

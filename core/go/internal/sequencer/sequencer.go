@@ -905,15 +905,18 @@ func (sMgr *sequencerManager) BuildStateDistributions(ctx context.Context, tx *c
 	return common.NewStateDistributionBuilder(sMgr.nodeName, tx).Build(ctx)
 }
 
-func (sMgr *sequencerManager) PrivateTransactionConfirmed(ctx context.Context, completion *components.TxCompletion) {
-	// TODO: This is a PLACEHOLDER function that uses a background go-routine for each receipt to do expensive
-	// DB processing work. Needs to be replaced with a suitable construct.
-	go func() {
-		persistence := sMgr.components.Persistence()
-		publicTxManager := sMgr.components.PublicTxManager()
+// PrivateTransactionsConfirmed processes a pre-sorted batch of completions synchronously.
+// It is expected to be called from a per-domain worker goroutine so that ordering
+// within a domain's event stream is preserved.
+func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, completions []*components.TxCompletion) {
+	persistence := sMgr.components.Persistence()
+	publicTxManager := sMgr.components.PublicTxManager()
+
+	for _, completion := range completions {
 		pubBindingTx, err := publicTxManager.QueryPublicTxForTransactions(ctx, persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
 		if err != nil {
 			log.L(ctx).Errorf("Error getting public transaction by ID: %s", err)
+			continue
 		}
 
 		confirmedWithPublicTX := false
@@ -936,12 +939,31 @@ func (sMgr *sequencerManager) PrivateTransactionConfirmed(ctx context.Context, c
 		// For private transactions that are being confirmed by virtue of a successful chained private transaction, we don't give the distributed sequencer any information
 		// about the underlying chained public TX.
 		if !confirmedWithPublicTX {
-			log.L(ctx).Debugf("No public TX found, confirming %s via chained transaction", completion.TransactionID)
+			// Only treat "no public TX match" as chained if this transaction has locally recorded chained children.
+			// Otherwise this node is not the relevant coordinator context for this confirmation.
+			if completion.ContractAddress == nil {
+				var chainedCount int64
+				err := persistence.NOTX().DB().
+					WithContext(ctx).
+					Table("chained_private_txns").
+					Where(`"transaction" = ?`, completion.TransactionID).
+					Count(&chainedCount).
+					Error
+				if err != nil {
+					log.L(ctx).Errorf("Error checking chained records for transaction %s: %s", completion.TransactionID, err)
+					continue
+				}
+				if chainedCount == 0 {
+					log.L(ctx).Debugf("No public TX found for %s and no locally chained transactions recorded; skipping sequencer confirmation", completion.TransactionID)
+					continue
+				}
+			}
+			log.L(ctx).Debugf("No public TX found, confirming %s via locally chained transaction", completion.TransactionID)
 			err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
 			if err != nil {
 				// Log but continue confirming other transactions
 				log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
 			}
 		}
-	}()
+	}
 }
