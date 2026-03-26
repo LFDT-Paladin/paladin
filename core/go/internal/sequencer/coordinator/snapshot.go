@@ -108,6 +108,9 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
 		flushPoints = append(flushPoints, flushPoint)
 	}
+	log.L(ctx).Debugf("created snapshot for sequencer %s with %d transactions (%d pooled transactions, %d dispatched transactions, , %d confirmed transactions)",
+		c.contractAddress.String(), len(pooledTransactions)+len(dispatchedTransactions)+len(confirmedTransactions),
+		len(pooledTransactions), len(dispatchedTransactions), len(confirmedTransactions))
 	return &common.CoordinatorSnapshot{
 		FlushPoints:            flushPoints,
 		DispatchedTransactions: dispatchedTransactions,
