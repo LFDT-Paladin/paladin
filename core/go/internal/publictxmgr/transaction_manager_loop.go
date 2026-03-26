@@ -138,8 +138,8 @@ func (ptm *pubTxManager) poll(ctx context.Context) (polled int, total int) {
 		err := ptm.retry.Do(ctx, func(attempt int) (retry bool, err error) {
 			// (raw SQL as couldn't convince gORM to build this)
 			const dbQueryBase = `SELECT DISTINCT t."from" FROM "public_txns" AS t ` +
-				`LEFT JOIN "public_completions" AS c ON t."pub_txn_id" = c."pub_txn_id" ` +
-				`WHERE c."pub_txn_id" IS NULL AND "suspended" IS FALSE AND (dispatcher = ? OR dispatcher = '')`
+				`WHERE NOT EXISTS (SELECT 1 FROM "public_completions" AS c WHERE c."pub_txn_id" = t."pub_txn_id") ` +
+				`AND "suspended" IS FALSE AND (dispatcher = ? OR dispatcher = '')`
 
 			const dbQueryNothingInFlight = dbQueryBase + ` LIMIT ?`
 			if len(inFlightSigningAddresses) == 0 {

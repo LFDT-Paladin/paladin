@@ -402,8 +402,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			q := oc.p.DB().
 				WithContext(ctx).
 				Table("public_txns").
-				Joins("Completed").
-				Where(`"Completed"."tx_hash" IS NULL`).
+				Where(`NOT EXISTS (SELECT 1 FROM "public_completions" AS c WHERE c."pub_txn_id" = "public_txns"."pub_txn_id")`).
 				Where("suspended IS FALSE").
 				Where(`"from" = ?`, oc.signingAddress).
 				Where(`"dispatcher" = ? OR "dispatcher" = ''`, oc.nodeName). // Make sure this isn't a transaction another node dispatched and gave us a read-only copy of
