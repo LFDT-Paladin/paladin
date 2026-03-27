@@ -25,37 +25,50 @@ import (
 )
 
 func (c *coordinator) heartbeatLoop(ctx context.Context) {
-	if c.heartbeatCtx == nil {
-		c.heartbeatCtx, c.heartbeatCancel = context.WithCancel(ctx)
+	c.heartbeatLoopMu.Lock()
+	if c.heartbeatCtx != nil {
+		c.heartbeatLoopMu.Unlock()
+		return
+	}
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	c.heartbeatCtx = hbCtx
+	c.heartbeatCancel = hbCancel
+	c.heartbeatLoopMu.Unlock()
 
-		log.L(ctx).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
-
-		// Send an initial heartbeat interval event to be handled immediately
-		c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-		err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-		if err != nil {
-			// This is currently unreachable because the heartbeat interval event only causes a transaction
-			// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
-			log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+	defer func() {
+		c.heartbeatLoopMu.Lock()
+		if c.heartbeatCtx == hbCtx {
+			c.heartbeatCtx = nil
+			c.heartbeatCancel = nil
 		}
+		c.heartbeatLoopMu.Unlock()
+	}()
 
-		// Then every N seconds
-		ticker := time.NewTicker(c.heartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
-				err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
-				if err != nil {
-					log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
-				}
-			case <-c.heartbeatCtx.Done():
-				log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
-				c.heartbeatCtx = nil
-				c.heartbeatCancel = nil
-				return
+	log.L(ctx).Debugf("coord    | %s   | Starting heartbeat loop", c.contractAddress.String()[0:8])
+
+	// Send an initial heartbeat interval event to be handled immediately
+	c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+	err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+	if err != nil {
+		// This is currently unreachable because the heartbeat interval event only causes a transaction
+		// to transition to State_Final, which has no event handler (the state transition is handled by the coordinator)
+		log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
+	}
+
+	// Then every N seconds
+	ticker := time.NewTicker(c.heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.QueueEvent(ctx, &common.HeartbeatIntervalEvent{})
+			err := c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
+			if err != nil {
+				log.L(ctx).Errorf("error propagating heartbeat interval event to all transactions: %v", err)
 			}
+		case <-hbCtx.Done():
+			log.L(ctx).Infof("Ending heartbeat loop for %s", c.contractAddress.String())
+			return
 		}
 	}
 }

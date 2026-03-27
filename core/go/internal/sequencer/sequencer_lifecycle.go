@@ -59,6 +59,14 @@ func (seq *sequencer) shutdown(ctx context.Context) {
 	seq.cancelCtx()
 	seq.coordinator.WaitForDone(ctx)
 	seq.originator.WaitForDone(ctx)
+	if seq.delegateDomainContext != nil {
+		seq.delegateDomainContext.Close()
+		seq.delegateDomainContext = nil
+	}
+	if seq.domainContext != nil {
+		seq.domainContext.Close()
+		seq.domainContext = nil
+	}
 }
 
 // An instance of a sequencer (one instance per domain contract)
@@ -68,6 +76,10 @@ type sequencer struct {
 	transportWriter transport.TransportWriter
 	coordinator     coordinator.Coordinator
 	cancelCtx       context.CancelFunc
+
+	// Registered with StateManager; must Close after coordinator/originator stop (see statemgr.NewDomainContext).
+	domainContext         components.DomainContext
+	delegateDomainContext components.DomainContext
 
 	// Sequencer attributes
 	contractAddress string
@@ -160,9 +172,11 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 
 			sMgr.engineIntegration = common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, delegateDomainContext, sMgr)
 			sequencer := &sequencer{
-				contractAddress: contractAddr.String(),
-				transportWriter: transportWriter,
-				cancelCtx:       cancelCtx,
+				contractAddress:       contractAddr.String(),
+				transportWriter:       transportWriter,
+				cancelCtx:             cancelCtx,
+				domainContext:         dCtx,
+				delegateDomainContext: delegateDomainContext,
 			}
 
 			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, common.RealClock(), sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)

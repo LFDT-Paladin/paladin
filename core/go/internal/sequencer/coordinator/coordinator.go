@@ -105,6 +105,7 @@ type coordinator struct {
 	syncPoints            syncpoints.SyncPoints
 	coordinatorActive     func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
 	coordinatorIdle       func(contractAddress *pldtypes.EthAddress)
+	heartbeatLoopMu       sync.Mutex
 	heartbeatCtx          context.Context
 	heartbeatCancel       context.CancelFunc
 	metrics               metrics.DistributedSequencerMetrics

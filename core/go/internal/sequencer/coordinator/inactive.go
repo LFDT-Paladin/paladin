@@ -58,8 +58,11 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Ev
 
 func action_Idle(ctx context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
+	c.heartbeatLoopMu.Lock()
+	cancel := c.heartbeatCancel
+	c.heartbeatLoopMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	return nil
 }
