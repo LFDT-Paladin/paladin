@@ -945,7 +945,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 				var chainedCount int64
 				err := persistence.NOTX().DB().
 					WithContext(ctx).
-					Table("chained_private_txns").
+					Table("chained_dispatches").
 					Where(`"transaction" = ?`, completion.TransactionID).
 					Count(&chainedCount).
 					Error
