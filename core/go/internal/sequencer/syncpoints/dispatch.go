@@ -175,7 +175,7 @@ func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, transaction
 }
 
 func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persistence.DBTX, dispatchOperations []*dispatchOperation) (err error) {
-	log.L(ctx).Debugf("writeDispatchOperations dispatchOperations: %+v", dispatchOperations)
+	log.L(ctx).Debugf("writeDispatchOperations writing %d dispatchOperations", len(dispatchOperations))
 
 	// For each operation in the batch, we need to call the baseledger transaction manager to allocate its nonce
 	// which it can only guaranteed to be gapless and unique if it is done during the database transaction that inserts the dispatch record.
@@ -183,6 +183,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 	// Build lists of things to insert (we are insert only)
 	for _, op := range dispatchOperations {
 		opCtx := log.WithLogField(ctx, "txID", op.transactionID.String())
+		log.L(opCtx).Tracef("writeDispatchOperations op: %+v", *op)
 
 		//for each batchSequence operation, call the public transaction manager to allocate a nonce
 		//and persist the intent to send the states to the distribution list.
