@@ -588,7 +588,7 @@ func (l *receiptListener) addReceiver(r components.ReceiptReceiver) *registeredR
 		ReceiptReceiver: r,
 	}
 	l.pendingReceivers = append(l.pendingReceivers, registered)
-	log.L(l.ctx).Debugf("receipt listener '%s': receiver added id=%s pending=%d active=%d", l.spec.Name, registered.id, len(l.pendingReceivers), len(l.receivers))
+	log.L(l.tm.bgCtx).Debugf("receipt listener '%s': receiver added id=%s pending=%d active=%d", l.spec.Name, registered.id, len(l.pendingReceivers), len(l.receivers))
 
 	return registered
 }
@@ -604,7 +604,7 @@ func (l *receiptListener) setActive(receiver *registeredReceiptReceiver) {
 	}
 	l.receivers = append(l.receivers, receiver)
 	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, receiver.id)
-	log.L(l.ctx).Debugf("receipt listener '%s': receiver activated id=%s pending=%d active=%d", l.spec.Name, receiver.id, len(l.pendingReceivers), len(l.receivers))
+	log.L(l.tm.bgCtx).Debugf("receipt listener '%s': receiver activated id=%s pending=%d active=%d", l.spec.Name, receiver.id, len(l.pendingReceivers), len(l.receivers))
 
 	select {
 	case l.newReceivers <- true:
@@ -618,7 +618,7 @@ func (l *receiptListener) removeReceiver(rid uuid.UUID) {
 
 	l.receivers = l.removeReceiverFromList(l.receivers, rid)
 	l.pendingReceivers = l.removeReceiverFromList(l.pendingReceivers, rid)
-	log.L(l.ctx).Debugf("receipt listener '%s': receiver removed id=%s pending=%d active=%d", l.spec.Name, rid, len(l.pendingReceivers), len(l.receivers))
+	log.L(l.tm.bgCtx).Debugf("receipt listener '%s': receiver removed id=%s pending=%d active=%d", l.spec.Name, rid, len(l.pendingReceivers), len(l.receivers))
 }
 
 func (l *receiptListener) removeReceiverFromList(receivers []*registeredReceiptReceiver, rid uuid.UUID) []*registeredReceiptReceiver {
