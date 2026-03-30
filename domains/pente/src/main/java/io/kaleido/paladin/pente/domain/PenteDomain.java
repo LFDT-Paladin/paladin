@@ -39,6 +39,7 @@
 
  import java.io.ByteArrayOutputStream;
  import java.io.IOException;
+ import java.nio.ByteBuffer;
  import java.nio.charset.StandardCharsets;
  import java.util.*;
  import java.util.concurrent.CompletableFuture;
@@ -264,8 +265,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          return ex.getErrorType() == Header.ErrorType.INVALID_INPUT;
      }
 
+    static String txIdForLog(String txId) {
+         try {
+             var txIdBytes = HexFormat.of().parseHex(JsonHex.trimOxPrefix(txId));
+             if (txIdBytes.length == 32) {
+                 var bb = ByteBuffer.wrap(txIdBytes, 0, 16);
+                 return new UUID(bb.getLong(), bb.getLong()).toString();
+             }
+         } catch (IllegalArgumentException ignored) {
+         }
+         return txId;
+     }
+
      private void setTransactionLogContext(TransactionSpecification txSpec) {
-         ThreadContext.put("tx", txSpec.getTransactionId());
+         ThreadContext.put("tx", txIdForLog(txSpec.getTransactionId()));
          ThreadContext.put("contract", txSpec.getContractInfo().getContractAddress());
      }
 
@@ -632,7 +645,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
      @Override
      protected CompletableFuture<BuildReceiptResponse> buildReceipt(BuildReceiptRequest request) {
-         ThreadContext.put("tx", request.getTransactionId());
+         ThreadContext.put("tx", txIdForLog(request.getTransactionId()));
          try {
              if (request.getUnavailableStates()) {
                  throw new IllegalStateException("all states must be available to build an EVM receipt");
