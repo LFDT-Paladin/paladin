@@ -444,6 +444,7 @@ func (tm *transportManager) buildStateDistributionMsg(ctx context.Context, dbTX 
 	}
 	sd.StateData = states[0].Data
 
+	log.L(ctx).Debugf("sending state distribution msg for state %s", states[0].ID)
 	log.L(ctx).Tracef("sending state distribution msg for state %s, data=%s json=%s", states[0].ID, sd.StateData, pldtypes.JSONString(sd))
 
 	return &prototk.PaladinMsg{
