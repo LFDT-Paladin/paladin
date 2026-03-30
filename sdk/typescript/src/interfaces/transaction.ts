@@ -82,6 +82,7 @@ export interface ITransactionReceipt {
   contractAddress?: string;
   states?: ITransactionStates;
   domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt;
+  domainReceiptError?: string
   failureMessage?: string;
 }
 
