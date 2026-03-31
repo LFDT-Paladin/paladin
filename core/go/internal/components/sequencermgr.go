@@ -85,9 +85,6 @@ type SequencerManager interface {
 	BuildNullifier(ctx context.Context, kr KeyResolver, s *StateDistributionWithData) (*NullifierUpsert, error)
 	BuildNullifiers(ctx context.Context, distributions []*StateDistributionWithData) (nullifiers []*NullifierUpsert, err error)
 
-	// Synchronous functions to write received sequencing activities from other nodes
-	WriteReceivedSequencingActivities(ctx context.Context, dbTX persistence.DBTX, sequencingActivities []*pldapi.SequencerActivity) error
-
 	// Synchronous function to return the data needed for rpc_debugTransactionStatus
 	GetTxStatus(ctx context.Context, domainAddress string, txID uuid.UUID) (status PrivateTxStatus, err error)
 
@@ -99,9 +96,9 @@ type SequencerManager interface {
 	// HandleDirectTransactionRevert handles on-chain reverts discovered from direct public transaction matches.
 	HandleDirectTransactionRevert(ctx context.Context, dbTX persistence.DBTX, confirms []*PublicTxMatch) error
 
-	// HandleChainedTransactionOutcome routes any chained transaction completion (success,
+	// HandleChainedTransactionOutcome routes any chained dispatch completion (success,
 	// on-chain revert, or off-chain/assembly revert) to the original (parent) transaction's
-	// coordinator. Called on the node that persisted the chained_private_txns mapping, which is
+	// coordinator. Called on the node that persisted the chained_dispatches mapping, which is
 	// by definition the dispatch-creator node.
 	// If the sequencer for the contract is not currently loaded, this is a no-op.
 	HandleChainedTransactionOutcome(ctx context.Context, contractAddress pldtypes.EthAddress, txID uuid.UUID, receiptType ReceiptType, failureMessage string, revertData pldtypes.HexBytes, onChain pldtypes.OnChainLocation)

@@ -103,7 +103,7 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 		return &syncpoints.DispatchBatch{
 			PublicDispatches: []*syncpoints.PublicDispatch{{
 				PrivateTransactionDispatches: []*syncpoints.DispatchPersisted{
-					{PrivateTransactionID: t.pt.ID.String()},
+					{TransactionID: t.pt.ID.String()},
 				},
 				PublicTxs: []*components.PublicTxSubmission{publicTxSubmission},
 			}},

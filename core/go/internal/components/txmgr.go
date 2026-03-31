@@ -53,6 +53,14 @@ type ReceiptInput struct {
 	RevertData      pldtypes.HexBytes        // set for RT_FailedOnChainWithRevertData
 }
 
+type SequencingActivity struct {
+	SubjectID      string             `json:"subjectId,omitempty"`
+	Timestamp      pldtypes.Timestamp `json:"timestamp,omitempty"`
+	TransactionID  uuid.UUID          `json:"transactionId,omitempty"`
+	ActivityType   string             `json:"activityType,omitempty"`
+	SequencingNode string             `json:"sequencingNode,omitempty"`
+}
+
 type TxCompletion struct {
 	ReceiptInput
 	PSC DomainSmartContract

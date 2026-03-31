@@ -37,8 +37,8 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/mocks/metricsmocks"
 	"github.com/LFDT-Paladin/paladin/core/mocks/persistencemocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
-	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -1581,9 +1581,9 @@ func TestSequencerManager_PrivateTransactionsConfirmed_PreservesOrder(t *testing
 
 	mocks.components.EXPECT().Persistence().Return(mp.P).Once()
 	mocks.components.EXPECT().PublicTxManager().Return(mocks.publicTxManager).Once()
-	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_private_txns").WithArgs(txID1).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_private_txns").WithArgs(txID2).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_private_txns").WithArgs(txID3).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_dispatches").WithArgs(txID1).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_dispatches").WithArgs(txID2).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_dispatches").WithArgs(txID3).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mocks.publicTxManager.EXPECT().QueryPublicTxForTransactions(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Times(3)
 
 	mocks.metrics.EXPECT().IncConfirmedTransactions().Times(3)
@@ -1664,7 +1664,7 @@ func TestSequencerManager_PrivateTransactionsConfirmed_SynchronousProcessing(t *
 
 	mocks.components.EXPECT().Persistence().Return(mp.P).Once()
 	mocks.components.EXPECT().PublicTxManager().Return(mocks.publicTxManager).Once()
-	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_private_txns").WithArgs(txID).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mp.Mock.ExpectQuery("SELECT count\\(\\*\\).*chained_dispatches").WithArgs(txID).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mocks.publicTxManager.EXPECT().QueryPublicTxForTransactions(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
 	mocks.metrics.EXPECT().IncConfirmedTransactions().Once()
 	mocks.domainAPI.EXPECT().Address().Return(*contractAddr).Once()

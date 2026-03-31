@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -29,17 +30,17 @@ import (
 )
 
 type dispatchOperation struct {
-	publicDispatches     []*PublicDispatch
-	privateDispatches    []*components.ChainedPrivateTransaction
-	localPreparedTxns    []*components.PreparedTransactionWithRefs
-	preparedReliableMsgs []*pldapi.ReliableMessage
+	publicDispatches        []*PublicDispatch
+	privateDispatches       []*components.ChainedPrivateTransaction
+	localPreparedTxns       []*components.PreparedTransactionWithRefs
+	preparedReliableMsgs    []*pldapi.ReliableMessage
+	localSequencerActivites []*components.SequencingActivity
 }
 
 type DispatchPersisted struct {
-	ID                       string              `json:"id"`
-	PrivateTransactionID     string              `json:"privateTransactionID"`
-	PublicTransactionAddress pldtypes.EthAddress `json:"publicTransactionAddress"`
-	PublicTransactionID      uint64              `json:"publicTransactionID"`
+	ID                  string `json:"id"`
+	TransactionID       string `json:"transactionID"`
+	PublicTransactionID uint64 `json:"publicTransactionID"`
 }
 
 // A dispatch sequence is a collection of private transactions that are submitted together for a given signing address in order
@@ -93,20 +94,31 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
+	var localSequencerActivities []*components.SequencingActivity
+
 	// Sequencer activity dispatch records for public transactions
 	for _, publicDispatch := range dispatchBatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
-			sequencingProgress := &pldapi.SequencerActivity{
+			sequencingProgress := &components.SequencingActivity{
 				SubjectID:      privateTx.ID, // This is the dispatch ID (not the TX ID)
 				Timestamp:      pldtypes.TimestampNow(),
 				ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 				SequencingNode: s.transportMgr.LocalNodeName(), // Us
-				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
+				TransactionID:  uuid.MustParse(privateTx.TransactionID),
 			}
+
+			localNodePersisted := false
 
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
 				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
-				if node != s.transportMgr.LocalNodeName() && binding.TransactionID.String() == privateTx.PrivateTransactionID {
+				if binding.TransactionID.String() != privateTx.TransactionID {
+					continue
+				}
+				if node == s.transportMgr.LocalNodeName() && !localNodePersisted {
+					localSequencerActivities = append(localSequencerActivities, sequencingProgress)
+					localNodePersisted = true
+				}
+				if node != s.transportMgr.LocalNodeName() {
 					log.L(dCtx.Ctx()).Tracef("Sending sequencer dispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
 					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 						Node:        node,
@@ -118,10 +130,10 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
-	// Sequencer activity dispatch records for public transactions
+	// Sequencer activity dispatch records for chained private transactions
 	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
 		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
-		sequencingProgress := &pldapi.SequencerActivity{
+		sequencingProgress := &components.SequencingActivity{
 			SubjectID:      privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID)
 			Timestamp:      pldtypes.TimestampNow(),
 			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),
@@ -130,7 +142,9 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 
 		node, _ := pldtypes.PrivateIdentityLocator(privateDispatch.OriginalSenderLocator).Node(dCtx.Ctx(), false)
-		if node != s.transportMgr.LocalNodeName() {
+		if node == s.transportMgr.LocalNodeName() {
+			localSequencerActivities = append(localSequencerActivities, sequencingProgress)
+		} else {
 			log.L(dCtx.Ctx()).Tracef("Sending sequencer chained-dispatch activity for TX %s to node %s", privateDispatch.OriginalTransaction, privateDispatch.OriginalSenderLocator)
 			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 				Node:        node,
@@ -145,10 +159,11 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		domainContext:   dCtx,
 		contractAddress: contractAddress,
 		dispatchOperation: &dispatchOperation{
-			publicDispatches:     dispatchBatch.PublicDispatches,
-			privateDispatches:    dispatchBatch.PrivateDispatches,
-			localPreparedTxns:    localPreparedTxns,
-			preparedReliableMsgs: preparedReliableMsgs,
+			publicDispatches:        dispatchBatch.PublicDispatches,
+			privateDispatches:       dispatchBatch.PrivateDispatches,
+			localPreparedTxns:       localPreparedTxns,
+			preparedReliableMsgs:    preparedReliableMsgs,
+			localSequencerActivites: localSequencerActivities,
 		},
 	})
 
@@ -201,7 +216,6 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 			for dispatchIndex, dispatch := range dispatchSequenceOp.PrivateTransactionDispatches {
 
 				//fill in the foreign key before persisting in our dispatch table
-				dispatch.PublicTransactionAddress = publicTxns[dispatchIndex].From
 				dispatch.PublicTransactionID = *publicTxns[dispatchIndex].LocalID
 				if dispatch.ID == "" {
 					dispatch.ID = uuid.New().String()
@@ -215,8 +229,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				Table("dispatches").
 				Clauses(clause.OnConflict{
 					Columns: []clause.Column{
-						{Name: "private_transaction_id"},
-						{Name: "public_transaction_address"},
+						{Name: "transaction_id"},
 						{Name: "public_transaction_id"},
 					},
 					DoNothing: true, // immutable
@@ -256,6 +269,14 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 			err := s.transportMgr.SendReliable(ctx, dbTX, op.preparedReliableMsgs...)
 			if err != nil {
 				log.L(ctx).Errorf("Error persisting prepared reliable messages: %s", err)
+				return err
+			}
+		}
+
+		if len(op.localSequencerActivites) > 0 {
+			log.L(ctx).Debugf("Persisting %d local sequencer activities", len(op.localSequencerActivites))
+			if err := seqcommon.WriteSequencingActivities(ctx, dbTX, op.localSequencerActivites); err != nil {
+				log.L(ctx).Errorf("Error persisting local sequencer activities: %s", err)
 				return err
 			}
 		}

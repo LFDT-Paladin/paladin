@@ -964,7 +964,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 		transport: tp.t,
 	}
 
-	sequencerActivity := &pldapi.SequencerActivity{
+	sequencerActivity := &components.SequencingActivity{
 		SubjectID:      "subjectID",
 		Timestamp:      pldtypes.TimestampNow(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
@@ -997,7 +997,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, RMHMessageTypeSequencingActivity, rMsg.MessageType)
 
-	var receivedSequencerActivity pldapi.SequencerActivity
+	var receivedSequencerActivity components.SequencingActivity
 	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
 	require.NoError(t, err)
 	require.Equal(t, sequencerActivity.SubjectID, receivedSequencerActivity.SubjectID)
