@@ -303,6 +303,7 @@ var (
 	PeerInfoOutboundTransport = pdm("PeerInfo.outboundTransport", "The name of the transport selected for outbound connection to the peer. Omitted if no attempt to send data has occurred for this peer")
 	PeerInfoOutboundError     = pdm("PeerInfo.outboundError", "Contains an error if attempting to send data, and the transport connection failed")
 
+	PeerStatsCreatedAt           = pdm("PeerStats.createdAt", "Timestamp when this peer was first created")
 	PeerStatsSentMsgs            = pdm("PeerStats.sentMsgs", "Count of messages sent since activation of this peer")
 	PeerStatsReceivedMsgs        = pdm("PeerStats.receivedMsgs", "Count of messages received since activation of this peer")
 	PeerStatsSentBytes           = pdm("PeerStats.sentBytes", "Count of payload bytes sent since activation of this peer (does not include header data)")

@@ -181,11 +181,15 @@ func (tm *transportManager) connectPeer(ctx context.Context, nodeName string, se
 	if p == nil {
 		// We need to resolve the node transport, and build a new connection
 		log.L(ctx).Debugf("activating new peer '%s'", nodeName)
+		now := pldtypes.TimestampNow()
 		p = &peer{
 			tm: tm,
 			PeerInfo: pldapi.PeerInfo{
 				Name:      nodeName,
-				Activated: pldtypes.TimestampNow(),
+				Activated: now,
+				Stats: pldapi.PeerStats{
+					CreatedAt: &now,
+				},
 			},
 			persistedMsgsAvailable: make(chan struct{}, 1),
 			sendQueue:              make(chan *msgWithErrChan, tm.senderBufferLen),
@@ -500,7 +504,6 @@ func (p *peer) sender() {
 				resendTimer.Stop()
 				return // we're done
 			case msg := <-p.sendQueue:
-				resendTimer.Stop()
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
@@ -528,7 +531,8 @@ func (p *peer) isInactive() bool {
 	defer p.statsLock.Unlock()
 
 	now := time.Now()
-	return (p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
+	return (p.Stats.CreatedAt == nil || now.Sub(p.Stats.CreatedAt.Time()) > p.tm.peerInactivityTimeout) &&
+		(p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
 		(p.Stats.LastReceive == nil || now.Sub(p.Stats.LastReceive.Time()) > p.tm.peerInactivityTimeout)
 }
 
