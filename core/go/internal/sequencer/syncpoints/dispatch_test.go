@@ -67,7 +67,7 @@ func TestPersistDispatchBatch_EmptyBatch(t *testing.T) {
 		PreparedTransactions: []*components.PreparedTransactionWithRefs{},
 	}
 
-	err = sp.PersistDispatchBatch(dCtx, *contractAddr, dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{})
+	err = sp.PersistDispatchBatch(dCtx, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{})
 	require.NoError(t, err)
 	require.NoError(t, mp.Mock.ExpectationsWereMet())
 }
@@ -123,7 +123,7 @@ func TestPersistDispatchBatch_WithPreparedTxnDistributions_LocalNode(t *testing.
 		return len(txns) == 1 && txns[0] == preparedTxn
 	})).Return(nil)
 
-	err = sp.PersistDispatchBatch(dCtx, *contractAddr, dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{preparedTxn})
+	err = sp.PersistDispatchBatch(dCtx, *contractAddr, uuid.New(), dispatchBatch, []*components.StateDistribution{}, []*components.PreparedTransactionWithRefs{preparedTxn})
 	require.NoError(t, err)
 	require.NoError(t, mp.Mock.ExpectationsWereMet())
 	txMgr.AssertExpectations(t)

@@ -314,11 +314,27 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 	if !fullScan && !checkNew {
 		return nil // Nothing to do
 	}
+	log.L(p.ctx).Debugf(
+		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d lastDrainHWM=%v",
+		p.Name,
+		checkNew,
+		fullScan,
+		p.tm.reliableMessagePageSize,
+		p.lastDrainHWM,
+	)
 
 	pageSize := p.tm.reliableMessagePageSize
 	var total = 0
 	var lastPageEnd *uint64
 	for {
+		log.L(p.ctx).Tracef(
+			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v lastDrainHWM=%v",
+			p.Name,
+			pageSize,
+			fullScan,
+			lastPageEnd,
+			p.lastDrainHWM,
+		)
 		query := p.tm.persistence.DB().
 			WithContext(p.ctx).
 			Order("sequence ASC").
@@ -336,6 +352,17 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		err := query.Find(&page).Error
 		if err != nil {
 			return err
+		}
+		if len(page) > 0 {
+			log.L(p.ctx).Debugf(
+				"reliableMessageScan fetched page node=%s count=%d firstSeq=%d lastSeq=%d",
+				p.Name,
+				len(page),
+				page[0].Sequence,
+				page[len(page)-1].Sequence,
+			)
+		} else {
+			log.L(p.ctx).Debugf("reliableMessageScan fetched page node=%s count=0", p.Name)
 		}
 
 		// Process the page - building and sending the proto messages
@@ -395,6 +422,13 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			log.L(p.ctx).Infof("Unacknowledged message %s not yet eligible for re-send", rm.ID)
 			continue
 		}
+		log.L(p.ctx).Debugf(
+			"reliableMessageScan selected message from DB id=%s seq=%d type=%s node=%s",
+			rm.ID,
+			rm.Sequence,
+			rm.MessageType,
+			rm.Node,
+		)
 
 		// Process it
 		var msg *prototk.PaladinMsg

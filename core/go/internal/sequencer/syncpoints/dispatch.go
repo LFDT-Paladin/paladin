@@ -30,6 +30,7 @@ import (
 )
 
 type dispatchOperation struct {
+	transactionID           uuid.UUID
 	publicDispatches        []*PublicDispatch
 	privateDispatches       []*components.ChainedPrivateTransaction
 	localPreparedTxns       []*components.PreparedTransactionWithRefs
@@ -59,7 +60,7 @@ type DispatchBatch struct {
 
 // PersistDispatches persists the dispatches to the database and coordinates with the public transaction manager
 // to submit public transactions.
-func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
+func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
 
 	preparedReliableMsgs := make([]*pldapi.ReliableMessage, 0,
 		len(dispatchBatch.PreparedTransactions)+len(stateDistributions))
@@ -159,6 +160,7 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		domainContext:   dCtx,
 		contractAddress: contractAddress,
 		dispatchOperation: &dispatchOperation{
+			transactionID:           transactionID,
 			publicDispatches:        dispatchBatch.PublicDispatches,
 			privateDispatches:       dispatchBatch.PrivateDispatches,
 			localPreparedTxns:       localPreparedTxns,
@@ -172,11 +174,12 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	return err
 }
 
-func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, dispatchBatch *DispatchBatch) error {
+func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error {
 
 	// Send the write operation with all of the batch sequence operations to the flush worker
 	op := s.writer.Queue(ctx, &syncPointOperation{
 		dispatchOperation: &dispatchOperation{
+			transactionID:    transactionID,
 			publicDispatches: dispatchBatch.PublicDispatches,
 		},
 	})
@@ -187,13 +190,15 @@ func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, dispatchBat
 }
 
 func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persistence.DBTX, dispatchOperations []*dispatchOperation) (err error) {
-	log.L(ctx).Debugf("writeDispatchOperations dispatchOperations: %+v", dispatchOperations)
+	log.L(ctx).Debugf("writeDispatchOperations writing %d dispatchOperations", len(dispatchOperations))
 
 	// For each operation in the batch, we need to call the baseledger transaction manager to allocate its nonce
 	// which it can only guaranteed to be gapless and unique if it is done during the database transaction that inserts the dispatch record.
 
 	// Build lists of things to insert (we are insert only)
 	for _, op := range dispatchOperations {
+		opCtx := log.WithLogField(ctx, "txID", op.transactionID.String())
+		log.L(opCtx).Tracef("writeDispatchOperations op: %+v", *op)
 
 		//for each batchSequence operation, call the public transaction manager to allocate a nonce
 		//and persist the intent to send the states to the distribution list.
@@ -203,9 +208,9 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 			}
 
 			// Call the public transaction manager persist to the database under the current transaction
-			publicTxns, err := s.pubTxMgr.WriteNewTransactions(ctx, dbTX, dispatchSequenceOp.PublicTxs)
+			publicTxns, err := s.pubTxMgr.WriteNewTransactions(opCtx, dbTX, dispatchSequenceOp.PublicTxs)
 			if err != nil {
-				log.L(ctx).Errorf("Error submitting public transactions: %s", err)
+				log.L(opCtx).Errorf("Error submitting public transactions: %s", err)
 				return err
 			}
 
@@ -223,7 +228,7 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				// Dispatch ID populated early before queueing the dispatch operations so sequencer activity records can include them
 			}
 
-			log.L(ctx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))
+			log.L(opCtx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))
 
 			err = dbTX.DB().
 				Table("dispatches").
@@ -238,37 +243,37 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				Error
 
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting dispatches: %s", err)
+				log.L(opCtx).Errorf("Error persisting dispatches: %s", err)
 				return err
 			}
 		}
 
 		if len(op.privateDispatches) > 0 {
-			err := s.txMgr.ChainPrivateTransactions(ctx, dbTX, op.privateDispatches)
+			err := s.txMgr.ChainPrivateTransactions(opCtx, dbTX, op.privateDispatches)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting private dispatches: %s", err)
+				log.L(opCtx).Errorf("Error persisting private dispatches: %s", err)
 				return err
 			}
 		}
 
 		if len(op.localPreparedTxns) > 0 {
-			log.L(ctx).Debugf("Writing prepared transactions locally  %d", len(op.localPreparedTxns))
+			log.L(opCtx).Debugf("Writing prepared transactions locally  %d", len(op.localPreparedTxns))
 
-			err := s.txMgr.WritePreparedTransactions(ctx, dbTX, op.localPreparedTxns)
+			err := s.txMgr.WritePreparedTransactions(opCtx, dbTX, op.localPreparedTxns)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting prepared transactions: %s", err)
+				log.L(opCtx).Errorf("Error persisting prepared transactions: %s", err)
 				return err
 			}
 		}
 
 		if len(op.preparedReliableMsgs) == 0 {
-			log.L(ctx).Debug("No prepared reliable messages to persist to persist")
+			log.L(opCtx).Debug("No prepared reliable messages to persist to persist")
 		} else {
 
-			log.L(ctx).Debugf("Writing %d reliable messages", len(op.preparedReliableMsgs))
-			err := s.transportMgr.SendReliable(ctx, dbTX, op.preparedReliableMsgs...)
+			log.L(opCtx).Debugf("Writing %d reliable messages", len(op.preparedReliableMsgs))
+			err := s.transportMgr.SendReliable(opCtx, dbTX, op.preparedReliableMsgs...)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting prepared reliable messages: %s", err)
+				log.L(opCtx).Errorf("Error persisting prepared reliable messages: %s", err)
 				return err
 			}
 		}

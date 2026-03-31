@@ -356,7 +356,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 	}
 
 	// as this is a deploy we specify the null address
-	err = sMgr.syncPoints.PersistDeployDispatchBatch(ctx, dispatchBatch)
+	err = sMgr.syncPoints.PersistDeployDispatchBatch(ctx, tx.ID, dispatchBatch)
 	if err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return sMgr.revertDeploy(ctx, tx, err)

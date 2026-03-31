@@ -321,11 +321,13 @@ func (tm *transportManager) SendReliable(ctx context.Context, dbTX persistence.D
 	ctx = log.WithComponent(ctx, "transportmanager")
 	peers := make(map[string]*peer)
 	for _, msg := range msgs {
-		log.L(ctx).Debugf("Sending reliable message %s/%+v to node %s", msg.MessageType, msg.ID, msg.Node)
 		var p *peer
 
 		msg.ID = uuid.New()
 		msg.Created = pldtypes.TimestampNow()
+
+		log.L(ctx).Debugf("Sending reliable message %s/%+v to node %s", msg.MessageType, msg.ID, msg.Node)
+
 		_, err = msg.MessageType.Validate()
 
 		if err == nil {

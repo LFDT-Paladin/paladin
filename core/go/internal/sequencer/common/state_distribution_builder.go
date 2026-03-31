@@ -107,7 +107,7 @@ func (sd *stateDistributionBuilder) processStateForDistribution(ctx context.Cont
 			log.L(ctx).Debugf("new state %s will be written locally for recipient %s hasNullifier=%t", fullState.ID, recipient, matchedNullifier != nil)
 			sd.Local = append(sd.Local, distribution)
 		} else {
-			log.L(ctx).Debugf("new state %s will be written distributed to recipient %s hasNullifier=%t", fullState.ID, recipient, matchedNullifier != nil)
+			log.L(ctx).Debugf("new state %s will be distributed to recipient %s hasNullifier=%t", fullState.ID, recipient, matchedNullifier != nil)
 			sd.Remote = append(sd.Remote, distribution)
 		}
 	}

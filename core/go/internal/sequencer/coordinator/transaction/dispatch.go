@@ -69,7 +69,7 @@ func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 	}
 
 	log.L(ctx).Debugf("Persisting & deploying batch. %d public transactions, %d private transactions, %d prepared transactions", len(dispatchBatch.PublicDispatches), len(dispatchBatch.PrivateDispatches), len(dispatchBatch.PreparedTransactions))
-	if err := t.syncPoints.PersistDispatchBatch(t.dCtx, t.pt.Address, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
+	if err := t.syncPoints.PersistDispatchBatch(t.dCtx, t.pt.Address, t.pt.ID, dispatchBatch, remoteStateDistributions, dispatchBatch.PreparedTransactions); err != nil {
 		log.L(ctx).Errorf("error persisting batch: %s", err)
 		return err
 	}

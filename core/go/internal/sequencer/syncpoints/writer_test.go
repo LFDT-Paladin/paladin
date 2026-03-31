@@ -340,7 +340,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	dispatchErr := errors.New("dispatch error")
-	mockPubTxMgr.On("WriteNewTransactions", ctx, dbTX, mock.Anything).Return(nil, dispatchErr)
+	mockPubTxMgr.On("WriteNewTransactions", mock.Anything, dbTX, mock.Anything).Return(nil, dispatchErr)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
