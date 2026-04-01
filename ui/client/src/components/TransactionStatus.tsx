@@ -14,10 +14,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-export const AppRoutes = {
-  Keys: '/ui/keys',
-  Registry: '/ui/registry',
-  Domains: '/ui/domains',
-  Transactions: '/ui/transactions',
-  Transaction: '/ui/transactions/:hash/:id?'
+import { Chip } from "@mui/material";
+import { ITransaction } from "../interfaces";
+import { useTranslation } from "react-i18next";
+
+type Props = {
+  transaction: ITransaction
+}
+
+export const TransactionStatus: React.FC<Props> = ({ transaction }) => {
+
+  const { t } = useTranslation();
+
+  const success = transaction.result === 'success';
+
+  return (
+    <Chip label={t(success ? 'success' : 'failed')}
+      sx={{ borderRadius: '4px', height: '25px' }}
+      color={success ? 'success' : 'error'}
+    />
+  );
+
 };

@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -26,6 +26,7 @@ import { getAltModeScrollBarStyle } from "../themes/default";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { ITransaction } from "../interfaces";
 import { useTranslation } from "react-i18next";
+import { constants } from "./config";
 
 
 export const Transactions: React.FC = () => {
@@ -36,7 +37,7 @@ export const Transactions: React.FC = () => {
 
   const { data: transactions, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
     queryKey: ["transactions", lastBlockWithTransactions],
-    queryFn: ({ pageParam }) => fetchIndexedTransactions(pageParam),
+    queryFn: ({ pageParam }) => fetchIndexedTransactions(constants.TRANSACTION_QUERY_LIMIT, pageParam),
     initialPageParam: undefined as ITransaction | undefined,
     getNextPageParam: (lastPage) => { return lastPage[lastPage.length - 1] },
   });

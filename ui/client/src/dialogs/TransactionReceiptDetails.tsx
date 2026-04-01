@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -80,7 +80,6 @@ export const PaladinTransactionsReceiptDetailsDialog: React.FC<Props> = ({
         </Box>
         {selectedReceipt ?
           <PaladinTransactionsDetails
-            transactionReceipt={selectedReceipt}
             paladinTransaction={selectedTransaction}
           />
           : undefined
