@@ -1,7 +1,6 @@
-# Sequencer and transaction state machines
+# Sequencer and Transaction State Machines
 
-The distributed sequencer is designed as a set of state machines, each of which manages the state of the sequencer components (originator and coordinator) and of sequencer transactions (at the originator and at the coordinator).
-
-**TBC**
-
-The state machine details for the four state machines (their states and events that cause a state transition) will be documented here to aid with problem diagnosis of transaction coordination.
+> **Note:** State machine documentation is currently being rewritten 
+> and will be available in a future release.
+> 
+> See [#1109](https://github.com/LF-Decentralized-Trust-labs/paladin/issues/1109) for tracking.
