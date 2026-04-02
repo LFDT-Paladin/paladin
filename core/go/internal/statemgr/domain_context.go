@@ -745,7 +745,11 @@ func (dc *domainContext) ExportSnapshot(ctx context.Context) ([]byte, error) {
 	})
 }
 
-// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks
+// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks.
+//
+// Note: this only populates the in-memory creatingStates and txLocks needed for assembly queries.
+// It does not stage states for DB persistence via unFlushed, because the delegate assembler's
+// context is never flushed — the coordinator's context handles DB writes.
 func (dc *domainContext) ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error {
 	ctx = dc.createLogContext(ctx, nil)
 	dc.stateLock.Lock()
@@ -758,11 +762,20 @@ func (dc *domainContext) ImportSnapshot(ctx context.Context, stateLocksJSON []by
 	if err != nil {
 		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportInvalidJSON)
 	}
-	dc.creatingStates = make(map[string]*components.StateWithLabels)
-	dc.txLocks = make([]*pldapi.StateLock, 0, len(snapshot.Locks))
-	if _, err = dc.upsertStates(dc.ss.p.NOTX(), true /* already hold lock */, snapshot.States...); err != nil {
+
+	// Validate and process the snapshot states without appending to the unFlushed DB write buffer.
+	ss, err := dc.validateStates(dc.ss.p.NOTX(), snapshot.States...)
+	if err != nil {
 		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
 	}
+
+	processedStates := make(map[string]*components.StateWithLabels, len(ss.withValues))
+	for _, vs := range ss.withValues {
+		processedStates[vs.ID.String()] = vs
+	}
+
+	dc.creatingStates = make(map[string]*components.StateWithLabels)
+	dc.txLocks = make([]*pldapi.StateLock, 0, len(snapshot.Locks))
 	for _, l := range snapshot.Locks {
 		dc.txLocks = append(dc.txLocks, &pldapi.StateLock{
 			DomainName:  dc.domainName,
@@ -770,24 +783,19 @@ func (dc *domainContext) ImportSnapshot(ctx context.Context, stateLocksJSON []by
 			Transaction: l.Transaction,
 			Type:        l.Type,
 		})
-		//if it transpires that any of the states we already know about are created by these transactions,
+		// if it transpires that any of the states we already know about are created by these transactions,
 		// then we need to add them to the creatingStates map otherwise they will not be returned in queries
 		if l.Type == pldapi.StateLockTypeCreate.Enum() {
-			foundInUnflushed := false
-			for _, state := range dc.unFlushed.states {
-				if state.ID.String() == l.State.String() {
-					dc.creatingStates[state.ID.String()] = state
-					foundInUnflushed = true
-				}
-			}
-			if !foundInUnflushed {
+			if state, found := processedStates[l.State.String()]; found {
+				dc.creatingStates[state.ID.String()] = state
+			} else {
 				// assuming this function is being used to copy a coordinators context to a delegate assembler's context
-				// this this if branch could mean one of two things:
-				// 1. the state distribution message hasn't' arrived yet but will arrive soon
+				// this if branch could mean one of two things:
+				// 1. the state distribution message hasn't arrived yet but will arrive soon
 				// 2. the state distribution message is never going to arrive because we are not on the distribution list
 				// We can't tell the difference between these two cases so can't really fail here
 				// It is up to the domain to ensure that they ask for the transaction to be `Park`ed temporarily if they suspect `1`
-				log.L(ctx).Infof("ImportSnapshot: state %s not found in unflushed states", l.State)
+				log.L(ctx).Infof("ImportSnapshot: state %s not found in snapshot states", l.State)
 			}
 		}
 	}
