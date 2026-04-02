@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Box, Chip, Grid2, Typography } from "@mui/material";
+import { Box, Chip, Grid2, Typography, useTheme } from "@mui/material";
 import { IEnrichedTransaction } from "../interfaces"
 import { useTranslation } from "react-i18next";
 import { Hash } from "./Hash";
@@ -34,7 +34,10 @@ export const EnrichedTransaction: React.FC<Props> = ({
   enrichedTransaction
 }) => {
 
+  const theme = useTheme();
   const { t } = useTranslation();
+
+  
 
   return (
     <>
@@ -42,6 +45,7 @@ export const EnrichedTransaction: React.FC<Props> = ({
         sx={{
           backgroundColor: (theme) => theme.palette.background.paper,
           borderRadius: '4px',
+          borderLeft: `solid 3px ${theme.palette.primary.main}`
         }}>
         <Box sx={{ padding: '10px' }}>
           <Grid2 container justifyContent="space-between" spacing={3}>

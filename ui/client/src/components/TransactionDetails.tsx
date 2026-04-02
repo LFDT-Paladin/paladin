@@ -58,7 +58,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
   return (
     <>
       {paladinTransaction ?
-      <Accordion elevation={0} disableGutters expanded>
+      <Accordion elevation={0} disableGutters defaultExpanded>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('details')}
         </AccordionSummary>

@@ -102,8 +102,9 @@ export const TransactionLookupDialog: React.FC<Props> = ({
     <Dialog
       onClose={() => setDialogOpen(false)}
       open={dialogOpen}
-      maxWidth="sm"
+      PaperProps={{ sx: { width: '680px' } }}
       fullWidth
+      maxWidth="md"
     >
       <form onSubmit={(event) => {
         event.preventDefault();
