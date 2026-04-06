@@ -29,9 +29,10 @@ import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
 
 export const fetchIndexedTransactions = async (
-  pageParam?: ITransaction
+  pageParam?: ITransaction,
+  txHash?: string
 ): Promise<IEnrichedTransaction[]> => {
-  let requestPayload: any = {
+  const requestPayload: any = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.bidx_QueryIndexedTransactions,
@@ -42,6 +43,15 @@ export const fetchIndexedTransactions = async (
       },
     ],
   };
+
+  if (txHash && txHash.length > 0) {
+    requestPayload.params[0].equal = [
+      {
+        field: 'hash',
+        value: txHash,
+      },
+    ];
+  }
 
   if (pageParam !== undefined) {
     requestPayload.params[0].or = [
@@ -109,9 +119,9 @@ export const fetchSubmissions = async (
   filters: IFilter[],
   pageParam?: IPaladinTransaction
 ): Promise<IPaladinTransaction[]> => {
-  let translatedFilters = translateFilters(filters);
+  const translatedFilters = translateFilters(filters);
 
-  let allParams: any = [
+  const allParams: any = [
     {
       ...translatedFilters,
       limit: constants.SUBMISSIONS_QUERY_LIMIT,

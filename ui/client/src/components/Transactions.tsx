@@ -28,15 +28,15 @@ import { ITransaction } from "../interfaces";
 import { useTranslation } from "react-i18next";
 
 
-export const Transactions: React.FC = () => {
+export const Transactions: React.FC<{ txHash?: string }> = ({ txHash }) => {
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
 
   const theme = useTheme();
   const { t } = useTranslation();
 
   const { data: transactions, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
-    queryKey: ["transactions", lastBlockWithTransactions],
-    queryFn: ({ pageParam }) => fetchIndexedTransactions(pageParam),
+    queryKey: ["transactions", lastBlockWithTransactions, txHash],
+    queryFn: ({ pageParam }) =>  fetchIndexedTransactions(pageParam, txHash),
     initialPageParam: undefined as ITransaction | undefined,
     getNextPageParam: (lastPage) => { return lastPage[lastPage.length - 1] },
   });
