@@ -37,7 +37,7 @@ export const Transactions: React.FC = () => {
 
   const { data: transactions, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
     queryKey: ["transactions", lastBlockWithTransactions],
-    queryFn: ({ pageParam }) => fetchIndexedTransactions(constants.TRANSACTION_QUERY_LIMIT, pageParam),
+    queryFn: ({ pageParam }) => fetchIndexedTransactions(constants.TRANSACTION_QUERY_LIMIT, undefined, pageParam),
     initialPageParam: undefined as ITransaction | undefined,
     getNextPageParam: (lastPage) => { return lastPage[lastPage.length - 1] },
   });
