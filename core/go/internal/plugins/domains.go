@@ -463,29 +463,14 @@ func (br *domainBridge) IsBaseLedgerRevertRetryable(ctx context.Context, req *pr
 	return
 }
 
-func (br *domainBridge) GetCodeHash(ctx context.Context, req *prototk.GetCodeHashRequest) (res *prototk.GetCodeHashResponse, err error) {
+func (br *domainBridge) InvokeRPC(ctx context.Context, req *prototk.InvokeRPCRequest) (res *prototk.InvokeRPCResponse, err error) {
 	err = br.toPlugin.RequestReply(ctx,
 		func(dm plugintk.PluginMessage[prototk.DomainMessage]) {
-			dm.Message().RequestToDomain = &prototk.DomainMessage_GetCodeHash{GetCodeHash: req}
+			dm.Message().RequestToDomain = &prototk.DomainMessage_InvokeRpc{InvokeRpc: req}
 		},
 		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
-			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_GetCodeHashRes); ok {
-				res = r.GetCodeHashRes
-			}
-			return res != nil
-		},
-	)
-	return
-}
-
-func (br *domainBridge) GetCode(ctx context.Context, req *prototk.GetCodeRequest) (res *prototk.GetCodeResponse, err error) {
-	err = br.toPlugin.RequestReply(ctx,
-		func(dm plugintk.PluginMessage[prototk.DomainMessage]) {
-			dm.Message().RequestToDomain = &prototk.DomainMessage_GetCode{GetCode: req}
-		},
-		func(dm plugintk.PluginMessage[prototk.DomainMessage]) bool {
-			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_GetCodeRes); ok {
-				res = r.GetCodeRes
+			if r, ok := dm.Message().ResponseFromDomain.(*prototk.DomainMessage_InvokeRpcRes); ok {
+				res = r.InvokeRpcRes
 			}
 			return res != nil
 		},

@@ -138,12 +138,7 @@ public class TestDomain extends DomainInstance {
     }
 
     @Override
-    protected CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request) {
-        return CompletableFuture.failedFuture(new UnsupportedOperationException());
-    }
-
-    @Override
-    protected CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request) {
+    protected CompletableFuture<InvokeRPCResponse> invokeRPC(InvokeRPCRequest request) {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 }

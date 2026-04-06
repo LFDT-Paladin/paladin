@@ -1202,6 +1202,10 @@ func (n *Noto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPriva
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }
 
+func (n *Noto) InvokeRPC(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}
+
 func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
 	res := &prototk.CheckStateCompletionResponse{}
 	if req.UnavailableStates == nil || req.UnavailableStates.FirstUnavailableId == nil {
@@ -1391,10 +1395,3 @@ func (n *Noto) computeLockIDForLockTX(ctx context.Context, tx *types.ParsedTrans
 	return n.computeLockId(ctx, contractAddress, senderAddress, tx.Transaction.TransactionId)
 }
 
-func (n *Noto) GetCodeHash(ctx context.Context, _ *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
-}
-
-func (n *Noto) GetCode(ctx context.Context, _ *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
-}

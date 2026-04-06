@@ -1056,18 +1056,10 @@ export default class PaladinClient {
       return res.data.result;
     },
 
-    getCodeHash: async (domainName: string, groupID: string, address: string, qualifier?: string) => {
-      const res = await this.post<JsonRpcResult<string>>(
-        "pgroup_getCodeHash",
-        [domainName, groupID, address, qualifier ?? ""]
-      );
-      return res.data.result;
-    },
-
-    getCode: async (domainName: string, groupID: string, address: string, qualifier?: string) => {
-      const res = await this.post<JsonRpcResult<string>>(
-        "pgroup_getCode",
-        [domainName, groupID, address, qualifier ?? ""]
+    invokeRPC: async (domainName: string, groupID: string, method: string, params: unknown) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "pgroup_invokeRPC",
+        [domainName, groupID, method, params]
       );
       return res.data.result;
     },
@@ -1177,6 +1169,14 @@ export default class PaladinClient {
         { validateStatus: (status) => status < 300 || status === 404 }
       );
       return res.status === 404 ? undefined : res.data.result;
+    },
+
+    invokeRPC: async (contractAddress: string, method: string, params: unknown) => {
+      const res = await this.post<JsonRpcResult<unknown>>(
+        "domain_invokeRPC",
+        [contractAddress, method, params]
+      );
+      return res.data.result;
     },
   };
 

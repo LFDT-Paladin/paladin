@@ -46,8 +46,7 @@ type DomainAPI interface {
 	InitPrivacyGroup(context.Context, *prototk.InitPrivacyGroupRequest) (*prototk.InitPrivacyGroupResponse, error)
 	WrapPrivacyGroupEVMTX(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
 	IsBaseLedgerRevertRetryable(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
-	GetCodeHash(context.Context, *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error)
-	GetCode(context.Context, *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error)
+	InvokeRPC(context.Context, *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error)
 }
 
 type DomainCallbacks interface {
@@ -227,13 +226,9 @@ func (dp *domainHandler) RequestToPlugin(ctx context.Context, iReq PluginMessage
 		resMsg := &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}
 		resMsg.IsBaseLedgerRevertRetryableRes, err = dp.api.IsBaseLedgerRevertRetryable(ctx, input.IsBaseLedgerRevertRetryable)
 		res.ResponseFromDomain = resMsg
-	case *prototk.DomainMessage_GetCodeHash:
-		resMsg := &prototk.DomainMessage_GetCodeHashRes{}
-		resMsg.GetCodeHashRes, err = dp.api.GetCodeHash(ctx, input.GetCodeHash)
-		res.ResponseFromDomain = resMsg
-	case *prototk.DomainMessage_GetCode:
-		resMsg := &prototk.DomainMessage_GetCodeRes{}
-		resMsg.GetCodeRes, err = dp.api.GetCode(ctx, input.GetCode)
+	case *prototk.DomainMessage_InvokeRpc:
+		resMsg := &prototk.DomainMessage_InvokeRpcRes{}
+		resMsg.InvokeRpcRes, err = dp.api.InvokeRPC(ctx, input.InvokeRpc)
 		res.ResponseFromDomain = resMsg
 	default:
 		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
@@ -367,8 +362,7 @@ type DomainAPIFunctions struct {
 	WrapPrivacyGroupEVMTX       func(context.Context, *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error)
 	CheckStateCompletion        func(context.Context, *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error)
 	IsBaseLedgerRevertRetryable func(context.Context, *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error)
-	GetCodeHash                 func(context.Context, *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error)
-	GetCode                     func(context.Context, *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error)
+	InvokeRPC                   func(context.Context, *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error)
 }
 
 type DomainAPIBase struct {
@@ -459,10 +453,6 @@ func (db *DomainAPIBase) IsBaseLedgerRevertRetryable(ctx context.Context, req *p
 	return callPluginImpl(ctx, req, db.Functions.IsBaseLedgerRevertRetryable)
 }
 
-func (db *DomainAPIBase) GetCodeHash(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
-	return callPluginImpl(ctx, req, db.Functions.GetCodeHash)
-}
-
-func (db *DomainAPIBase) GetCode(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-	return callPluginImpl(ctx, req, db.Functions.GetCode)
+func (db *DomainAPIBase) InvokeRPC(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+	return callPluginImpl(ctx, req, db.Functions.InvokeRPC)
 }

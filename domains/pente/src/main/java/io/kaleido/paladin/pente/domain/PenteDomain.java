@@ -927,41 +927,56 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      }
 
      @Override
-     protected CompletableFuture<GetCodeHashResponse> getCodeHash(GetCodeHashRequest request) {
+     protected CompletableFuture<InvokeRPCResponse> invokeRPC(InvokeRPCRequest request) {
          try {
-             var qualifier = request.getStateQualifier();
-             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
-                 return CompletableFuture.failedFuture(
-                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
-             }
-             var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
-             var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
-             var codeHash = accountLoader.load(address)
-                     .map(PersistedAccount::getCodeHashOrZero)
-                     .orElse(org.hyperledger.besu.datatypes.Hash.ZERO);
-             return CompletableFuture.completedFuture(
-                     GetCodeHashResponse.newBuilder().setCodeHash(codeHash.toHexString()).build());
+             var params = new ObjectMapper().readTree(request.getParamsJson());
+             return switch (request.getMethod()) {
+                 case "GetCodeHash" -> invokeGetCodeHash(request.getStateQueryContext(), params);
+                 case "GetCode" -> invokeGetCode(request.getStateQueryContext(), params);
+                 default -> CompletableFuture.failedFuture(
+                         new UnsupportedOperationException("unknown RPC method: " + request.getMethod()));
+             };
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }
      }
 
-     @Override
-     protected CompletableFuture<GetCodeResponse> getCode(GetCodeRequest request) {
+     private CompletableFuture<InvokeRPCResponse> invokeGetCodeHash(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
          try {
-             var qualifier = request.getStateQualifier();
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get("address").asText());
+             var qualifier = params.has("stateQualifier") ? params.get("stateQualifier").asText() : "";
              if (!qualifier.isEmpty() && !qualifier.equals("available")) {
                  return CompletableFuture.failedFuture(
                          new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
              }
-             var address = org.hyperledger.besu.datatypes.Address.fromHexString(request.getAddress());
-             var accountLoader = new AssemblyAccountLoader(request.getStateQueryContext());
+             var accountLoader = new AssemblyAccountLoader(stateQueryContext);
+             var codeHash = accountLoader.load(address)
+                     .map(PersistedAccount::getCodeHashOrZero)
+                     .orElse(org.hyperledger.besu.datatypes.Hash.ZERO);
+             var resultJson = new ObjectMapper().writeValueAsString(codeHash.toHexString());
+             return CompletableFuture.completedFuture(
+                     InvokeRPCResponse.newBuilder().setResultJson(resultJson).build());
+         } catch (Exception e) {
+             return CompletableFuture.failedFuture(e);
+         }
+     }
+
+     private CompletableFuture<InvokeRPCResponse> invokeGetCode(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
+         try {
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get("address").asText());
+             var qualifier = params.has("stateQualifier") ? params.get("stateQualifier").asText() : "";
+             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
+                 return CompletableFuture.failedFuture(
+                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
+             }
+             var accountLoader = new AssemblyAccountLoader(stateQueryContext);
              var codeBytes = accountLoader.load(address)
                      .map(PersistedAccount::getCode)
                      .orElse(null);
              var codeHex = (codeBytes != null) ? codeBytes.toHexString() : "";
+             var resultJson = new ObjectMapper().writeValueAsString(codeHex);
              return CompletableFuture.completedFuture(
-                     GetCodeResponse.newBuilder().setCode(codeHex).build());
+                     InvokeRPCResponse.newBuilder().setResultJson(resultJson).build());
          } catch (Exception e) {
              return CompletableFuture.failedFuture(e);
          }

@@ -905,6 +905,8 @@ func TestUnimplementedMethods(t *testing.T) {
 	assert.ErrorContains(t, err, "PD210085: Not implemented")
 	_, err = z.WrapPrivacyGroupEVMTX(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InvokeRPC(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
 }
 
 func TestGetStateSchemas(t *testing.T) {

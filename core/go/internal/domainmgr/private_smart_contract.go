@@ -810,33 +810,16 @@ func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, rever
 	return res.Retryable, res.DecodedReason, nil
 }
 
-func (dc *domainContract) GetCodeHash(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.Bytes32, error) {
+func (dc *domainContract) InvokeRPC(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, method string, paramsJSON pldtypes.RawJSON) (pldtypes.RawJSON, error) {
 	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
 	defer c.close()
-	res, err := dc.api.GetCodeHash(ctx, &prototk.GetCodeHashRequest{
+	res, err := dc.api.InvokeRPC(ctx, &prototk.InvokeRPCRequest{
 		StateQueryContext: c.id,
-		Address:           address.String(),
-		StateQualifier:    string(qualifier),
-	})
-	if err != nil {
-		return pldtypes.Bytes32{}, err
-	}
-	return pldtypes.ParseBytes32(res.CodeHash)
-}
-
-func (dc *domainContract) GetCode(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, address pldtypes.EthAddress, qualifier pldapi.PrivacyGroupStateQualifier) (pldtypes.HexBytes, error) {
-	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
-	defer c.close()
-	res, err := dc.api.GetCode(ctx, &prototk.GetCodeRequest{
-		StateQueryContext: c.id,
-		Address:           address.String(),
-		StateQualifier:    string(qualifier),
+		Method:            method,
+		ParamsJson:        string(paramsJSON),
 	})
 	if err != nil {
 		return nil, err
 	}
-	if res.Code == "" {
-		return pldtypes.HexBytes{}, nil
-	}
-	return pldtypes.ParseHexBytes(ctx, res.Code)
+	return pldtypes.RawJSON(res.ResultJson), nil
 }

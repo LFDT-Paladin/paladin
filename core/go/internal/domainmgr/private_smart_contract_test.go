@@ -1776,89 +1776,34 @@ func TestWrapPGBadData(t *testing.T) {
 	require.Regexp(t, "PD011612", err)
 }
 
-func TestGetCodeHashOK(t *testing.T) {
+func TestInvokeRPCOK(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
 	psc := goodPSC(t, td)
-	addr := pldtypes.RandAddress()
-	expectedHash := pldtypes.RandBytes32()
 
-	td.tp.Functions.GetCodeHash = func(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
-		assert.Equal(t, addr.String(), req.Address)
-		return &prototk.GetCodeHashResponse{CodeHash: expectedHash.String()}, nil
+	td.tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		assert.Equal(t, "GetCodeHash", req.Method)
+		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
 	}
 
-	got, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "GetCodeHash", pldtypes.RawJSON(`[]`))
 	require.NoError(t, err)
-	assert.Equal(t, expectedHash, got)
+	assert.Equal(t, pldtypes.RawJSON(`"0x1234"`), got)
 }
 
-func TestGetCodeHashError(t *testing.T) {
+func TestInvokeRPCError(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
 	psc := goodPSC(t, td)
-	addr := pldtypes.RandAddress()
 
-	td.tp.Functions.GetCodeHash = func(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
+	td.tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.GetCodeHash(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.Regexp(t, "pop", err)
-}
-
-func TestGetCodeOK(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
-	defer done()
-	assert.Nil(t, td.d.initError.Load())
-
-	psc := goodPSC(t, td)
-	addr := pldtypes.RandAddress()
-	expectedCode := pldtypes.MustParseHexBytes("0xdeadbeef")
-
-	td.tp.Functions.GetCode = func(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-		assert.Equal(t, addr.String(), req.Address)
-		return &prototk.GetCodeResponse{Code: expectedCode.String()}, nil
-	}
-
-	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.NoError(t, err)
-	assert.Equal(t, expectedCode, got)
-}
-
-func TestGetCodeEmptyForEOA(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
-	defer done()
-	assert.Nil(t, td.d.initError.Load())
-
-	psc := goodPSC(t, td)
-	addr := pldtypes.RandAddress()
-
-	td.tp.Functions.GetCode = func(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-		return &prototk.GetCodeResponse{Code: ""}, nil
-	}
-
-	got, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.NoError(t, err)
-	assert.Empty(t, got)
-}
-
-func TestGetCodeError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas())
-	defer done()
-	assert.Nil(t, td.d.initError.Load())
-
-	psc := goodPSC(t, td)
-	addr := pldtypes.RandAddress()
-
-	td.tp.Functions.GetCode = func(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-		return nil, fmt.Errorf("pop")
-	}
-
-	_, err := psc.GetCode(td.ctx, td.c.dCtx, td.c.dbTX, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "GetCodeHash", pldtypes.RawJSON(`[]`))
 	require.Regexp(t, "pop", err)
 }

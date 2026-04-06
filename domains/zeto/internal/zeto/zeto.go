@@ -771,10 +771,6 @@ func (z *Zeto) IsBaseLedgerRevertRetryable(_ context.Context, _ *prototk.IsBaseL
 	return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true}, nil
 }
 
-func (z *Zeto) GetCodeHash(ctx context.Context, _ *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
-	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
-}
-
-func (z *Zeto) GetCode(ctx context.Context, _ *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
+func (z *Zeto) InvokeRPC(ctx context.Context, _ *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
 }

@@ -50,8 +50,7 @@ func (gm *groupManager) initRPC() {
 		Add("pgroup_sendMessage", gm.rpcSendMessage()).
 		Add("pgroup_getMessageById", gm.rpcGetMessageByID()).
 		Add("pgroup_queryMessages", gm.rpcQueryMessages()).
-		Add("pgroup_getCodeHash", gm.rpcGetCodeHash()).
-		Add("pgroup_getCode", gm.rpcGetCode()).
+		Add("pgroup_invokeRPC", gm.rpcInvokeRPC()).
 		AddAsync(gm.rpcEventStreams)
 }
 
@@ -191,30 +190,18 @@ func (gm *groupManager) rpcDeleteMessageListener() rpcserver.RPCHandler {
 	})
 }
 
-func (gm *groupManager) rpcGetCodeHash() rpcserver.RPCHandler {
+func (gm *groupManager) rpcInvokeRPC() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod4(func(ctx context.Context,
 		domainName string,
 		groupID pldtypes.HexBytes,
-		address pldtypes.EthAddress,
-		qualifier pldapi.PrivacyGroupStateQualifier,
-	) (*pldtypes.Bytes32, error) {
+		method string,
+		params pldtypes.RawJSON,
+	) (pldtypes.RawJSON, error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
-		codeHash, err := gm.GetCodeHash(ctx, gm.p.NOTX(), domainName, groupID, address, qualifier)
+		resultJSON, err := gm.invokeRPC(ctx, gm.p.NOTX(), domainName, groupID, method, params)
 		if err != nil {
 			return nil, err
 		}
-		return &codeHash, nil
-	})
-}
-
-func (gm *groupManager) rpcGetCode() rpcserver.RPCHandler {
-	return rpcserver.RPCMethod4(func(ctx context.Context,
-		domainName string,
-		groupID pldtypes.HexBytes,
-		address pldtypes.EthAddress,
-		qualifier pldapi.PrivacyGroupStateQualifier,
-	) (pldtypes.HexBytes, error) {
-		ctx = log.WithComponent(ctx, "groupmanager")
-		return gm.GetCode(ctx, gm.p.NOTX(), domainName, groupID, address, qualifier)
+		return pldtypes.RawJSON(resultJSON), nil
 	})
 }

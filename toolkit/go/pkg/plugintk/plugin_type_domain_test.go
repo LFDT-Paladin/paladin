@@ -545,36 +545,19 @@ func TestDomainFunction_IsBaseLedgerRevertRetryable(t *testing.T) {
 	})
 }
 
-func TestDomainFunction_GetCodeHash(t *testing.T) {
+func TestDomainFunction_InvokeRPC(t *testing.T) {
 	_, exerciser, funcs, _, _, done := setupDomainTests(t)
 	defer done()
 
-	funcs.GetCodeHash = func(ctx context.Context, req *prototk.GetCodeHashRequest) (*prototk.GetCodeHashResponse, error) {
-		return &prototk.GetCodeHashResponse{CodeHash: "0x1234"}, nil
+	funcs.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
 	}
 	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
-		req.RequestToDomain = &prototk.DomainMessage_GetCodeHash{
-			GetCodeHash: &prototk.GetCodeHashRequest{Address: "0xabcd"},
+		req.RequestToDomain = &prototk.DomainMessage_InvokeRpc{
+			InvokeRpc: &prototk.InvokeRPCRequest{Method: "GetCodeHash", ParamsJson: `{"address":"0xabcd"}`},
 		}
 	}, func(res *prototk.DomainMessage) {
-		r := res.ResponseFromDomain.(*prototk.DomainMessage_GetCodeHashRes)
-		assert.Equal(t, "0x1234", r.GetCodeHashRes.CodeHash)
-	})
-}
-
-func TestDomainFunction_GetCode(t *testing.T) {
-	_, exerciser, funcs, _, _, done := setupDomainTests(t)
-	defer done()
-
-	funcs.GetCode = func(ctx context.Context, req *prototk.GetCodeRequest) (*prototk.GetCodeResponse, error) {
-		return &prototk.GetCodeResponse{Code: "0xdeadbeef"}, nil
-	}
-	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
-		req.RequestToDomain = &prototk.DomainMessage_GetCode{
-			GetCode: &prototk.GetCodeRequest{Address: "0xabcd"},
-		}
-	}, func(res *prototk.DomainMessage) {
-		r := res.ResponseFromDomain.(*prototk.DomainMessage_GetCodeRes)
-		assert.Equal(t, "0xdeadbeef", r.GetCodeRes.Code)
+		r := res.ResponseFromDomain.(*prototk.DomainMessage_InvokeRpcRes)
+		assert.Equal(t, `"0x1234"`, r.InvokeRpcRes.ResultJson)
 	})
 }

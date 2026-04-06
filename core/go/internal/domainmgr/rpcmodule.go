@@ -34,7 +34,8 @@ func (dm *domainManager) buildRPCModule() {
 		Add("domain_getDomain", dm.rpcGetDomain()).
 		Add("domain_getDomainByAddress", dm.rpcGetDomainByAddress()).
 		Add("domain_querySmartContracts", dm.rpcQuerySmartContracts()).
-		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress())
+		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress()).
+		Add("domain_invokeRPC", dm.rpcInvokeRPC())
 }
 
 func (dm *domainManager) rpcListDomains() rpcserver.RPCHandler {
@@ -122,5 +123,32 @@ func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 		}
 		dm.populateContractConfig(result, sc.ContractConfig())
 		return result, nil
+	})
+}
+
+func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod3(func(ctx context.Context,
+		address pldtypes.EthAddress,
+		method string,
+		params pldtypes.RawJSON,
+	) (pldtypes.RawJSON, error) {
+		ctx = log.WithComponent(ctx, "domainmanager")
+		var sc components.DomainSmartContract
+		var err error
+		var resultJSON pldtypes.RawJSON
+		err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			sc, err = dm.GetSmartContractByAddress(ctx, dbTX, address)
+			if err != nil {
+				return err
+			}
+			dCtx := dm.stateStore.NewDomainContext(ctx, sc.Domain(), address)
+			defer dCtx.Close()
+			resultJSON, err = sc.InvokeRPC(ctx, dCtx, dbTX, method, params)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return resultJSON, nil
 	})
 }

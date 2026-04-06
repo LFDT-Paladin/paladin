@@ -707,18 +707,17 @@ func mockGetPrivateSmartContract(t *testing.T, mc *mockComponents, schemaID pldt
 	return psc
 }
 
-func TestGetCodeHashGroupNotFound(t *testing.T) {
+func TestInvokeRPCGroupNotFound(t *testing.T) {
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
 	defer done()
 
 	mc.db.Mock.ExpectQuery("SELECT.*privacy_groups").WillReturnRows(sqlmock.NewRows([]string{}))
 
-	addr := pldtypes.RandAddress()
-	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", pldtypes.RandBytes(32), "GetCodeHash", pldtypes.RawJSON(`[]`))
 	require.Regexp(t, "PD012502", err)
 }
 
-func TestGetCodeHashGroupNotReady(t *testing.T) {
+func TestInvokeRPCGroupNotReady(t *testing.T) {
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
 	defer done()
 
@@ -726,27 +725,11 @@ func TestGetCodeHashGroupNotReady(t *testing.T) {
 	groupID := pldtypes.RandBytes(32)
 	mockDBPrivacyGroup(mc, schemaID, groupID, nil)
 
-	addr := pldtypes.RandAddress()
-	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, "GetCodeHash", pldtypes.RawJSON(`[]`))
 	require.Regexp(t, "PD012503", err)
 }
 
-func TestGetCodeHashGroupGetContractFail(t *testing.T) {
-	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
-	defer done()
-
-	schemaID := pldtypes.RandBytes32()
-	groupID := pldtypes.RandBytes(32)
-	contractAddr := pldtypes.RandAddress()
-	mockDBPrivacyGroup(mc, schemaID, groupID, contractAddr)
-	mc.domainManager.On("GetSmartContractByAddress", mock.Anything, mock.Anything, *contractAddr).Return(nil, fmt.Errorf("pop"))
-
-	addr := pldtypes.RandAddress()
-	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.Regexp(t, "pop", err)
-}
-
-func TestGetCodeHashOK(t *testing.T) {
+func TestInvokeRPCOK(t *testing.T) {
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
 	defer done()
 
@@ -755,16 +738,14 @@ func TestGetCodeHashOK(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
 
-	addr := pldtypes.RandAddress()
-	expectedHash := pldtypes.RandBytes32()
-	psc.On("GetCodeHash", mock.Anything, mock.Anything, mock.Anything, *addr, mock.Anything).Return(expectedHash, nil)
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, "GetCodeHash", pldtypes.RawJSON(`["0x1234"]`)).Return(pldtypes.RawJSON(`"0xdeadbeef"`), nil)
 
-	result, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	result, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, "GetCodeHash", pldtypes.RawJSON(`["0x1234"]`))
 	require.NoError(t, err)
-	assert.Equal(t, expectedHash, result)
+	assert.Equal(t, pldtypes.RawJSON(`"0xdeadbeef"`), result)
 }
 
-func TestGetCodeHashPSCError(t *testing.T) {
+func TestInvokeRPCError(t *testing.T) {
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
 	defer done()
 
@@ -773,44 +754,9 @@ func TestGetCodeHashPSCError(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
 
-	addr := pldtypes.RandAddress()
-	psc.On("GetCodeHash", mock.Anything, mock.Anything, mock.Anything, *addr, mock.Anything).Return(pldtypes.Bytes32{}, fmt.Errorf("pop"))
+	psc.On("InvokeRPC", mock.Anything, mock.Anything, mock.Anything, "GetCodeHash", mock.Anything).Return(nil, fmt.Errorf("pop"))
 
-	_, err := gm.GetCodeHash(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.Regexp(t, "pop", err)
-}
-
-func TestGetCodeOK(t *testing.T) {
-	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
-	defer done()
-
-	schemaID := pldtypes.RandBytes32()
-	groupID := pldtypes.RandBytes(32)
-	contractAddr := pldtypes.RandAddress()
-	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
-
-	addr := pldtypes.RandAddress()
-	expectedCode := pldtypes.MustParseHexBytes("0xdeadbeef")
-	psc.On("GetCode", mock.Anything, mock.Anything, mock.Anything, *addr, mock.Anything).Return(expectedCode, nil)
-
-	result, err := gm.GetCode(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
-	require.NoError(t, err)
-	assert.Equal(t, expectedCode, result)
-}
-
-func TestGetCodePSCError(t *testing.T) {
-	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)
-	defer done()
-
-	schemaID := pldtypes.RandBytes32()
-	groupID := pldtypes.RandBytes(32)
-	contractAddr := pldtypes.RandAddress()
-	psc := mockGetPrivateSmartContract(t, mc, schemaID, groupID, contractAddr)
-
-	addr := pldtypes.RandAddress()
-	psc.On("GetCode", mock.Anything, mock.Anything, mock.Anything, *addr, mock.Anything).Return(pldtypes.HexBytes(nil), fmt.Errorf("pop"))
-
-	_, err := gm.GetCode(ctx, gm.p.NOTX(), "domain1", groupID, *addr, pldapi.PrivacyGroupStateQualifierAvailable)
+	_, err := gm.invokeRPC(ctx, gm.p.NOTX(), "domain1", groupID, "GetCodeHash", pldtypes.RawJSON(`["0x1234"]`))
 	require.Regexp(t, "pop", err)
 }
 
