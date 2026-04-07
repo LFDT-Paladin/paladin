@@ -1676,3 +1676,139 @@ func TestSequencerManager_PrivateTransactionsConfirmed_SynchronousProcessing(t *
 
 	sm.PrivateTransactionsConfirmed(ctx, completions)
 }
+
+func TestSequencerManager_removeIdleSequencers_BothIdle(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
+	mocks.originator.EXPECT().GetCurrentState().Return(originator.State_Idle)
+	mocks.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
+	mocks.originator.EXPECT().WaitForDone(mock.Anything).Once()
+	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.NotContains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_removeIdleSequencers_CoordinatorActive(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
+	mocks.originator.EXPECT().GetCurrentState().Return(originator.State_Idle)
+	mocks.metrics.EXPECT().SetActiveSequencers(1).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Contains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_removeIdleSequencers_OriginatorSending(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
+	mocks.originator.EXPECT().GetCurrentState().Return(originator.State_Sending)
+	mocks.metrics.EXPECT().SetActiveSequencers(1).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Contains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_removeIdleSequencers_ObservingNotRemoved(t *testing.T) {
+	ctx := context.Background()
+	contractAddr := pldtypes.RandAddress()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	seq := newSequencerForTesting(contractAddr, mocks)
+	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Observing)
+	mocks.originator.EXPECT().GetCurrentState().Return(originator.State_Observing)
+	mocks.metrics.EXPECT().SetActiveSequencers(1).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[contractAddr.String()] = seq
+	sm.sequencersLock.Unlock()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Contains(t, sm.sequencers, contractAddr.String())
+}
+
+func TestSequencerManager_removeIdleSequencers_MixedStates(t *testing.T) {
+	ctx := context.Background()
+	idleAddr := pldtypes.RandAddress()
+	activeAddr := pldtypes.RandAddress()
+	idleMocks := newSequencerLifecycleTestMocks(t)
+	activeMocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, idleMocks)
+
+	idleSeq := newSequencerForTesting(idleAddr, idleMocks)
+	idleMocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
+	idleMocks.originator.EXPECT().GetCurrentState().Return(originator.State_Idle)
+	idleMocks.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
+	idleMocks.originator.EXPECT().WaitForDone(mock.Anything).Once()
+
+	activeSeq := newSequencerForTesting(activeAddr, activeMocks)
+	activeMocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
+	activeMocks.originator.EXPECT().GetCurrentState().Return(originator.State_Sending)
+
+	idleMocks.metrics.EXPECT().SetActiveSequencers(1).Once()
+
+	sm.sequencersLock.Lock()
+	sm.sequencers[idleAddr.String()] = idleSeq
+	sm.sequencers[activeAddr.String()] = activeSeq
+	sm.sequencersLock.Unlock()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.NotContains(t, sm.sequencers, idleAddr.String())
+	assert.Contains(t, sm.sequencers, activeAddr.String())
+}
+
+func TestSequencerManager_removeIdleSequencers_Empty(t *testing.T) {
+	ctx := context.Background()
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+	mocks.metrics.EXPECT().SetActiveSequencers(0).Once()
+
+	sm.removeIdleSequencers(ctx)
+
+	sm.sequencersLock.RLock()
+	defer sm.sequencersLock.RUnlock()
+	assert.Empty(t, sm.sequencers)
+}

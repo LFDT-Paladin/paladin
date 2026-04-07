@@ -337,6 +337,41 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 	}
 }
 
+func (sMgr *sequencerManager) cleanupIdleSequencers(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sMgr.removeIdleSequencers(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (sMgr *sequencerManager) removeIdleSequencers(ctx context.Context) {
+	sMgr.sequencersLock.Lock()
+	var toShutdown []*sequencer
+	for addr, seq := range sMgr.sequencers {
+		coordState := seq.coordinator.GetCurrentState()
+		origState := seq.originator.GetCurrentState()
+		if coordState == coordinator.State_Idle && origState == originator.State_Idle {
+			log.L(ctx).Debugf("cleanup: stopping idle sequencer %s", addr)
+			toShutdown = append(toShutdown, seq)
+			delete(sMgr.sequencers, addr)
+		}
+	}
+	sMgr.metrics.SetActiveSequencers(len(sMgr.sequencers))
+	sMgr.sequencersLock.Unlock()
+
+	for _, seq := range toShutdown {
+		seq.shutdown(ctx)
+	}
+}
+
 // func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
 // 	log.L(ctx).Debugf("checking if max concurrent coordinators limit reached")
 
