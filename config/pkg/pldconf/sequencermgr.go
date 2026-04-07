@@ -43,6 +43,7 @@ type SequencerConfig struct {
 	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
 	TransactionResumePageSize         *int              `json:"transactionResumePageSize"`
 	TransactionResumeMaxTransactions  *int              `json:"transactionResumeMaxTransactions"`
+	IdleSequencerCleanupInterval      *string           `json:"idleSequencerCleanupInterval"`
 	Writer                            FlushWriterConfig `json:"writer"`
 }
 
@@ -69,6 +70,7 @@ type SequencerMinimumConfig struct {
 	TransactionResumePollInterval     time.Duration
 	TransactionResumePageSize         int
 	TransactionResumeMaxTransactions  int
+	IdleSequencerCleanupInterval      time.Duration
 }
 
 var SequencerDefaults = SequencerConfig{
@@ -99,6 +101,7 @@ var SequencerDefaults = SequencerConfig{
 	TransactionResumePollInterval:     confutil.P("5m"),
 	TransactionResumePageSize:         confutil.P(1000),
 	TransactionResumeMaxTransactions:  confutil.P(100000),
+	IdleSequencerCleanupInterval:      confutil.P("1m"),
 }
 
 var SequencerMinimum = SequencerMinimumConfig{
@@ -124,4 +127,5 @@ var SequencerMinimum = SequencerMinimumConfig{
 	TransactionResumePollInterval:     10 * time.Second,
 	TransactionResumePageSize:         1,
 	TransactionResumeMaxTransactions:  0,
+	IdleSequencerCleanupInterval:      10 * time.Second,
 }

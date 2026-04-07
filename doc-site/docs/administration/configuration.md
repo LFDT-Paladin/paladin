@@ -793,6 +793,7 @@
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
+| idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
