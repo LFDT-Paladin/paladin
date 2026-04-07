@@ -188,6 +188,7 @@ export const Transactions: React.FC<Props> = ({
         fromBlock={fromBlock}
         setFromBlock={setFromBlock}
         setPage={setPage}
+        setRefEntries={setRefEntries}
       />
     </>
   );

@@ -26,8 +26,9 @@ import {
   RadioGroup,
   TextField
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ITransactionPagingReference } from '../interfaces';
 
 type Props = {
   dialogOpen: boolean
@@ -35,6 +36,7 @@ type Props = {
   fromBlock: number | undefined
   setFromBlock: React.Dispatch<React.SetStateAction<number | undefined>>
   setPage: React.Dispatch<React.SetStateAction<number>>
+  setRefEntries: Dispatch<SetStateAction<ITransactionPagingReference[]>>
 }
 
 export const FromBlockDialog: React.FC<Props> = ({
@@ -42,7 +44,8 @@ export const FromBlockDialog: React.FC<Props> = ({
   setDialogOpen,
   fromBlock,
   setFromBlock,
-  setPage
+  setPage,
+  setRefEntries
 }) => {
 
   const { t } = useTranslation();
@@ -60,11 +63,13 @@ export const FromBlockDialog: React.FC<Props> = ({
     if(selectedType === 'latest') {
       if(fromBlock !== undefined) {
         setPage(0);
+        setRefEntries([]);
         setFromBlock(undefined);
       }
     } else if(selectedType === 'blockNumber') {
       if(fromBlock === undefined) {
         setPage(0);
+        setRefEntries([]);
         setFromBlock(Number(selectedBlockNumber));
       }
     }
