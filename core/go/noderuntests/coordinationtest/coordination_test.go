@@ -419,7 +419,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	require.NoError(t, bobTx1.Error())
 
 	// Check that we don't receive a receipt in the usual time while alice's node is offline
-	result := bobTx1.Wait(transactionLatencyThreshold(t))
+	customThreshold := 5 * time.Second
+	result := bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.ErrorContains(t, result.Error(), "timed out")
 
 	startNode(t, alice, domainConfig)
@@ -428,7 +429,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	})
 
 	// Check that we did receive a receipt once alice's node was restarted
-	customThreshold := 15 * time.Second
+	customThreshold = 15 * time.Second
 	result = bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.NoError(t, result.Error())
 }
@@ -511,7 +512,8 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	require.NoError(t, bobTx1.Error())
 
 	// Check that we don't receive a receipt in the usual time while alice's node is offline
-	result := bobTx1.Wait(transactionLatencyThreshold(t))
+	customThreshold := 5 * time.Second
+	result := bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.ErrorContains(t, result.Error(), "timed out")
 
 	startNode(t, alice, domainConfig)
@@ -520,7 +522,7 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	})
 
 	// Check that we did receive a receipt once alice's node was restarted
-	customThreshold := 15 * time.Second
+	customThreshold = 15 * time.Second
 	result = bobTx1.Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.NoError(t, result.Error())
 }
@@ -604,9 +606,10 @@ func TestTransactionResumesIfBothRequiredVerifiersAreStoppedBeforeCompletion(t *
 	}
 
 	// Check that we don't receive receipts in the usual time while alice's node is offline
-	result := bobTransactions[0].Wait(transactionLatencyThreshold(t))
+	customThreshold := 5 * time.Second
+	result := bobTransactions[0].Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.ErrorContains(t, result.Error(), "timed out")
-	result = bobTransactions[5].Wait(transactionLatencyThreshold(t))
+	result = bobTransactions[5].Wait(transactionLatencyThresholdCustom(t, &customThreshold))
 	require.ErrorContains(t, result.Error(), "timed out")
 
 	// Now stop bob's node as well.
@@ -1691,9 +1694,9 @@ func TestTransactionWaitsUntilExplicitPrereqTransactionSuccessful(t *testing.T) 
 	require.NoError(t, aliceTx2.Error())
 
 	// Check that we don't receive a receipt for either transaction
-	result1 := aliceTx1.Wait(transactionLatencyThreshold(t))
+	result1 := aliceTx1.Wait(5 * time.Second)
 	require.ErrorContains(t, result1.Error(), "timed out")
-	result2 := aliceTx2.Wait(transactionLatencyThreshold(t))
+	result2 := aliceTx2.Wait(5 * time.Second)
 	require.ErrorContains(t, result2.Error(), "timed out")
 
 	// Restarting Bob's node should allow both transactions to go through
