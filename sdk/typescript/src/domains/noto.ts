@@ -190,6 +190,13 @@ export interface NotoUnlockPublicParams {
 
 export interface SpendLockPublicParams {
   lockId: string;
+  spendInputs: string;
+  data: string;
+}
+
+export interface CancelLockPublicParams {
+  lockId: string;
+  cancelInputs: string;
   data: string;
 }
 
@@ -483,7 +490,7 @@ export class NotoInstance {
 
   cancelLock(
     from: PaladinVerifier,
-    data: SpendLockPublicParams,
+    data: CancelLockPublicParams,
     idempotencyKey?: string,
   ) {
     return new TransactionFuture(
@@ -579,14 +586,14 @@ export class NotoInstance {
   encodeSpendLock(data: SpendLockPublicParams) {
     return new ethers.Interface(notoJSON.abi).encodeFunctionData(
       "spendLock",
-      [data.lockId, data.data]
+      [data.lockId, data.spendInputs, data.data]
     );
   }
 
-  encodeCancelLock(data: SpendLockPublicParams) {
+  encodeCancelLock(data: CancelLockPublicParams) {
     return new ethers.Interface(notoJSON.abi).encodeFunctionData(
       "cancelLock",
-      [data.lockId, data.data]
+      [data.lockId, data.cancelInputs, data.data]
     );
   }
 
