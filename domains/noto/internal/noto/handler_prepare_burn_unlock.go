@@ -35,7 +35,7 @@ type prepareBurnUnlockHandler struct {
 	unlockCommon
 }
 
-func (h *prepareBurnUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *prepareBurnUnlockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, error) {
 	if config.IsV0() {
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "prepareBurnUnlock is not supported in Noto V0")
 	}
@@ -147,24 +147,33 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 		return nil, i18n.NewError(ctx, msgs.MsgInvalidAmount, "prepareBurnUnlock", params.Amount.Int().Text(10), lockedInputStates.total.Text(10))
 	}
 
-	// Build and encode the unlock data (separate to the data for this TX)
-	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData)
+	// Build the cancel outputs (before unlock data so we can build separate manifests)
+	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(lockedInputStates.total), identityList{notaryID, fromID})
+	if err != nil {
+		return nil, err
+	}
+
+	// Build separate spend and cancel manifests
+	spendManifest := h.noto.newManifestBuilder()            // empty: no spend outputs for burn
+	cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
+
+	// Build and encode the unlock data separately for spend and cancel paths
+	unlockResult, err := h.buildUnlockDataForPaths(ctx, notaryID, senderID, fromID, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build the data info for this prepare transaction
+	infoStates := unlockResult.infoStates
+	infoDistribution := unlockResult.infoDistribution
 	prepareDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 	infoStates = append(infoStates, prepareDataInfo...)
 
-	// We build the cancel outputs
-	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(lockedInputStates.total), identityList{notaryID, fromID})
-	if err == nil {
-		err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, cancelOutputs.states, cancelOutputs.states)
-	}
+	// Allocate cancel output state IDs
+	err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, cancelOutputs.states)
 	if err != nil {
 		return nil, err
 	}
@@ -175,9 +184,9 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	newLockInfo.Replaces = existingLock.id
 	newLockInfo.Salt = pldtypes.RandBytes32()
 	newLockInfo.SpendOutputs = []pldtypes.Bytes32{} // no outputs from burn
-	newLockInfo.SpendData = encodedUnlockData
+	newLockInfo.SpendData = unlockResult.spendEncoded
 	newLockInfo.CancelOutputs = newStateAllocatedIDs(cancelOutputs.states)
-	newLockInfo.CancelData = encodedUnlockData
+	newLockInfo.CancelData = unlockResult.cancelEncoded
 	newLockInfo.SpendTxId = spendTxId
 	lock, err := h.noto.prepareLockInfo_V1(&newLockInfo, identityList{notaryID, senderID, fromID})
 	if err != nil {

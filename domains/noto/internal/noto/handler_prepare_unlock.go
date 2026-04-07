@@ -88,6 +88,16 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		if err == nil {
 			err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, states.outputs.states, cancelOutputs.states)
 		}
+
+		// Build cancel manifest and encode cancel data separately from spend data
+		var encodedCancelData []byte
+		var cancelManifestState *prototk.NewState
+		if err == nil {
+			cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
+			encodedCancelData, cancelManifestState, err = h.buildCancelPathData(
+				ctx, tx, req.StateQueryContext, cancelManifest, states.infoDistribution, states.unlockInfoStates)
+		}
+
 		// The tx data for the prepareUnlock itself needs to be distributed (separate to the unlockData)
 		var prepareInfoStates []*prototk.NewState
 		if err == nil {
@@ -95,6 +105,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		}
 		if err == nil {
 			states.info = append(states.info /* the unlockData */, prepareInfoStates...)
+			if cancelManifestState != nil {
+				states.info = append(states.info, cancelManifestState)
+			}
 
 			// ... and add the new lock state as an output
 			newLockInfo := *states.oldLock.lockInfo
@@ -103,7 +116,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 			newLockInfo.SpendOutputs = newStateAllocatedIDs(states.outputs.states)
 			newLockInfo.SpendData = states.encodedUnlockData
 			newLockInfo.CancelOutputs = newStateAllocatedIDs(cancelOutputs.states)
-			newLockInfo.CancelData = states.encodedUnlockData
+			newLockInfo.CancelData = encodedCancelData
 			newLockInfo.SpendTxId = spendTxId
 			lock, err = h.noto.prepareLockInfo_V1(&newLockInfo, identityList{notaryID, senderID, fromID})
 		}

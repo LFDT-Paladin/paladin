@@ -36,8 +36,16 @@ type unlockStates struct {
 	v0LockedOutputs   *preparedLockedOutputs // V0 only
 	outputs           *preparedOutputs
 	info              []*prototk.NewState // includes the actual unlock data
+	unlockInfoStates  []*prototk.NewState // just the states from buildUnlockData (before prepareDataInfo appended)
 	infoDistribution  identityList
 	encodedUnlockData []byte // the on-chain reference to the unlockData pre-encoded
+}
+
+type unlockDataResult struct {
+	spendEncoded     []byte
+	cancelEncoded    []byte
+	infoStates       []*prototk.NewState // both spend and cancel manifests + info states
+	infoDistribution identityList
 }
 
 func (h *unlockCommon) validateParams(ctx context.Context, unlockParams *types.UnlockParams) error {
@@ -90,7 +98,7 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 	}, nil
 }
 
-func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, fromID *identityPair, tx *types.ParsedTransaction, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, stateQueryContext string, unlockData []byte) (encodedUnlockData []byte, infoStates []*prototk.NewState, infoDistribution identityList, err error) {
+func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, fromID *identityPair, tx *types.ParsedTransaction, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, stateQueryContext string, unlockData []byte, unlockManifest *manifestBuilder) (encodedUnlockData []byte, infoStates []*prototk.NewState, infoDistribution identityList, err error) {
 	infoDistribution, err = h.getAllRecipientsDistribution(ctx, tx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
 	if err == nil {
 		infoStates, err = h.noto.prepareDataInfo(unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
@@ -100,8 +108,11 @@ func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, 
 		err = h.noto.allocateStateIDs(ctx, stateQueryContext, infoStates)
 	}
 	var manifestState *prototk.NewState
-	if tx.DomainConfig.IsV1() {
-		manifestState, err = h.noto.newManifestBuilder().addInfoStates(infoDistribution, infoStates...).buildManifest(ctx, stateQueryContext)
+	if tx.DomainConfig.IsV1() && unlockManifest != nil {
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		manifestState, err = unlockManifest.addInfoStates(infoDistribution, infoStates...).buildManifest(ctx, stateQueryContext)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -121,7 +132,7 @@ func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, 
 			}
 		}
 
-		if tx.DomainConfig.IsV1() {
+		if tx.DomainConfig.IsV1() && manifestState != nil {
 			// add the manifest state first
 			endorsableInfoStates = append([]*prototk.EndorsableState{{
 				Id:            *manifestState.Id,
@@ -135,6 +146,156 @@ func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, 
 		encodedUnlockData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, endorsableInfoStates)
 	}
 	return
+}
+
+func toEndorsable(states []*prototk.NewState) []*prototk.EndorsableState {
+	result := make([]*prototk.EndorsableState, len(states))
+	for i, s := range states {
+		result[i] = toEndorsableOne(s)
+	}
+	return result
+}
+
+func toEndorsableOne(s *prototk.NewState) *prototk.EndorsableState {
+	return &prototk.EndorsableState{
+		Id:            *s.Id,
+		SchemaId:      s.SchemaId,
+		StateDataJson: s.StateDataJson,
+	}
+}
+
+// buildPathData builds a manifest for one path (spend or cancel) and encodes
+// the transaction data referencing that manifest + shared info states.
+// For V1, always builds a manifest even if the manifest builder has no outputs.
+// Appends any new manifest state to allInfoStates.
+func (h *unlockCommon) buildPathData(
+	ctx context.Context,
+	tx *types.ParsedTransaction,
+	stateQueryContext string,
+	mb *manifestBuilder,
+	infoDistribution identityList,
+	sharedInfoStates []*prototk.NewState,
+	endorsableShared []*prototk.EndorsableState,
+	allInfoStates *[]*prototk.NewState,
+) ([]byte, error) {
+
+	if !tx.DomainConfig.IsV1() {
+		// V0: no manifests, just encode the shared info states directly
+		return h.noto.encodeTransactionData(
+			ctx, tx.DomainConfig, tx.Transaction, endorsableShared)
+	}
+
+	// V1: always build a manifest (even with no outputs, it describes info states)
+	if mb == nil {
+		mb = h.noto.newManifestBuilder()
+	}
+
+	manifestState, err := mb.
+		addInfoStates(infoDistribution, sharedInfoStates...).
+		buildManifest(ctx, stateQueryContext)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.noto.allocateStateIDs(ctx, stateQueryContext, []*prototk.NewState{manifestState}); err != nil {
+		return nil, err
+	}
+
+	// Prepend manifest to endorsable list (manifest comes first)
+	endorsableForEncoding := append(
+		[]*prototk.EndorsableState{toEndorsableOne(manifestState)},
+		endorsableShared...,
+	)
+
+	// Track the manifest state in the output list
+	*allInfoStates = append(*allInfoStates, manifestState)
+
+	return h.noto.encodeTransactionData(
+		ctx, tx.DomainConfig, tx.Transaction, endorsableForEncoding)
+}
+
+// buildUnlockDataForPaths builds separate encoded unlock data for spend and cancel paths.
+// Shared info states are allocated once and referenced by both manifests.
+func (h *unlockCommon) buildUnlockDataForPaths(
+	ctx context.Context,
+	notaryID, senderID, fromID *identityPair,
+	tx *types.ParsedTransaction,
+	recipients []*types.UnlockRecipient,
+	resolvedVerifiers []*prototk.ResolvedVerifier,
+	stateQueryContext string,
+	unlockData []byte,
+	spendManifest *manifestBuilder,
+	cancelManifest *manifestBuilder,
+) (*unlockDataResult, error) {
+
+	infoDistribution, err := h.getAllRecipientsDistribution(
+		ctx, tx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
+	if err != nil {
+		return nil, err
+	}
+
+	// info states states shared across both spend + cancel paths
+	sharedInfoStates, err := h.noto.prepareDataInfo(
+		unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.noto.allocateStateIDs(ctx, stateQueryContext, sharedInfoStates); err != nil {
+		return nil, err
+	}
+
+	endorsableShared := toEndorsable(sharedInfoStates)
+
+	// build spend + cancel manifests + encode
+	allInfoStates := make([]*prototk.NewState, 0, len(sharedInfoStates)+2) // include room for the two manifests
+	spendEncoded, err := h.buildPathData(
+		ctx, tx, stateQueryContext, spendManifest, infoDistribution,
+		sharedInfoStates, endorsableShared, &allInfoStates)
+	if err != nil {
+		return nil, err
+	}
+
+	cancelEncoded, err := h.buildPathData(
+		ctx, tx, stateQueryContext, cancelManifest, infoDistribution,
+		sharedInfoStates, endorsableShared, &allInfoStates)
+	if err != nil {
+		return nil, err
+	}
+
+	allInfoStates = append(allInfoStates, sharedInfoStates...)
+
+	return &unlockDataResult{
+		spendEncoded:     spendEncoded,
+		cancelEncoded:    cancelEncoded,
+		infoStates:       allInfoStates,
+		infoDistribution: infoDistribution,
+	}, nil
+}
+
+func (h *unlockCommon) buildCancelPathData(
+	ctx context.Context,
+	tx *types.ParsedTransaction,
+	stateQueryContext string,
+	cancelManifest *manifestBuilder,
+	infoDistribution identityList,
+	sharedInfoStates []*prototk.NewState,
+) (encodedCancelData []byte, cancelManifestState *prototk.NewState, err error) {
+
+	endorsableShared := toEndorsable(sharedInfoStates)
+	var manifestStates []*prototk.NewState
+
+	encoded, err := h.buildPathData(
+		ctx, tx, stateQueryContext, cancelManifest, infoDistribution,
+		sharedInfoStates, endorsableShared, &manifestStates)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(manifestStates) > 0 {
+		cancelManifestState = manifestStates[0]
+	}
+	return encoded, cancelManifestState, nil
 }
 
 func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, spendTxId *pldtypes.Bytes32, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, unlockData []byte) (*prototk.AssembleTransactionResponse, *manifestBuilder, *unlockStates, error) {
@@ -191,10 +352,12 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 
 	var unlockedOutputs *preparedOutputs
 	var v0LockedOutputs *preparedLockedOutputs
+	var unlockedManifest *manifestBuilder
 	if tx.DomainConfig.IsV0() {
 		unlockedOutputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, params, req, fromID.address, remainder)
 	} else {
 		unlockedOutputs, err = h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
+		unlockedManifest = h.noto.newManifestBuilder().addOutputs(unlockedOutputs)
 	}
 	if err != nil {
 		return nil, nil, nil, err
@@ -202,10 +365,14 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 
 	// Prepare the data for the unlock - noting that when directly unlocking, this is the data from the unlock().
 	// However, when performing prepareUnlock()/prepareMintUnlock()/prepareBurnUnlock() this is the separate unlockData parameter.
-	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, unlockData)
+	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, unlockData, unlockedManifest)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	// Capture the raw unlock info states before anything else is appended
+	unlockInfoStates := make([]*prototk.NewState, len(infoStates))
+	copy(unlockInfoStates, infoStates)
 
 	if tx.DomainConfig.IsV0() {
 		// In V0 unlock repeats the lock state in the info
@@ -233,6 +400,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 			v0LockedOutputs:   v0LockedOutputs,
 			outputs:           unlockedOutputs,
 			info:              infoStates,
+			unlockInfoStates:  unlockInfoStates,
 			infoDistribution:  infoDistribution,
 			encodedUnlockData: encodedUnlockData,
 		},
