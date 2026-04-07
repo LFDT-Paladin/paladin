@@ -1383,6 +1383,57 @@ func TestImportSnapshotJSONError(t *testing.T) {
 
 }
 
+func TestImportSnapshotDoesNotAccumulateUnflushed(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema1.ID()), schema1)
+
+	_, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	s1, err := schema1.ProcessState(ctx, &dc.contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 10, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	txID := uuid.New()
+	stateUpserts := []*components.StateUpsert{{
+		ID:     s1.ID,
+		Schema: schema1.ID(),
+		Data:   s1.Data,
+	}}
+	snapshotJSON := fmt.Sprintf(`{
+		"locks": [{"stateId":"%s","transaction":"%s","type":"create"}],
+		"states": %s
+	}`, s1.ID.String(), txID.String(), pldtypes.JSONString(stateUpserts).Pretty())
+
+	// Import the same snapshot multiple times
+	for i := 0; i < 10; i++ {
+		err = dc.ImportSnapshot(ctx, []byte(snapshotJSON))
+		require.NoError(t, err)
+	}
+
+	// The unFlushed write buffer must not have accumulated entries from repeated imports.
+	// ImportSnapshot uses validateStates (not upsertStates) so nothing is appended to unFlushed.
+	dc.stateLock.Lock()
+	unflushedLen := 0
+	if dc.unFlushed != nil {
+		unflushedLen = len(dc.unFlushed.states)
+	}
+	dc.stateLock.Unlock()
+	assert.Equal(t, 0, unflushedLen, "unFlushed.states should not accumulate across ImportSnapshot calls")
+
+	// Verify the import is still functional — querying should return the state
+	_, states, err := dc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	assert.Equal(t, s1.ID, states[0].ID)
+}
+
 func TestGetStatesByIDFail(t *testing.T) {
 	ctx, ss, db, _, done := newDBMockStateManager(t)
 	defer done()
