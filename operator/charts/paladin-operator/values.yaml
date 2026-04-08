@@ -105,11 +105,11 @@ postgres: # the postgres container runs as a sidecar to the paladin container
 # Only used when mode is "attach" to join an existing network.
 # - Set 'address' to join an existing deployment from another operator.
 smartContractsReferences:
-  notoFactory:
+  notoFactoryProxy:
     address: ""
-  zetoFactory:
+  penteFactoryProxy:
     address: ""
-  penteFactory:
+  zetoFactoryProxy:
     address: ""
   registry:
     address: ""
@@ -124,9 +124,15 @@ smartContractDeployments:
     from: ""
   registry:
     from: ""
+  noto:
+    from: ""
   notoFactory:
     from: ""
+  notoFactoryProxy:
+    from: ""
   penteFactory:
+    from: ""
+  penteFactoryProxy:
     from: ""
   zetoG16Anon:
     from: ""
@@ -173,6 +179,8 @@ smartContractDeployments:
   zetoImplAnonNullifierKyc:
     from: ""
   zetoFactory:
+    from: ""
+  zetoFactoryProxy:
     from: ""
 
 # Transaction Invoke Configuration

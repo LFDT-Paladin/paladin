@@ -18,6 +18,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/noto"
 	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	zetotypes "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
@@ -164,11 +166,36 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 	return deployed
 }
 
+// deployFactoryProxy deploys an ERC1967Proxy for an upgradeable factory contract.
+// It encodes the initialize call with the provided params and deploys the proxy.
+// Returns the proxy address.
+func deployFactoryProxy(
+	ctx context.Context,
+	t *testing.T,
+	rpc rpcclient.Client,
+	deployer string,
+	factoryImplAddr string,
+	factoryABIJSON []byte,
+	initializeParams string, // JSON array of params, e.g. `["0x..."]` or `[]`
+) string {
+	factoryABI := solutils.MustParseBuildABI(factoryABIJSON)
+	initCalldata, err := factoryABI.Functions()["initialize"].EncodeCallDataJSON([]byte(initializeParams))
+	require.NoError(t, err)
+
+	proxyBuild := solutils.MustLoadBuild(helpers.ERC1967ProxyJSON)
+	var proxyAddr string
+	proxyParams := fmt.Sprintf(`["%s", "%s"]`, factoryImplAddr, pldtypes.HexBytes(initCalldata))
+	rpcerr := rpc.CallRPC(ctx, &proxyAddr, "testbed_deployBytecode",
+		deployer, proxyBuild.ABI, proxyBuild.Bytecode.String(), pldtypes.RawJSON(proxyParams))
+	require.NoError(t, rpcerr)
+	return proxyAddr
+}
+
 func newNotoDomain(t *testing.T, registryAddress *pldtypes.EthAddress) (chan noto.Noto, *testbed.TestbedDomain) {
 	waitForDomain := make(chan noto.Noto, 1)
 	tbd := &testbed.TestbedDomain{
 		Config: mapConfig(t, nototypes.DomainConfig{
-			FactoryVersion: 1,
+			FactoryVersion: 2,
 		}),
 		Plugin: plugintk.NewDomain(func(callbacks plugintk.DomainCallbacks) plugintk.DomainAPI {
 			domain := noto.New(callbacks)

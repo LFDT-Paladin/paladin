@@ -38,6 +38,11 @@ import io.kaleido.paladin.toolkit.JsonHex;
 import io.kaleido.paladin.toolkit.ResourceLoader;
 import io.kaleido.paladin.toolkit.Verifiers;
 
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.DynamicBytes;
+
 public class DomainIntegrationTests {
 
     private final Testbed.Setup testbedSetup = new Testbed.Setup(
@@ -47,6 +52,7 @@ public class DomainIntegrationTests {
 
     JsonHex.Address deployPenteFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy PenteFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
@@ -57,17 +63,63 @@ public class DomainIntegrationTests {
                     "contracts/domains/pente/PenteFactory.sol/PenteFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize() calldata - PenteFactory.initialize() takes no parameters
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
     JsonHex.Address deployNotoFactory() throws Exception {
         try (Testbed deployBed = new Testbed(testbedSetup)) {
+            // Deploy Noto implementation
+            String notoImplBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "bytecode"
+            );
+            JsonABI notoImplABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "contracts/domains/noto/Noto.sol/Noto.json",
+                    "abi"
+            );
+            String notoImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    notoImplABI,
+                    notoImplBytecode,
+                    new HashMap<String, String>());
+
+            // Deploy NotoFactory implementation
             String factoryBytecode = ResourceLoader.jsonResourceEntryText(
                     this.getClass().getClassLoader(),
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
@@ -78,12 +130,40 @@ public class DomainIntegrationTests {
                     "contracts/domains/noto/NotoFactory.sol/NotoFactory.json",
                     "abi"
             );
-            String contractAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+            String factoryImplAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
                     "deployer",
                     factoryABI,
                     factoryBytecode,
                     new HashMap<String, String>());
-            return new JsonHex.Address(contractAddr);
+
+            // Encode initialize(notoImplAddr) calldata
+            Function initializeFunction = new Function(
+                    "initialize",
+                    Arrays.asList(new Address(notoImplAddr)),
+                    Arrays.asList()
+            );
+            String initCalldata = FunctionEncoder.encode(initializeFunction);
+
+            // Deploy ERC1967Proxy
+            String proxyBytecode = ResourceLoader.jsonResourceEntryText(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "bytecode"
+            );
+            JsonABI proxyABI = JsonABI.fromJSONResourceEntry(
+                    this.getClass().getClassLoader(),
+                    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol/ERC1967Proxy.json",
+                    "abi"
+            );
+            String proxyAddr = deployBed.getRpcClient().request("testbed_deployBytecode",
+                    "deployer",
+                    proxyABI,
+                    proxyBytecode,
+                    new HashMap<String, String>() {{
+                        put("implementation", factoryImplAddr);
+                        put("_data", initCalldata);
+                    }});
+            return new JsonHex.Address(proxyAddr);
         }
     }
 
@@ -219,7 +299,7 @@ public class DomainIntegrationTests {
                         notoFactoryAddress,
                         new Testbed.ConfigPlugin("c-shared", "noto", ""),
                         new HashMap<String, Object>() {{
-                            put("factoryVersion", 1);
+                            put("factoryVersion", 2);
                         }}
                 )
         )) {

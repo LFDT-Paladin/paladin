@@ -5,11 +5,30 @@
             false
         ]
     },
+    "noto": {
+        "filename": "test/e2e/abis/Noto.json"
+    },
     "noto_factory": {
         "filename": "test/e2e/abis/NotoFactory.json"
     },
+    "noto_factory_proxy": {
+        "filename": "test/e2e/abis/ERC1967Proxy.json",
+        "requiredDeployments": ["noto_factory", "noto"],
+        "params": [
+            "{{index .status.resolvedContractAddresses \"noto-factory\"}}",
+            "{{printf \"0xc4d66de8000000000000000000000000%s\" (trimPrefix \"0x\" (index .status.resolvedContractAddresses \"noto\"))}}"
+        ]
+    },
     "pente_factory": {
         "filename": "test/e2e/abis/PenteFactory.json"
+    },
+    "pente_factory_proxy": {
+        "filename": "test/e2e/abis/ERC1967Proxy.json",
+        "requiredDeployments": ["pente_factory"],
+        "params": [
+            "{{index .status.resolvedContractAddresses \"pente-factory\"}}",
+            "0x8129fc1c"
+        ]
     },
     "zeto_g16_anon": {
         "filename": "test/e2e/abis/zeto/Groth16Verifier_Anon.json"
@@ -92,5 +111,13 @@
     },
     "zeto_factory": {
         "filename": "test/e2e/abis/zeto/ZetoFactory.json"
+    },
+    "zeto_factory_proxy": {
+        "filename": "test/e2e/abis/ERC1967Proxy.json",
+        "requiredDeployments": ["zeto_factory"],
+        "params": [
+            "{{index .status.resolvedContractAddresses \"zeto-factory\"}}",
+            "0x8129fc1c"
+        ]
     }
 }

@@ -24,6 +24,6 @@
     "ethers": "^6.13.1",
     "hardhat": "^2.19.4",
     "ts-node": "^10.9.2",
-    "@lfdecentralizedtrust/zeto-contracts": "v0.2.1"
+    "@lfdecentralizedtrust/zeto-contracts": "v0.2.2"
   }
 }

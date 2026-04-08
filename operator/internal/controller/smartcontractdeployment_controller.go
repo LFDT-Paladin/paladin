@@ -143,7 +143,12 @@ func (r *SmartContractDeploymentReconciler) updateStatusAndRequeue(ctx context.C
 func (r *SmartContractDeploymentReconciler) buildDeployTransaction(ctx context.Context, scd *corev1alpha1.SmartContractDeployment) (bool, *pldapi.TransactionInput, error) {
 	var data pldtypes.RawJSON
 	if scd.Spec.ParamsJSON != "" {
-		data = pldtypes.RawJSON(scd.Spec.ParamsJSON)
+		// Process paramsJSON as a Go template to allow referencing resolved contract addresses
+		resolvedParams, err := r.resolveParamsTemplate(scd)
+		if err != nil {
+			return false, nil, err
+		}
+		data = pldtypes.RawJSON(resolvedParams)
 	}
 	build := solutils.SolidityBuildWithLinks{
 		Bytecode: scd.Spec.Bytecode,
@@ -175,6 +180,79 @@ func (r *SmartContractDeploymentReconciler) buildDeployTransaction(ctx context.C
 		ABI:      build.ABI,
 		Bytecode: bytecode,
 	}, nil
+}
+
+func (r *SmartContractDeploymentReconciler) resolveParamsTemplate(scd *corev1alpha1.SmartContractDeployment) (string, error) {
+	// First, build the CR map for template execution
+	var crMap map[string]any
+	crJSON, err := json.Marshal(scd)
+	if err == nil {
+		err = json.Unmarshal(crJSON, &crMap)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	// Parse the paramsJSON as JSON to properly handle escape sequences
+	var params any
+	if err := json.Unmarshal([]byte(scd.Spec.ParamsJSON), &params); err != nil {
+		return "", fmt.Errorf("invalid JSON in paramsJSON: %s", err)
+	}
+
+	// Process any template strings in the params structure
+	resolved, err := r.resolveTemplatesInValue(params, crMap)
+	if err != nil {
+		return "", err
+	}
+
+	// Re-marshal back to JSON
+	result, err := json.Marshal(resolved)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal resolved params: %s", err)
+	}
+
+	return string(result), nil
+}
+
+func (r *SmartContractDeploymentReconciler) resolveTemplatesInValue(value any, crMap map[string]any) (any, error) {
+	switch v := value.(type) {
+	case string:
+		// Check if this string contains a template
+		if strings.Contains(v, "{{") && strings.Contains(v, "}}") {
+			t, err := template.New("").Option("missingkey=error").Funcs(sprig.FuncMap()).Parse(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid Go template: %s", err)
+			}
+			buf := new(strings.Builder)
+			if err = t.Execute(buf, crMap); err != nil {
+				return nil, fmt.Errorf("go template execution failed: %s", err)
+			}
+			return buf.String(), nil
+		}
+		return v, nil
+	case []any:
+		result := make([]any, len(v))
+		for i, elem := range v {
+			resolved, err := r.resolveTemplatesInValue(elem, crMap)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = resolved
+		}
+		return result, nil
+	case map[string]any:
+		result := make(map[string]any)
+		for k, elem := range v {
+			resolved, err := r.resolveTemplatesInValue(elem, crMap)
+			if err != nil {
+				return nil, err
+			}
+			result[k] = resolved
+		}
+		return result, nil
+	default:
+		return v, nil
+	}
 }
 
 func (r *SmartContractDeploymentReconciler) buildLinkReferences(scd *corev1alpha1.SmartContractDeployment) (map[string]*pldtypes.EthAddress, error) {
