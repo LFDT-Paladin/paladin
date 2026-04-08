@@ -101,9 +101,22 @@ public class NotoHelper {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TransactionRequester(
+        @JsonProperty
+        String lookup,
+        @JsonProperty
+        JsonHex.Address resolvedAddress,
+        @JsonProperty
+        String type
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record NotoDomainReceipt(
-            @JsonProperty
-            ReceiptLockInfo lockInfo
+        @JsonProperty
+        ReceiptLockInfo lockInfo,
+        @JsonProperty
+        TransactionRequester transactionRequester
     ) {
     }
 

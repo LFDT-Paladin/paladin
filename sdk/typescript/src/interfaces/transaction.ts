@@ -125,6 +125,11 @@ export interface INotoDomainReceipt {
     unlockCall?: string;
   };
   data?: string;
+  transactionRequester?: {
+    lookup?: string;
+    resolvedAddress?: string;
+    type?: string;
+  };
 }
 
 export interface IReceiptState<T> {

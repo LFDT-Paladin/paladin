@@ -21,10 +21,11 @@ import (
 )
 
 type NotoDomainReceipt struct {
-	States    ReceiptStates      `json:"states"`
-	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`
-	LockInfo  *ReceiptLockInfo   `json:"lockInfo,omitempty"`
-	Data      pldtypes.HexBytes  `json:"data,omitempty"`
+	States               ReceiptStates         `json:"states"`
+	Transfers            []*ReceiptTransfer    `json:"transfers,omitempty"`
+	LockInfo             *ReceiptLockInfo      `json:"lockInfo,omitempty"`
+	Data                 pldtypes.HexBytes     `json:"data,omitempty"`
+	TransactionRequester *TransactionRequester `json:"transactionRequester,omitempty"`
 }
 
 type ReceiptStates struct {
@@ -127,8 +128,17 @@ var NotoLockInfoABI = &abi.Parameter{
 }
 
 type TransactionData struct {
-	Salt string            `json:"salt"`
-	Data pldtypes.HexBytes `json:"data"`
+	Salt             string               `json:"salt"`
+	Data             pldtypes.HexBytes    `json:"data"`
+	RequesterLookup  string               `json:"requesterLookup,omitempty"`
+	RequesterAddress *pldtypes.EthAddress `json:"requesterAddress,omitempty"`
+	RequesterType    string               `json:"requesterType,omitempty"`
+}
+
+type TransactionRequester struct {
+	Lookup          string               `json:"lookup,omitempty"`
+	ResolvedAddress *pldtypes.EthAddress `json:"resolvedAddress,omitempty"`
+	Type            string               `json:"type,omitempty"`
 }
 
 var TransactionDataABI = &abi.Parameter{
@@ -138,5 +148,8 @@ var TransactionDataABI = &abi.Parameter{
 	Components: abi.ParameterArray{
 		{Name: "salt", Type: "bytes32"},
 		{Name: "data", Type: "bytes"},
+		{Name: "requesterLookup", Type: "string"},
+		{Name: "requesterAddress", Type: "address"},
+		{Name: "requesterType", Type: "string"},
 	},
 }

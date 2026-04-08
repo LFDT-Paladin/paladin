@@ -36,6 +36,13 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 			return nil, err
 		}
 		receipt.Data = info.Data
+		if info.RequesterLookup != "" || info.RequesterAddress != nil || info.RequesterType != "" {
+			receipt.TransactionRequester = &types.TransactionRequester{
+				Lookup:          info.RequesterLookup,
+				ResolvedAddress: info.RequesterAddress,
+				Type:            info.RequesterType,
+			}
+		}
 	}
 
 	lockInfoStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchema.Id})

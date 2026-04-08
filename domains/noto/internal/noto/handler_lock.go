@@ -21,6 +21,7 @@ import (
 	"math/big"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -109,7 +110,12 @@ func (h *lockHandler) Assemble(ctx context.Context, tx *types.ParsedTransaction,
 		unlockedOutputStates.states = append(unlockedOutputStates.states, returnedStates.states...)
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, tx.Transaction.From})
+	senderAddr, err := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	if err != nil {
+		log.L(ctx).Debugf("could not resolve sender address for requester: %s: %v", tx.Transaction.From, err)
+		senderAddr = nil
+	}
+	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, tx.Transaction.From}, tx.Transaction.From, senderAddr, "")
 	if err != nil {
 		return nil, err
 	}

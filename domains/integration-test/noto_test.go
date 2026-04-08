@@ -123,6 +123,13 @@ func (s *notoTestSuite) TestNoto() {
 	require.Len(t, mintReceipt.Transfers, 1)
 	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, notaryKey, mintReceipt.Transfers[0].To.String())
+	// Transaction requester should be recorded on the domain receipt
+	require.NotNil(t, mintReceipt.TransactionRequester)
+	assert.Equal(t, notaryName, mintReceipt.TransactionRequester.Lookup)
+	if mintReceipt.TransactionRequester.ResolvedAddress != nil {
+		assert.Equal(t, notaryKey, mintReceipt.TransactionRequester.ResolvedAddress.String())
+	}
+	assert.Equal(t, "", mintReceipt.TransactionRequester.Type)
 
 	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
@@ -190,6 +197,13 @@ func (s *notoTestSuite) TestNoto() {
 	require.Len(t, transferReceipt.Transfers, 1)
 	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, transferReceipt.Transfers[0].To.String())
+	// Transaction requester should be recorded on the domain receipt
+	require.NotNil(t, transferReceipt.TransactionRequester)
+	assert.Equal(t, notaryName, transferReceipt.TransactionRequester.Lookup)
+	if transferReceipt.TransactionRequester.ResolvedAddress != nil {
+		assert.Equal(t, notaryKey, transferReceipt.TransactionRequester.ResolvedAddress.String())
+	}
+	assert.Equal(t, "", transferReceipt.TransactionRequester.Type)
 
 	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.NoError(t, err)
@@ -225,6 +239,13 @@ func (s *notoTestSuite) TestNoto() {
 	require.Len(t, transferReceipt.Transfers, 1)
 	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, transferReceipt.Transfers[0].To.String())
+	// Transaction requester should be recorded on the domain receipt
+	require.NotNil(t, transferReceipt.TransactionRequester)
+	assert.Equal(t, recipient1Name, transferReceipt.TransactionRequester.Lookup)
+	if transferReceipt.TransactionRequester.ResolvedAddress != nil {
+		assert.Equal(t, recipient1Key, transferReceipt.TransactionRequester.ResolvedAddress.String())
+	}
+	assert.Equal(t, "", transferReceipt.TransactionRequester.Type)
 
 	coins = findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.NoError(t, err)
@@ -289,10 +310,11 @@ func (s *notoTestSuite) TestNotoLock() {
 
 	notoReceipts := make(chan notoReceiptWithTXID)
 	subscribeAndSendNotoReceiptsToChannel(t, paladinClient, notoDomain.Name(), notoReceipts)
-
 	recipient1Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 	recipient2Key, err := paladinClient.PTX().ResolveVerifier(ctx, recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+	notaryKey, err := paladinClient.PTX().ResolveVerifier(ctx, notaryName, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.NoError(t, err)
 
 	log.L(ctx).Infof("Deploying an instance of Noto")
@@ -318,6 +340,13 @@ func (s *notoTestSuite) TestNotoLock() {
 	require.Len(t, mintReceipt.Transfers, 1)
 	assert.Equal(t, int64(100), mintReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient1Key, mintReceipt.Transfers[0].To.String())
+	// Transaction requester should be recorded on the domain receipt
+	require.NotNil(t, mintReceipt.TransactionRequester)
+	assert.Equal(t, notaryName, mintReceipt.TransactionRequester.Lookup)
+	if mintReceipt.TransactionRequester.ResolvedAddress != nil {
+		assert.Equal(t, notaryKey, mintReceipt.TransactionRequester.ResolvedAddress.String())
+	}
+	assert.Equal(t, "", mintReceipt.TransactionRequester.Type)
 
 	coins := findAvailableCoins[types.NotoCoinState](t, ctx, paladinClient, notoDomain.Name(), notoDomain.CoinSchemaID(), "pstate_queryContractStates", noto.Address, nil)
 	require.Len(t, coins, 1)
@@ -373,6 +402,13 @@ func (s *notoTestSuite) TestNotoLock() {
 	require.Len(t, transferReceipt.Transfers, 1)
 	assert.Equal(t, int64(50), transferReceipt.Transfers[0].Amount.Int().Int64())
 	assert.Equal(t, recipient2Key, transferReceipt.Transfers[0].To.String())
+	// Transaction requester should be recorded on the domain receipt
+	require.NotNil(t, transferReceipt.TransactionRequester)
+	assert.Equal(t, recipient1Name, transferReceipt.TransactionRequester.Lookup)
+	if transferReceipt.TransactionRequester.ResolvedAddress != nil {
+		assert.Equal(t, recipient1Key, transferReceipt.TransactionRequester.ResolvedAddress.String())
+	}
+	assert.Equal(t, "", transferReceipt.TransactionRequester.Type)
 
 	balanceOfResult = noto.BalanceOf(ctx, &types.BalanceOfParam{Account: recipient1Name}).SignAndCall(notaryName).Wait()
 	assert.Equal(t, "0", balanceOfResult["totalBalance"].(string), "Balance of recipient should be 0")

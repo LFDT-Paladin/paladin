@@ -337,10 +337,13 @@ func (n *Noto) prepareLockedOutputs(id pldtypes.Bytes32, ownerAddress *pldtypes.
 	}, err
 }
 
-func (n *Noto) prepareInfo(data pldtypes.HexBytes, distributionList []string) ([]*prototk.NewState, error) {
+func (n *Noto) prepareInfo(data pldtypes.HexBytes, distributionList []string, requesterLookup string, requesterAddress *pldtypes.EthAddress, requesterType string) ([]*prototk.NewState, error) {
 	newData := &types.TransactionData{
-		Salt: pldtypes.RandHex(32),
-		Data: data,
+		Salt:             pldtypes.RandHex(32),
+		Data:             data,
+		RequesterLookup:  requesterLookup,
+		RequesterAddress: requesterAddress,
+		RequesterType:    requesterType,
 	}
 	newState, err := n.makeNewInfoState(newData, distributionList)
 	return []*prototk.NewState{newState}, err

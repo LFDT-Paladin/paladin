@@ -126,7 +126,8 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, err
 	}
 
-	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, params.From})
+	senderAddr, _ := h.noto.findEthAddressVerifier(ctx, "sender", tx.Transaction.From, req.ResolvedVerifiers)
+	infoStates, err := h.noto.prepareInfo(params.Data, []string{notary, params.From}, tx.Transaction.From, senderAddr, "")
 	if err != nil {
 		return nil, nil, err
 	}
