@@ -48,8 +48,10 @@ func (tm *txManager) blockIndexerPreCommit(
 	// order of confirmation delivery between public and private transactions)
 	finalizeInfo := make([]*components.ReceiptInput, 0, len(txMatches))
 	privateTxResults := make(map[uuid.UUID]pldapi.EthTransactionResult)
+	privateMatches := make([]*components.PublicTxMatch, 0, len(txMatches))
 
-	// First finalize all public transactions, and record all failed public submissions for private transactions
+	// One full pass over txMatches for public finalization and private result merging. A later row can still
+	// set the same private tx to success so we'll then do a re-scan of privateMatches for any remaining failures.
 	for _, match := range txMatches {
 		log.L(ctx).Infof("blockIndexerPreCommit: processing next TX match %+v", match)
 		switch match.TransactionType.V() {
@@ -59,6 +61,7 @@ func (tm *txManager) blockIndexerPreCommit(
 			// Map to the common format for finalizing transactions whether the make it on chain or not
 			finalizeInfo = append(finalizeInfo, tm.mapBlockchainReceipt(match))
 		case pldapi.TransactionTypePrivate:
+			privateMatches = append(privateMatches, match)
 			result := match.Result.V()
 			_, duplicateInBlock := privateTxResults[match.TransactionID]
 			log.L(ctx).Infof("Base ledger transaction for private transaction %s result=%s publicTxhash=%s hash=%s block=%d result=%s duplicateInBlock=%t",
@@ -72,10 +75,9 @@ func (tm *txManager) blockIndexerPreCommit(
 			}
 		}
 	}
-	// Order the list of failures (after de-dup above where success overrides failure)
 	failedForPrivateTx := make([]*components.PublicTxMatch, 0)
-	for _, match := range txMatches {
-		if match.TransactionType.V() == pldapi.TransactionTypePrivate && privateTxResults[match.TransactionID] != pldapi.TXResult_SUCCESS {
+	for _, match := range privateMatches {
+		if privateTxResults[match.TransactionID] != pldapi.TXResult_SUCCESS {
 			log.L(ctx).Infof("Base ledger transaction for private transaction %s FAILED hash=%s block=%d result=%s",
 				match.TransactionID, match.Hash, match.BlockNumber, match.Result)
 			failedForPrivateTx = append(failedForPrivateTx, match)
