@@ -154,11 +154,11 @@ func (h *prepareBurnUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	}
 
 	// Build separate spend and cancel manifests
-	spendManifest := h.noto.newManifestBuilder()            // empty: no spend outputs for burn
+	spendManifest := h.noto.newManifestBuilder() // empty: no spend outputs for burn
 	cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
 
 	// Build and encode the unlock data separately for spend and cancel paths
-	unlockResult, err := h.buildUnlockDataForPaths(ctx, notaryID, senderID, fromID, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}

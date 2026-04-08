@@ -108,13 +108,6 @@ async function main(): Promise<boolean> {
     "Expected unlockFunction to be 'spendLock'",
   );
 
-  // get state receipt
-  logger.log("fetching state receipt");
-  const stateReceipt = await paladinClientNode1.ptx.getStateReceipt(
-    createMintLockReceipt.id,
-  );
-  logger.log(`CreateMintLock Info States=${JSON.stringify(stateReceipt?.info)}`);
-
   // At this point, the recipient does NOT yet have the tokens.
   const balanceBefore = await token
     .using(paladinClientNode2)
@@ -162,10 +155,6 @@ async function main(): Promise<boolean> {
   logger.log(`Lock spent successfully: txId=${spendReceipt.id}`);
 
   await new Promise((resolve) => setTimeout(resolve, 5000));
-  const spendStateReceipt = await paladinClientNode2.ptx.getStateReceipt(
-    spendReceipt.id,
-  );
-  logger.log(`SpendLock Info States=${JSON.stringify(spendStateReceipt?.info)}`);
 
   // Step 6: Validate recipient received the tokens
   // Query from node2's perspective since the recipient's states are on node2

@@ -111,12 +111,11 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		return nil, err
 	}
 
-	// Build separate spend and cancel manifests
+	// build separate spend / cancel manifests and attach outputs
 	spendManifest := h.noto.newManifestBuilder().addOutputs(spendOutputs)
-	// no cancel outputs for mint
 	cancelManifest := h.noto.newManifestBuilder()
 
-	unlockResult, err := h.buildUnlockDataForPaths(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}

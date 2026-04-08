@@ -158,7 +158,7 @@ func TestUnlock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 2) // locked coin and lock info
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 1)
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 2) // manifest + output-info
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 3) // manifest + spend-unlock-manifest + output-info
 	assert.Equal(t, inputCoin.ID.String(), assembleRes.AssembledTransaction.InputStates[0].Id)
 
 	outputCoinState := assembleRes.AssembledTransaction.OutputStates[0]
@@ -167,7 +167,7 @@ func TestUnlock(t *testing.T) {
 	assert.Equal(t, receiverAddress, outputCoin.Owner.String())
 	assert.Equal(t, "100", outputCoin.Amount.Int().String())
 
-	dataState := assembleRes.AssembledTransaction.InfoStates[1]
+	dataState := assembleRes.AssembledTransaction.InfoStates[2]
 	outputInfo, err := n.unmarshalInfo(dataState.StateDataJson)
 	require.NoError(t, err)
 	assert.Equal(t, "0x1234", outputInfo.Data.String())

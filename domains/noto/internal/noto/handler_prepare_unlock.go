@@ -61,7 +61,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		unlockData = params.Data // in V0 we used to use the same data in the unlock, so we preserve this behavior.
 	}
 
-	res, mb, states, err := h.assembleStates(ctx, tx, &spendTxId, &params.UnlockParams, req, unlockData)
+	res, mb, states, err := h.assembleStates(ctx, tx, &params.UnlockParams, req, unlockData)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
@@ -94,8 +94,14 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		var cancelManifestState *prototk.NewState
 		if err == nil {
 			cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
-			encodedCancelData, cancelManifestState, err = h.buildCancelPathData(
-				ctx, tx, req.StateQueryContext, cancelManifest, states.infoDistribution, states.unlockInfoStates)
+			endorsableShared := toEndorsable(states.sharedInfoStates)
+			var cancelManifestStates []*prototk.NewState
+			encodedCancelData, err = h.buildPathData(
+				ctx, tx, req.StateQueryContext, cancelManifest,
+				states.infoDistribution, states.sharedInfoStates, endorsableShared, &cancelManifestStates)
+			if err == nil && len(cancelManifestStates) > 0 {
+				cancelManifestState = cancelManifestStates[0]
+			}
 		}
 
 		// The tx data for the prepareUnlock itself needs to be distributed (separate to the unlockData)
@@ -114,7 +120,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 			newLockInfo.Replaces = states.oldLock.id
 			newLockInfo.Salt = pldtypes.RandBytes32()
 			newLockInfo.SpendOutputs = newStateAllocatedIDs(states.outputs.states)
-			newLockInfo.SpendData = states.encodedUnlockData
+			newLockInfo.SpendData = states.spendData
 			newLockInfo.CancelOutputs = newStateAllocatedIDs(cancelOutputs.states)
 			newLockInfo.CancelData = encodedCancelData
 			newLockInfo.SpendTxId = spendTxId

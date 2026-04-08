@@ -31,14 +31,14 @@ type unlockCommon struct {
 }
 
 type unlockStates struct {
-	oldLock           *loadedLockInfo // V1 only
-	lockedInputs      *preparedLockedInputs
-	v0LockedOutputs   *preparedLockedOutputs // V0 only
-	outputs           *preparedOutputs
-	info              []*prototk.NewState // includes the actual unlock data
-	unlockInfoStates  []*prototk.NewState // just the states from buildUnlockData (before prepareDataInfo appended)
-	infoDistribution  identityList
-	encodedUnlockData []byte // the on-chain reference to the unlockData pre-encoded
+	oldLock          *loadedLockInfo // V1 only
+	lockedInputs     *preparedLockedInputs
+	v0LockedOutputs  *preparedLockedOutputs // V0 only
+	outputs          *preparedOutputs
+	info             []*prototk.NewState // all info states (manifests + shared data states)
+	sharedInfoStates []*prototk.NewState // just the raw data info states from prepareDataInfo
+	infoDistribution identityList
+	spendData        []byte // encoded spend path data
 }
 
 type unlockDataResult struct {
@@ -98,56 +98,6 @@ func (h *unlockCommon) init(ctx context.Context, tx *types.ParsedTransaction, pa
 	}, nil
 }
 
-func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, fromID *identityPair, tx *types.ParsedTransaction, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, stateQueryContext string, unlockData []byte, unlockManifest *manifestBuilder) (encodedUnlockData []byte, infoStates []*prototk.NewState, infoDistribution identityList, err error) {
-	infoDistribution, err = h.getAllRecipientsDistribution(ctx, tx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
-	if err == nil {
-		infoStates, err = h.noto.prepareDataInfo(unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
-	}
-	if err == nil {
-		// We need to know the IDs of the states at this point
-		err = h.noto.allocateStateIDs(ctx, stateQueryContext, infoStates)
-	}
-	var manifestState *prototk.NewState
-	if tx.DomainConfig.IsV1() && unlockManifest != nil {
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		manifestState, err = unlockManifest.addInfoStates(infoDistribution, infoStates...).buildManifest(ctx, stateQueryContext)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		err = h.noto.allocateStateIDs(ctx, stateQueryContext, []*prototk.NewState{manifestState})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
-	if err == nil {
-		endorsableInfoStates := make([]*prototk.EndorsableState, len(infoStates))
-		for i, s := range infoStates {
-			endorsableInfoStates[i] = &prototk.EndorsableState{
-				Id:            *s.Id,
-				SchemaId:      s.SchemaId,
-				StateDataJson: s.StateDataJson,
-			}
-		}
-
-		if tx.DomainConfig.IsV1() && manifestState != nil {
-			// add the manifest state first
-			endorsableInfoStates = append([]*prototk.EndorsableState{{
-				Id:            *manifestState.Id,
-				SchemaId:      manifestState.SchemaId,
-				StateDataJson: manifestState.StateDataJson,
-			}}, endorsableInfoStates...)
-
-			// also append to info states being returned
-			infoStates = append([]*prototk.NewState{manifestState}, infoStates...)
-		}
-		encodedUnlockData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, endorsableInfoStates)
-	}
-	return
-}
-
 func toEndorsable(states []*prototk.NewState) []*prototk.EndorsableState {
 	result := make([]*prototk.EndorsableState, len(states))
 	for i, s := range states {
@@ -166,8 +116,7 @@ func toEndorsableOne(s *prototk.NewState) *prototk.EndorsableState {
 
 // buildPathData builds a manifest for one path (spend or cancel) and encodes
 // the transaction data referencing that manifest + shared info states.
-// For V1, always builds a manifest even if the manifest builder has no outputs.
-// Appends any new manifest state to allInfoStates.
+// v1 Paladin always builds a manifest
 func (h *unlockCommon) buildPathData(
 	ctx context.Context,
 	tx *types.ParsedTransaction,
@@ -176,7 +125,7 @@ func (h *unlockCommon) buildPathData(
 	infoDistribution identityList,
 	sharedInfoStates []*prototk.NewState,
 	endorsableShared []*prototk.EndorsableState,
-	allInfoStates *[]*prototk.NewState,
+	manifestStates *[]*prototk.NewState,
 ) ([]byte, error) {
 
 	if !tx.DomainConfig.IsV1() {
@@ -185,7 +134,6 @@ func (h *unlockCommon) buildPathData(
 			ctx, tx.DomainConfig, tx.Transaction, endorsableShared)
 	}
 
-	// V1: always build a manifest (even with no outputs, it describes info states)
 	if mb == nil {
 		mb = h.noto.newManifestBuilder()
 	}
@@ -208,15 +156,15 @@ func (h *unlockCommon) buildPathData(
 	)
 
 	// Track the manifest state in the output list
-	*allInfoStates = append(*allInfoStates, manifestState)
+	*manifestStates = append(*manifestStates, manifestState)
 
 	return h.noto.encodeTransactionData(
 		ctx, tx.DomainConfig, tx.Transaction, endorsableForEncoding)
 }
 
-// buildUnlockDataForPaths builds separate encoded unlock data for spend and cancel paths.
+// buildUnlockData builds separate encoded unlock data for spend and cancel paths.
 // Shared info states are allocated once and referenced by both manifests.
-func (h *unlockCommon) buildUnlockDataForPaths(
+func (h *unlockCommon) buildUnlockData(
 	ctx context.Context,
 	notaryID, senderID, fromID *identityPair,
 	tx *types.ParsedTransaction,
@@ -229,7 +177,7 @@ func (h *unlockCommon) buildUnlockDataForPaths(
 ) (*unlockDataResult, error) {
 
 	infoDistribution, err := h.getAllRecipientsDistribution(
-		ctx, tx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
+		ctx, notaryID, senderID, fromID, recipients, resolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}
@@ -247,23 +195,22 @@ func (h *unlockCommon) buildUnlockDataForPaths(
 
 	endorsableShared := toEndorsable(sharedInfoStates)
 
-	// build spend + cancel manifests + encode
-	allInfoStates := make([]*prototk.NewState, 0, len(sharedInfoStates)+2) // include room for the two manifests
+	manifestStates := make([]*prototk.NewState, 0, 2)
 	spendEncoded, err := h.buildPathData(
 		ctx, tx, stateQueryContext, spendManifest, infoDistribution,
-		sharedInfoStates, endorsableShared, &allInfoStates)
+		sharedInfoStates, endorsableShared, &manifestStates)
 	if err != nil {
 		return nil, err
 	}
 
 	cancelEncoded, err := h.buildPathData(
 		ctx, tx, stateQueryContext, cancelManifest, infoDistribution,
-		sharedInfoStates, endorsableShared, &allInfoStates)
+		sharedInfoStates, endorsableShared, &manifestStates)
 	if err != nil {
 		return nil, err
 	}
 
-	allInfoStates = append(allInfoStates, sharedInfoStates...)
+	allInfoStates := append(manifestStates, sharedInfoStates...)
 
 	return &unlockDataResult{
 		spendEncoded:     spendEncoded,
@@ -273,32 +220,7 @@ func (h *unlockCommon) buildUnlockDataForPaths(
 	}, nil
 }
 
-func (h *unlockCommon) buildCancelPathData(
-	ctx context.Context,
-	tx *types.ParsedTransaction,
-	stateQueryContext string,
-	cancelManifest *manifestBuilder,
-	infoDistribution identityList,
-	sharedInfoStates []*prototk.NewState,
-) (encodedCancelData []byte, cancelManifestState *prototk.NewState, err error) {
-
-	endorsableShared := toEndorsable(sharedInfoStates)
-	var manifestStates []*prototk.NewState
-
-	encoded, err := h.buildPathData(
-		ctx, tx, stateQueryContext, cancelManifest, infoDistribution,
-		sharedInfoStates, endorsableShared, &manifestStates)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if len(manifestStates) > 0 {
-		cancelManifestState = manifestStates[0]
-	}
-	return encoded, cancelManifestState, nil
-}
-
-func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, spendTxId *pldtypes.Bytes32, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, unlockData []byte) (*prototk.AssembleTransactionResponse, *manifestBuilder, *unlockStates, error) {
+func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, unlockData []byte) (*prototk.AssembleTransactionResponse, *manifestBuilder, *unlockStates, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
@@ -354,7 +276,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	var v0LockedOutputs *preparedLockedOutputs
 	var unlockedManifest *manifestBuilder
 	if tx.DomainConfig.IsV0() {
-		unlockedOutputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, params, req, fromID.address, remainder)
+		unlockedOutputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, params, req, remainder)
 	} else {
 		unlockedOutputs, err = h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
 		unlockedManifest = h.noto.newManifestBuilder().addOutputs(unlockedOutputs)
@@ -363,16 +285,29 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, nil, err
 	}
 
-	// Prepare the data for the unlock - noting that when directly unlocking, this is the data from the unlock().
-	// However, when performing prepareUnlock()/prepareMintUnlock()/prepareBurnUnlock() this is the separate unlockData parameter.
-	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, unlockData, unlockedManifest)
+	// Build the shared info states for the unlock data
+	infoDistribution, err := h.getAllRecipientsDistribution(ctx, notaryID, senderID, fromID, params.Recipients, req.ResolvedVerifiers)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sharedInfoStates, err := h.noto.prepareDataInfo(unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, sharedInfoStates); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Build the spend path encoded data using buildPathData
+	endorsableShared := toEndorsable(sharedInfoStates)
+	var spendManifestStates []*prototk.NewState
+	spendEncoded, err := h.buildPathData(ctx, tx, req.StateQueryContext, unlockedManifest, infoDistribution, sharedInfoStates, endorsableShared, &spendManifestStates)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// Capture the raw unlock info states before anything else is appended
-	unlockInfoStates := make([]*prototk.NewState, len(infoStates))
-	copy(unlockInfoStates, infoStates)
+	// spend manifest states first, then shared data states
+	infoStates := append(spendManifestStates, sharedInfoStates...)
 
 	if tx.DomainConfig.IsV0() {
 		// In V0 unlock repeats the lock state in the info
@@ -395,20 +330,20 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		},
 		mb,
 		&unlockStates{
-			oldLock:           existingLock,
-			lockedInputs:      lockedInputStates,
-			v0LockedOutputs:   v0LockedOutputs,
-			outputs:           unlockedOutputs,
-			info:              infoStates,
-			unlockInfoStates:  unlockInfoStates,
-			infoDistribution:  infoDistribution,
-			encodedUnlockData: encodedUnlockData,
+			oldLock:          existingLock,
+			lockedInputs:     lockedInputStates,
+			v0LockedOutputs:  v0LockedOutputs,
+			outputs:          unlockedOutputs,
+			info:             infoStates,
+			sharedInfoStates: sharedInfoStates,
+			infoDistribution: infoDistribution,
+			spendData:        spendEncoded,
 		},
 		nil
 }
 
 // In V0 the remainder was returned locked
-func (h *unlockCommon) assembleUnlockOutputs_V0(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, from *pldtypes.EthAddress, remainder *big.Int) (*preparedOutputs, *preparedLockedOutputs, error) {
+func (h *unlockCommon) assembleUnlockOutputs_V0(ctx context.Context, tx *types.ParsedTransaction, params *types.UnlockParams, req *prototk.AssembleTransactionRequest, remainder *big.Int) (*preparedOutputs, *preparedLockedOutputs, error) {
 	notary := tx.DomainConfig.NotaryLookup
 
 	notaryID, err := h.noto.findEthAddressVerifier(ctx, "notary", notary, req.ResolvedVerifiers)
@@ -448,7 +383,7 @@ func (h *unlockCommon) assembleUnlockOutputs_V0(ctx context.Context, tx *types.P
 	return unlockedOutputs, lockedOutputs, nil
 }
 
-func (h *unlockCommon) getAllRecipientsDistribution(ctx context.Context, tx *types.ParsedTransaction, notaryID, senderID, fromID *identityPair, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier) (identityList, error) {
+func (h *unlockCommon) getAllRecipientsDistribution(ctx context.Context, notaryID, senderID, fromID *identityPair, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier) (identityList, error) {
 	distribution := make(identityList, 0, len(recipients)+2)
 	distribution = append(distribution, notaryID, senderID)
 	if fromID != nil {

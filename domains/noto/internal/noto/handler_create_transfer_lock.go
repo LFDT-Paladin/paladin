@@ -156,7 +156,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 		addOutputs(cancelOutputs)
 
 	// Build and encode the unlock data separately for spend and cancel paths
-	unlockResult, err := h.buildUnlockDataForPaths(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}

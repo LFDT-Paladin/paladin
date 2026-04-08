@@ -37,7 +37,7 @@ type createBurnLockHandler struct {
 	unlockCommon
 }
 
-func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (interface{}, error) {
+func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (any, error) {
 	if config.IsV0() {
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0")
 	}
@@ -141,7 +141,7 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		addOutputs(cancelOutputs)
 
 	// Build and encode the unlock data for both spend and cancel
-	unlockResult, err := h.buildUnlockDataForPaths(ctx, notaryID, senderID, nil, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}

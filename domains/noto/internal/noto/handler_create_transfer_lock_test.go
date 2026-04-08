@@ -120,14 +120,16 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Len(t, assembleRes.AssembledTransaction.InputStates, 1)  // the input coin
 	require.Len(t, assembleRes.AssembledTransaction.OutputStates, 3) // lock + locked-coin + remainder-coin
 	require.Len(t, assembleRes.AssembledTransaction.ReadStates, 0)
-	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 5) // manifest + unlock-data-info + data-info + spend-coin + cancel-coin
+	require.Len(t, assembleRes.AssembledTransaction.InfoStates, 7) // manifest + spend-unlock-manifest + cancel-unlock-manifest + unlock-data-info + data-info + spend-coin + cancel-coin
 
 	inputCoinState := assembleRes.AssembledTransaction.InputStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	unlockDataState := assembleRes.AssembledTransaction.InfoStates[1]
-	dataState := assembleRes.AssembledTransaction.InfoStates[2]
-	spendCoinState := assembleRes.AssembledTransaction.InfoStates[3]
-	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[4]
+	spendUnlockManifestState := assembleRes.AssembledTransaction.InfoStates[1]
+	cancelUnlockManifestState := assembleRes.AssembledTransaction.InfoStates[2]
+	unlockDataState := assembleRes.AssembledTransaction.InfoStates[3]
+	dataState := assembleRes.AssembledTransaction.InfoStates[4]
+	spendCoinState := assembleRes.AssembledTransaction.InfoStates[5]
+	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[6]
 	newLockInfoState := assembleRes.AssembledTransaction.OutputStates[0]
 	lockedCoinState := assembleRes.AssembledTransaction.OutputStates[1]
 	remainderCoinState := assembleRes.AssembledTransaction.OutputStates[2]
@@ -164,7 +166,7 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 1)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.Equal(t, lockInfo.SpendData, lockInfo.CancelData) // same data for both currently
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // separate data for spend and cancel paths
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{lockedCoin}, []*types.NotoLockedCoin{}, []*types.NotoCoin{spendCoin})
 	require.NoError(t, err)
@@ -277,13 +279,15 @@ func TestCreateTransferLock(t *testing.T) {
 	}, data)
 
 	// Decode the options we store into the lockInfo
-	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
+	spendUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{spendUnlockManifestState, unlockDataState}))
+	require.NoError(t, err)
+	cancelUnlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{cancelUnlockManifestState, unlockDataState}))
 	require.NoError(t, err)
 	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
-	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
+	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), spendUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
-	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[2:3]), unlockTxData)
+	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[2:3]), cancelUnlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
 
@@ -363,7 +367,7 @@ func TestCreateTransferLock(t *testing.T) {
 		completeForIdentity(notaryAddress).
 		completeForIdentity(senderKey.Address.String()).
 		completeForIdentity(receiverAddress)
-	mt.withMissingNewStates(manifestState, dataState).
+	mt.withMissingNewStates(dataState).
 		incompleteForIdentity(notaryAddress).
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)

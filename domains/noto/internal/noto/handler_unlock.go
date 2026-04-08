@@ -53,7 +53,7 @@ func (h *unlockHandler) Assemble(ctx context.Context, tx *types.ParsedTransactio
 	params := tx.Params.(*types.UnlockParams)
 	notary := tx.DomainConfig.NotaryLookup
 
-	res, mb, states, err := h.assembleStates(ctx, tx, nil, params, req, params.Data /* we're directly unlocking, so the unlock data is just the "data" param */)
+	res, mb, states, err := h.assembleStates(ctx, tx, params, req, params.Data /* we're directly unlocking, so the unlock data is just the "data" param */)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
