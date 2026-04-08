@@ -198,6 +198,7 @@ async function main(): Promise<boolean> {
       lockId,
       from: investor1,
       recipients: [{ to: investor2, amount: assetAmount }],
+      unlockData: "0x",
       data: "0x",
     })
     .waitForReceipt(DEFAULT_POLL_TIMEOUT);
@@ -205,9 +206,8 @@ async function main(): Promise<boolean> {
   receipt = await paladin2.ptx.getTransactionReceiptFull(receipt.id);
 
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
-  const assetUnlockParams = domainReceipt?.lockInfo?.unlockParams;
   const assetUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (assetUnlockParams === undefined || assetUnlockCall === undefined) {
+  if (assetUnlockCall === undefined) {
     logger.error("No unlock data found in domain receipt");
     return false;
   }
@@ -297,7 +297,6 @@ async function main(): Promise<boolean> {
     .using(paladin2)
     .delegateLock(investor1, {
       lockId,
-      unlock: assetUnlockParams,
       delegate: atom.address,
       data: "0x",
     })

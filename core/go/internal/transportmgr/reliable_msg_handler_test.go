@@ -73,7 +73,7 @@ func TestReceiveMessageStateWithNullifierSendAckRealDB(t *testing.T) {
 			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
 				Return(nil).Once()
 			mkr := componentsmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -216,7 +216,7 @@ func TestHandleStateDistroBadNullifier(t *testing.T) {
 			mc.db.Mock.ExpectBegin()
 			mc.db.Mock.ExpectCommit()
 			mkr := componentsmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nil, fmt.Errorf("bad nullifier"))
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nil, fmt.Errorf("bad nullifier"))
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -502,7 +502,7 @@ func TestHandleNullifierFail(t *testing.T) {
 			mc.stateManager.On("WriteNullifiersForReceivedStates", mock.Anything, mock.Anything, "domain1", []*components.NullifierUpsert{nullifier}).
 				Return(fmt.Errorf("pop")).Once()
 			mkr := componentsmocks.NewKeyResolver(t)
-			mc.privateTxManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
+			mc.sequencerManager.On("BuildNullifier", mock.Anything, mkr, mock.Anything).Return(nullifier, nil)
 			mc.keyManager.On("KeyResolverForDBTX", mock.Anything).Return(mkr).Once()
 		},
 	)
@@ -1193,4 +1193,269 @@ func TestBuildReceiptDistributionMsgBadMsg(t *testing.T) {
 	require.NoError(t, err)
 	require.Regexp(t, "PD012016", parseErr)
 
+}
+
+func TestHandlePublicTransactionSubmissionOk(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+			mc.publicTxManager.On("WriteReceivedPublicTransactionSubmissions", mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+		},
+	)
+	defer done()
+
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:       *pldtypes.RandAddress(),
+			Nonce:      confutil.P(pldtypes.HexUint64(1)),
+			Created:    pldtypes.TimestampNow(),
+			Dispatcher: "test-dispatcher",
+		},
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:     uuid.New(),
+			TransactionType: pldapi.TransactionTypePublic.Enum(),
+		},
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, publicTxSubmission)
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "")
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandlePublicTransactionSubmissionBadData(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, nil)
+	msg.Payload = []byte(`!{ bad data`)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "invalid character")
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandlePublicTransactionSubmissionFail(t *testing.T) {
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.publicTxManager.On("WriteReceivedPublicTransactionSubmissions", mock.Anything, mock.Anything, mock.Anything).
+				Return(fmt.Errorf("pop"))
+		},
+	)
+	defer done()
+
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:       *pldtypes.RandAddress(),
+			Nonce:      confutil.P(pldtypes.HexUint64(1)),
+			Created:    pldtypes.TimestampNow(),
+			Dispatcher: "test-dispatcher",
+		},
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:     uuid.New(),
+			TransactionType: pldapi.TransactionTypePublic.Enum(),
+		},
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypePublicTransactionSubmission, publicTxSubmission)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestBuildPublicTransactionSubmissionMsgBadMsg(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	_, parseErr, err := tm.buildPublicTransactionSubmissionMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{})
+	require.NoError(t, err)
+	require.Regexp(t, "PD012016", parseErr)
+
+}
+
+func TestBuildSequencingProgressActivityMsgBadMsg(t *testing.T) {
+
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	_, parseErr, err := tm.buildSequencingProgressActivityMsg(ctx, tm.persistence.NOTX(), &pldapi.ReliableMessage{})
+	require.NoError(t, err)
+	require.Regexp(t, "PD012016", parseErr)
+
+}
+
+func TestHandleSequencingActivityOk(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	sequencingActivity := &components.SequencingActivity{
+		TransactionID:  uuid.New(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		Timestamp:      pldtypes.TimestampNow(),
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, sequencingActivity)
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "")
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandleSequencingActivityBadData(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockGoodTransport,
+		mockEmptyReliableMsgs,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectCommit()
+		},
+	)
+	defer done()
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, nil)
+	msg.Payload = []byte(`!{ bad data`)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	ackNackCheck := setupAckOrNackCheck(t, tp, msg.MessageID, "invalid character")
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	ackNackCheck()
+}
+
+func TestHandleSequencingActivityFail(t *testing.T) {
+	ctx, tm, _, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnError(fmt.Errorf("pop"))
+			mc.db.Mock.ExpectRollback()
+		},
+	)
+	defer done()
+
+	sequencingActivity := &components.SequencingActivity{
+		TransactionID:  uuid.New(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		Timestamp:      pldtypes.TimestampNow(),
+	}
+
+	msg := testReceivedReliableMsg(RMHMessageTypeSequencingActivity, sequencingActivity)
+
+	p, err := tm.getPeer(ctx, "node2", false)
+	require.NoError(t, err)
+
+	err = tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err = tm.handleReliableMsgBatch(ctx, dbTX, []*reliableMsgOp{
+			{p: p, msg: msg},
+		})
+		return err
+	})
+	require.Regexp(t, "pop", err)
+}
+
+func TestParseMessageSequencingProgressBadData(t *testing.T) {
+	ctx := context.Background()
+	msgID := uuid.New()
+	invalidData := []byte(`!{ bad data`)
+
+	_, err := parseMessageSequencingProgress(ctx, msgID, invalidData)
+	require.Error(t, err)
+	require.Regexp(t, "PD012016", err)
 }

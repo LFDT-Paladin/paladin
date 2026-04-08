@@ -53,6 +53,14 @@ type ReceiptInput struct {
 	RevertData      pldtypes.HexBytes        // set for RT_FailedOnChainWithRevertData
 }
 
+type SequencingActivity struct {
+	SubjectID      string             `json:"subjectId,omitempty"`
+	Timestamp      pldtypes.Timestamp `json:"timestamp,omitempty"`
+	TransactionID  uuid.UUID          `json:"transactionId,omitempty"`
+	ActivityType   string             `json:"activityType,omitempty"`
+	SequencingNode string             `json:"sequencingNode,omitempty"`
+}
+
 type TxCompletion struct {
 	ReceiptInput
 	PSC DomainSmartContract
@@ -72,6 +80,7 @@ type ValidatedTransaction struct {
 }
 
 type ChainedPrivateTransaction struct {
+	ID                      uuid.UUID // the ID of the chained private transaction
 	OriginalSenderLocator   string    // the original sender fully qualified identity
 	OriginalTransaction     uuid.UUID // the original transaction that chained this transaction
 	OriginalDomain          string    // the original domain of the upstream transaction
@@ -143,7 +152,8 @@ type TXManager interface {
 
 	LoadBlockchainEventListeners() error
 	NotifyStatesDBChanged(ctx context.Context) // called by state manager after committing DB TXs writing new states that might fill in gaps
-	PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, origSender string, origTxID uuid.UUID, origDomain string, origDomainAddress *pldtypes.EthAddress, txToChain *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (*ChainedPrivateTransaction, error)
+	PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, txToChain *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (*ChainedPrivateTransaction, error)
 	ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, txis []*ChainedPrivateTransaction) error
 	WritePreparedTransactions(ctx context.Context, dbTX persistence.DBTX, prepared []*PreparedTransactionWithRefs) error
+	BlockedByDependencies(ctx context.Context, dbTX persistence.DBTX, tx *ValidatedTransaction) (bool, error)
 }

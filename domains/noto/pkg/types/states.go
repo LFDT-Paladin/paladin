@@ -37,13 +37,19 @@ type ReceiptStates struct {
 	ReadLockedInputs      []*ReceiptState `json:"readLockedInputs,omitempty"`
 	PreparedOutputs       []*ReceiptState `json:"preparedOutputs,omitempty"`
 	PreparedLockedOutputs []*ReceiptState `json:"preparedLockedOutputs,omitempty"`
+	UpdatedLockInfo       []*ReceiptState `json:"updatedLockInfo,omitempty"`
 }
 
 type ReceiptLockInfo struct {
-	LockID       pldtypes.Bytes32     `json:"lockId"`
-	Delegate     *pldtypes.EthAddress `json:"delegate,omitempty"`     // only set for delegateLock
-	UnlockParams *UnlockPublicParams  `json:"unlockParams,omitempty"` // only set for prepareUnlock
-	UnlockCall   pldtypes.HexBytes    `json:"unlockCall,omitempty"`   // only set for prepareUnlock
+	LockID         pldtypes.Bytes32     `json:"lockId"`
+	Delegate       *pldtypes.EthAddress `json:"delegate,omitempty"`       // only set for delegateLock
+	SpendTxId      *pldtypes.Bytes32    `json:"spendTxId,omitempty"`      // only set for prepareUnlock
+	UnlockFunction string               `json:"unlockFunction,omitempty"` // only set for prepareUnlock
+	UnlockParams   map[string]any       `json:"unlockParams,omitempty"`   // only set for prepareUnlock
+	UnlockCall     pldtypes.HexBytes    `json:"unlockCall,omitempty"`     // only set for prepareUnlock
+	CancelFunction string               `json:"cancelFunction,omitempty"` // only set for prepareUnlock
+	CancelParams   map[string]any       `json:"cancelParams,omitempty"`   // only set for prepareUnlock
+	CancelCall     pldtypes.HexBytes    `json:"cancelCall,omitempty"`     // only set for prepareUnlock
 }
 
 type ReceiptState struct {
@@ -108,14 +114,49 @@ var NotoLockedCoinABI = &abi.Parameter{
 	},
 }
 
-type NotoLockInfo struct {
+type NotoManifestState struct {
+	ID              pldtypes.Bytes32    `json:"id"`
+	Created         pldtypes.Timestamp  `json:"created"`
+	ContractAddress pldtypes.EthAddress `json:"contractAddress"`
+	Data            NotoManifest        `json:"data"`
+}
+
+type NotoManifest struct {
+	Salt   pldtypes.Bytes32          `json:"salt"`
+	States []*NotoManifestStateEntry `json:"states"`
+}
+
+type NotoManifestStateEntry struct {
+	ID           pldtypes.Bytes32       `json:"state"`
+	Participants []*pldtypes.EthAddress `json:"participants"`
+}
+
+var NotoManifestABI = &abi.Parameter{
+	Name:         "NotoManifest",
+	Type:         "tuple",
+	InternalType: "struct NotoManifest",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{
+			Name:         "states",
+			Type:         "tuple[]",
+			InternalType: "struct NotoManifestStateEntry[]",
+			Components: abi.ParameterArray{
+				{Name: "state", Type: "bytes32"},
+				{Name: "participants", Type: "string[]"},
+			},
+		},
+	},
+}
+
+type NotoLockInfo_V0 struct {
 	Salt     pldtypes.Bytes32     `json:"salt"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
 	Owner    *pldtypes.EthAddress `json:"owner"`
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 }
 
-var NotoLockInfoABI = &abi.Parameter{
+var NotoLockInfoABI_V0 = &abi.Parameter{
 	Name:         "NotoLockInfo",
 	Type:         "tuple",
 	InternalType: "struct NotoLockInfo",
@@ -127,9 +168,42 @@ var NotoLockInfoABI = &abi.Parameter{
 	},
 }
 
+type NotoLockInfo_V1 struct {
+	Salt          pldtypes.Bytes32     `json:"salt"`
+	LockID        pldtypes.Bytes32     `json:"lockId"`
+	Owner         *pldtypes.EthAddress `json:"owner"`
+	Spender       *pldtypes.EthAddress `json:"spender"`
+	Replaces      pldtypes.Bytes32     `json:"replaces"`
+	SpendTxId     pldtypes.Bytes32     `json:"spendTxId"`
+	SpendOutputs  []pldtypes.Bytes32   `json:"spendOutputs"`
+	SpendData     pldtypes.HexBytes    `json:"spendData"`
+	CancelOutputs []pldtypes.Bytes32   `json:"cancelOutputs"`
+	CancelData    pldtypes.HexBytes    `json:"cancelData"`
+}
+
+// LockDetail_V1 is full representation of a lock, any prepared operation, and the current delegation
+var NotoLockInfoABI_V1 = &abi.Parameter{
+	Name:         "NotoLockInfo_V1",
+	Type:         "tuple",
+	InternalType: "struct NotoLockInfo_V1",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "lockId", Type: "bytes32", Indexed: true},
+		{Name: "owner", Type: "address", Indexed: true},
+		{Name: "spender", Type: "address", Indexed: true},
+		{Name: "replaces", Type: "bytes32"},
+		{Name: "spendTxId", Type: "bytes32"},
+		{Name: "spendOutputs", Type: "bytes32[]"},
+		{Name: "spendData", Type: "bytes"},
+		{Name: "cancelOutputs", Type: "bytes32[]"},
+		{Name: "cancelData", Type: "bytes"},
+	},
+}
+
 type TransactionData struct {
-	Salt             string               `json:"salt"`
+	Salt             pldtypes.Bytes32     `json:"salt"`
 	Data             pldtypes.HexBytes    `json:"data"`
+  Variant          pldtypes.HexUint64   `json:"variant"`
 	RequesterLookup  string               `json:"requesterLookup,omitempty"`
 	RequesterAddress *pldtypes.EthAddress `json:"requesterAddress,omitempty"`
 	RequesterType    string               `json:"requesterType,omitempty"`
@@ -141,7 +215,8 @@ type TransactionRequester struct {
 	Type            string               `json:"type,omitempty"`
 }
 
-var TransactionDataABI = &abi.Parameter{
+// TransactionDataABI_V0 is the original schema
+var TransactionDataABI_V0 = &abi.Parameter{
 	Name:         "TransactionData",
 	Type:         "tuple",
 	InternalType: "struct TransactionData",
@@ -151,5 +226,17 @@ var TransactionDataABI = &abi.Parameter{
 		{Name: "requesterLookup", Type: "string"},
 		{Name: "requesterAddress", Type: "address"},
 		{Name: "requesterType", Type: "string"},
+	},
+}
+
+// TransactionDataABI_V1 is the new schema with Noto variant field
+var TransactionDataABI_V1 = &abi.Parameter{
+	Name:         "TransactionData_V1",
+	Type:         "tuple",
+	InternalType: "struct TransactionData_V1",
+	Components: abi.ParameterArray{
+		{Name: "salt", Type: "bytes32"},
+		{Name: "data", Type: "bytes"},
+		{Name: "variant", Type: "uint64"},
 	},
 }

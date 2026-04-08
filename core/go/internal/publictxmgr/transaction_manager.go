@@ -76,11 +76,13 @@ type transactionUpdate struct {
 type pubTxManager struct {
 	ctx       context.Context
 	ctxCancel context.CancelFunc
+	nodeName  string
 
 	conf             *pldconf.PublicTxManagerConfig
 	thMetrics        metrics.PublicTransactionManagerMetrics
 	p                persistence.Persistence
 	bIndexer         blockindexer.BlockIndexer
+	sequencerManager components.SequencerManager
 	ethClient        ethclient.EthClient
 	keymgr           components.KeyManager
 	rootTxMgr        components.TXManager
@@ -166,12 +168,14 @@ func (ptm *pubTxManager) PreInit(pic components.PreInitComponents) (result *comp
 func (ptm *pubTxManager) PostInit(pic components.AllComponents) error {
 	ctx := ptm.ctx
 	log.L(ctx).Debugf("Initializing public transaction manager")
+	ptm.nodeName = pic.TransportManager().LocalNodeName()
 	ptm.ethClientFactory = pic.EthClientFactory()
 	ptm.keymgr = pic.KeyManager()
 	ptm.p = pic.Persistence()
 	ptm.bIndexer = pic.BlockIndexer()
 	ptm.rootTxMgr = pic.TxManager()
-	ptm.submissionWriter = newSubmissionWriter(ptm.ctx, ptm.p, ptm.conf, ptm.thMetrics)
+	ptm.sequencerManager = pic.SequencerManager()
+	ptm.submissionWriter = newSubmissionWriter(ptm.ctx, pic.TransportManager().LocalNodeName(), ptm.p, ptm.conf, ptm.thMetrics, ptm.sequencerManager, ptm.rootTxMgr)
 	ptm.balanceManager = NewBalanceManagerWithInMemoryTracking(ctx, ptm.conf, ptm)
 
 	log.L(ctx).Debugf("Initialized public transaction manager")
@@ -233,6 +237,8 @@ func buildEthTX(
 
 func (ptm *pubTxManager) SingleTransactionSubmit(ctx context.Context, txi *components.PublicTxSubmission) (tx *pldapi.PublicTx, err error) {
 	ctx = log.WithComponent(ctx, "publictxnmanager")
+	log.L(ctx).Tracef("SingleTransactionSubmit transaction: %+v", txi)
+
 	var txs []*pldapi.PublicTx
 	err = ptm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		err := ptm.ValidateTransaction(ctx, dbTX, txi)
@@ -249,7 +255,7 @@ func (ptm *pubTxManager) SingleTransactionSubmit(ctx context.Context, txi *compo
 
 func (ptm *pubTxManager) ValidateTransaction(ctx context.Context, dbTX persistence.DBTX, txi *components.PublicTxSubmission) error {
 	ctx = log.WithComponent(ctx, "publictxnmanager")
-	log.L(ctx).Tracef("PrepareSubmission transaction: %+v", txi)
+	log.L(ctx).Tracef("ValidateTransaction transaction: %+v", txi)
 
 	if txi.From == nil {
 		return i18n.NewError(ctx, msgs.MsgInvalidTXMissingFromAddr)
@@ -295,6 +301,17 @@ func (ptm *pubTxManager) ValidateTransaction(ctx context.Context, dbTX persisten
 
 func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persistence.DBTX, transactions []*components.PublicTxSubmission) (pubTxns []*pldapi.PublicTx, err error) {
 	ctx = log.WithComponent(ctx, "publictxnmanager")
+
+	// This could be a lot of transactions, but just logging the IDs if trace is enabled shouldn't be too heavy weight
+	log.L(ctx).Debugf("WriteNewTransactions transactions: %d", len(transactions))
+	if log.IsTraceEnabled() {
+		for _, txi := range transactions {
+			for _, bnd := range txi.Bindings {
+				log.L(ctx).Tracef("WriteNewTransactions transaction ID %+v", bnd.TransactionID)
+			}
+		}
+	}
+
 	persistedTransactions := make([]*DBPublicTxn, len(transactions))
 	for i, txi := range transactions {
 		persistedTransactions[i] = &DBPublicTxn{
@@ -303,6 +320,7 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 			Gas:             txi.Gas.Uint64(),
 			Value:           txi.Value,
 			Data:            txi.Data,
+			Dispatcher:      ptm.nodeName,
 			FixedGasPricing: pldtypes.JSONString(txi.PublicTxGasPricing),
 		}
 	}
@@ -349,6 +367,125 @@ func (ptm *pubTxManager) WriteNewTransactions(ctx context.Context, dbTX persiste
 	}
 
 	return pubTxns, err
+}
+
+// The coordinator distributes public transaction submissions (including the original transaction) to the originator when it submits them.
+// At the originator we will persist them in their respective tables (because our DB structure distringuishes between the public TX and the submission)
+func (ptm *pubTxManager) WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, txns []*pldapi.PublicTxWithBinding) (err error) {
+	for _, tx := range txns {
+		log.L(ctx).Debugf("WriteReceivedPublicTransactionSubmissions transaction: %+v", tx.Transaction)
+	}
+
+	persistedTransactions := make([]*DBPublicTxn, 0, len(txns))
+	for _, tx := range txns {
+		persistedTransactions = append(persistedTransactions, &DBPublicTxn{
+			From:            tx.From,
+			To:              tx.To,
+			Nonce:           (*uint64)(tx.Nonce),
+			Gas:             tx.Gas.Uint64(),
+			Value:           tx.Value,
+			Data:            tx.Data,
+			Dispatcher:      tx.Dispatcher,
+			Created:         tx.Created,
+			FixedGasPricing: pldtypes.JSONString(tx.PublicTxGasPricing),
+		})
+	}
+
+	if len(persistedTransactions) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_txns").
+			Clauses(
+				clause.OnConflict{
+					// Message delivery is at-least-once, so we need to be able writing the same transaction and its binding
+					// more than once. We don't expect any of the columns to change, so duplicates are ignored.
+					Columns: []clause.Column{
+						{Name: "from"},
+						{Name: "nonce"},
+					},
+					DoNothing: true,
+				},
+				clause.Returning{Columns: []clause.Column{{Name: "pub_txn_id"}}},
+			).
+			Create(&persistedTransactions).
+			Error
+		if err != nil {
+			return err
+		}
+
+		for _, tx := range persistedTransactions {
+			if tx.PublicTxnID != 0 {
+				continue
+			}
+			existing := &DBPublicTxn{}
+			err = dbTX.DB().
+				WithContext(ctx).
+				Table("public_txns").
+				Where(`"from" = ? AND nonce = ?`, tx.From, tx.Nonce).
+				Take(existing).
+				Error
+			if err != nil {
+				return err
+			}
+			tx.PublicTxnID = existing.PublicTxnID
+		}
+	}
+
+	dbBindings := make([]*DBPublicTxnBinding, 0, len(txns))
+	dbSubmissions := make([]*DBPubTxnSubmission, 0, len(txns))
+	for i, tx := range txns {
+		dbBindings = append(dbBindings, &DBPublicTxnBinding{
+			PublicTxnID:     persistedTransactions[i].PublicTxnID,
+			Transaction:     tx.Transaction,
+			TransactionType: pldtypes.Enum[pldapi.TransactionType](tx.TransactionType),
+			Sender:          tx.TransactionSender,
+			ContractAddress: tx.TransactionContractAddress,
+		})
+
+		for _, submission := range tx.Submissions {
+			dbSubmissions = append(dbSubmissions, &DBPubTxnSubmission{
+				PublicTxnID:     persistedTransactions[i].PublicTxnID,
+				TransactionHash: submission.TransactionHash,
+				Created:         submission.Time,
+				GasPricing:      pldtypes.JSONString(submission.PublicTxGasPricing),
+				SequencerTXReference: SequencerTXReference{
+					PrivateTXID: tx.Transaction,
+				},
+			})
+		}
+	}
+
+	if len(dbBindings) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_txn_bindings").
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "pub_txn_id"}},
+				DoNothing: true,
+			}).
+			Create(&dbBindings).
+			Error
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(dbSubmissions) > 0 {
+		err = dbTX.DB().
+			WithContext(ctx).
+			Table("public_submissions").
+			Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "tx_hash"}},
+				DoNothing: true,
+			}).
+			Create(&dbSubmissions).
+			Error
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
 }
 
 func (ptm *pubTxManager) writeUpdatedTransaction(ctx context.Context, dbTX persistence.DBTX, pubTXID uint64, from pldtypes.EthAddress, newPtx *DBPublicTxn) error {
@@ -518,12 +655,13 @@ func (ptm *pubTxManager) runTransactionQuery(ctx context.Context, dbTX persisten
 
 func mapPersistedTransaction(ptx *DBPublicTxn) *pldapi.PublicTx {
 	tx := &pldapi.PublicTx{
-		LocalID: &ptx.PublicTxnID,
-		From:    ptx.From,
-		Created: ptx.Created,
-		To:      ptx.To,
-		Nonce:   (*pldtypes.HexUint64)(ptx.Nonce),
-		Data:    ptx.Data,
+		LocalID:    &ptx.PublicTxnID,
+		From:       ptx.From,
+		Created:    ptx.Created,
+		To:         ptx.To,
+		Nonce:      (*pldtypes.HexUint64)(ptx.Nonce),
+		Data:       ptx.Data,
+		Dispatcher: ptx.Dispatcher,
 		PublicTxOptions: pldapi.PublicTxOptions{
 			Gas:                (*pldtypes.HexUint64)(&ptx.Gas),
 			Value:              ptx.Value,
@@ -587,6 +725,7 @@ func (ptm *pubTxManager) UpdateTransaction(ctx context.Context, id uuid.UUID, pu
 		WithContext(ctx).
 		Table("public_txns").
 		Where(`"pub_txn_id" = ?`, pubTXID).
+		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
 		Limit(1).
 		Find(&ptxs).
 		Error
@@ -757,10 +896,10 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 	// via our node to the network).
 	txHashes := make([]pldtypes.Bytes32, len(itxs))
 	for i, itx := range itxs {
+		log.L(ctx).Tracef("MatchUpdateConfirmedTransactions: checking for %+v", itx.Hash)
 		txHashes[i] = itx.Hash
 	}
 	var lookups []*bindingsMatchingSubmission
-
 	err := dbTX.DB().
 		Table("public_txn_bindings").
 		Select(`"transaction"`, "sender", "contract_address", `"tx_type"`, `"Submission"."pub_txn_id"`, `"Submission"."tx_hash"`).
@@ -804,6 +943,7 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 
 	if len(completions) > 0 {
 		// We have some completions to persist - in the same order as the confirmations that came in
+		log.L(ctx).Tracef("MatchUpdateConfirmedTransactions: Writing %d completions to 'public_completions'", len(completions))
 		err := dbTX.DB().
 			Table("public_completions").
 			Clauses(clause.OnConflict{
@@ -817,7 +957,6 @@ func (ptm *pubTxManager) MatchUpdateConfirmedTransactions(ctx context.Context, d
 		}
 		ptm.thMetrics.IncCompletedTransactionsByN(uint64(len(completions)))
 	}
-
 	return results, nil
 }
 

@@ -140,7 +140,7 @@ func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[
 	return done, conf, tb, rpc, wsClient
 }
 
-func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte) map[string]string {
+func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte, postDeploy ...func(deployed map[string]string, rpc rpcclient.Client)) map[string]string {
 	tb := testbed.NewTestBed()
 	httpURL, _, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
 	assert.NoError(t, err)
@@ -157,6 +157,9 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 			assert.NoError(t, rpcerr)
 		}
 		deployed[name] = addr
+	}
+	for _, fn := range postDeploy {
+		fn(deployed, rpc)
 	}
 	return deployed
 }

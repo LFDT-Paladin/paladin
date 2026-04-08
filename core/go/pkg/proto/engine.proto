@@ -19,11 +19,42 @@ package io.kaleido.paladin.kata.engine;
 option go_package = "pkg/proto/engine";
 import "google/protobuf/any.proto";
 
+message NonceAssigned {
+    string id = 1;
+    string contract_address = 2;
+    string transaction_id = 3;
+    int64 nonce = 4;
+}
+
+message TransactionSubmitted {
+    string id = 1;
+    string contract_address = 2;
+    string transaction_id = 3;
+    bytes hash = 4;
+}
 
 message TransactionDispatched {
     string id = 1;
     string contract_address = 2;
     string transaction_id = 3;
+    bytes post_assemble_hash = 4;
+    string signer = 5;
+}
+
+message TransactionConfirmed {
+    enum Outcome {
+        OUTCOME_UNSPECIFIED = 0;
+        OUTCOME_SUCCESS = 1;
+        OUTCOME_REVERTED = 2;
+    }
+    string id = 1;
+    string contract_address = 2;
+    string transaction_id = 3;
+    int64 nonce = 4;
+    Outcome outcome = 5;
+    bool will_retry = 6;
+    bytes revert_reason = 7;
+    string failure_message = 8;
 }
 
 message EndorsementRequest {
@@ -90,10 +121,11 @@ message DelegationRequest {
 }
 
 message DelegationRequestAcknowledgment {
-    string transaction_id = 1;
-    string delegate_node_id = 2;
-    string delegation_id = 3;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
-    string contract_address = 4;
+    repeated string transaction_ids = 1;
+    repeated int64 errors = 2; // Every delegate could have a different result. Allow optional enum error per transaction
+    string delegate_node_id = 3;
+    string delegation_id = 4;//this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
+    string contract_address = 5;
 }
 
 message StateAcknowledgedEvent {
@@ -137,6 +169,7 @@ message AssembleResponse {
     string assemble_request_id = 2;
     string contract_address = 3;
     bytes post_assembly = 4;
+    bytes pre_assembly = 5;
 }
 
 message AssembleError {
@@ -144,4 +177,23 @@ message AssembleError {
     string assemble_request_id = 2;
     string contract_address = 3;
     string error_message = 4;
+}
+
+message CoordinatorHeartbeatNotification {
+    string from = 1;
+    string contract_address = 2; // Represent as hex address?
+    bytes coordinator_snapshot = 3;
+}
+
+message HandoverRequest {
+    string contract_address = 1; // Represent as hex address?
+}
+
+// Sent by an originator when it receives a message for a transaction it doesn't recognize.
+// The most likely cause is that the transaction reached a terminal state (e.g. reverted during assembly)
+// but the response was lost, and the transaction has since been removed from memory on the originator after cleanup.
+message TransactionUnknown {
+    string id = 1;
+    string transaction_id = 2;
+    string contract_address = 3;
 }

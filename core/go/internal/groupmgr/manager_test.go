@@ -446,6 +446,72 @@ func TestPrivacyGroupSendReliableFail(t *testing.T) {
 	require.NoError(t, mc.db.Mock.ExpectationsWereMet())
 }
 
+func TestPrivacyGroupFixedSigningIdentity(t *testing.T) {
+	// Test that when tx.From is empty and domain.FixedSigningIdentity() returns a non-empty string,
+	fixedIdentity := "fixed-identity-123"
+
+	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{},
+		mockEmptyMessageListeners,
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectExec("INSERT.*privacy_groups").WillReturnResult(driver.ResultNoRows)
+			mc.db.Mock.ExpectExec("INSERT.*privacy_group_members").WillReturnResult(driver.ResultNoRows)
+			mc.db.Mock.ExpectCommit()
+		},
+		func(mc *mockComponents, conf *pldconf.GroupManagerConfig) {
+			// Override the default FixedSigningIdentity mock to return a non-empty string
+			// We need to reset the default Maybe() expectation first by setting up a new one
+			// that will be checked before the Maybe() one
+			mc.domain.ExpectedCalls = nil // Clear existing expectations
+			mc.domain.On("FixedSigningIdentity").Return(fixedIdentity)
+			mc.domain.On("CustomHashFunction").Return(false).Maybe()
+			mc.domain.On("Name").Return("domain1").Maybe()
+			// Set up domain configuration
+			mc.domain.On("ConfigurePrivacyGroup", mock.Anything, mock.Anything).Return(map[string]string{}, nil)
+			// Override InitPrivacyGroup to return a transaction with empty From field
+			mc.domain.On("InitPrivacyGroup", mock.Anything, mock.Anything, mock.Anything).
+				Return(&pldapi.TransactionInput{
+					TransactionBase: pldapi.TransactionBase{
+						Domain: "domain1",
+						Type:   pldapi.TransactionTypePrivate.Enum(),
+						From:   "", // Empty From to trigger the FixedSigningIdentity logic
+					},
+				}, nil)
+			// Set up state manager mocks
+			ms := componentsmocks.NewSchema(t)
+			ms.On("ID").Return(pldtypes.RandBytes32())
+			ms.On("Signature").Return("").Maybe()
+			mc.stateManager.On("EnsureABISchemas", mock.Anything, mock.Anything, "domain1", mock.Anything).
+				Return([]components.Schema{ms}, nil)
+			mc.stateManager.On("WriteReceivedStates", mock.Anything, mock.Anything, "domain1", mock.Anything).
+				Return([]*pldapi.State{
+					{StateBase: pldapi.StateBase{
+						ID: pldtypes.RandBytes(32),
+					}},
+				}, nil)
+			// Verify that SendTransactions is called with a transaction that has From set to fixedIdentity
+			mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).
+				Return([]uuid.UUID{uuid.New()}, nil).
+				Run(func(args mock.Arguments) {
+					tx := args[2].([]*pldapi.TransactionInput)[0]
+					assert.Equal(t, fixedIdentity, tx.From, "tx.From should be set to the fixed signing identity")
+				})
+			// SendReliable is only called when there are remote members, but we're only using local members
+		})
+	defer done()
+
+	err := gm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := gm.CreateGroup(ctx, dbTX, &pldapi.PrivacyGroupInput{
+			Domain:  "domain1",
+			Members: []string{"me@node1"},
+		})
+		return err
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, mc.db.Mock.ExpectationsWereMet())
+}
+
 func TestQueryGroupsFail(t *testing.T) {
 
 	ctx, gm, mc, done := newTestGroupManager(t, false, &pldconf.GroupManagerConfig{}, mockEmptyMessageListeners)

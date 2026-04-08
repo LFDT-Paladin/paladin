@@ -28,8 +28,10 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/go-resty/resty/v2"
+	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,4 +161,67 @@ func newTestRPCServer(t *testing.T, ctx context.Context, km *keyManager) (rpccli
 
 	return c, s.Stop
 
+}
+
+func TestRPCSign(t *testing.T) {
+	ctx, km, _, done := newTestDBKeyManagerWithWallets(t, hdWalletConfig("hdwallet1", ""))
+	defer done()
+
+	rpc, rpcDone := newTestRPCServer(t, ctx, km)
+	defer rpcDone()
+
+	keyIdentifier := "test.key"
+	var resolvedKey *pldapi.KeyMappingAndVerifier
+	err := rpc.CallRPC(ctx, &resolvedKey, "keymgr_resolveKey", keyIdentifier, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
+	require.NoError(t, err)
+
+	// Sign arbitrary payload
+	payload := pldtypes.HexBytes("test data to sign")
+	var signature pldtypes.HexBytes
+	err = rpc.CallRPC(ctx, &signature, "keymgr_sign", keyIdentifier, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, signpayloads.OPAQUE_TO_RSV, payload)
+	require.NoError(t, err)
+	assert.Len(t, signature, 65)
+
+	// Verify we can recover the signer from the signature using RecoverDirect on original payload
+	sig, decodeErr := secp256k1.DecodeCompactRSV(ctx, signature)
+	require.NoError(t, decodeErr)
+	recoveredAddr, recoverErr := sig.RecoverDirect(payload, 0)
+	require.NoError(t, recoverErr)
+	assert.Equal(t, resolvedKey.Verifier.Verifier, recoveredAddr.String())
+}
+
+func TestRPCSignInvalidKey(t *testing.T) {
+	ctx, km, _, done := newTestKeyManager(t, true, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{}, // No wallets configured
+	}, nil)
+	defer done()
+
+	rpc, rpcDone := newTestRPCServer(t, ctx, km)
+	defer rpcDone()
+
+	payload := pldtypes.HexBytes("test data")
+	var signature pldtypes.HexBytes
+	err := rpc.CallRPC(ctx, &signature, "keymgr_sign", "test.key", algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, signpayloads.OPAQUE_TO_RSV, payload)
+	assert.Error(t, err)
+	assert.Regexp(t, "PD010501", err)
+}
+
+func TestRPCSignDisabled(t *testing.T) {
+	ctx, km, _, done := newTestKeyManager(t, true, &pldconf.KeyManagerInlineConfig{
+		KeyManagerConfig: pldconf.KeyManagerConfig{
+			DisableSignRPC: true,
+		},
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	rpc, rpcDone := newTestRPCServer(t, ctx, km)
+	defer rpcDone()
+
+	payload := pldtypes.HexBytes("test data")
+
+	var signature pldtypes.HexBytes
+	err := rpc.CallRPC(ctx, &signature, "keymgr_sign", "any.key", payload)
+	assert.Error(t, err)
+	assert.Regexp(t, "PD020702: method not supported", err.Error())
 }

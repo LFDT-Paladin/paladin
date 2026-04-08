@@ -385,3 +385,63 @@ func TestHDInitGenSeed(t *testing.T) {
 	assert.Len(t, generatedSeed, 32)
 	assert.NotEqual(t, make([]byte, 32), generatedSeed) // not zero
 }
+
+func TestHDLoadWalletPrivateKeyDeriveError(t *testing.T) {
+	ctx := context.Background()
+	entropy, err := bip39.NewEntropy(256)
+	require.NoError(t, err)
+
+	mnemonic, err := bip39.NewMnemonic(entropy)
+	require.NoError(t, err)
+
+	sm, err := NewSigningModule(ctx, &signerapi.ConfigNoExt{
+		KeyDerivation: pldconf.KeyDerivationConfig{
+			Type: pldconf.KeyDerivationTypeBIP32,
+		},
+		KeyStore: pldconf.KeyStoreConfig{
+			Type: pldconf.KeyStoreTypeStatic,
+			Static: pldconf.StaticKeyStoreConfig{
+				Keys: map[string]pldconf.StaticKeyEntryConfig{
+					"seed": {
+						Encoding: "none",
+						Inline:   mnemonic,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	hd := sm.(*signingModule[*signerapi.ConfigNoExt]).hd
+	require.NotNil(t, hd)
+
+	// Derive a non-hardened child to get a private key
+	// Then convert it to an extended public key (xpub)
+	// We'll use path m/44'/60'/0 to get a private key, then convert to xpub
+	seed, err := bip39.NewSeedWithErrorChecking(mnemonic, "")
+	require.NoError(t, err)
+
+	masterKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
+	require.NoError(t, err)
+
+	// Derive m/44'/60'/0 (hardened path)
+	key44, err := masterKey.Derive(0x80000000 + 44)
+	require.NoError(t, err)
+
+	key60, err := key44.Derive(0x80000000 + 60)
+	require.NoError(t, err)
+
+	key0, err := key60.Derive(0x80000000 + 0)
+	require.NoError(t, err)
+
+	xpub, err := key0.Neuter()
+	require.NoError(t, err)
+
+	// Now we have a public key at the base, and trying to derive hardened children will fail
+	hd.hdKeyChain = xpub
+
+	// Try to load a key handle that requires deriving a hardened child from the xpub
+	_, err = hd.loadHDWalletPrivateKey(ctx, "m/1'")
+	assert.Error(t, err)
+	assert.Regexp(t, "PD020813", err)
+}

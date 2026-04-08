@@ -17,6 +17,7 @@ package domainmgr
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -50,8 +52,9 @@ type mockComponents struct {
 	blockIndexer     *blockindexermocks.BlockIndexer
 	keyManager       *componentsmocks.KeyManager
 	txManager        *componentsmocks.TXManager
-	privateTxManager *componentsmocks.PrivateTxManager
+	sequencerManager *componentsmocks.SequencerManager
 	transportMgr     *componentsmocks.TransportManager
+	publicTxManager  *componentsmocks.PublicTxManager
 	groupManager     *componentsmocks.GroupManager
 }
 
@@ -66,8 +69,9 @@ func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManager
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
 		keyManager:       componentsmocks.NewKeyManager(t),
 		txManager:        componentsmocks.NewTXManager(t),
-		privateTxManager: componentsmocks.NewPrivateTxManager(t),
+		sequencerManager: componentsmocks.NewSequencerManager(t),
 		transportMgr:     componentsmocks.NewTransportManager(t),
+		publicTxManager:  componentsmocks.NewPublicTxManager(t),
 		groupManager:     componentsmocks.NewGroupManager(t),
 	}
 
@@ -80,8 +84,9 @@ func newTestDomainManager(t *testing.T, realDB bool, conf *pldconf.DomainManager
 	mc.keyManager.On("AddInMemorySigner", "domain", mock.Anything).Return().Maybe()
 	allComponents.On("KeyManager").Return(mc.keyManager)
 	allComponents.On("TxManager").Return(mc.txManager)
-	allComponents.On("PrivateTxManager").Return(mc.privateTxManager)
+	allComponents.On("SequencerManager").Return(mc.sequencerManager)
 	allComponents.On("TransportManager").Return(mc.transportMgr)
+	allComponents.On("PublicTxManager").Return(mc.publicTxManager)
 	allComponents.On("GroupManager").Maybe().Return(mc.groupManager)
 	mc.groupManager.On("QueryGroups", mock.Anything, mock.Anything, mock.Anything).Maybe().Return([]*pldapi.PrivacyGroup{}, nil)
 	mc.transportMgr.On("LocalNodeName").Return("node1").Maybe()
@@ -189,8 +194,9 @@ func TestDomainMissingRegistryAddress(t *testing.T) {
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
 		keyManager:       componentsmocks.NewKeyManager(t),
 		txManager:        componentsmocks.NewTXManager(t),
-		privateTxManager: componentsmocks.NewPrivateTxManager(t),
+		sequencerManager: componentsmocks.NewSequencerManager(t),
 		transportMgr:     componentsmocks.NewTransportManager(t),
+		publicTxManager:  componentsmocks.NewPublicTxManager(t),
 		groupManager:     componentsmocks.NewGroupManager(t),
 	}
 	componentsmocks := componentsmocks.NewAllComponents(t)
@@ -202,8 +208,9 @@ func TestDomainMissingRegistryAddress(t *testing.T) {
 	mc.keyManager.On("AddInMemorySigner", "domain", mock.Anything).Return().Maybe()
 	componentsmocks.On("KeyManager").Return(mc.keyManager)
 	componentsmocks.On("TxManager").Return(mc.txManager)
-	componentsmocks.On("PrivateTxManager").Return(mc.privateTxManager)
+	componentsmocks.On("SequencerManager").Return(mc.sequencerManager)
 	componentsmocks.On("TransportManager").Return(mc.transportMgr)
+	componentsmocks.On("PublicTxManager").Return(mc.publicTxManager)
 	componentsmocks.On("GroupManager").Return(mc.groupManager)
 
 	mp, err := mockpersistence.NewSQLMockProvider()
@@ -377,6 +384,9 @@ func TestWaitForTransactionTimeout(t *testing.T) {
 }
 
 func TestPopulateContractConfig(t *testing.T) {
+}
+
+func TestGetSigner(t *testing.T) {
 	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"domain1": {
@@ -386,32 +396,9 @@ func TestPopulateContractConfig(t *testing.T) {
 	})
 	defer done()
 
-	result := &pldapi.DomainSmartContract{}
-
-	// Test with nil config
-	dm.populateContractConfig(result, nil)
-	assert.Nil(t, result.Config)
-
-	// Test with empty config
-	dm.populateContractConfig(result, &prototk.ContractConfig{})
-	assert.NotNil(t, result.Config)
-	assert.Nil(t, result.Config.ContractConfig)
-
-	// Test with contract config JSON
-	result = &pldapi.DomainSmartContract{}
-	dm.populateContractConfig(result, &prototk.ContractConfig{
-		ContractConfigJson: `{"key":"value"}`,
-	})
-	assert.NotNil(t, result.Config)
-	assert.Equal(t, pldtypes.RawJSON(`{"key":"value"}`), result.Config.ContractConfig)
-
-	// Test with empty JSON string
-	result = &pldapi.DomainSmartContract{}
-	dm.populateContractConfig(result, &prototk.ContractConfig{
-		ContractConfigJson: "",
-	})
-	assert.NotNil(t, result.Config)
-	assert.Nil(t, result.Config.ContractConfig)
+	signer := dm.GetSigner()
+	assert.NotNil(t, signer)
+	assert.Equal(t, dm.domainSigner, signer)
 }
 
 func TestGetSmartContractByAddressCached(t *testing.T) {
@@ -450,21 +437,6 @@ func TestGetSmartContractByAddressCached(t *testing.T) {
 	assert.Equal(t, `{"cached":"true"}`, sc.ContractConfig().ContractConfigJson)
 }
 
-func TestGetSigner(t *testing.T) {
-	_, dm, _, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
-		Domains: map[string]*pldconf.DomainConfig{
-			"domain1": {
-				RegistryAddress: pldtypes.RandHex(20),
-			},
-		},
-	})
-	defer done()
-
-	signer := dm.GetSigner()
-	assert.NotNil(t, signer)
-	assert.Equal(t, dm.domainSigner, signer)
-}
-
 func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
@@ -478,14 +450,15 @@ func TestQuerySmartContractsLimitNotSet(t *testing.T) {
 	jq := &query.QueryJSON{}
 	mc.db.ExpectBegin()
 	mc.db.ExpectRollback()
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		_, err := dm.querySmartContracts(ctx, dbTX, jq)
 		return err
 	})
 	assert.Regexp(t, "PD010721", err)
 }
 
-func TestQuerySmartContractsDBError(t *testing.T) {
+func TestQuerySmartContractsDatabaseError(t *testing.T) {
 	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"domain1": {
@@ -495,49 +468,289 @@ func TestQuerySmartContractsDBError(t *testing.T) {
 	})
 	defer done()
 
-	limit := 50
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
 	mc.db.ExpectBegin()
-	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(assert.AnError)
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
-		_, err := dm.querySmartContracts(ctx, dbTX, &query.QueryJSON{Limit: &limit})
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnError(fmt.Errorf("database error"))
+	mc.db.ExpectRollback()
+
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
 		return err
 	})
-	assert.Error(t, err)
+	assert.Regexp(t, "database error", err)
 }
 
-func TestQuerySmartContractsWithDomainNotConfigured(t *testing.T) {
-	domainAddr := pldtypes.RandAddress()
-	unconfiguredDomainAddr := pldtypes.RandAddress()
-	contractAddr := pldtypes.RandAddress()
-
+func TestQuerySmartContractsEmptyResults(t *testing.T) {
 	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
 		Domains: map[string]*pldconf.DomainConfig{
 			"domain1": {
-				RegistryAddress: domainAddr.String(),
+				RegistryAddress: pldtypes.RandHex(20),
 			},
 		},
 	})
 	defer done()
 
-	limit := 50
-	// Mock DB query that returns a contract from an unconfigured domain
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
 	mc.db.ExpectBegin()
-	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows([]string{
-		"deploy_tx", "domain_address", "address", "config_bytes",
-	}).AddRow(
-		uuid.New(), *unconfiguredDomainAddr, *contractAddr, []byte(`{}`),
-	))
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
+	)
 	mc.db.ExpectCommit()
 
-	// Query smart contracts - should return the contract but without domain info
 	var results []*pldapi.DomainSmartContract
-	err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
-		results, err = dm.querySmartContracts(ctx, dbTX, &query.QueryJSON{Limit: &limit})
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestQuerySmartContractsDomainNotFound(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"domain1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
+	contractAddr := pldtypes.RandAddress()
+	// Use a different domain address that's not configured
+	unknownDomainAddr := pldtypes.RandAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr.String(), []byte{}),
+	)
+	mc.db.ExpectCommit()
+
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
 		return err
 	})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.Equal(t, "", results[0].DomainName)
-	assert.Equal(t, unconfiguredDomainAddr, results[0].DomainAddress)
 	assert.Equal(t, *contractAddr, results[0].Address)
+	require.NotNil(t, results[0].DomainAddress, "DomainAddress should not be nil")
+	assert.Equal(t, *unknownDomainAddr, *results[0].DomainAddress)
+	assert.Empty(t, results[0].DomainName) // Domain not found, so DomainName should be empty
+}
+
+func TestQuerySmartContractsDomainFound(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	// Register the domain manually
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+		InitContract: func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+			return &prototk.InitContractResponse{
+				Valid: true,
+				ContractConfig: &prototk.ContractConfig{
+					ContractConfigJson:   `{}`,
+					CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
+					SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+				},
+			}, nil
+		},
+	}
+	mc.stateStore.On("EnsureABISchemas", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil, nil)
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	// Set up database transaction expectations for domain initialization
+	mc.db.ExpectBegin()
+	mc.db.ExpectCommit()
+	registerTestDomain(t, dm, tp)
+
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
+	domainAddr := *tp.d.RegistryAddress()
+	contractAddr := pldtypes.RandAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
+	)
+	mc.db.ExpectCommit()
+
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, *contractAddr, results[0].Address)
+	assert.Equal(t, domainAddr, *results[0].DomainAddress)
+	assert.Equal(t, "test1", results[0].DomainName) // Domain found, so DomainName should be set
+}
+
+func TestQuerySmartContractsMultipleResults(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	// Register the domain manually
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+		InitContract: func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+			return &prototk.InitContractResponse{
+				Valid: true,
+				ContractConfig: &prototk.ContractConfig{
+					ContractConfigJson:   `{}`,
+					CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
+					SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+				},
+			}, nil
+		},
+	}
+	mc.stateStore.On("EnsureABISchemas", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil, nil)
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	// Set up database transaction expectations for domain initialization
+	mc.db.ExpectBegin()
+	mc.db.ExpectCommit()
+	registerTestDomain(t, dm, tp)
+
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
+	domainAddr := *tp.d.RegistryAddress()
+	contractAddr1 := pldtypes.RandAddress()
+	contractAddr2 := pldtypes.RandAddress()
+	unknownDomainAddr := pldtypes.RandAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr1.String(), []byte{0xfe, 0xed, 0xbe, 0xef}).
+			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr2.String(), []byte{0xde, 0xad, 0xbe, 0xef}),
+	)
+	mc.db.ExpectCommit()
+
+	var results []*pldapi.DomainSmartContract
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		results, err = dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// First result: domain found
+	assert.Equal(t, *contractAddr1, results[0].Address)
+	assert.Equal(t, domainAddr, *results[0].DomainAddress)
+	assert.Equal(t, "test1", results[0].DomainName)
+
+	// Second result: domain not found
+	assert.Equal(t, *contractAddr2, results[1].Address)
+	assert.Equal(t, *unknownDomainAddr, *results[1].DomainAddress)
+	assert.Empty(t, results[1].DomainName)
+}
+
+func TestQuerySmartContractsEnrichError(t *testing.T) {
+	ctx, dm, mc, done := newTestDomainManager(t, false, &pldconf.DomainManagerInlineConfig{
+		Domains: map[string]*pldconf.DomainConfig{
+			"test1": {
+				RegistryAddress: pldtypes.RandHex(20),
+			},
+		},
+	})
+	defer done()
+
+	// Register the domain manually
+	tp := newTestPlugin(nil)
+	tp.Functions = &plugintk.DomainAPIFunctions{
+		ConfigureDomain: func(ctx context.Context, cdr *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+			return &prototk.ConfigureDomainResponse{
+				DomainConfig: goodDomainConf(),
+			}, nil
+		},
+		InitDomain: func(ctx context.Context, idr *prototk.InitDomainRequest) (*prototk.InitDomainResponse, error) {
+			return &prototk.InitDomainResponse{}, nil
+		},
+		InitContract: func(ctx context.Context, icr *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+			return nil, fmt.Errorf("init contract error")
+		},
+	}
+	mc.stateStore.On("EnsureABISchemas", mock.Anything, mock.Anything, "test1", mock.Anything).Return(nil, nil)
+	mc.blockIndexer.On("AddEventStream", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	// Set up database transaction expectations for domain initialization
+	mc.db.ExpectBegin()
+	mc.db.ExpectCommit()
+	registerTestDomain(t, dm, tp)
+
+	limit := 10
+	jq := &query.QueryJSON{
+		Limit: &limit,
+	}
+
+	domainAddr := *tp.d.RegistryAddress()
+	contractAddr := pldtypes.RandAddress()
+
+	mc.db.ExpectBegin()
+	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
+		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
+			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
+	)
+	mc.db.ExpectRollback()
+
+	var err error
+	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		_, err := dm.querySmartContracts(ctx, dbTX, jq)
+		return err
+	})
+	assert.Regexp(t, "init contract error", err)
 }

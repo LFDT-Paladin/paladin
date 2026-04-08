@@ -323,6 +323,7 @@ func (el *blockchainEventListener) addReceiver(r components.BlockchainEventRecei
 		BlockchainEventReceiver: r,
 	}
 	el.pendingReceivers = append(el.pendingReceivers, registered)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver added id=%s pending=%d active=%d", el.definition.Name, registered.id, len(el.pendingReceivers), len(el.receivers))
 
 	return registered
 }
@@ -338,6 +339,7 @@ func (el *blockchainEventListener) setActive(receiver *registeredBlockchainEvent
 	}
 	el.receivers = append(el.receivers, receiver)
 	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, receiver.id)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver activated id=%s pending=%d active=%d", el.definition.Name, receiver.id, len(el.pendingReceivers), len(el.receivers))
 
 	select {
 	case el.newReceivers <- true:
@@ -351,6 +353,7 @@ func (el *blockchainEventListener) removeReceiver(rid uuid.UUID) {
 
 	el.receivers = el.removeReceiverFromList(el.receivers, rid)
 	el.pendingReceivers = el.removeReceiverFromList(el.pendingReceivers, rid)
+	log.L(el.tm.bgCtx).Debugf("event listener '%s': receiver removed id=%s pending=%d active=%d", el.definition.Name, rid, len(el.pendingReceivers), len(el.receivers))
 }
 
 func (el *blockchainEventListener) removeReceiverFromList(receivers []*registeredBlockchainEventReceiver, rid uuid.UUID) []*registeredBlockchainEventReceiver {

@@ -16,6 +16,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -38,10 +39,11 @@ import (
 type mockPlugin[T any] struct {
 	t *testing.T
 
-	conf            *pldconf.PluginConfig
-	preRegister     func(domainID string) *T
-	customResponses func(*T) []*T
-	expectClose     func(err error)
+	conf             *pldconf.PluginConfig
+	preRegister      func(pluginID string) *T
+	registerOverride func(pluginID string) *T
+	customResponses  func(*T) []*T
+	expectClose      func(err error)
 
 	headerAccessor func(*T) *prototk.Header
 	connectFactory func(ctx context.Context, client prototk.PluginControllerClient) (grpc.BidiStreamingClient[T, T], error)
@@ -78,13 +80,18 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 		err = stream.Send(tp.preRegister(pluginId))
 		require.NoError(t, err)
 	}
-	regMsg := new(T)
-	header := tp.headerAccessor(regMsg)
-	header.PluginId = pluginId
-	header.MessageId = uuid.New().String()
-	header.MessageType = prototk.Header_REGISTER
+	var regMsg *T
+	if tp.registerOverride != nil {
+		regMsg = tp.registerOverride(pluginId)
+	} else {
+		regMsg = new(T)
+		header := tp.headerAccessor(regMsg)
+		header.PluginId = pluginId
+		header.MessageId = uuid.New().String()
+		header.MessageType = prototk.Header_REGISTER
+	}
 	err = stream.Send(regMsg)
-	if err != nil {
+	if err != nil && tp.expectClose == nil {
 		require.NoError(t, err)
 	}
 
@@ -94,7 +101,9 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 		if tp.sendRequest != nil {
 			req := tp.sendRequest(pluginId)
 			err := stream.Send(req)
-			require.NoError(t, err)
+			if tp.expectClose == nil {
+				require.NoError(t, err)
+			}
 			tp.sendRequest = nil
 		}
 
@@ -112,7 +121,9 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 				responses := tp.customResponses(msg)
 				for _, r := range responses {
 					err := stream.Send(r)
-					assert.NoError(t, err)
+					if tp.expectClose == nil {
+						require.NoError(t, err)
+					}
 				}
 				continue
 			}
@@ -125,7 +136,9 @@ func (tp *mockPlugin[T]) Run(grpcTarget, pluginId string) {
 			replyHeader.MessageType = prototk.Header_RESPONSE_FROM_PLUGIN
 			replyHeader.CorrelationId = &tp.headerAccessor(msg).MessageId
 			err := stream.Send(reply)
-			require.NoError(t, err)
+			if tp.expectClose == nil {
+				require.NoError(t, err)
+			}
 		case prototk.Header_RESPONSE_TO_PLUGIN, prototk.Header_ERROR_RESPONSE:
 			tp.handleResponse(msg)
 		}
@@ -165,6 +178,7 @@ func TestPluginRequestsError(t *testing.T) {
 				handleResponse: func(dm *prototk.DomainMessage) {
 					assert.Equal(t, msgID, *dm.Header.CorrelationId)
 					assert.Regexp(t, "pop", *dm.Header.ErrorMessage)
+					assert.Equal(t, prototk.Header_INVALID_INPUT, dm.Header.ErrorType)
 					close(waitForResponse)
 				},
 			},
@@ -174,7 +188,7 @@ func TestPluginRequestsError(t *testing.T) {
 		return tdm, nil
 	}
 	tdm.findAvailableStates = func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
-		return nil, fmt.Errorf("pop")
+		return nil, NewPluginError(prototk.Header_INVALID_INPUT, fmt.Errorf("pop"))
 	}
 
 	_, _, done := newTestDomainPluginManager(t, &testManagers{
@@ -515,7 +529,7 @@ func TestDomainRegisterWrongID(t *testing.T) {
 				t:              t,
 				connectFactory: domainConnectFactory,
 				headerAccessor: domainHeaderAccessor,
-				preRegister: func(domainID string) *prototk.DomainMessage {
+				registerOverride: func(domainID string) *prototk.DomainMessage {
 					return &prototk.DomainMessage{
 						Header: &prototk.Header{
 							MessageType: prototk.Header_REGISTER,
@@ -628,4 +642,9 @@ func TestDomainSendResponseWrongID(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("Test timed out waiting for domain API - expected registration was not received")
 	}
+}
+
+func TestNewPluginError(t *testing.T) {
+	pErr := NewPluginError(prototk.Header_INVALID_INPUT, errors.New("pop"))
+	require.EqualError(t, pErr, "pop")
 }

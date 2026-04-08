@@ -45,6 +45,20 @@ title: keymgr_*
 
 0. `mapping`: [`KeyMappingAndVerifier`](../types/keymappingandverifier.md#keymappingandverifier)
 
+## `keymgr_sign`
+
+### Parameters
+
+0. `keyIdentifier`: `string`
+1. `algorithm`: `string`
+2. `verifierType`: `string`
+3. `payloadType`: `string`
+4. `payload`: [`HexBytes`](../types/simpletypes.md#hexbytes)
+
+### Returns
+
+0. `signature`: [`HexBytes`](../types/simpletypes.md#hexbytes)
+
 ## `keymgr_wallets`
 
 ### Returns

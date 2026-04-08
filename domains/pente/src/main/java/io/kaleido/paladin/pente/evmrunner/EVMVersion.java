@@ -17,30 +17,43 @@ package io.kaleido.paladin.pente.evmrunner;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.MainnetEVMs;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.LondonGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ShanghaiGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.precompile.MainnetPrecompiledContracts;
+import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 
 import java.math.BigInteger;
 
-public record EVMVersion(GasCalculator gasCalculator, EvmConfiguration evmConfiguration, EVM evm) {
+public record EVMVersion(GasCalculator gasCalculator, EvmConfiguration evmConfiguration, PrecompileContractRegistry precompileContractRegistry, EVM evm) {
 
     public static EVMVersion London(long chainId, EvmConfiguration evmConfiguration) {
         var evm = MainnetEVMs.london(BigInteger.valueOf(chainId), evmConfiguration);
         var gasCalculator = new LondonGasCalculator();
-        return new EVMVersion(gasCalculator, evmConfiguration, evm);
+        var precompileContractRegistry = MainnetPrecompiledContracts.istanbul(gasCalculator);
+        return new EVMVersion(gasCalculator, evmConfiguration, precompileContractRegistry, evm);
     }
 
     public static EVMVersion Paris(long chainId, EvmConfiguration evmConfiguration) {
         var evm = MainnetEVMs.paris(BigInteger.valueOf(chainId), evmConfiguration);
         var gasCalculator = new LondonGasCalculator();
-        return new EVMVersion(gasCalculator, evmConfiguration, evm);
+        var precompileContractRegistry = MainnetPrecompiledContracts.istanbul(gasCalculator);
+        return new EVMVersion(gasCalculator, evmConfiguration, precompileContractRegistry, evm);
     }
 
     public static EVMVersion Shanghai(long chainId, EvmConfiguration evmConfiguration) {
         var evm = MainnetEVMs.shanghai(BigInteger.valueOf(chainId), evmConfiguration);
         var gasCalculator = new ShanghaiGasCalculator();
-        return new EVMVersion(gasCalculator, evmConfiguration, evm);
+        var precompileContractRegistry = MainnetPrecompiledContracts.istanbul(gasCalculator);
+        return new EVMVersion(gasCalculator, evmConfiguration, precompileContractRegistry, evm);
+    }
+
+    public static EVMVersion Cancun(long chainId, EvmConfiguration evmConfiguration) {
+        var evm = MainnetEVMs.cancun(BigInteger.valueOf(chainId), evmConfiguration);
+        var gasCalculator = new CancunGasCalculator();
+        var precompileContractRegistry = MainnetPrecompiledContracts.cancun(gasCalculator);
+        return new EVMVersion(gasCalculator, evmConfiguration, precompileContractRegistry, evm);
     }
 }

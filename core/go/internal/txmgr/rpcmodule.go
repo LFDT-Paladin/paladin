@@ -48,8 +48,13 @@ func (tm *txManager) buildRPCModule() {
 		Add("ptx_getStateReceipt", tm.rpcGetStateReceipt()).
 		Add("ptx_queryTransactionReceipts", tm.rpcQueryTransactionReceipts()).
 		Add("ptx_getTransactionDependencies", tm.rpcGetTransactionDependencies()).
+		Add("ptx_queryDispatches", tm.rpcQueryDispatches()).
+		Add("ptx_getDispatch", tm.rpcGetDispatch()).
+		Add("ptx_queryChainedDispatches", tm.rpcQueryChainedDispatches()).
+		Add("ptx_getChainedDispatch", tm.rpcGetChainedDispatch()).
 		Add("ptx_queryPublicTransactions", tm.rpcQueryPublicTransactions()).
 		Add("ptx_queryPendingPublicTransactions", tm.rpcQueryPendingPublicTransactions()).
+		Add("ptx_getPublicTransaction", tm.rpcGetPublicTransaction()).
 		Add("ptx_getPublicTransactionByNonce", tm.rpcGetPublicTransactionByNonce()).
 		Add("ptx_getPublicTransactionByHash", tm.rpcGetPublicTransactionByHash()).
 		Add("ptx_getPreparedTransaction", tm.rpcGetPreparedTransaction()).
@@ -318,6 +323,16 @@ func (tm *txManager) rpcGetPublicTransactionByNonce() rpcserver.RPCHandler {
 	})
 }
 
+func (tm *txManager) rpcGetPublicTransaction() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		id uint64,
+	) (*pldapi.PublicTxWithBinding, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("getPublicTransaction")
+		return tm.GetPublicTransactionByID(ctx, id)
+	})
+}
+
 func (tm *txManager) rpcGetPublicTransactionByHash() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		hash pldtypes.Bytes32,
@@ -377,7 +392,7 @@ func (tm *txManager) rpcDebugTransactionStatus() rpcserver.RPCHandler {
 	) (components.PrivateTxStatus, error) {
 		ctx = log.WithComponent(ctx, "txmanager")
 		tm.metrics.IncRpc("debugTransactionStatus")
-		return tm.privateTxMgr.GetTxStatus(ctx, contractAddress, id)
+		return tm.sequencerMgr.GetTxStatus(ctx, contractAddress, id)
 	})
 }
 
@@ -544,5 +559,45 @@ func (tm *txManager) rpcGetBlockchainEventListenerStatus() rpcserver.RPCHandler 
 		ctx = log.WithComponent(ctx, "txmanager")
 		tm.metrics.IncRpc("getBlockchainEventListenerStatus")
 		return tm.GetBlockchainEventListenerStatus(ctx, name)
+	})
+}
+
+func (tm *txManager) rpcQueryDispatches() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		query query.QueryJSON,
+	) ([]*pldapi.Dispatch, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("queryDispatches")
+		return tm.QueryDispatches(ctx, &query)
+	})
+}
+
+func (tm *txManager) rpcGetDispatch() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		id string,
+	) (*pldapi.Dispatch, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("getDispatch")
+		return tm.GetDispatchByID(ctx, id)
+	})
+}
+
+func (tm *txManager) rpcQueryChainedDispatches() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		query query.QueryJSON,
+	) ([]*pldapi.ChainedDispatch, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("queryChainedDispatches")
+		return tm.QueryChainedDispatches(ctx, &query)
+	})
+}
+
+func (tm *txManager) rpcGetChainedDispatch() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod1(func(ctx context.Context,
+		id string,
+	) (*pldapi.ChainedDispatch, error) {
+		ctx = log.WithComponent(ctx, "txmanager")
+		tm.metrics.IncRpc("getChainedDispatch")
+		return tm.GetChainedDispatchByID(ctx, id)
 	})
 }

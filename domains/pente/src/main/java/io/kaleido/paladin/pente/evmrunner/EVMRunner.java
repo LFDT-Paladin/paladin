@@ -69,11 +69,11 @@
 
      private final DynamicLoadWorldState world;
 
-     public EVMRunner(EVMVersion evmVersion, AccountLoader accountLoader, long blockNumber) {
+     public EVMRunner(EVMVersion evmVersion, AccountLoader accountLoader, long blockNumber, long blockTimestamp) {
          this.evmVersion = evmVersion;
          this.coinbase = randomAddress();
          this.world = new DynamicLoadWorldState(accountLoader, evmVersion.evmConfiguration());
-         this.virtualBlockchain = new VirtualBlockchain(blockNumber);
+         this.virtualBlockchain = new VirtualBlockchain(blockNumber, blockTimestamp);
      }
 
      @SuppressWarnings("rawtypes")
@@ -240,8 +240,7 @@
      public void runFrame(MessageFrame initialFrame, List<JsonEVMLog> logAccumulator)  {
          final OperationTracer tracer = new DebugEVMTracer();
          Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
-         final PrecompileContractRegistry precompileContractRegistry = new PrecompileContractRegistry();
-         final MessageCallProcessor mcp = new MessageCallProcessor(this.evmVersion.evm(), precompileContractRegistry);
+         final MessageCallProcessor mcp = new MessageCallProcessor(this.evmVersion.evm(), this.evmVersion.precompileContractRegistry());
          final ContractCreationProcessor ccp =
                  new ContractCreationProcessor(
                          this.evmVersion.gasCalculator(),

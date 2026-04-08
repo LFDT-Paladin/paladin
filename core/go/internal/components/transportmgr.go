@@ -50,6 +50,10 @@ type TransportManagerToTransport interface {
 	Initialized()
 }
 
+type TransportSendOptions struct {
+	ErrorHandler func(ctx context.Context, err error)
+}
+
 // TransportClient is the interface for a component that can receive messages from the transport manager
 type TransportClient interface {
 	// This function is used by the transport manager to deliver messages to the engine.
@@ -98,7 +102,7 @@ type TransportManager interface {
 	// situation to recover from (although not critical path).
 	//
 	// at-most-once delivery semantics
-	Send(ctx context.Context, send *FireAndForgetMessageSend) error
+	Send(ctx context.Context, send *FireAndForgetMessageSend, options ...*TransportSendOptions) error
 
 	// Sends a message with at-least-once delivery semantics
 	//

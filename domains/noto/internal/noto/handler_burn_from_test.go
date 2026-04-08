@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -27,17 +26,21 @@ import (
 )
 
 func TestBurnFromBasicModeRestriction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:      mockCallbacks,
+		coinSchema:     testSchema("coin"),
+		dataSchemaV0:   testSchema("data"),
+		dataSchemaV1:   testSchema("data_v1"),
+		manifestSchema: testSchema("manifest"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that burnFrom is not allowed in basic mode
 	basicConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeBasic.Enum(),
 		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Basic: &types.NotoBasicOptions{
 				AllowBurn: &pTrue,
@@ -69,17 +72,20 @@ func TestBurnFromBasicModeRestriction(t *testing.T) {
 }
 
 func TestBurnFromHooksModeAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that burnFrom is allowed in hooks mode
 	hooksConfig := &types.NotoParsedConfig{
 		NotaryMode:   types.NotaryModeHooks.Enum(),
 		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantDefault,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress: &pldtypes.EthAddress{},

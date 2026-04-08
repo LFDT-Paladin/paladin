@@ -95,6 +95,22 @@ paladinNodes:
       #   capacity:
       #     storage: 10Gi
 
+    # ======== Log Persistence ========
+    # Enable this block to persist Paladin logs to a dedicated PVC.
+    # logPersistence:
+    #   enabled: true
+    #   path: /app/logs/paladin.log
+    #   pvcTemplate:
+    #     resources:
+    #       requests:
+    #         storage: 1Gi
+    #   # Optional file-rotation overrides (defaults are used when omitted)
+    #   # file:
+    #   #   maxSize: 100Mb
+    #   #   maxBackups: 2
+    #   #   maxAge: 24h
+    #   #   compress: true
+
     # ======== Secret Backed Signers ========
     secretBackedSigners:
 
@@ -111,6 +127,12 @@ paladinNodes:
       #   secret: node1.keys  # Existing secret containing keys.yaml with seed phrase
       #   type: preConfigured
       #   keySelector: .*      # Select all keys
+
+    # ======== RPC Authorization ========
+    # Configure RPC authorization using the basicauth reference implementation.
+    # The secret must exist and contain a key 'credentials.htpasswd' with htpasswd formatted credentials.
+    # rpcAuth:
+    #   secretName: paladin-basicauth-credentials  # Name of existing secret containing 'credentials.htpasswd' key
 
     # ======== Additional Config ========
     # Inline Paladin configuration; CR fields take precedence if duplicated

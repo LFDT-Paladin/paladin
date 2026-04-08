@@ -30,6 +30,9 @@ type PaladinSpec struct {
 	// with auto-generation/auto-edit of the DB related config sections
 	Database Database `json:"database,omitempty"`
 
+	// LogPersistence configures optional persistent file logging.
+	LogPersistence *LogPersistence `json:"logPersistence,omitempty"`
+
 	// Adds signing modules that load their key materials from a k8s secret
 	SecretBackedSigners []SecretBackedSigner `json:"secretBackedSigners,omitempty"`
 
@@ -65,6 +68,11 @@ type PaladinSpec struct {
 
 	// Transports are configured individually on each node, as they reference security details specific to that node
 	Transports []TransportConfig `json:"transports"`
+
+	// RPC authorization configuration using the basicauth reference implementation.
+	// The secret must contain a key named 'credentials.htpasswd' with the credentials file content.
+	// +optional
+	RPCAuth *RPCAuthConfig `json:"rpcAuth,omitempty"`
 }
 type BaseLedgerEndpointType string
 
@@ -176,6 +184,26 @@ type Database struct {
 	PVCTemplate    corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
 }
 
+// LogPersistence configures persistent file logging for a Paladin node.
+type LogPersistence struct {
+	// Enables persistent log file output to a mounted PVC.
+	Enabled bool `json:"enabled,omitempty"`
+	// Path to the log file inside the container.
+	Path string `json:"path,omitempty"`
+	// PVC template used to create the logs persistent volume claim.
+	PVCTemplate corev1.PersistentVolumeClaimSpec `json:"pvcTemplate,omitempty"`
+	// Optional file rotation overrides.
+	File LogFileConfig `json:"file,omitempty"`
+}
+
+// LogFileConfig contains optional file rotation settings.
+type LogFileConfig struct {
+	MaxSize    *string `json:"maxSize,omitempty"`
+	MaxBackups *int    `json:"maxBackups,omitempty"`
+	MaxAge     *string `json:"maxAge,omitempty"`
+	Compress   *bool   `json:"compress,omitempty"`
+}
+
 const SignerType_AutoHDWallet = "autoHDWallet"
 
 const DerivationType_BIP32 = "bip32"
@@ -235,6 +263,14 @@ type AuthSecret struct {
 type AuthInline struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// RPCAuthConfig defines the configuration for RPC authorization using the basicauth plugin.
+// Only the basicauth reference implementation is supported.
+type RPCAuthConfig struct {
+	// SecretName is the name of the Kubernetes secret containing the 'credentials.htpasswd' key
+	// with the htpasswd formatted credentials file content.
+	SecretName string `json:"secretName"`
 }
 
 // StatusReason is an enumeration of possible failure causes.  Each StatusReason

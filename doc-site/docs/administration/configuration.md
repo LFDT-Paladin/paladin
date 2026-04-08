@@ -6,6 +6,7 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
@@ -17,16 +18,18 @@
 | nodeName | Node name for transport identification | `string` | - |
 | peerInactivityTimeout | Timeout for peer inactivity detection | `string` | - |
 | peerReaperInterval | Interval for peer reaper cleanup | `string` | - |
-| privateTxManager | Private transaction manager configuration | [`PrivateTxManagerConfig`](#privatetxmanager) | - |
 | publicTxManager | Public transaction manager configuration | [`PublicTxManagerConfig`](#publictxmanager) | - |
 | registries | Map of registry configurations | [`map[string][RegistryConfig]`](#registries) | - |
 | registryManager | Registry manager configuration | [`RegistryManagerConfig`](#registrymanager) | - |
 | reliableMessageResend | Reliable message resend configuration | `string` | - |
 | reliableMessageWriter | Reliable message writer configuration | [`FlushWriterConfig`](#reliablemessagewriter) | - |
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
+| rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
+| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
 | sendQueueLen | Maximum length of send queue | `int` | - |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |
+| sequencerManager | Sequencer manager configuration | [`SequencerConfig`](#sequencermanager) | - |
 | signingModules | Map of signing module configurations | [`map[string][SigningModuleConfig]`](#signingmodules) | - |
 | startup | Startup configuration | [`StartupConfig`](#startup) | - |
 | statestore | State store configuration | [`StateStoreConfig`](#statestore) | - |
@@ -338,6 +341,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | identifierCache | Identifier cache configuration | [`CacheConfig`](#keymanageridentifiercache) | - |
 | verifierCache | Verifier cache configuration | [`CacheConfig`](#keymanagerverifiercache) | - |
 
@@ -401,83 +405,6 @@
 | shutdownTimeout | Shutdown timeout | `string` | `"10s"` |
 | tls | TLS configuration | [`TLSConfig`](#metricsservertls) | - |
 | writeTimeout | Write timeout | `string` | - |
-
-## privateTxManager
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| preparedTransactionDistributer | Prepared transaction distributer configuration | [`DistributerConfig`](#privatetxmanagerpreparedtransactiondistributer) | - |
-| requestTimeout | Request timeout | `string` | `"1s"` |
-| sequencer | Sequencer configuration | [`PrivateTxManagerSequencerConfig`](#privatetxmanagersequencer) | - |
-| stateDistributer | State distributer configuration | [`DistributerConfig`](#privatetxmanagerstatedistributer) | - |
-| writer | Writer configuration | [`FlushWriterConfig`](#privatetxmanagerwriter) | - |
-
-## privateTxManager.preparedTransactionDistributer
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| acknowledgementWriter | Acknowledgement writer configuration | [`FlushWriterConfig`](#privatetxmanagerpreparedtransactiondistributeracknowledgementwriter) | - |
-| receivedStateWriter | Received state writer configuration | [`FlushWriterConfig`](#privatetxmanagerpreparedtransactiondistributerreceivedstatewriter) | - |
-
-## privateTxManager.preparedTransactionDistributer.acknowledgementWriter
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | - |
-| batchTimeout | Timeout for batch operations | `string` | - |
-| workerCount | Number of worker threads | `int` | - |
-
-## privateTxManager.preparedTransactionDistributer.receivedStateWriter
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | - |
-| batchTimeout | Timeout for batch operations | `string` | - |
-| workerCount | Number of worker threads | `int` | - |
-
-## privateTxManager.sequencer
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| assembleRequestTimeout | Assemble request timeout | `string` | `"30s"` |
-| evalInterval | Evaluation interval | `string` | `"5m"` |
-| maxConcurrentProcess | Maximum concurrent processes | `int` | `500` |
-| maxInflightTransactions | Maximum inflight transactions | `int` | `500` |
-| maxPendingEvents | Maximum pending events | `int` | `500` |
-| persistenceRetryTimeout | Persistence retry timeout | `string` | `"5s"` |
-| roundRobinCoordinatorBlockRangeSize | Round robin coordinator block range size | `int` | `100` |
-| staleTimeout | Stale timeout | `string` | `"10m"` |
-
-## privateTxManager.stateDistributer
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| acknowledgementWriter | Acknowledgement writer configuration | [`FlushWriterConfig`](#privatetxmanagerstatedistributeracknowledgementwriter) | - |
-| receivedStateWriter | Received state writer configuration | [`FlushWriterConfig`](#privatetxmanagerstatedistributerreceivedstatewriter) | - |
-
-## privateTxManager.stateDistributer.acknowledgementWriter
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | - |
-| batchTimeout | Timeout for batch operations | `string` | - |
-| workerCount | Number of worker threads | `int` | - |
-
-## privateTxManager.stateDistributer.receivedStateWriter
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | - |
-| batchTimeout | Timeout for batch operations | `string` | - |
-| workerCount | Number of worker threads | `int` | - |
-
-## privateTxManager.writer
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| batchMaxSize | Maximum batch size | `int` | `100` |
-| batchTimeout | Timeout for batch operations | `string` | `"25ms"` |
-| workerCount | Number of worker threads | `int` | `10` |
 
 ## publicTxManager
 
@@ -725,10 +652,26 @@
 | initialDelay | Initial delay before retry | `string` | - |
 | maxDelay | Maximum delay between retries | `string` | - |
 
+## rpcAuthorizers[]
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| config | Plugin-specific config (JSON string) | `string` | - |
+| plugin | Plugin configuration (library, type, etc.) | [`PluginConfig`](#rpcauthorizersplugin) | - |
+
+## rpcAuthorizers[].plugin
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| class | Plugin class name | `string` | - |
+| library | Plugin library path | `string` | - |
+| type | Plugin type | `string` | - |
+
 ## rpcServer
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| authorizers | Ordered array of authorizer plugin names to use | `[string]` | - |
 | http | HTTP server configuration | [`RPCServerConfigHTTP`](#rpcserverhttp) | - |
 | ws | WebSocket server configuration | [`RPCServerConfigWS`](#rpcserverws) | - |
 
@@ -836,6 +779,43 @@
 | initialDelay | Initial delay before retry | `string` | - |
 | maxAttempts | Maximum number of retry attempts | `int` | - |
 | maxDelay | Maximum delay between retries | `string` | - |
+
+## sequencerManager
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
+| baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
+| blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
+| blockRange | Block range size for sequencer operations | `uint64` | `100` |
+| closingGracePeriod | Grace period for closing operations | `int` | `2` |
+| confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `2` |
+| coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
+| coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
+| idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
+| inactiveToIdleGracePeriod | Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle | `int` | `10` |
+| maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
+| maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
+| originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
+| originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
+| redelegateGracePeriod | Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions | `int` | `2` |
+| requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
+| stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
+| targetActiveCoordinators | Target number of active coordinators | `int` | `50` |
+| targetActiveSequencers | Target number of active sequencers | `int` | `50` |
+| transactionResumeMaxTransactions | Maximum number of pending transactions to resume | `int` | `100000` |
+| transactionResumePageSize | Page size for reading pending transactions to resume | `int` | `1000` |
+| transactionResumePollInterval | Poll interval for resuming transactions | `string` | `"5m"` |
+| writer | Writer configuration | [`FlushWriterConfig`](#sequencermanagerwriter) | - |
+
+## sequencerManager.writer
+
+| Key | Description | Type | Default |
+|-----|-------------|------|---------|
+| batchMaxSize | Maximum batch size | `int` | `100` |
+| batchTimeout | Timeout for batch operations | `string` | `"25ms"` |
+| workerCount | Number of worker threads | `int` | `10` |
 
 ## signingModules[]
 

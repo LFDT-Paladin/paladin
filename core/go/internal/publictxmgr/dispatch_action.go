@@ -37,6 +37,7 @@ func (ptm *pubTxManager) persistSuspendedFlag(ctx context.Context, from pldtypes
 		Table("public_txns").
 		Where(`"from" = ?`, from).
 		Where("nonce = ?", nonce).
+		Where("dispatcher = ? OR dispatcher = ''", ptm.nodeName).
 		UpdateColumn("suspended", suspended).
 		Error
 }
@@ -54,6 +55,7 @@ func (ptm *pubTxManager) dispatchAction(ctx context.Context, from pldtypes.EthAd
 	case ActionCompleted:
 		// Only need to pass this on if there's an orchestrator in flight for this signing address
 		if orchestratorInFlight {
+			log.L(ctx).Infof("Dispatching 'completed' action to active orchestrator for %s", from)
 			return inFlightOrchestrator.dispatchAction(ctx, nonce, action)
 		}
 	case ActionSuspend, ActionResume:
@@ -63,9 +65,11 @@ func (ptm *pubTxManager) dispatchAction(ctx context.Context, from pldtypes.EthAd
 		}
 		if !orchestratorInFlight {
 			// no in-flight orchestrator for the signing address, it's OK to update the DB directly
+			log.L(ctx).Infof("No orchestrator in-flight for %s so persisting suspended=%t flag", from, suspended)
 			return ptm.persistSuspendedFlag(ctx, from, nonce, suspended)
 		}
 		// has to be done in the context of the orchestrator
+		log.L(ctx).Infof("Dispatching suspended=%t action to active orchestrator for %s", suspended, from)
 		return inFlightOrchestrator.dispatchAction(ctx, nonce, action)
 	}
 	return nil

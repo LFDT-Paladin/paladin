@@ -16,7 +16,7 @@ interface INotoPrivate {
         bytes32[] lockedInputs;
         bytes32[] lockedOutputs;
         bytes32[] outputs;
-        bytes signature;
+        bytes proof;
         bytes data;
     }
 
@@ -47,7 +47,10 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    // @deprecated - use createLock instead
     function lock(uint256 amount, bytes calldata data) external;
+
+    function createLock(uint256 amount, bytes calldata data) external;
 
     function unlock(
         bytes32 lockId,
@@ -56,16 +59,51 @@ interface INotoPrivate {
         bytes calldata data
     ) external;
 
+    function createTransferLock(
+        string calldata from,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata unlockData,
+        bytes calldata data
+    ) external;
+
+    function createMintLock(
+        UnlockRecipient[] calldata recipients,
+        bytes calldata unlockData,
+        bytes calldata data
+    ) external;
+
+    function createBurnLock(
+        string calldata from,
+        uint256 amount,
+        bytes calldata unlockData,
+        bytes calldata data
+    ) external;
+
     function prepareUnlock(
         bytes32 lockId,
         string calldata from,
         UnlockRecipient[] calldata recipients,
+        bytes calldata unlockData,
+        bytes calldata data
+    ) external;
+
+    function prepareMintUnlock(
+        bytes32 lockId,
+        UnlockRecipient[] calldata recipients,
+        bytes calldata unlockData,
+        bytes calldata data
+    ) external;
+
+    function prepareBurnUnlock(
+        bytes32 lockId,
+        string calldata from,
+        uint256 amount,
+        bytes calldata unlockData,
         bytes calldata data
     ) external;
 
     function delegateLock(
         bytes32 lockId,
-        UnlockPublicParams calldata unlock,
         address delegate,
         bytes calldata data
     ) external;

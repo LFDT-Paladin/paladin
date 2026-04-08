@@ -129,10 +129,11 @@ type TransactionHistory struct {
 // Additional fields returned on output when "full" specified
 type TransactionFull struct {
 	*Transaction
-	DependsOn []uuid.UUID             `docstruct:"TransactionFull" json:"dependsOn,omitempty"` // transactions registered as dependencies when the transaction was created
-	Receipt   *TransactionReceiptData `docstruct:"TransactionFull" json:"receipt"`             // available if the transaction has reached a final state
-	Public    []*PublicTx             `docstruct:"TransactionFull" json:"public"`              // list of public transactions associated
-	History   []*TransactionHistory   `docstruct:"TransactionFull" json:"history,omitempty"`   // list of values previously provided for this transaction
+	DependsOn         []uuid.UUID             `docstruct:"TransactionFull" json:"dependsOn,omitempty"`         // transactions registered as dependencies when the transaction was created
+	Receipt           *TransactionReceiptData `docstruct:"TransactionFull" json:"receipt"`                     // available if the transaction has reached a final state
+	Public            []*PublicTx             `docstruct:"TransactionFull" json:"public"`                      // list of public transactions associated
+	History           []*TransactionHistory   `docstruct:"TransactionFull" json:"history,omitempty"`           // list of values previously provided for this transaction
+	SequencerActivity []*SequencerActivity    `docstruct:"TransactionFull" json:"sequencerActivity,omitempty"` // list of sequencing activity for this transactions
 }
 
 type ABIDecodedData struct {
@@ -152,6 +153,7 @@ type TransactionReceiptFull struct {
 	States             *TransactionStates `docstruct:"TransactionReceiptFull" json:"states,omitempty"`
 	DomainReceipt      pldtypes.RawJSON   `docstruct:"TransactionReceiptFull" json:"domainReceipt,omitempty"`
 	DomainReceiptError string             `docstruct:"TransactionReceiptFull" json:"domainReceiptError,omitempty"`
+	Public             []*PublicTx        `docstruct:"TransactionReceiptFull" json:"public"` // list of public transactions associated with this receipt
 }
 
 type TransactionReceiptBatch struct {

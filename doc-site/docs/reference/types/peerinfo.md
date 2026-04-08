@@ -9,6 +9,7 @@ title: PeerInfo
 {
     "name": "",
     "stats": {
+        "createdAt": null,
         "sentMsgs": 0,
         "receivedMsgs": 0,
         "sentBytes": 0,
@@ -37,6 +38,7 @@ title: PeerInfo
 
 | Field Name | Description | Type |
 |------------|-------------|------|
+| `createdAt` | Timestamp when this peer was first created | [`Timestamp`](simpletypes.md#timestamp) |
 | `sentMsgs` | Count of messages sent since activation of this peer | `uint64` |
 | `receivedMsgs` | Count of messages received since activation of this peer | `uint64` |
 | `sentBytes` | Count of payload bytes sent since activation of this peer (does not include header data) | `uint64` |

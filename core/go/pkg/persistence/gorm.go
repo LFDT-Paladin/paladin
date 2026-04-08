@@ -205,10 +205,8 @@ func (gp *provider) Transaction(parentCtx context.Context, fn func(ctx context.C
 	err = gp.gdb.Transaction(func(gormTX *gorm.DB) error {
 		tx.gdb = gormTX.WithContext(tx.txCtx)
 		innerErr := fn(tx.txCtx, tx)
-		for _, fn := range tx.preCommits {
-			if innerErr == nil {
-				innerErr = fn(tx.txCtx, tx)
-			}
+		for i := 0; innerErr == nil && i < len(tx.preCommits); i++ {
+			innerErr = tx.preCommits[i](tx.txCtx, tx)
 		}
 		return innerErr
 	})

@@ -1,5 +1,4 @@
 import { BigNumberish, ethers } from "ethers";
-import { NotoUnlockPublicParams } from "../domains/noto";
 import { IStateBase } from "./states";
 
 export interface IBlock {
@@ -83,6 +82,7 @@ export interface ITransactionReceipt {
   contractAddress?: string;
   states?: ITransactionStates;
   domainReceipt?: IPenteDomainReceipt | INotoDomainReceipt;
+  domainReceiptError?: string
   failureMessage?: string;
 }
 
@@ -101,6 +101,44 @@ export interface IPenteLog {
   data: string;
 }
 
+// V1 lock info state data
+export interface INotoLockInfoV1 {
+  salt: string;
+  lockId: string;
+  owner: string;
+  spender: string;
+  replaces: string;
+  spendTxId: string;
+  spendOutputs: string[];
+  spendData: string;
+  cancelOutputs: string[];
+  cancelData: string;
+}
+
+// V1 spendLock params in receipt
+export interface INotoSpendLockParams {
+  lockId: string;
+  spendInputs: string;
+  data: string;
+}
+
+// V1 cancelLock params in receipt
+export interface INotoCancelLockParams {
+  lockId: string;
+  cancelInputs: string;
+  data: string;
+}
+
+// Legacy unlock params in receipt
+export interface INotoLegacyUnlockParams {
+  txId: string;
+  lockedInputs: string[];
+  lockedOutputs: string[];
+  outputs: string[];
+  signature: string;
+  data: string;
+}
+
 export interface INotoDomainReceipt {
   states: {
     inputs?: IReceiptState<INotoCoin>[];
@@ -112,18 +150,14 @@ export interface INotoDomainReceipt {
     lockedOutputs?: IReceiptState<INotoLockedCoin>[];
     readLockedInputs?: IReceiptState<INotoLockedCoin>[];
     preparedLockedOutputs?: IReceiptState<INotoLockedCoin>[];
+    updatedLockInfo?: IReceiptState<INotoLockInfoV1>[];
   };
   transfers?: {
     from?: string;
     to?: string;
     amount: string;
   }[];
-  lockInfo?: {
-    lockId: string;
-    delegate?: string;
-    unlockParams?: NotoUnlockPublicParams;
-    unlockCall?: string;
-  };
+  lockInfo?: INotoReceiptLockInfo;
   data?: string;
   transactionRequester?: {
     lookup?: string;
@@ -132,8 +166,21 @@ export interface INotoDomainReceipt {
   };
 }
 
+export interface INotoReceiptLockInfo {
+  lockId: string;
+  delegate?: string;
+  spendTxId?: string;
+  unlockFunction?: string;
+  unlockParams?: INotoSpendLockParams | INotoLegacyUnlockParams;
+  unlockCall?: string;
+  cancelFunction?: string;
+  cancelParams?: INotoCancelLockParams;
+  cancelCall?: string;
+}
+
 export interface IReceiptState<T> {
   id: string;
+  schema: string;
   data: T;
 }
 
@@ -185,6 +232,6 @@ export interface ITransactionReceiptListener {
   };
   options?: {
     domainReceipts?: boolean;
-    incompleteStateReceiptBehavior?: "block_contract" | "process";
+    incompleteStateReceiptBehavior?: "block_contract" | "process" | "complete_only";
   };
 }

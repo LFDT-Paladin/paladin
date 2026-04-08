@@ -107,25 +107,25 @@ type DomainContext interface {
 	//    be on the same transaction where those states are locked.
 	//
 	// The dbTX is passed in to allow re-use of a connection during read operations.
-	FindAvailableStates(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+	FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
 	// GetStatesByID retrieves a set of states by ID - regardless of whether they are:
 	// - Written to the DB or not (or just pending in the domain context)
 	// - Confirmed or not
 	// - Spent or not
-	GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
+	GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (Schema, []*pldapi.State, error)
 
 	// Return a snapshot of all currently known state locks
-	ExportSnapshot() ([]byte, error)
+	ExportSnapshot(ctx context.Context) ([]byte, error)
 
 	// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks
-	ImportSnapshot([]byte) error
+	ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error
 
 	// FindAvailableNullifiers is similar to FindAvailableStates, but for domains that leverage
 	// nullifiers to record spending.
 	//
 	// The dbTX is passed in to allow re-use of a connection during read operations.
-	FindAvailableNullifiers(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
+	FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (Schema, []*pldapi.State, error)
 
 	// AddStateLocks updates the in-memory state of the domain context, to record a set of locks
 	// that affect queries on available states and nullifiers.
@@ -136,6 +136,14 @@ type DomainContext interface {
 	//
 	// This is an in-memory record that will be lost on Reset, and can be deleted using ClearTransaction
 	AddStateLocks(locks ...*pldapi.StateLock) (err error)
+
+	// ValidateStates performs the processing to verify states against their schema, without inserting them into the database.
+	//
+	// In the common case that a domain delegates hash generation to the server, this allows a domain to
+	// request early generation of the ID from the server in-line in processing.
+	//
+	// The dbTX is passed in to allow re-use of a connection during read operations.
+	ValidateStates(dbTX persistence.DBTX, stateUpserts ...*StateUpsert) (states []*pldapi.StateBase, err error)
 
 	// UpsertStates creates or updates states.
 	// They are available immediately within the domain for return in FindAvailableStates

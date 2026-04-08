@@ -16,7 +16,6 @@
 package noto
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
@@ -27,12 +26,14 @@ import (
 )
 
 func TestTransferFromBasicModeRestriction(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that transferFrom is not allowed in basic mode
 	basicConfig := &types.NotoParsedConfig{
@@ -70,12 +71,14 @@ func TestTransferFromBasicModeRestriction(t *testing.T) {
 }
 
 func TestTransferFromHooksModeAllowed(t *testing.T) {
+	mockCallbacks := newMockCallbacks()
 	n := &Noto{
-		Callbacks:  mockCallbacks,
-		coinSchema: &prototk.StateSchema{Id: "coin"},
-		dataSchema: &prototk.StateSchema{Id: "data"},
+		Callbacks:    mockCallbacks,
+		coinSchema:   testSchema("coin"),
+		dataSchemaV0: testSchema("data"),
+		dataSchemaV1: testSchema("data_v1"),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that transferFrom is allowed in hooks mode
 	hooksConfig := &types.NotoParsedConfig{

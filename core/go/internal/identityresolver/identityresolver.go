@@ -181,7 +181,14 @@ func (ir *identityResolver) ResolveVerifierAsync(ctx context.Context, lookup str
 			Component:   prototk.PaladinMsg_IDENTITY_RESOLVER,
 			Node:        remoteNodeId,
 			Payload:     resolveVerifierRequestBytes,
+		}, &components.TransportSendOptions{
+			ErrorHandler: func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("Failed to send resolve verifier request to %s: %s", remoteNodeId, err)
+				ir.handleResolveVerifierError(ctx, resolveVerifierRequestBytes, requestID.String())
+			},
 		})
+
+		// Handle plugin-layer errors (e.g. we couldn't communicate with the transport plugin)
 		if err != nil {
 			failed(ctx, err)
 			return

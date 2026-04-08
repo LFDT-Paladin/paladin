@@ -71,12 +71,56 @@ type UnlockHookParams struct {
 	Prepared   PreparedTransaction        `json:"prepared"`
 }
 
+type CreateTransferLockHookParams struct {
+	Sender     *pldtypes.EthAddress       `json:"sender"`
+	LockID     pldtypes.Bytes32           `json:"lockId"`
+	From       *pldtypes.EthAddress       `json:"from"`
+	Amount     *pldtypes.HexUint256       `json:"amount"`
+	Recipients []*ResolvedUnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes          `json:"data"`
+	Prepared   PreparedTransaction        `json:"prepared"`
+}
+
+type CreateMintLockHookParams struct {
+	Sender     *pldtypes.EthAddress       `json:"sender"`
+	LockID     pldtypes.Bytes32           `json:"lockId"`
+	Recipients []*ResolvedUnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes          `json:"data"`
+	Prepared   PreparedTransaction        `json:"prepared"`
+}
+
+type CreateBurnLockHookParams struct {
+	Sender   *pldtypes.EthAddress `json:"sender"`
+	LockID   pldtypes.Bytes32     `json:"lockId"`
+	From     *pldtypes.EthAddress `json:"from"`
+	Amount   *pldtypes.HexUint256 `json:"amount"`
+	Data     pldtypes.HexBytes    `json:"data"`
+	Prepared PreparedTransaction  `json:"prepared"`
+}
+
 type ApproveUnlockHookParams struct {
 	Sender   *pldtypes.EthAddress `json:"sender"`
 	LockID   pldtypes.Bytes32     `json:"lockId"`
 	Delegate *pldtypes.EthAddress `json:"delegate"`
 	Data     pldtypes.HexBytes    `json:"data"`
 	Prepared PreparedTransaction  `json:"prepared"`
+}
+
+type PrepareBurnUnlockHookParams struct {
+	Sender   *pldtypes.EthAddress `json:"sender"`
+	LockId   pldtypes.Bytes32     `json:"lockId"`
+	From     *pldtypes.EthAddress `json:"from"`
+	Amount   *pldtypes.HexUint256 `json:"amount"`
+	Data     pldtypes.HexBytes    `json:"data"`
+	Prepared PreparedTransaction  `json:"prepared"`
+}
+
+type PrepareMintUnlockHookParams struct {
+	Sender     *pldtypes.EthAddress       `json:"sender"`
+	LockId     pldtypes.Bytes32           `json:"lockId"`
+	Recipients []*ResolvedUnlockRecipient `json:"recipients"`
+	Data       pldtypes.HexBytes          `json:"data"`
+	Prepared   PreparedTransaction        `json:"prepared"`
 }
 
 type DelegateUnlockHookParams struct {

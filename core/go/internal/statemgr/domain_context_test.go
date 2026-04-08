@@ -1,18 +1,17 @@
-// Copyright © 2024 Kaleido, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Copyright © 2026 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 package statemgr
 
@@ -23,6 +22,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -149,10 +149,51 @@ func TestUpsertSchemaEmptyList(t *testing.T) {
 
 }
 
+func TestValidateStates(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	schemaID := schemas[0].ID()
+	fakeHash1 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	fakeHash2 := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	_, dc := newTestDomainContext(t, ctx, ss, "domain1", true)
+	defer dc.Close()
+
+	upsert1 := &components.StateUpsert{
+		ID:     fakeHash1,
+		Schema: schemaID,
+		Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+	}
+	states, err := dc.ValidateStates(ss.p.NOTX(),
+		upsert1,
+		&components.StateUpsert{
+			ID:     fakeHash2,
+			Schema: schemaID,
+			Data:   pldtypes.RawJSON(fmt.Sprintf(`{"amount": 100, "owner": "0x1eDfD974fE6828dE81a1a762df680111870B7cDD", "salt": "%s"}`, pldtypes.RandHex(32))),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, states, 2)
+	assert.NotEmpty(t, states[0].ID)
+	assert.Equal(t, fakeHash2, states[1].ID)
+
+}
+
 func TestUpsertSchemaAndStates(t *testing.T) {
 
 	ctx, ss, _, done := newDBTestStateManager(t)
 	defer done()
+
+	// Enable trace logging to exercise the trace log lines
+	log.EnsureInit()
+	originalLevel := log.GetLevel()
+	log.SetLevel("trace")
+	defer log.SetLevel(originalLevel)
 
 	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{testABIParam(t, fakeCoinABI)})
 	require.NoError(t, err)
@@ -188,7 +229,6 @@ func TestUpsertSchemaAndStates(t *testing.T) {
 	require.Len(t, dc.unFlushed.states, 3)
 
 	syncFlushContext(t, dc)
-
 }
 
 func TestStateLockErrorsTransaction(t *testing.T) {
@@ -243,6 +283,12 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	ctx, ss, _, done := newDBTestStateManager(t)
 	defer done()
 
+	// Enable trace logging to exercise the trace log lines
+	log.EnsureInit()
+	originalLevel := log.GetLevel()
+	log.SetLevel("trace")
+	defer log.SetLevel(originalLevel)
+
 	transactionID1 := uuid.New()
 
 	schemas, err := ss.EnsureABISchemas(ctx, ss.p.NOTX(), "domain1", []*abi.Parameter{
@@ -293,7 +339,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 
 	// Query the states, and notice we find the ones that are still in the process of creating
 	// even though they've not yet been written to the DB
-	_, states, err := dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("amount").Query())
+	_, states, err := dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 3)
 
@@ -326,7 +372,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	assert.Equal(t, len(dc.txLocks), 8)
 
 	// Query the states on the first address
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().
 		Equal("owner", "0xf7b1c69F5690993F2C8ecE56cc89D42b1e737180").Sort("-amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 2)
@@ -334,7 +380,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	assert.Equal(t, int64(35), parseFakeCoin(t, states[1]).Amount.Int64())
 
 	// Query the states on the other address
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().
 		Equal("owner", "0x615dD09124271D8008225054d85Ffe720E7a447A").Sort("-amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
@@ -344,7 +390,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	syncFlushContext(t, dc)
 
 	// Check the DB persisted state is what we expect
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 3)
 	assert.Equal(t, int64(50), parseFakeCoin(t, states[0]).Amount.Int64())
@@ -366,7 +412,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	assert.Len(t, tx4states, 2)
 
 	// Now check that we merge the DB and in-memory state
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 4)
 	assert.Equal(t, int64(20), parseFakeCoin(t, states[0]).Amount.Int64())
@@ -375,13 +421,13 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	assert.Equal(t, int64(100), parseFakeCoin(t, states[3]).Amount.Int64())
 
 	// Check the limit works too across this
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Limit(1).Query())
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Limit(1).Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
 	assert.Equal(t, int64(20), parseFakeCoin(t, states[0]).Amount.Int64())
 
 	// Query states by ID - including unflushed, and consumed
-	_, statesByID, err := dc.GetStatesByID(ss.p.NOTX(), schemaID, []string{tx3states[1].ID.String(), tx4states[0].ID.String()})
+	_, statesByID, err := dc.GetStatesByID(ctx, ss.p.NOTX(), schemaID, []string{tx3states[1].ID.String(), tx4states[0].ID.String()})
 	require.NoError(t, err)
 	assert.Len(t, statesByID, 2)
 	assert.Equal(t, int64(50), parseFakeCoin(t, statesByID[0]).Amount.Int64())
@@ -425,7 +471,7 @@ func TestStateContextMintSpendMint(t *testing.T) {
 	assert.Equal(t, transactionID2, dc.txLocks[0].Transaction)        // for the transaction we specified
 
 	// Check the remaining states
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("owner", "amount").Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 3)
 	assert.Equal(t, int64(30), parseFakeCoin(t, states[0]).Amount.Int64())
@@ -530,10 +576,10 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, tx1states, 2)
 
-	_, states, err := dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err := dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 2)
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 0)
 
@@ -549,7 +595,7 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	)
 	assert.Regexp(t, "PD010127", err)
 
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	require.Len(t, states, 1)
 	require.NotNil(t, states[0].Nullifier)
@@ -559,10 +605,10 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	syncFlushContext(t, dc)
 
 	// Confirm still 2 states and 1 nullifier
-	_, states, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 2)
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
 	require.NotNil(t, states[0].Nullifier)
@@ -586,13 +632,13 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Confirm no more nullifiers available
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 0)
 
 	// Reset transaction to unlock
 	dc.ResetTransactions(transactionID2)
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
 
@@ -610,7 +656,7 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	dc.Reset()
 
 	// Confirm no more nullifiers available
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	assert.Len(t, states, 0)
 
@@ -625,7 +671,7 @@ func TestStateContextMintSpendWithNullifier(t *testing.T) {
 	err = dc.UpsertNullifiers(&components.NullifierUpsert{State: stateID2, ID: nullifier2})
 	require.NoError(t, err)
 
-	_, states, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
+	_, states, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	require.Len(t, states, 1)
 	require.NotNil(t, states[0].Nullifier)
@@ -671,13 +717,13 @@ func TestDomainContextFlushErrorCapture(t *testing.T) {
 	})
 	require.Regexp(t, "pop", err)
 
-	_, _, err = dc.FindAvailableStates(ss.p.NOTX(), schemas[0].ID(), nil)
+	_, _, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemas[0].ID(), nil)
 	assert.Regexp(t, "PD010119.*pop", err) // needs resetp
 
-	_, _, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemas[0].ID(), nil)
+	_, _, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemas[0].ID(), nil)
 	assert.Regexp(t, "PD010119.*pop", err) // needs reset
 
-	_, err = dc.mergeUnFlushedApplyLocks(schemas[0], nil, nil, true, false)
+	_, err = dc.mergeUnFlushedApplyLocks(ctx, schemas[0], nil, nil, true, false)
 	assert.Regexp(t, "PD010119.*pop", err) // needs reset
 
 	_, err = dc.UpsertStates(ss.p.NOTX(), genWidget(t, schemas[0].ID(), &tx1, data1))
@@ -689,10 +735,10 @@ func TestDomainContextFlushErrorCapture(t *testing.T) {
 	err = dc.AddStateLocks(&pldapi.StateLock{})
 	assert.Regexp(t, "PD010119.*pop", err) // needs reset
 
-	_, err = dc.ExportSnapshot()
+	_, err = dc.ExportSnapshot(ctx)
 	assert.Regexp(t, "PD010119.*pop", err) // needs reset
 
-	err = dc.ImportSnapshot([]byte("{}"))
+	err = dc.ImportSnapshot(ctx, []byte("{}"))
 	assert.Regexp(t, "PD010119.*pop", err) // needs reset
 
 	err = dc.AddStateLocks(&pldapi.StateLock{})
@@ -764,14 +810,14 @@ func TestDCMergeUnFlushedWhileFlushing(t *testing.T) {
 	dc.flushing = dc.unFlushed
 
 	// We'll merge in creating
-	states, err := dc.mergeUnFlushedApplyLocks(schema, []*pldapi.State{}, &query.QueryJSON{
+	states, err := dc.mergeUnFlushedApplyLocks(ctx, schema, []*pldapi.State{}, &query.QueryJSON{
 		Sort: []string{".created"},
 	}, true /* exclude locked */, false /* no nullifier required */)
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
 
 	// Unless we require a nullifier
-	states, err = dc.mergeUnFlushedApplyLocks(schema, []*pldapi.State{}, &query.QueryJSON{
+	states, err = dc.mergeUnFlushedApplyLocks(ctx, schema, []*pldapi.State{}, &query.QueryJSON{
 		Sort: []string{".created"},
 	}, true /* exclude locked */, true /* nullifier required */)
 	require.NoError(t, err)
@@ -785,7 +831,7 @@ func TestDCMergeUnFlushedWhileFlushing(t *testing.T) {
 	dc.flushing.stateNullifiers = append(dc.flushing.stateNullifiers, dc.unFlushed.stateNullifiers...)
 
 	// And then it will return the state
-	states, err = dc.mergeUnFlushedApplyLocks(schema, []*pldapi.State{}, &query.QueryJSON{
+	states, err = dc.mergeUnFlushedApplyLocks(ctx, schema, []*pldapi.State{}, &query.QueryJSON{
 		Sort: []string{".created"},
 	}, true /* exclude locked */, true /* nullifier required */)
 	require.NoError(t, err)
@@ -821,7 +867,7 @@ func TestDSIMergeUnFlushedMultipleSchemas(t *testing.T) {
 	dc.creatingStates[s1.ID.String()] = s1
 	dc.creatingStates[s2.ID.String()] = s2
 
-	states, err := dc.mergeUnFlushedApplyLocks(schema1, []*pldapi.State{},
+	states, err := dc.mergeUnFlushedApplyLocks(ctx, schema1, []*pldapi.State{},
 		query.NewQueryBuilder().Sort(".created").Query(), true, false)
 	require.NoError(t, err)
 	assert.Len(t, states, 1)
@@ -848,7 +894,7 @@ func TestDSIMergeUnFlushedBadDBRecord(t *testing.T) {
 
 	dc.creatingStates[s1.ID.String()] = s1
 
-	_, err = dc.mergeUnFlushedApplyLocks(schema1, []*pldapi.State{
+	_, err = dc.mergeUnFlushedApplyLocks(ctx, schema1, []*pldapi.State{
 		{StateBase: pldapi.StateBase{ID: pldtypes.RandBytes(32), Data: pldtypes.RawJSON("wrong")}},
 	}, query.NewQueryBuilder().Sort(".created").Query(), true, false)
 	assert.Regexp(t, "PD010116", err)
@@ -899,7 +945,7 @@ func TestDCMergeUnFlushedWhileFlushingDedup(t *testing.T) {
 	assert.Equal(t, s1.ID, inTheFlush.State.ID)
 	dc.stateLock.Unlock()
 
-	states, err := dc.mergeUnFlushedApplyLocks(schema, []*pldapi.State{
+	states, err := dc.mergeUnFlushedApplyLocks(ctx, schema, []*pldapi.State{
 		inTheFlush.State,
 	}, &query.QueryJSON{
 		Sort: []string{".created"},
@@ -929,7 +975,7 @@ func TestDCMergeUnFlushedEvalError(t *testing.T) {
 	_, err = dc.UpsertStates(ss.p.NOTX(), &components.StateUpsert{ID: s1.ID, Schema: schema.ID(), Data: s1.Data, CreatedBy: &tx1})
 	require.NoError(t, err)
 
-	_, err = dc.mergeUnFlushedApplyLocks(schema, []*pldapi.State{},
+	_, err = dc.mergeUnFlushedApplyLocks(ctx, schema, []*pldapi.State{},
 		query.NewQueryBuilder().Equal("wrong", "any").Query(), true, false)
 	assert.Regexp(t, "PD010700", err)
 
@@ -1006,10 +1052,10 @@ func TestDCFindBadQueryAndInsertBadValue(t *testing.T) {
 	schemaID := schema.ID()
 	assert.Equal(t, "type=FakeCoin(bytes32 salt,address owner,uint256 amount),labels=[owner,amount]", schema.Signature())
 
-	_, _, err = dc.FindAvailableStates(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
+	_, _, err = dc.FindAvailableStates(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
 	assert.Regexp(t, "PD010700", err)
 
-	_, _, err = dc.FindAvailableNullifiers(ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
+	_, _, err = dc.FindAvailableNullifiers(ctx, ss.p.NOTX(), schemaID, query.NewQueryBuilder().Sort("wrong").Query())
 	assert.Regexp(t, "PD010700", err)
 
 	_, err = dc.UpsertStates(ss.p.NOTX(), &components.StateUpsert{
@@ -1153,7 +1199,7 @@ func TestExportSnapshot(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	json, err := dc.ExportSnapshot()
+	json, err := dc.ExportSnapshot(ctx)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 		"locks": [
@@ -1286,9 +1332,9 @@ func TestImportSnapshot(t *testing.T) {
 		s2.ID.String(), transactionID3.String(),
 	)
 
-	err = dc.ImportSnapshot([]byte(jsonToImport))
+	err = dc.ImportSnapshot(ctx, []byte(jsonToImport))
 	require.NoError(t, err)
-	_, states, err := dc.FindAvailableStates(ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
+	_, states, err := dc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
 	require.NoError(t, err)
 	require.Len(t, states, 2)
 	assert.Equal(t, s1.ID, states[0].ID)
@@ -1304,7 +1350,7 @@ func TestImportSnapshotBadStates(t *testing.T) {
 	_, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
 	defer dc.Close()
 
-	err := dc.ImportSnapshot([]byte(`{
+	err := dc.ImportSnapshot(ctx, []byte(`{
 		"states": [
 			{
 				"id": "` + pldtypes.RandHex(32) + `",
@@ -1331,10 +1377,61 @@ func TestImportSnapshotJSONError(t *testing.T) {
 			}
 		]`
 
-	err := dc.ImportSnapshot([]byte(jsonToImport))
+	err := dc.ImportSnapshot(ctx, []byte(jsonToImport))
 	assert.Error(t, err)
 	assert.Regexp(t, "PD010132", err)
 
+}
+
+func TestImportSnapshotDoesNotAccumulateUnflushed(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema1.ID()), schema1)
+
+	_, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	s1, err := schema1.ProcessState(ctx, &dc.contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 10, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	txID := uuid.New()
+	stateUpserts := []*components.StateUpsert{{
+		ID:     s1.ID,
+		Schema: schema1.ID(),
+		Data:   s1.Data,
+	}}
+	snapshotJSON := fmt.Sprintf(`{
+		"locks": [{"stateId":"%s","transaction":"%s","type":"create"}],
+		"states": %s
+	}`, s1.ID.String(), txID.String(), pldtypes.JSONString(stateUpserts).Pretty())
+
+	// Import the same snapshot multiple times
+	for i := 0; i < 10; i++ {
+		err = dc.ImportSnapshot(ctx, []byte(snapshotJSON))
+		require.NoError(t, err)
+	}
+
+	// The unFlushed write buffer must not have accumulated entries from repeated imports.
+	// ImportSnapshot uses validateStates (not upsertStates) so nothing is appended to unFlushed.
+	dc.stateLock.Lock()
+	unflushedLen := 0
+	if dc.unFlushed != nil {
+		unflushedLen = len(dc.unFlushed.states)
+	}
+	dc.stateLock.Unlock()
+	assert.Equal(t, 0, unflushedLen, "unFlushed.states should not accumulate across ImportSnapshot calls")
+
+	// Verify the import is still functional — querying should return the state
+	_, states, err := dc.FindAvailableStates(ctx, ss.p.NOTX(), schema1.ID(), query.NewQueryBuilder().Query())
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	assert.Equal(t, s1.ID, states[0].ID)
 }
 
 func TestGetStatesByIDFail(t *testing.T) {
@@ -1345,6 +1442,390 @@ func TestGetStatesByIDFail(t *testing.T) {
 
 	db.ExpectQuery("SELECT.*schemas").WillReturnError(fmt.Errorf("pop"))
 
-	_, _, err := dc.GetStatesByID(dc.ss.p.NOTX(), pldtypes.Bytes32(pldtypes.RandBytes(32)), []string{pldtypes.RandHex(32)})
+	_, _, err := dc.GetStatesByID(ctx, dc.ss.p.NOTX(), pldtypes.Bytes32(pldtypes.RandBytes(32)), []string{pldtypes.RandHex(32)})
 	assert.Regexp(t, "pop", err)
+}
+
+func TestMergeUnFlushedBasic(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create a state and add it to creatingStates
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+	dc.creatingStates[s1.ID.String()] = s1
+
+	// Test basic matching - should return the state
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s1.ID, matches[0].ID)
+}
+
+func TestMergeUnFlushedSchemaFiltering(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema1, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema1.ID()), schema1)
+
+	schema2, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI2))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema2.ID()), schema2)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create states with different schemas
+	s1, err := schema1.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema2.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"tokenUri": "%s", "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32), pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+
+	// Query for schema1 - should only return s1
+	matches, err := dc.mergeUnFlushed(ctx, schema1, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s1.ID, matches[0].ID)
+
+	// Query for schema2 - should only return s2
+	matches, err = dc.mergeUnFlushed(ctx, schema2, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s2.ID, matches[0].ID)
+}
+
+func TestMergeUnFlushedExcludeSpent(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create two states
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+
+	// Add a spend lock for s1
+	txID := uuid.New()
+	dc.txLocks = append(dc.txLocks, &pldapi.StateLock{
+		Type:        pldapi.StateLockTypeSpend.Enum(),
+		StateID:     s1.ID,
+		Transaction: txID,
+	})
+
+	// With excludeSpent=true, s1 should be excluded
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), true, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s2.ID, matches[0].ID)
+
+	// With excludeSpent=false, both should be included
+	matches, err = dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 2)
+}
+
+func TestMergeUnFlushedRequireNullifier(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create two states
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	// Add nullifier to s1 only
+	nullifierID := pldtypes.RandBytes(32)
+	s1.Nullifier = &pldapi.StateNullifier{
+		ID:    nullifierID,
+		State: s1.ID,
+	}
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+
+	// With requireNullifier=true, only s1 should be returned
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, true)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s1.ID, matches[0].ID)
+
+	// With requireNullifier=false, both should be returned
+	matches, err = dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 2)
+}
+
+func TestMergeUnFlushedQueryFiltering(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create states with different amounts
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+
+	// Query for amount = 100 - should only return s1
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Equal("amount", int64(100)).Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s1.ID, matches[0].ID)
+
+	// Query for amount = 200 - should only return s2
+	matches, err = dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Equal("amount", int64(200)).Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s2.ID, matches[0].ID)
+}
+
+func TestMergeUnFlushedDuplicateDetection(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create a state
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+
+	// If the state is already in dbStates, it should not be returned
+	dbStates := []*pldapi.State{s1.State}
+	matches, err := dc.mergeUnFlushed(ctx, schema, dbStates, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 0)
+
+	// If the state is not in dbStates, it should be returned
+	matches, err = dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, s1.ID, matches[0].ID)
+}
+
+func TestMergeUnFlushedQueryError(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create a state
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+
+	// Query with invalid field should return error
+	_, err = dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Equal("invalidField", "value").Query(), false, false)
+	assert.Error(t, err)
+	assert.Regexp(t, "PD010700", err)
+}
+
+func TestMergeUnFlushedEmptyResults(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	_, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// No creating states - should return empty
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 0)
+}
+
+func TestMergeUnFlushedMultipleMatches(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	log.EnsureInit()
+	originalLevel := log.GetLevel()
+	log.SetLevel("trace")
+	defer log.SetLevel(originalLevel)
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create multiple states that all match the query
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s3, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 300, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+	dc.creatingStates[s3.ID.String()] = s3
+
+	// All states should match a query that matches all
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), false, false)
+	require.NoError(t, err)
+	require.Len(t, matches, 3)
+
+	// Verify all states are present
+	matchIDs := make(map[string]bool)
+	for _, m := range matches {
+		matchIDs[m.ID.String()] = true
+	}
+	assert.True(t, matchIDs[s1.ID.String()])
+	assert.True(t, matchIDs[s2.ID.String()])
+	assert.True(t, matchIDs[s3.ID.String()])
+}
+
+func TestMergeUnFlushedCombinedFilters(t *testing.T) {
+	ctx, ss, _, _, done := newDBMockStateManager(t)
+	defer done()
+
+	schema, err := newABISchema(ctx, "domain1", testABIParam(t, fakeCoinABI))
+	require.NoError(t, err)
+	ss.abiSchemaCache.Set(schemaCacheKey("domain1", schema.ID()), schema)
+
+	contractAddress, dc := newTestDomainContext(t, ctx, ss, "domain1", false)
+	defer dc.Close()
+
+	// Create multiple states with different properties
+	s1, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 100, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s2, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 200, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	s3, err := schema.ProcessState(ctx, contractAddress, pldtypes.RawJSON(fmt.Sprintf(
+		`{"amount": 300, "owner": "0x615dD09124271D8008225054d85Ffe720E7a447A", "salt": "%s"}`,
+		pldtypes.RandHex(32))), nil, dc.customHashFunction)
+	require.NoError(t, err)
+
+	// Add nullifier to s1 and s3
+	nullifierID1 := pldtypes.RandBytes(32)
+	s1.Nullifier = &pldapi.StateNullifier{
+		ID:    nullifierID1,
+		State: s1.ID,
+	}
+	nullifierID3 := pldtypes.RandBytes(32)
+	s3.Nullifier = &pldapi.StateNullifier{
+		ID:    nullifierID3,
+		State: s3.ID,
+	}
+
+	// Add spend lock to s2
+	txID := uuid.New()
+	dc.txLocks = append(dc.txLocks, &pldapi.StateLock{
+		Type:        pldapi.StateLockTypeSpend.Enum(),
+		StateID:     s2.ID,
+		Transaction: txID,
+	})
+
+	dc.creatingStates[s1.ID.String()] = s1
+	dc.creatingStates[s2.ID.String()] = s2
+	dc.creatingStates[s3.ID.String()] = s3
+
+	// Test with excludeSpent=true and requireNullifier=true
+	// s1 and s3 have nullifiers and are not spent, s2 is spent
+	matches, err := dc.mergeUnFlushed(ctx, schema, []*pldapi.State{}, query.NewQueryBuilder().Query(), true, true)
+	require.NoError(t, err)
+	require.Len(t, matches, 2)
+	matchIDs := make(map[string]bool)
+	for _, m := range matches {
+		matchIDs[m.ID.String()] = true
+	}
+	assert.True(t, matchIDs[s1.ID.String()])
+	assert.True(t, matchIDs[s3.ID.String()])
+	assert.False(t, matchIDs[s2.ID.String()])
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -938,4 +939,38 @@ func TestReverseKeyLookupFailMapping(t *testing.T) {
 
 	_, err := km.ReverseKeyLookup(ctx, mc.c.Persistence().NOTX(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifier)
 	assert.Regexp(t, "PD010500", err)
+}
+
+func TestQueryKeysFindError(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Mock the query to fail on Find
+	mc.db.ExpectQuery("SELECT.*key_paths.*").WillReturnError(fmt.Errorf("database error"))
+
+	jq := query.NewQueryBuilder().Query()
+	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	assert.Regexp(t, "database error", err)
+}
+
+func TestQueryKeysScanVerifiersError(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Mock the first query (Find) to succeed with some results
+	mc.db.ExpectQuery("SELECT.*key_paths.*").WillReturnRows(
+		sqlmock.NewRows([]string{"is_key", "has_children", "parent", "index", "path", "wallet", "key_handle"}).
+			AddRow(false, true, "", int64(1), "test.path", nil, nil),
+	)
+
+	// Mock the second query (Scan verifiers) to fail
+	mc.db.ExpectQuery("SELECT.*key_verifiers.*").WillReturnError(fmt.Errorf("verifier scan error"))
+
+	jq := query.NewQueryBuilder().Query()
+	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	assert.Regexp(t, "verifier scan error", err)
 }

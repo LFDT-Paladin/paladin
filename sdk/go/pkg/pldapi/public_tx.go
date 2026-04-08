@@ -65,6 +65,7 @@ type PublicTx struct {
 	From            pldtypes.EthAddress         `docstruct:"PublicTx" json:"from"`
 	Nonce           *pldtypes.HexUint64         `docstruct:"PublicTx" json:"nonce"`
 	Created         pldtypes.Timestamp          `docstruct:"PublicTx" json:"created"`
+	Dispatcher      string                      `docstruct:"PublicTx" json:"dispatcher"`
 	CompletedAt     *pldtypes.Timestamp         `docstruct:"PublicTx" json:"completedAt,omitempty"` // only once confirmed
 	TransactionHash *pldtypes.Bytes32           `docstruct:"PublicTx" json:"transactionHash"`       // only once confirmed
 	Success         *bool                       `docstruct:"PublicTx" json:"success,omitempty"`     // only once confirmed
@@ -75,8 +76,10 @@ type PublicTx struct {
 }
 
 type PublicTxBinding struct {
-	Transaction     uuid.UUID                      `docstruct:"PublicTxBinding" json:"transaction"`
-	TransactionType pldtypes.Enum[TransactionType] `docstruct:"PublicTxBinding" json:"transactionType"`
+	Transaction                uuid.UUID                      `docstruct:"PublicTxBinding" json:"transaction"`
+	TransactionType            pldtypes.Enum[TransactionType] `docstruct:"PublicTxBinding" json:"transactionType"`
+	TransactionSender          string                         `docstruct:"PublicTxBinding" json:"sender,omitempty"`
+	TransactionContractAddress string                         `docstruct:"PublicTxBinding" json:"contractAddress,omitempty"`
 }
 type PublicTxWithBinding struct {
 	*PublicTx

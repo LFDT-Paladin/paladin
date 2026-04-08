@@ -207,6 +207,14 @@ paladin:
   labels:
     app: paladin
   baseNodePort: 31548
+  logPersistence:
+    enabled: false
+    path: /app/logs/paladin.log
+    pvcTemplate:
+      resources:
+        requests:
+          storage: 1Gi
+    file: {}
 
 # Setting for devnet mode 
 besu:
