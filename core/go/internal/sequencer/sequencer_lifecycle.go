@@ -22,8 +22,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
-	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -84,15 +82,14 @@ type sequencer struct {
 	delegateDomainContext components.DomainContext
 
 	// Sequencer attributes
-	contractAddress   string
-	lastTXTime        time.Time
-	heartbeatInterval time.Duration
+	contractAddress string
+	lastTXTime      time.Time
 }
 
 // heartbeatLoop runs for the lifetime of the sequencer, periodically queuing
 // HeartbeatIntervalEvent to both the coordinator and originator state machines.
-func (seq *sequencer) heartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(seq.heartbeatInterval)
+func (seq *sequencer) heartbeatLoop(ctx context.Context, heartbeatInterval time.Duration) {
+	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
 	hbEvent := &common.HeartbeatIntervalEvent{}
@@ -261,10 +258,9 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 
 			sequencer.originator = seqOriginator
 			sequencer.coordinator = coordinator
-			sequencer.heartbeatInterval = confutil.DurationMin(sMgr.config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 			sMgr.sequencers[contractAddr.String()] = sequencer
 
-			go sequencer.heartbeatLoop(seqCtx)
+			go sequencer.heartbeatLoop(seqCtx, sMgr.heartbeatInterval)
 
 			if tx != nil {
 				sMgr.sequencers[contractAddr.String()].lastTXTime = time.Now()

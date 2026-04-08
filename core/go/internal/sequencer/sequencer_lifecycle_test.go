@@ -1828,14 +1828,13 @@ func TestHeartbeatLoop_SendsPeriodicHeartbeats(t *testing.T) {
 	).Return()
 
 	seq := &sequencer{
-		contractAddress:   contractAddr.String(),
-		coordinator:       mocks.coordinator,
-		originator:        mocks.originator,
-		heartbeatInterval: 50 * time.Millisecond,
+		contractAddress: contractAddr.String(),
+		coordinator:     mocks.coordinator,
+		originator:      mocks.originator,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go seq.heartbeatLoop(ctx)
+	go seq.heartbeatLoop(ctx, 50*time.Millisecond)
 
 	// The initial immediate event should arrive quickly
 	<-coordReceived
@@ -1854,16 +1853,15 @@ func TestHeartbeatLoop_StopsWhenContextCancelled(t *testing.T) {
 	mocks.originator.EXPECT().QueueEvent(mock.Anything, mock.AnythingOfType("*common.HeartbeatIntervalEvent")).Return()
 
 	seq := &sequencer{
-		contractAddress:   contractAddr.String(),
-		coordinator:       mocks.coordinator,
-		originator:        mocks.originator,
-		heartbeatInterval: 10 * time.Second,
+		contractAddress: contractAddr.String(),
+		coordinator:     mocks.coordinator,
+		originator:      mocks.originator,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		seq.heartbeatLoop(ctx)
+		seq.heartbeatLoop(ctx, 10*time.Second)
 		close(done)
 	}()
 

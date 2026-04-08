@@ -58,6 +58,7 @@ type sequencerManager struct {
 	blockHeight                   int64
 	blockHeightMutex              sync.RWMutex
 	engineIntegration             common.EngineIntegration
+	heartbeatInterval             time.Duration
 	targetActiveCoordinatorsLimit int // Max number of contracts this node aims to concurrently act as coordinator for. It could still efficiently respond to dispatch requests from other coordinators because the originator will remain in memory.
 	targetActiveSequencersLimit   int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
 }
@@ -111,6 +112,7 @@ func NewDistributedSequencerManager(ctx context.Context, config *pldconf.Sequenc
 		cancelCtx:                     dsmCtxCancel,
 		config:                        config,
 		sequencers:                    make(map[string]*sequencer),
+		heartbeatInterval:             confutil.DurationMin(config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
 		targetActiveCoordinatorsLimit: confutil.IntMin(config.TargetActiveCoordinators, pldconf.SequencerMinimum.TargetActiveCoordinators, *pldconf.SequencerDefaults.TargetActiveCoordinators),
 		targetActiveSequencersLimit:   confutil.IntMin(config.TargetActiveSequencers, pldconf.SequencerMinimum.TargetActiveSequencers, *pldconf.SequencerDefaults.TargetActiveSequencers),
 	}

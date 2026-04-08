@@ -72,5 +72,5 @@ func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *co
 }
 
 func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.observingIdleGracePeriod
+	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
 }

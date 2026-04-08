@@ -141,7 +141,7 @@ func Test_guard_ObservingIdleThresholdExceeded_NotExceeded(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.observingIdleGracePeriod = 10
+	c.inactiveToIdleGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 5
 
 	assert.False(t, guard_ObservingIdleThresholdExceeded(ctx, c))
@@ -152,7 +152,7 @@ func Test_guard_ObservingIdleThresholdExceeded_ExactlyMet(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.observingIdleGracePeriod = 10
+	c.inactiveToIdleGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 10
 
 	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
@@ -163,7 +163,7 @@ func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.observingIdleGracePeriod = 10
+	c.inactiveToIdleGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 15
 
 	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
