@@ -2294,3 +2294,50 @@ func TestSendTransactionUnknown_Loopback(t *testing.T) {
 	mockTransportManager.AssertExpectations(t)
 	mockLoopbackTransport.AssertExpectations(t)
 }
+
+func TestMarshalJSON_MatchesStdlib(t *testing.T) {
+	type sample struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+	input := sample{Name: "test", Value: 42}
+
+	stdResult, err := json.Marshal(input)
+	require.NoError(t, err)
+
+	poolResult, err := marshalJSON(input)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(stdResult), string(poolResult))
+}
+
+func TestMarshalJSON_NoTrailingNewline(t *testing.T) {
+	result, err := marshalJSON(map[string]string{"k": "v"})
+	require.NoError(t, err)
+	assert.NotEqual(t, byte('\n'), result[len(result)-1])
+}
+
+func TestMarshalJSON_HTMLCharsNotEscaped(t *testing.T) {
+	result, err := marshalJSON(map[string]string{"url": "a<b>c&d"})
+	require.NoError(t, err)
+	assert.Contains(t, string(result), "<b>")
+	assert.Contains(t, string(result), "&d")
+}
+
+func TestMarshalJSON_ResultDoesNotAliasPool(t *testing.T) {
+	result1, err := marshalJSON(map[string]int{"a": 1})
+	require.NoError(t, err)
+	snapshot := make([]byte, len(result1))
+	copy(snapshot, result1)
+
+	// Second call reuses the pooled buffer; result1 must be unaffected
+	_, err = marshalJSON(map[string]int{"b": 99999})
+	require.NoError(t, err)
+
+	assert.Equal(t, snapshot, result1)
+}
+
+func TestMarshalJSON_Error(t *testing.T) {
+	_, err := marshalJSON(make(chan int))
+	assert.Error(t, err)
+}
