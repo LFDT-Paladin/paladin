@@ -172,7 +172,7 @@ func TestPrepareMintUnlock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 1)
 	require.Len(t, lockInfo.CancelOutputs, 0)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // separate data for spend and cancel paths
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // separate data for spend and cancel operations
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{}, []*types.NotoLockedCoin{}, []*types.NotoCoin{spendCoin})
 	require.NoError(t, err)

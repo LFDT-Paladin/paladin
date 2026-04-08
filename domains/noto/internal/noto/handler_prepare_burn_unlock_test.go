@@ -159,11 +159,8 @@ func TestPrepareBurnUnlock(t *testing.T) {
 
 	inputCoinState := assembleRes.AssembledTransaction.ReadStates[0]
 	manifestState := assembleRes.AssembledTransaction.InfoStates[0]
-	_ = manifestState
 	spendUnlockManifestState := assembleRes.AssembledTransaction.InfoStates[1]
-	_ = spendUnlockManifestState
 	cancelUnlockManifestState := assembleRes.AssembledTransaction.InfoStates[2]
-	_ = cancelUnlockManifestState
 	unlockDataState := assembleRes.AssembledTransaction.InfoStates[3]
 	prepareDataState := assembleRes.AssembledTransaction.InfoStates[4]
 	cancelCoinState := assembleRes.AssembledTransaction.InfoStates[5]
@@ -190,7 +187,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Len(t, lockInfo.SpendOutputs, 0)
 	require.Len(t, lockInfo.CancelOutputs, 1)
 	require.NotEmpty(t, lockInfo.SpendData)
-	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // separate data for spend and cancel paths
+	require.NotEqual(t, lockInfo.SpendData, lockInfo.CancelData) // separate data for spend and cancel operations
 
 	encodedUnlock, err := n.encodeUnlock(ctx, ethtypes.MustNewAddress(contractAddress), []*types.NotoLockedCoin{&inputCoin.Data}, []*types.NotoLockedCoin{}, []*types.NotoCoin{})
 	require.NoError(t, err)

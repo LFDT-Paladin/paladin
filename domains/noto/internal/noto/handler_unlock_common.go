@@ -36,9 +36,9 @@ type unlockStates struct {
 	v0LockedOutputs  *preparedLockedOutputs // V0 only
 	outputs          *preparedOutputs
 	info             []*prototk.NewState // all info states (manifests + shared data states)
-	sharedInfoStates []*prototk.NewState // just the raw data info states from prepareDataInfo
+	sharedInfoStates []*prototk.NewState // info states from prepareDataInfo
 	infoDistribution identityList
-	spendData        []byte // encoded spend path data
+	spendData        []byte // encoded spend operation data
 }
 
 type unlockDataResult struct {
@@ -114,10 +114,10 @@ func toEndorsableOne(s *prototk.NewState) *prototk.EndorsableState {
 	}
 }
 
-// buildPathData builds a manifest for one path (spend or cancel) and encodes
-// the transaction data referencing that manifest + shared info states.
+// buildUnlockOperationData builds a manifest for one operation (spend or cancel) and encodes
+// the transaction data referencing the operation manifest + info states.
 // v1 Paladin always builds a manifest
-func (h *unlockCommon) buildPathData(
+func (h *unlockCommon) buildUnlockOperationData(
 	ctx context.Context,
 	tx *types.ParsedTransaction,
 	stateQueryContext string,
@@ -125,28 +125,28 @@ func (h *unlockCommon) buildPathData(
 	infoDistribution identityList,
 	sharedInfoStates []*prototk.NewState,
 	endorsableShared []*prototk.EndorsableState,
-	manifestStates *[]*prototk.NewState,
-) ([]byte, error) {
+) (encodedData []byte, manifestState *prototk.NewState, err error) {
 
 	if !tx.DomainConfig.IsV1() {
 		// V0: no manifests, just encode the shared info states directly
-		return h.noto.encodeTransactionData(
+		encodedData, err = h.noto.encodeTransactionData(
 			ctx, tx.DomainConfig, tx.Transaction, endorsableShared)
+		return encodedData, nil, err
 	}
 
 	if mb == nil {
 		mb = h.noto.newManifestBuilder()
 	}
 
-	manifestState, err := mb.
+	manifestState, err = mb.
 		addInfoStates(infoDistribution, sharedInfoStates...).
 		buildManifest(ctx, stateQueryContext)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err = h.noto.allocateStateIDs(ctx, stateQueryContext, []*prototk.NewState{manifestState}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Prepend manifest to endorsable list (manifest comes first)
@@ -155,14 +155,12 @@ func (h *unlockCommon) buildPathData(
 		endorsableShared...,
 	)
 
-	// Track the manifest state in the output list
-	*manifestStates = append(*manifestStates, manifestState)
-
-	return h.noto.encodeTransactionData(
+	encodedData, err = h.noto.encodeTransactionData(
 		ctx, tx.DomainConfig, tx.Transaction, endorsableForEncoding)
+	return
 }
 
-// buildUnlockData builds separate encoded unlock data for spend and cancel paths.
+// buildUnlockData builds separate encoded unlock data for spend and cancel operations.
 // Shared info states are allocated once and referenced by both manifests.
 func (h *unlockCommon) buildUnlockData(
 	ctx context.Context,
@@ -172,8 +170,8 @@ func (h *unlockCommon) buildUnlockData(
 	resolvedVerifiers []*prototk.ResolvedVerifier,
 	stateQueryContext string,
 	unlockData []byte,
-	spendManifest *manifestBuilder,
-	cancelManifest *manifestBuilder,
+	spendManifestBuilder *manifestBuilder,
+	cancelManifestBuilder *manifestBuilder,
 ) (*unlockDataResult, error) {
 
 	infoDistribution, err := h.getAllRecipientsDistribution(
@@ -182,7 +180,7 @@ func (h *unlockCommon) buildUnlockData(
 		return nil, err
 	}
 
-	// info states states shared across both spend + cancel paths
+	// info states shared across both spend + cancel operations
 	sharedInfoStates, err := h.noto.prepareDataInfo(
 		unlockData, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
@@ -195,27 +193,29 @@ func (h *unlockCommon) buildUnlockData(
 
 	endorsableShared := toEndorsable(sharedInfoStates)
 
-	manifestStates := make([]*prototk.NewState, 0, 2)
-	spendEncoded, err := h.buildPathData(
-		ctx, tx, stateQueryContext, spendManifest, infoDistribution,
-		sharedInfoStates, endorsableShared, &manifestStates)
+	spendEncoded, spendManifest, err := h.buildUnlockOperationData(
+		ctx, tx, stateQueryContext, spendManifestBuilder, infoDistribution,
+		sharedInfoStates, endorsableShared)
 	if err != nil {
 		return nil, err
 	}
 
-	cancelEncoded, err := h.buildPathData(
-		ctx, tx, stateQueryContext, cancelManifest, infoDistribution,
-		sharedInfoStates, endorsableShared, &manifestStates)
+	cancelEncoded, cancelManifest, err := h.buildUnlockOperationData(
+		ctx, tx, stateQueryContext, cancelManifestBuilder, infoDistribution,
+		sharedInfoStates, endorsableShared)
 	if err != nil {
 		return nil, err
 	}
 
-	allInfoStates := append(manifestStates, sharedInfoStates...)
+	infoStates := sharedInfoStates
+	if tx.DomainConfig.IsV1() {
+		infoStates = append([]*prototk.NewState{spendManifest, cancelManifest}, sharedInfoStates...)
+	}
 
 	return &unlockDataResult{
 		spendEncoded:     spendEncoded,
 		cancelEncoded:    cancelEncoded,
-		infoStates:       allInfoStates,
+		infoStates:       infoStates,
 		infoDistribution: infoDistribution,
 	}, nil
 }
@@ -278,7 +278,7 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 	if tx.DomainConfig.IsV0() {
 		unlockedOutputs, v0LockedOutputs, err = h.assembleUnlockOutputs_V0(ctx, tx, params, req, remainder)
 	} else {
-		unlockedOutputs, err = h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
+		unlockedOutputs, err = h.assembleUnlockOutputs_V1(ctx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
 		unlockedManifest = h.noto.newManifestBuilder().addOutputs(unlockedOutputs)
 	}
 	if err != nil {
@@ -298,16 +298,18 @@ func (h *unlockCommon) assembleStates(ctx context.Context, tx *types.ParsedTrans
 		return nil, nil, nil, err
 	}
 
-	// Build the spend path encoded data using buildPathData
+	// Build the spend operation encoded data
 	endorsableShared := toEndorsable(sharedInfoStates)
-	var spendManifestStates []*prototk.NewState
-	spendEncoded, err := h.buildPathData(ctx, tx, req.StateQueryContext, unlockedManifest, infoDistribution, sharedInfoStates, endorsableShared, &spendManifestStates)
+	spendEncoded, spendManifestState, err := h.buildUnlockOperationData(ctx, tx, req.StateQueryContext, unlockedManifest, infoDistribution, sharedInfoStates, endorsableShared)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	// spend manifest states first, then shared data states
-	infoStates := append(spendManifestStates, sharedInfoStates...)
+	// spend manifest state first, then shared data states
+	infoStates := sharedInfoStates
+	if spendManifestState != nil {
+		infoStates = append([]*prototk.NewState{spendManifestState}, sharedInfoStates...)
+	}
 
 	if tx.DomainConfig.IsV0() {
 		// In V0 unlock repeats the lock state in the info
@@ -399,7 +401,7 @@ func (h *unlockCommon) getAllRecipientsDistribution(ctx context.Context, notaryI
 	return distribution, nil
 }
 
-func (h *unlockCommon) assembleUnlockOutputs_V1(ctx context.Context, tx *types.ParsedTransaction, notaryID, fromID *identityPair, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, remainder *big.Int) (*preparedOutputs, error) {
+func (h *unlockCommon) assembleUnlockOutputs_V1(ctx context.Context, notaryID, fromID *identityPair, recipients []*types.UnlockRecipient, resolvedVerifiers []*prototk.ResolvedVerifier, remainder *big.Int) (*preparedOutputs, error) {
 	unlockedOutputs := &preparedOutputs{}
 	for _, entry := range recipients {
 		toID, err := h.noto.findEthAddressVerifier(ctx, "to", entry.To, resolvedVerifiers)

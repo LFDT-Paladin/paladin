@@ -106,7 +106,7 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}
 
 	// Build the outputs for unlock
-	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, tx, notaryID, nil, params.Recipients, req.ResolvedVerifiers, big.NewInt(0))
+	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, notaryID, nil, params.Recipients, req.ResolvedVerifiers, big.NewInt(0))
 	if err != nil {
 		return nil, err
 	}

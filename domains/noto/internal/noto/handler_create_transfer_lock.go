@@ -126,7 +126,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	}
 
 	// Build the outputs for unlock
-	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, tx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
+	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, notaryID, fromID, params.Recipients, req.ResolvedVerifiers, remainder)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (h *createTransferLockHandler) Assemble(ctx context.Context, tx *types.Pars
 	cancelManifest := h.noto.newManifestBuilder().
 		addOutputs(cancelOutputs)
 
-	// Build and encode the unlock data separately for spend and cancel paths
+	// Build and encode the unlock data separately for spend and cancel operations
 	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, fromID, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err

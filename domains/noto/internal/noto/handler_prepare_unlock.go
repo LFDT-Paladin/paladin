@@ -95,13 +95,9 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		if err == nil {
 			cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
 			endorsableShared := toEndorsable(states.sharedInfoStates)
-			var cancelManifestStates []*prototk.NewState
-			encodedCancelData, err = h.buildPathData(
+			encodedCancelData, cancelManifestState, err = h.buildUnlockOperationData(
 				ctx, tx, req.StateQueryContext, cancelManifest,
-				states.infoDistribution, states.sharedInfoStates, endorsableShared, &cancelManifestStates)
-			if err == nil && len(cancelManifestStates) > 0 {
-				cancelManifestState = cancelManifestStates[0]
-			}
+				states.infoDistribution, states.sharedInfoStates, endorsableShared)
 		}
 
 		// The tx data for the prepareUnlock itself needs to be distributed (separate to the unlockData)

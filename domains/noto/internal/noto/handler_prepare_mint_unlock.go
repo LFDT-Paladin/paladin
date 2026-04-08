@@ -132,7 +132,7 @@ func (h *prepareMintUnlockHandler) Assemble(ctx context.Context, tx *types.Parse
 	spendManifest := h.noto.newManifestBuilder().addOutputs(outputs)
 	cancelManifest := h.noto.newManifestBuilder() // empty: no cancel outputs for mint
 
-	// Build and encode the unlock data separately for spend and cancel paths
+	// Build and encode the unlock data separately for spend and cancel operations
 	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
