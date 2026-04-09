@@ -40,7 +40,9 @@ type TransactionPreAssembly struct {
 	RequiredVerifiers        []*prototk.ResolveVerifierRequest `json:"required_verifiers"`
 	Verifiers                []*prototk.ResolvedVerifier       `json:"verifiers"`
 	PublicTxOptions          pldapi.PublicTxOptions            `json:"public_tx_options"`
-	Dependencies             *pldapi.TransactionDependencies   `json:"dependencies"`
+	// Chained dependencies: ordering constraints from the parent coordinator's grapher,
+	// carried into the receiving coordinator for in-memory ordering without blocking.
+	ChainedDependsOn []uuid.UUID `json:"chainedDependsOn,omitempty"`
 }
 
 type FullState struct {

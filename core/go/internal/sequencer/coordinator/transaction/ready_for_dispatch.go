@@ -70,10 +70,11 @@ func guard_HasDependenciesNotReady(ctx context.Context, txn *coordinatorTransact
 
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
 func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bool {
-	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
-	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
+	// Chained dependencies are set on transaction creation and we already calculated the post assemble dependencies when we got assembled
+	// and there is no way we could have picked up new dependencies without a re-assemble.
+	// Some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	for _, dependencyID := range t.dependencies.DependsOn {
+	for _, dependencyID := range append(t.dependencies.postAssemble.dependsOn, t.dependencies.chained.dependsOn...) {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
@@ -107,7 +108,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range t.dependencies.PrereqOf {
+	for _, dependentId := range append(t.dependencies.postAssemble.prereqOf, t.dependencies.chained.prereqOf...) {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)

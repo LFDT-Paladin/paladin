@@ -29,6 +29,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 )
 
 // action_Dispatch runs the full dispatch flow when handling Event_Dispatched in State_Ready_For_Dispatch.
@@ -123,6 +124,39 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 		if err != nil {
 			log.L(ctx).Errorf("error preparing chained transaction %s: %s", t.pt.ID, err)
 			return nil, err
+		}
+		if validatedPrivateTx.NewTransaction != nil &&
+			validatedPrivateTx.NewTransaction.Transaction != nil &&
+			validatedPrivateTx.NewTransaction.Transaction.ID != nil {
+
+			childID := *validatedPrivateTx.NewTransaction.Transaction.ID
+			// TODO AM: test coverage??
+			t.chainedChildID = &childID
+
+			// Propagate ordering knowledge: for each dependency of this transaction,
+			// if that dependency also produced a chained child, the new child must depend on it.
+			// These go into ChainedDependsOn so the receiving sequencer passes them into the coordinator
+			// for in-memory ordering rather than blocking on confirmation.
+			// This assumes that if a domain instance is dispatching private transactions, it is doing so consistently
+			// for every transaction, and to the same domain instance. This is a valid assumption at the point of writing,
+			// but could change in the future. While we generally don't want to make assumptions about specific domain
+			// behaviour in the sequencer, this is a case where accounting for every possible permutation of
+			// dispatches would result in unncessarily complex code.
+			seen := make(map[uuid.UUID]bool)
+			var chainedDeps []uuid.UUID
+			for _, depID := range append(t.dependencies.postAssemble.dependsOn, t.dependencies.chained.dependsOn...) {
+				dep := t.grapher.TransactionByID(ctx, depID)
+				if dep != nil {
+					if depChildID := dep.GetChainedChildID(); depChildID != nil && !seen[*depChildID] {
+						seen[*depChildID] = true
+						chainedDeps = append(chainedDeps, *depChildID)
+					}
+				}
+			}
+			if len(chainedDeps) > 0 {
+				validatedPrivateTx.NewTransaction.ChainedDependsOn = append(validatedPrivateTx.NewTransaction.ChainedDependsOn, chainedDeps...)
+				log.L(ctx).Debugf("Chained TX %s has %d dependencies from parent grapher: %v", childID, len(chainedDeps), chainedDeps)
+			}
 		}
 		return &syncpoints.DispatchBatch{
 			PrivateDispatches: []*components.ChainedPrivateTransaction{validatedPrivateTx},

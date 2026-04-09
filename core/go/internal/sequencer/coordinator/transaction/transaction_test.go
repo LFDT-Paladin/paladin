@@ -344,3 +344,51 @@ func TestTransaction_HasDispatchedPublicTransaction_FalseWhenNil(t *testing.T) {
 
 	assert.False(t, txn.HasDispatchedPublicTransaction())
 }
+
+func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depID := uuid.New()
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		TransactionID(depID).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ChainedDependencies(depID).
+		Grapher(grapher).
+		Build()
+
+	_ = depTx
+
+	assert.NotNil(t, grapher.TransactionByID(ctx, depID))
+	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	unknownID := uuid.New()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ChainedDependencies(unknownID).
+		Grapher(grapher).
+		Build()
+
+	assert.Empty(t, txn.dependencies.chained.dependsOn)
+	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func TestDependsOn_GetChainedChildID_ReturnsNilWhenNotSet(t *testing.T) {
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	assert.Nil(t, txn.GetChainedChildID())
+}
+
+func TestDependsOn_GetChainedChildID_ReturnsIDWhenSet(t *testing.T) {
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+	childID := uuid.New()
+	txn.chainedChildID = &childID
+	assert.Equal(t, &childID, txn.GetChainedChildID())
+}

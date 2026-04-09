@@ -39,7 +39,7 @@ type Grapher interface {
 	TransactionByID(ctx context.Context, transactionID uuid.UUID) CoordinatorTransaction
 	LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*coordinatorTransaction, error)
 	AddMinter(ctx context.Context, stateID pldtypes.HexBytes, transaction *coordinatorTransaction) error
-	Forget(transactionID uuid.UUID) error
+	Forget(ctx context.Context, transactionID uuid.UUID) error
 	ForgetMints(transactionID uuid.UUID)
 }
 
@@ -80,10 +80,10 @@ func (s *grapher) AddMinter(ctx context.Context, stateID pldtypes.HexBytes, tran
 	return nil
 }
 
-func (s *grapher) Forget(transactionID uuid.UUID) error {
+func (s *grapher) Forget(ctx context.Context, transactionID uuid.UUID) error {
 	txn := s.transactionByID[transactionID]
 	if txn != nil {
-		s.pruneDependencyLinks(txn)
+		s.pruneDependencyLinks(ctx, txn)
 	}
 	s.ForgetMints(transactionID)
 	delete(s.transactionByID, transactionID)
@@ -95,41 +95,34 @@ func (s *grapher) Forget(transactionID uuid.UUID) error {
 //   - reverse links on prerequisites that include this tx as a dependent (prereq.PrereqOf)
 //
 // Note - this mutates transaction dependency metadata; it does not mutate grapher indexes directly.
-func (s *grapher) pruneDependencyLinks(txn CoordinatorTransaction) {
-	// Remove this TX from all dependent forward links (dependent.DependsOn).
-	dependentIDs := make(map[uuid.UUID]struct{})
-	if txn.GetDependencies() != nil {
-		for _, dependentID := range txn.GetDependencies().PrereqOf {
-			dependentIDs[dependentID] = struct{}{}
+func (s *grapher) pruneDependencyLinks(ctx context.Context, txn CoordinatorTransaction) {
+	ct, ok := txn.(*coordinatorTransaction)
+	if !ok {
+		log.L(ctx).Error("Failed to cast transaction to coordinatorTransaction")
+		return
+	}
+
+	// Prune post-assemble dependency links in both directions.
+	for _, dependentID := range ct.dependencies.postAssemble.prereqOf {
+		if dependent, ok := s.transactionByID[dependentID].(*coordinatorTransaction); ok {
+			dependent.dependencies.postAssemble.dependsOn = removeUUID(dependent.dependencies.postAssemble.dependsOn, txn.GetID())
 		}
 	}
-	for dependentID := range dependentIDs {
-		dependent := s.transactionByID[dependentID]
-		if dependent == nil {
-			continue
-		}
-		if dependent.GetDependencies() != nil {
-			dependent.GetDependencies().DependsOn = removeUUID(dependent.GetDependencies().DependsOn, txn.GetID())
+	for _, prereqID := range ct.dependencies.postAssemble.dependsOn {
+		if prereq, ok := s.transactionByID[prereqID].(*coordinatorTransaction); ok {
+			prereq.dependencies.postAssemble.prereqOf = removeUUID(prereq.dependencies.postAssemble.prereqOf, txn.GetID())
 		}
 	}
 
-	// Remove this TX from all prerequisite reverse links (prereq.PrereqOf).
-	// If transactions are being dispatched as chained transactions, there is no guarantee that the
-	// chained transactions will be finalised in the order they were dispatched in, which means a dependent
-	// may be cleaned up before the prerequisite.
-	prereqIDs := make(map[uuid.UUID]struct{})
-	if txn.GetDependencies() != nil {
-		for _, prereqID := range txn.GetDependencies().DependsOn {
-			prereqIDs[prereqID] = struct{}{}
+	// Prune chained dependency links in both directions.
+	for _, depID := range ct.dependencies.chained.prereqOf {
+		if dep, ok := s.transactionByID[depID].(*coordinatorTransaction); ok {
+			dep.dependencies.chained.dependsOn = removeUUID(dep.dependencies.chained.dependsOn, txn.GetID())
 		}
 	}
-	for prereqID := range prereqIDs {
-		prereq := s.transactionByID[prereqID]
-		if prereq == nil {
-			continue
-		}
-		if prereq.GetDependencies() != nil {
-			prereq.GetDependencies().PrereqOf = removeUUID(prereq.GetDependencies().PrereqOf, txn.GetID())
+	for _, preID := range ct.dependencies.chained.dependsOn {
+		if pre, ok := s.transactionByID[preID].(*coordinatorTransaction); ok {
+			pre.dependencies.chained.prereqOf = removeUUID(pre.dependencies.chained.prereqOf, txn.GetID())
 		}
 	}
 }

@@ -45,6 +45,8 @@ const (
 
 type EventType = common.EventType
 
+// TODO AM: need to decide which events apply to which type of dependency
+
 const (
 	Event_Delegated                      EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
 	Event_DependencySelectedForAssemble                                                        // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
@@ -58,8 +60,6 @@ const (
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
 	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
-	Event_DependencyAssembled                                                                  // another transaction, for which this transaction has a dependency on, has been assembled
-	Event_DependencyReverted                                                                   // another transaction, for which this transaction has a dependency on, has been reverted
 	Event_DependencyReset                                                                      // another transaction, for which this transaction has a dependency on, has been reset
 	Event_DependencyConfirmedReverted                                                          // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
@@ -74,6 +74,8 @@ const (
 	Event_StateTimeoutInterval                                                                 // event emitted when a state has exceeded its maximum allowed duration
 	Event_StateTransition                                                                      // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
 	Event_TransactionUnknownByOriginator                                                       // originator has reported that it doesn't recognize this transaction
+	Event_ChainedDependencyFailed                                                              // a chained (same-coordinator) dependency has been permanently finalized as failed
+	Event_ChainedDependencyEvicted                                                             // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -107,6 +109,10 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_NewPreAssembleDependency: {
 				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
 			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
 		},
 	},
 	State_PreAssembly_Blocked: {
@@ -120,6 +126,13 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
+			Event_ChainedDependencyEvicted: {
+				Transitions: []Transition{{To: State_Evicted}},
 			},
 		},
 	},
@@ -143,6 +156,13 @@ var stateDefinitionsMap = StateDefinitions{
 					{
 						To: State_Assembling,
 					}},
+			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
+			Event_ChainedDependencyEvicted: {
+				Transitions: []Transition{{To: State_Evicted}},
 			},
 		},
 	},
@@ -219,6 +239,10 @@ var stateDefinitionsMap = StateDefinitions{
 					Actions: []ActionRule{{Action: action_FinalizeAsUnknownByOriginator}},
 				}},
 			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
 		},
 	},
 	State_Endorsement_Gathering: {
@@ -270,6 +294,8 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			// TODO AM: the transitions here need to be more nuanced - if it's a chained dependency then we have to go to preassembly blocked
+			// we also need to handle this and the event below in more states because the dependencies exist at an earlier point
 			Event_DependencyReset: {
 				Transitions: []Transition{{
 					To: State_Pooled,
@@ -279,6 +305,10 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
 			},
 		},
 	},
@@ -304,6 +334,10 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
 			},
 		},
 	},
@@ -353,6 +387,10 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Pooled,
 				}},
 			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
 		},
 	},
 	State_Ready_For_Dispatch: {
@@ -382,6 +420,10 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Pooled,
 				}},
+			},
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
 			},
 		},
 	},
@@ -444,11 +486,17 @@ var stateDefinitionsMap = StateDefinitions{
 					{Action: action_NotifyDependentsOfReset},
 				},
 			},
+			// TODO AM: we're handling this in every state...
+			Event_ChainedDependencyFailed: {
+				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
+				Transitions: []Transition{{To: State_Reverted}},
+			},
 		},
 	},
 	State_Reverted: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_ResetTransactionLocks},
+			{Action: action_CascadeChainedDependencyFailure},
 		},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
@@ -489,6 +537,9 @@ var stateDefinitionsMap = StateDefinitions{
 		// Cleanup is handled by the coordinator in response to the state transition event
 	},
 	State_Evicted: {
+		OnTransitionTo: []ActionRule{
+			{Action: action_CascadeChainedDependencyEviction},
+		},
 		// Cleanup is handled by the coordinator in response to the state transition event
 	},
 }

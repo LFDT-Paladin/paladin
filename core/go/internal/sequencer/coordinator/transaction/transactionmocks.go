@@ -358,16 +358,16 @@ func (_c *MockGrapher_AddMinter_Call) RunAndReturn(run func(ctx context.Context,
 }
 
 // Forget provides a mock function for the type MockGrapher
-func (_mock *MockGrapher) Forget(transactionID uuid.UUID) error {
-	ret := _mock.Called(transactionID)
+func (_mock *MockGrapher) Forget(ctx context.Context, transactionID uuid.UUID) error {
+	ret := _mock.Called(ctx, transactionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Forget")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(uuid.UUID) error); ok {
-		r0 = returnFunc(transactionID)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, uuid.UUID) error); ok {
+		r0 = returnFunc(ctx, transactionID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -380,19 +380,25 @@ type MockGrapher_Forget_Call struct {
 }
 
 // Forget is a helper method to define mock.On call
+//   - ctx context.Context
 //   - transactionID uuid.UUID
-func (_e *MockGrapher_Expecter) Forget(transactionID interface{}) *MockGrapher_Forget_Call {
-	return &MockGrapher_Forget_Call{Call: _e.mock.On("Forget", transactionID)}
+func (_e *MockGrapher_Expecter) Forget(ctx interface{}, transactionID interface{}) *MockGrapher_Forget_Call {
+	return &MockGrapher_Forget_Call{Call: _e.mock.On("Forget", ctx, transactionID)}
 }
 
-func (_c *MockGrapher_Forget_Call) Run(run func(transactionID uuid.UUID)) *MockGrapher_Forget_Call {
+func (_c *MockGrapher_Forget_Call) Run(run func(ctx context.Context, transactionID uuid.UUID)) *MockGrapher_Forget_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 uuid.UUID
+		var arg0 context.Context
 		if args[0] != nil {
-			arg0 = args[0].(uuid.UUID)
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 uuid.UUID
+		if args[1] != nil {
+			arg1 = args[1].(uuid.UUID)
 		}
 		run(
 			arg0,
+			arg1,
 		)
 	})
 	return _c
@@ -403,7 +409,7 @@ func (_c *MockGrapher_Forget_Call) Return(err error) *MockGrapher_Forget_Call {
 	return _c
 }
 
-func (_c *MockGrapher_Forget_Call) RunAndReturn(run func(transactionID uuid.UUID) error) *MockGrapher_Forget_Call {
+func (_c *MockGrapher_Forget_Call) RunAndReturn(run func(ctx context.Context, transactionID uuid.UUID) error) *MockGrapher_Forget_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -642,6 +648,52 @@ func (_c *MockCoordinatorTransaction_DependentsMustWait_Call) Return(b bool) *Mo
 }
 
 func (_c *MockCoordinatorTransaction_DependentsMustWait_Call) RunAndReturn(run func() bool) *MockCoordinatorTransaction_DependentsMustWait_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetChainedChildID provides a mock function for the type MockCoordinatorTransaction
+func (_mock *MockCoordinatorTransaction) GetChainedChildID() *uuid.UUID {
+	ret := _mock.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetChainedChildID")
+	}
+
+	var r0 *uuid.UUID
+	if returnFunc, ok := ret.Get(0).(func() *uuid.UUID); ok {
+		r0 = returnFunc()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*uuid.UUID)
+		}
+	}
+	return r0
+}
+
+// MockCoordinatorTransaction_GetChainedChildID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChainedChildID'
+type MockCoordinatorTransaction_GetChainedChildID_Call struct {
+	*mock.Call
+}
+
+// GetChainedChildID is a helper method to define mock.On call
+func (_e *MockCoordinatorTransaction_Expecter) GetChainedChildID() *MockCoordinatorTransaction_GetChainedChildID_Call {
+	return &MockCoordinatorTransaction_GetChainedChildID_Call{Call: _e.mock.On("GetChainedChildID")}
+}
+
+func (_c *MockCoordinatorTransaction_GetChainedChildID_Call) Run(run func()) *MockCoordinatorTransaction_GetChainedChildID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockCoordinatorTransaction_GetChainedChildID_Call) Return(uUID *uuid.UUID) *MockCoordinatorTransaction_GetChainedChildID_Call {
+	_c.Call.Return(uUID)
+	return _c
+}
+
+func (_c *MockCoordinatorTransaction_GetChainedChildID_Call) RunAndReturn(run func() *uuid.UUID) *MockCoordinatorTransaction_GetChainedChildID_Call {
 	_c.Call.Return(run)
 	return _c
 }

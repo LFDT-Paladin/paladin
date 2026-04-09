@@ -237,7 +237,7 @@ type TransactionBuilderForTesting struct {
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
 	errorCount                         int
-	dependencies                       *pldapi.TransactionDependencies
+	dependencies                       *transactionDependencies
 	state                              State
 	useMockTransportWriter             bool
 	useMockClock                       bool
@@ -334,8 +334,8 @@ func (b *TransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.HexByte
 	return b
 }
 
-func (b *TransactionBuilderForTesting) PredefinedDependencies(transactionIDs ...uuid.UUID) *TransactionBuilderForTesting {
-	b.privateTransactionBuilder.PredefinedDependencies(transactionIDs...)
+func (b *TransactionBuilderForTesting) ChainedDependencies(transactionIDs ...uuid.UUID) *TransactionBuilderForTesting {
+	b.privateTransactionBuilder.ChainedDependencies(transactionIDs...)
 	return b
 }
 
@@ -435,8 +435,9 @@ func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBu
 	return b
 }
 
-func (b *TransactionBuilderForTesting) Dependencies(dependencies *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) Dependencies(dependencies *transactionDependencies) *TransactionBuilderForTesting {
 	b.dependencies = dependencies
+	b.privateTransactionBuilder.ChainedDependencies(dependencies.chained.dependsOn...)
 	return b
 }
 
@@ -692,7 +693,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.assembleErrorCount = b.assembleErrorCount
 
 	if b.dependencies != nil {
-		txn.dependencies = b.dependencies
+		txn.dependencies = *b.dependencies
 	}
 	if b.pendingAssembleRequestSend != nil {
 		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)

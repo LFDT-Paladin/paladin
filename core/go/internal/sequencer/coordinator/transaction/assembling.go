@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -129,12 +128,12 @@ func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coor
 }
 
 func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
-	if t.preAssemblePrereqOf == nil {
+	if t.dependencies.preAssemble.prereqOf == nil {
 		return nil
 	}
-	dependent := t.grapher.TransactionByID(ctx, *t.preAssemblePrereqOf)
+	dependent := t.grapher.TransactionByID(ctx, *t.dependencies.preAssemble.prereqOf)
 	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.preAssemblePrereqOf)
+		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.dependencies.preAssemble.prereqOf)
 	}
 	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -155,10 +154,8 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 	}
 
 	found := make(map[uuid.UUID]bool)
-	t.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-		PrereqOf:  make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-	}
+	t.dependencies.postAssemble.dependsOn = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
+	t.dependencies.postAssemble.prereqOf = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
 	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
 		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
 		if err != nil {
@@ -177,9 +174,9 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 		}
 		found[dependency.pt.ID] = true
 
-		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.pt.ID)
+		t.dependencies.postAssemble.dependsOn = append(t.dependencies.postAssemble.dependsOn, dependency.pt.ID)
 		//also set up the reverse association
-		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.pt.ID)
+		dependency.dependencies.postAssemble.prereqOf = append(dependency.dependencies.postAssemble.prereqOf, t.pt.ID)
 	}
 	return nil
 }

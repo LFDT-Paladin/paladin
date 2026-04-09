@@ -302,7 +302,7 @@ func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	delete(c.transactionsByID, e.TransactionID)
 	c.metrics.DecCoordinatingTransactions()
-	err := c.grapher.Forget(e.TransactionID)
+	err := c.grapher.Forget(ctx, e.TransactionID)
 	if err != nil {
 		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
 	}

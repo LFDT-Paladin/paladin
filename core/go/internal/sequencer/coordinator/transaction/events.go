@@ -372,3 +372,29 @@ func (*NewPreAssembleDependencyEvent) Type() EventType {
 func (*NewPreAssembleDependencyEvent) TypeString() string {
 	return "Event_NewPreAssembleDependency"
 }
+
+type ChainedDependencyFailedEvent struct {
+	BaseCoordinatorEvent
+	FailedTxID uuid.UUID
+}
+
+func (*ChainedDependencyFailedEvent) Type() EventType {
+	return Event_ChainedDependencyFailed
+}
+
+func (*ChainedDependencyFailedEvent) TypeString() string {
+	return "Event_ChainedDependencyFailed"
+}
+
+type ChainedDependencyEvictedEvent struct {
+	BaseCoordinatorEvent
+	EvictedTxID uuid.UUID
+}
+
+func (*ChainedDependencyEvictedEvent) Type() EventType {
+	return Event_ChainedDependencyEvicted
+}
+
+func (*ChainedDependencyEvictedEvent) TypeString() string {
+	return "Event_ChainedDependencyEvicted"
+}

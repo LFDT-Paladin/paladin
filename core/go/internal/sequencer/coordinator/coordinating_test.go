@@ -231,7 +231,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	c.transactionsByID[txn.GetID()] = txn
 
 	mockGrapher := transaction.NewMockGrapher(t)
-	mockGrapher.EXPECT().Forget(txn.GetID()).Return(fmt.Errorf("forget failed"))
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID()).Return(fmt.Errorf("forget failed"))
 	c.grapher = mockGrapher
 
 	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{

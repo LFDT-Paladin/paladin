@@ -431,6 +431,9 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 		Domain:  tx.Domain,
 		Address: *tx.To,
 		Intent:  intent,
+		PreAssembly: &components.TransactionPreAssembly{
+			ChainedDependsOn: txi.ChainedDependsOn,
+		},
 	}, &txi.ResolvedTransaction, false)
 }
 
@@ -455,7 +458,7 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 			if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
 				return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
 			}
-			log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
+			log.L(sMgr.ctx).Infof("resuming deploy transaction %s (from=%s)", txi.Transaction.ID, txi.Transaction.From)
 			return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
 				ID:     *tx.ID,
 				Domain: tx.Domain,
@@ -470,12 +473,15 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 		if txi.Function == nil || txi.Function.Definition == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
 		}
-		log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
+		log.L(sMgr.ctx).Infof("resuming transaction %s (from=%s, to=%s)", tx.ID, tx.From, tx.To)
 		return sMgr.handleTx(ctx, dbTX, &components.PrivateTransaction{
 			ID:      *tx.ID,
 			Domain:  tx.Domain,
 			Address: *tx.To,
 			Intent:  intent,
+			PreAssembly: &components.TransactionPreAssembly{
+				ChainedDependsOn: txi.ChainedDependsOn,
+			},
 		}, &txi.ResolvedTransaction, true)
 	})
 }

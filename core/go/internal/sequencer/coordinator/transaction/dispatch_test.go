@@ -16,6 +16,7 @@
 package transaction
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -733,4 +735,36 @@ func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
 	assert.Equal(t, []pldtypes.HexBytes{readID}, refs.StateRefs.Read)
 	assert.Equal(t, []pldtypes.HexBytes{outputID}, refs.StateRefs.Confirmed)
 	assert.Equal(t, []pldtypes.HexBytes{infoID}, refs.StateRefs.Info)
+}
+
+func TestDependsOn_DispatchPopulation_SetsChainedChildIDAndDeps(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	parentA, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(grapher).
+		Build()
+	parentAChildID := uuid.New()
+	parentA.chainedChildID = &parentAChildID
+
+	parentB, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(grapher).
+		Dependencies(&transactionDependencies{
+			postAssemble: postAssembleDependencies{
+				dependsOn: []uuid.UUID{parentA.pt.ID},
+			},
+		}).
+		Build()
+
+	var chainedDeps []uuid.UUID
+	for _, depID := range parentB.dependencies.postAssemble.dependsOn {
+		dep := grapher.TransactionByID(ctx, depID)
+		if dep != nil {
+			if depChildID := dep.GetChainedChildID(); depChildID != nil {
+				chainedDeps = append(chainedDeps, *depChildID)
+			}
+		}
+	}
+
+	assert.Equal(t, []uuid.UUID{parentAChildID}, chainedDeps)
 }
