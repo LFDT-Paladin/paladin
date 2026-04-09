@@ -89,3 +89,15 @@ func TestRawJSON(t *testing.T) {
 	assert.Nil(t, RawJSON(nil).ToMap()["some"])
 
 }
+
+func TestRawJSON_ScanBytesCopies(t *testing.T) {
+	src := []byte(`{"key":"value"}`)
+	var r RawJSON
+	err := r.Scan(src)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"key":"value"}`, string(r))
+
+	// Mutate the source; the scanned RawJSON must be independent
+	src[2] = 'X'
+	assert.JSONEq(t, `{"key":"value"}`, string(r), "Scan([]byte) must copy, not alias")
+}
