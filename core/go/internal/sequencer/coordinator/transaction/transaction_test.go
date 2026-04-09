@@ -377,7 +377,7 @@ func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
 		Grapher(grapher).
 		Build()
 
-	assert.Empty(t, txn.dependencies.chained.dependsOn)
+	assert.Empty(t, txn.dependencies.Chained.DependsOn)
 	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
 }
 

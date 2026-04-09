@@ -269,9 +269,9 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 		Grapher(grapher).
 		AddPendingEndorsementRequest(2).NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				dependsOn: []uuid.UUID{blockingTXID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{blockingTXID},
 			},
 		})
 	txn, _ := builder.Build()

@@ -128,12 +128,12 @@ func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coor
 }
 
 func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
-	if t.dependencies.preAssemble.prereqOf == nil {
+	if t.dependencies.PreAssemble.PrereqOf == nil {
 		return nil
 	}
-	dependent := t.grapher.TransactionByID(ctx, *t.dependencies.preAssemble.prereqOf)
+	dependent := t.grapher.TransactionByID(ctx, *t.dependencies.PreAssemble.PrereqOf)
 	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.dependencies.preAssemble.prereqOf)
+		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.dependencies.PreAssemble.PrereqOf)
 	}
 	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -154,8 +154,8 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 	}
 
 	found := make(map[uuid.UUID]bool)
-	t.dependencies.postAssemble.dependsOn = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
-	t.dependencies.postAssemble.prereqOf = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
+	t.dependencies.PostAssemble.DependsOn = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
+	t.dependencies.PostAssemble.PrereqOf = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
 	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
 		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
 		if err != nil {
@@ -174,9 +174,9 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 		}
 		found[dependency.pt.ID] = true
 
-		t.dependencies.postAssemble.dependsOn = append(t.dependencies.postAssemble.dependsOn, dependency.pt.ID)
+		t.dependencies.PostAssemble.DependsOn = append(t.dependencies.PostAssemble.DependsOn, dependency.pt.ID)
 		//also set up the reverse association
-		dependency.dependencies.postAssemble.prereqOf = append(dependency.dependencies.postAssemble.prereqOf, t.pt.ID)
+		dependency.dependencies.PostAssemble.PrereqOf = append(dependency.dependencies.PostAssemble.PrereqOf, t.pt.ID)
 	}
 	return nil
 }

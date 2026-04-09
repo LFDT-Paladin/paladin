@@ -237,7 +237,7 @@ type TransactionBuilderForTesting struct {
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
 	errorCount                         int
-	dependencies                       *transactionDependencies
+	dependencies                       *TransactionDependencies
 	state                              State
 	useMockTransportWriter             bool
 	useMockClock                       bool
@@ -435,9 +435,18 @@ func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBu
 	return b
 }
 
-func (b *TransactionBuilderForTesting) Dependencies(dependencies *transactionDependencies) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) Dependencies(dependencies *TransactionDependencies) *TransactionBuilderForTesting {
 	b.dependencies = dependencies
-	b.privateTransactionBuilder.ChainedDependencies(dependencies.chained.dependsOn...)
+	b.privateTransactionBuilder.ChainedDependencies(dependencies.Chained.DependsOn...)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) PostAssembleDependencies(deps *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
+	if b.dependencies == nil {
+		b.dependencies = &TransactionDependencies{}
+	}
+	b.dependencies.PostAssemble.DependsOn = deps.DependsOn
+	b.dependencies.PostAssemble.PrereqOf = deps.PrereqOf
 	return b
 }
 

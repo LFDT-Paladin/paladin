@@ -103,26 +103,26 @@ func (s *grapher) pruneDependencyLinks(ctx context.Context, txn CoordinatorTrans
 	}
 
 	// Prune post-assemble dependency links in both directions.
-	for _, dependentID := range ct.dependencies.postAssemble.prereqOf {
+	for _, dependentID := range ct.dependencies.PostAssemble.PrereqOf {
 		if dependent, ok := s.transactionByID[dependentID].(*coordinatorTransaction); ok {
-			dependent.dependencies.postAssemble.dependsOn = removeUUID(dependent.dependencies.postAssemble.dependsOn, txn.GetID())
+			dependent.dependencies.PostAssemble.DependsOn = removeUUID(dependent.dependencies.PostAssemble.DependsOn, txn.GetID())
 		}
 	}
-	for _, prereqID := range ct.dependencies.postAssemble.dependsOn {
+	for _, prereqID := range ct.dependencies.PostAssemble.DependsOn {
 		if prereq, ok := s.transactionByID[prereqID].(*coordinatorTransaction); ok {
-			prereq.dependencies.postAssemble.prereqOf = removeUUID(prereq.dependencies.postAssemble.prereqOf, txn.GetID())
+			prereq.dependencies.PostAssemble.PrereqOf = removeUUID(prereq.dependencies.PostAssemble.PrereqOf, txn.GetID())
 		}
 	}
 
 	// Prune chained dependency links in both directions.
-	for _, depID := range ct.dependencies.chained.prereqOf {
+	for _, depID := range ct.dependencies.Chained.PrereqOf {
 		if dep, ok := s.transactionByID[depID].(*coordinatorTransaction); ok {
-			dep.dependencies.chained.dependsOn = removeUUID(dep.dependencies.chained.dependsOn, txn.GetID())
+			dep.dependencies.Chained.DependsOn = removeUUID(dep.dependencies.Chained.DependsOn, txn.GetID())
 		}
 	}
-	for _, preID := range ct.dependencies.chained.dependsOn {
+	for _, preID := range ct.dependencies.Chained.DependsOn {
 		if pre, ok := s.transactionByID[preID].(*coordinatorTransaction); ok {
-			pre.dependencies.chained.prereqOf = removeUUID(pre.dependencies.chained.prereqOf, txn.GetID())
+			pre.dependencies.Chained.PrereqOf = removeUUID(pre.dependencies.Chained.PrereqOf, txn.GetID())
 		}
 	}
 }

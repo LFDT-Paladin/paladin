@@ -749,15 +749,15 @@ func TestDependsOn_DispatchPopulation_SetsChainedChildIDAndDeps(t *testing.T) {
 
 	parentB, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				dependsOn: []uuid.UUID{parentA.pt.ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{parentA.pt.ID},
 			},
 		}).
 		Build()
 
 	var chainedDeps []uuid.UUID
-	for _, depID := range parentB.dependencies.postAssemble.dependsOn {
+	for _, depID := range parentB.dependencies.PostAssemble.DependsOn {
 		dep := grapher.TransactionByID(ctx, depID)
 		if dep != nil {
 			if depChildID := dep.GetChainedChildID(); depChildID != nil {

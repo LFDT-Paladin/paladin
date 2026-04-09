@@ -74,7 +74,7 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// and there is no way we could have picked up new dependencies without a re-assemble.
 	// Some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	for _, dependencyID := range append(t.dependencies.postAssemble.dependsOn, t.dependencies.chained.dependsOn...) {
+	for _, dependencyID := range append(t.dependencies.PostAssemble.DependsOn, t.dependencies.Chained.DependsOn...) {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
@@ -108,7 +108,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range append(t.dependencies.postAssemble.prereqOf, t.dependencies.chained.prereqOf...) {
+	for _, dependentId := range append(t.dependencies.PostAssemble.PrereqOf, t.dependencies.Chained.PrereqOf...) {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)

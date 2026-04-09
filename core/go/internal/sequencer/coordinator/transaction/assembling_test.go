@@ -374,8 +374,8 @@ func Test_calculatePostAssembleDependencies_StateWithMinter(t *testing.T) {
 
 	err := txn.calculatePostAssembleDependencies(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, txn.dependencies.postAssemble.dependsOn, minterTxn.pt.ID)
-	assert.Contains(t, minterTxn.dependencies.postAssemble.prereqOf, txn.pt.ID)
+	assert.Contains(t, txn.dependencies.PostAssemble.DependsOn, minterTxn.pt.ID)
+	assert.Contains(t, minterTxn.dependencies.PostAssemble.PrereqOf, txn.pt.ID)
 }
 
 func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
@@ -421,8 +421,8 @@ func Test_calculatePostAssembleDependencies_DuplicateDependency(t *testing.T) {
 	err := txn.calculatePostAssembleDependencies(ctx)
 	require.NoError(t, err)
 	// Should only have one dependency entry
-	require.Len(t, txn.dependencies.postAssemble.dependsOn, 1)
-	assert.Equal(t, minterTxn.pt.ID, txn.dependencies.postAssemble.dependsOn[0])
+	require.Len(t, txn.dependencies.PostAssemble.DependsOn, 1)
+	assert.Equal(t, minterTxn.pt.ID, txn.dependencies.PostAssemble.DependsOn[0])
 }
 
 func Test_writeLockStates_Success(t *testing.T) {
@@ -799,7 +799,7 @@ func Test_action_AssembleError_MultipleCallsIncrementCount(t *testing.T) {
 func Test_notifyPreAssembleDependentOfSelection_NilPrereq(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.dependencies.preAssemble.prereqOf = nil
+	txn.dependencies.PreAssemble.PrereqOf = nil
 
 	err := txn.notifyPreAssembleDependentOfSelection(ctx)
 	require.NoError(t, err)
@@ -814,7 +814,7 @@ func Test_notifyPreAssembleDependentOfSelection_DependentNotFound(t *testing.T) 
 	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(nil)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
-	txn.dependencies.preAssemble.prereqOf = &dependentID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentID
 
 	err := txn.notifyPreAssembleDependentOfSelection(ctx)
 	require.Error(t, err)
@@ -832,7 +832,7 @@ func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
 		Build()
-	txn.dependencies.preAssemble.prereqOf = &dependentTxn.pt.ID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentTxn.pt.ID
 
 	err := txn.notifyPreAssembleDependentOfSelection(ctx)
 	require.NoError(t, err)
@@ -841,7 +841,7 @@ func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 func Test_action_NotifyPreAssembleDependentOfSelection_NilPrereq(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.dependencies.preAssemble.prereqOf = nil
+	txn.dependencies.PreAssemble.PrereqOf = nil
 
 	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
 	require.NoError(t, err)
@@ -856,7 +856,7 @@ func Test_action_NotifyPreAssembleDependentOfSelection_DependentNotFound(t *test
 	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(nil)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
-	txn.dependencies.preAssemble.prereqOf = &dependentID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentID
 
 	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
 	require.Error(t, err)
@@ -873,7 +873,7 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
 		Build()
-	txn.dependencies.preAssemble.prereqOf = &dependentTxn.pt.ID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentTxn.pt.ID
 
 	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
 	require.NoError(t, err)

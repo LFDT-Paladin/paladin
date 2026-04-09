@@ -26,7 +26,7 @@ func (t *coordinatorTransaction) hasDependenciesNotAssembled() bool {
 	// preAssembleDependsOn can only be set when transactions have arrived in the same delegation request.
 	// It is cleared when the dependent transaction is selected for assembly which means there is no way
 	// that this can be cleared if a dependency has not yet been assembled.
-	return t.dependencies.preAssemble.dependsOn != nil
+	return t.dependencies.PreAssemble.DependsOn != nil
 }
 
 func action_InitializeForNewAssembly(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
@@ -43,8 +43,8 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.pt.PreparedPrivateTransaction = nil
 	t.chainedChildID = nil
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
-	t.dependencies.postAssemble.dependsOn = nil
-	t.dependencies.postAssemble.prereqOf = nil
+	t.dependencies.PostAssemble.DependsOn = nil
+	t.dependencies.PostAssemble.PrereqOf = nil
 	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
 	t.clearTimeoutSchedules()
@@ -77,13 +77,13 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
 	// events while dispatched are no-ops and stale dependency links are dropped.
 	// Clear post-assembly dependency links while preserving chained links across repool.
-	txn.dependencies.postAssemble.dependsOn = nil
-	txn.dependencies.postAssemble.prereqOf = nil
+	txn.dependencies.PostAssemble.DependsOn = nil
+	txn.dependencies.PostAssemble.PrereqOf = nil
 	return nil
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
-	for _, dependentID := range append(t.dependencies.postAssemble.prereqOf, t.dependencies.chained.prereqOf...) {
+	for _, dependentID := range append(t.dependencies.PostAssemble.PrereqOf, t.dependencies.Chained.PrereqOf...) {
 		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
 		if dependentTxn != nil {
 			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
@@ -106,17 +106,17 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 }
 
 func action_RemovePreAssembleDependency(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.dependencies.preAssemble.dependsOn = nil
+	txn.dependencies.PreAssemble.DependsOn = nil
 	return nil
 }
 
 func action_AddPreAssemblePrereqOf(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
 	e := event.(*NewPreAssembleDependencyEvent)
-	txn.dependencies.preAssemble.prereqOf = &e.PrereqTransactionID
+	txn.dependencies.PreAssemble.PrereqOf = &e.PrereqTransactionID
 	return nil
 }
 
 func action_RemovePreAssemblePrereqOf(_ context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.dependencies.preAssemble.prereqOf = nil
+	txn.dependencies.PreAssemble.PrereqOf = nil
 	return nil
 }

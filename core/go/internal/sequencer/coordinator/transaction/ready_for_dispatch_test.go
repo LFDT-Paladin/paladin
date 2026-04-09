@@ -149,12 +149,9 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 
 	missingID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Dependencies(&transactionDependencies{
-			postAssemble: struct {
-				dependsOn []uuid.UUID
-				prereqOf  []uuid.UUID
-			}{
-				dependsOn: []uuid.UUID{missingID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{missingID},
 			},
 		}).
 		Build()
@@ -172,7 +169,7 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	txn1.stateMachine.CurrentState = State_Assembling
 
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
-	txn2.dependencies.postAssemble.dependsOn = []uuid.UUID{txn1.pt.ID}
+	txn2.dependencies.PostAssemble.DependsOn = []uuid.UUID{txn1.pt.ID}
 	txn2.pt.PreAssembly = nil
 
 	assert.True(t, txn2.hasDependenciesNotReady(ctx))
@@ -188,9 +185,9 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				dependsOn: []uuid.UUID{txn1.pt.ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{txn1.pt.ID},
 			},
 		}).
 		Build()
@@ -239,9 +236,9 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 	missingID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{missingID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{missingID},
 			},
 		}).
 		Build()
@@ -260,9 +257,9 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx1ID).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
 			},
 		}).
 		Build()
@@ -270,9 +267,9 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		TransactionID(tx2ID).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				dependsOn: []uuid.UUID{tx1ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
 			},
 		}).
 		Build()
@@ -337,9 +334,9 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	// Create the main transaction that will notify dependents
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		PreAssembly(&components.TransactionPreAssembly{}).
@@ -410,8 +407,8 @@ func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
 		Grapher(grapher).
 		Build()
 
-	txn.dependencies.chained.dependsOn = []uuid.UUID{depTx.pt.ID}
-	depTx.dependencies.chained.prereqOf = []uuid.UUID{txn.pt.ID}
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{txn.pt.ID}
 
 	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
@@ -428,8 +425,8 @@ func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing
 		Grapher(grapher).
 		Build()
 
-	txn.dependencies.chained.dependsOn = []uuid.UUID{depTx.pt.ID}
-	depTx.dependencies.chained.prereqOf = []uuid.UUID{txn.pt.ID}
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{txn.pt.ID}
 
 	assert.False(t, txn.hasDependenciesNotReady(ctx))
 }
@@ -443,7 +440,7 @@ func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
 		Build()
-	txn.dependencies.chained.dependsOn = []uuid.UUID{unknownID}
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{unknownID}
 
 	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
@@ -460,7 +457,7 @@ func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 		Grapher(grapher).
 		Build()
 
-	depTx.dependencies.chained.prereqOf = []uuid.UUID{dependentTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
 
 	err := depTx.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)

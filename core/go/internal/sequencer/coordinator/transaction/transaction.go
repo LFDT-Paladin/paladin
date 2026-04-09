@@ -43,29 +43,29 @@ type CoordinatorTransaction interface {
 	GetChainedChildID() *uuid.UUID
 }
 
-type preAssembleDependencies struct {
-	dependsOn *uuid.UUID
-	prereqOf  *uuid.UUID
+type PreAssembleDependencies struct {
+	DependsOn *uuid.UUID
+	PrereqOf  *uuid.UUID
 }
 
-type postAssembleDependencies struct {
-	dependsOn []uuid.UUID
-	prereqOf  []uuid.UUID
+type PostAssembleDependencies struct {
+	DependsOn []uuid.UUID
+	PrereqOf  []uuid.UUID
 }
 
 type chainedDependencies struct {
-	dependsOn []uuid.UUID
-	prereqOf  []uuid.UUID
+	DependsOn []uuid.UUID
+	PrereqOf  []uuid.UUID
 }
 
-// transactionDependencies tracks all dependency categories for a coordinator transaction.
+// TransactionDependencies tracks all dependency categories for a coordinator transaction.
 // - preAssemble: 0-1 dependency links in each direction
 // - postAssemble: 0-many dependency links in each direction
 // - chained: 0-many dependency links in each direction
-type transactionDependencies struct {
-	preAssemble  preAssembleDependencies
-	postAssemble postAssembleDependencies
-	chained      chainedDependencies
+type TransactionDependencies struct {
+	PreAssemble  PreAssembleDependencies
+	PostAssemble PostAssembleDependencies
+	Chained      chainedDependencies
 }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
@@ -106,7 +106,7 @@ type coordinatorTransaction struct {
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
 	// Transaction dependencies - tracked by dependency type.
-	dependencies   transactionDependencies
+	dependencies   TransactionDependencies
 	chainedChildID *uuid.UUID
 
 	//Configuration
@@ -231,8 +231,8 @@ func newTransaction(
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
-		dependencies: transactionDependencies{
-			preAssemble: preAssembleDependencies{dependsOn: preAssembleDependsOn},
+		dependencies: TransactionDependencies{
+			PreAssemble: PreAssembleDependencies{DependsOn: preAssembleDependsOn},
 		},
 		grapher: grapher,
 		metrics: metrics,
@@ -259,13 +259,13 @@ func newTransaction(
 				log.L(txCtx).Warnf("Dependency %s not found in grapher for TX %s, assuming finalized", depID, pt.ID)
 				continue
 			}
-			txn.dependencies.chained.dependsOn = append(txn.dependencies.chained.dependsOn, depID)
+			txn.dependencies.Chained.DependsOn = append(txn.dependencies.Chained.DependsOn, depID)
 			if depTx, ok := dep.(*coordinatorTransaction); ok {
 				// TODO: this is directly modifying the prereq transaction without a mutex. This is ok at the current
 				// point in time, because the only other goroutine which has access to the transaction is the dispatch
 				// loop and this does not touch dependencies. This should be made more resilient to concurrent access by
 				// the new grapher.
-				depTx.dependencies.chained.prereqOf = append(depTx.dependencies.chained.prereqOf, pt.ID)
+				depTx.dependencies.Chained.PrereqOf = append(depTx.dependencies.Chained.PrereqOf, pt.ID)
 			}
 		}
 	}
@@ -310,8 +310,8 @@ func (t *coordinatorTransaction) GetDependencies() *pldapi.TransactionDependenci
 	// 	return nil
 	// }
 	return &pldapi.TransactionDependencies{
-		DependsOn: append([]uuid.UUID{}, t.dependencies.postAssemble.dependsOn...),
-		PrereqOf:  append([]uuid.UUID{}, t.dependencies.postAssemble.prereqOf...),
+		DependsOn: append([]uuid.UUID{}, t.dependencies.PostAssemble.DependsOn...),
+		PrereqOf:  append([]uuid.UUID{}, t.dependencies.PostAssemble.PrereqOf...),
 	}
 }
 

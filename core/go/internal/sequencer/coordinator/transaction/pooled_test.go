@@ -78,9 +78,9 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
 		AddPendingAssembleRequest().
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				dependsOn: []uuid.UUID{dep2.pt.ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{dep2.pt.ID},
 			},
 		}).
 		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
@@ -131,9 +131,9 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 		TransactionID(mainTxnID).
 		Grapher(grapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		Build()
@@ -177,9 +177,9 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		PreAssembly(&components.TransactionPreAssembly{}).
@@ -208,9 +208,9 @@ func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
 		TransactionID(mainTxnID).
 		Grapher(mockGrapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		Build()
@@ -239,9 +239,9 @@ func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *test
 		TransactionID(mainTxnID).
 		Grapher(mockGrapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		Build()
@@ -249,8 +249,8 @@ func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *test
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
-	require.Len(t, mainTxn.dependencies.postAssemble.prereqOf, 1, "dependencies must not be cleared when notify fails")
-	assert.Equal(t, dependentID, mainTxn.dependencies.postAssemble.prereqOf[0])
+	require.Len(t, mainTxn.dependencies.PostAssemble.PrereqOf, 1, "dependencies must not be cleared when notify fails")
+	assert.Equal(t, dependentID, mainTxn.dependencies.PostAssemble.PrereqOf[0])
 }
 
 func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
@@ -258,9 +258,9 @@ func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
 	missingID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{missingID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{missingID},
 			},
 		}).
 		PreAssembly(&components.TransactionPreAssembly{}).
@@ -275,23 +275,23 @@ func Test_action_RemovePreAssembleDependency(t *testing.T) {
 	dependencyID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).Build()
-	txn.dependencies.preAssemble.dependsOn = &dependencyID
+	txn.dependencies.PreAssemble.DependsOn = &dependencyID
 
-	require.NotNil(t, txn.dependencies.preAssemble.dependsOn)
+	require.NotNil(t, txn.dependencies.PreAssemble.DependsOn)
 
 	err := action_RemovePreAssembleDependency(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Nil(t, txn.dependencies.preAssemble.dependsOn)
+	assert.Nil(t, txn.dependencies.PreAssemble.DependsOn)
 }
 
 func Test_action_RemovePreAssembleDependency_AlreadyNil(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	txn.dependencies.preAssemble.dependsOn = nil
+	txn.dependencies.PreAssemble.DependsOn = nil
 
 	err := action_RemovePreAssembleDependency(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Nil(t, txn.dependencies.preAssemble.dependsOn)
+	assert.Nil(t, txn.dependencies.PreAssemble.DependsOn)
 }
 
 func Test_action_AddPreAssemblePrereqOf(t *testing.T) {
@@ -299,7 +299,7 @@ func Test_action_AddPreAssemblePrereqOf(t *testing.T) {
 	prereqTxnID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	require.Nil(t, txn.dependencies.preAssemble.prereqOf)
+	require.Nil(t, txn.dependencies.PreAssemble.PrereqOf)
 
 	event := &NewPreAssembleDependencyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -310,8 +310,8 @@ func Test_action_AddPreAssemblePrereqOf(t *testing.T) {
 
 	err := action_AddPreAssemblePrereqOf(ctx, txn, event)
 	require.NoError(t, err)
-	require.NotNil(t, txn.dependencies.preAssemble.prereqOf)
-	assert.Equal(t, prereqTxnID, *txn.dependencies.preAssemble.prereqOf)
+	require.NotNil(t, txn.dependencies.PreAssemble.PrereqOf)
+	assert.Equal(t, prereqTxnID, *txn.dependencies.PreAssemble.PrereqOf)
 }
 
 func Test_action_AddPreAssemblePrereqOf_OverwritesExisting(t *testing.T) {
@@ -320,7 +320,7 @@ func Test_action_AddPreAssemblePrereqOf_OverwritesExisting(t *testing.T) {
 	newPrereqID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	txn.dependencies.preAssemble.prereqOf = &oldPrereqID
+	txn.dependencies.PreAssemble.PrereqOf = &oldPrereqID
 
 	event := &NewPreAssembleDependencyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -331,8 +331,8 @@ func Test_action_AddPreAssemblePrereqOf_OverwritesExisting(t *testing.T) {
 
 	err := action_AddPreAssemblePrereqOf(ctx, txn, event)
 	require.NoError(t, err)
-	require.NotNil(t, txn.dependencies.preAssemble.prereqOf)
-	assert.Equal(t, newPrereqID, *txn.dependencies.preAssemble.prereqOf)
+	require.NotNil(t, txn.dependencies.PreAssemble.PrereqOf)
+	assert.Equal(t, newPrereqID, *txn.dependencies.PreAssemble.PrereqOf)
 }
 
 func Test_action_RemovePreAssemblePrereqOf(t *testing.T) {
@@ -340,29 +340,29 @@ func Test_action_RemovePreAssemblePrereqOf(t *testing.T) {
 	prereqID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.dependencies.preAssemble.prereqOf = &prereqID
+	txn.dependencies.PreAssemble.PrereqOf = &prereqID
 
-	require.NotNil(t, txn.dependencies.preAssemble.prereqOf)
+	require.NotNil(t, txn.dependencies.PreAssemble.PrereqOf)
 
 	err := action_RemovePreAssemblePrereqOf(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Nil(t, txn.dependencies.preAssemble.prereqOf)
+	assert.Nil(t, txn.dependencies.PreAssemble.PrereqOf)
 }
 
 func Test_action_RemovePreAssemblePrereqOf_AlreadyNil(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.dependencies.preAssemble.prereqOf = nil
+	txn.dependencies.PreAssemble.PrereqOf = nil
 
 	err := action_RemovePreAssemblePrereqOf(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Nil(t, txn.dependencies.preAssemble.prereqOf)
+	assert.Nil(t, txn.dependencies.PreAssemble.PrereqOf)
 }
 
 func Test_guard_HasUnassembledDependencies_False(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	txn.dependencies.preAssemble.dependsOn = nil
+	txn.dependencies.PreAssemble.DependsOn = nil
 
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
 }
@@ -371,7 +371,7 @@ func Test_guard_HasUnassembledDependencies_True(t *testing.T) {
 	ctx := context.Background()
 	dependencyID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	txn.dependencies.preAssemble.dependsOn = &dependencyID
+	txn.dependencies.PreAssemble.DependsOn = &dependencyID
 
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
 }
@@ -387,16 +387,16 @@ func TestDependsOn_SurviveRepool_InitializeForNewAssembly(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).
 		Build()
-	txn.dependencies.chained.dependsOn = []uuid.UUID{depTx.pt.ID}
-	depTx.dependencies.chained.prereqOf = []uuid.UUID{txn.pt.ID}
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{txn.pt.ID}
 
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := txn.initializeForNewAssembly(ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, []uuid.UUID{depTx.pt.ID}, txn.dependencies.chained.dependsOn)
-	assert.Empty(t, txn.dependencies.postAssemble.dependsOn)
+	assert.Equal(t, []uuid.UUID{depTx.pt.ID}, txn.dependencies.Chained.DependsOn)
+	assert.Empty(t, txn.dependencies.PostAssemble.DependsOn)
 }
 
 func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
@@ -410,10 +410,10 @@ func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).
 		Build()
-	txn.dependencies.chained.dependsOn = []uuid.UUID{depTx.pt.ID}
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
 
 	err := action_NotifyDependentsOfReset(ctx, txn, nil)
 	require.NoError(t, err)
 
-	assert.Empty(t, txn.dependencies.postAssemble.dependsOn)
+	assert.Empty(t, txn.dependencies.PostAssemble.DependsOn)
 }

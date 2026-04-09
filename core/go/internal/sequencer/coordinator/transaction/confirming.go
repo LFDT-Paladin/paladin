@@ -169,7 +169,7 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 
 	// this function is called when the transaction enters the confirmed state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range t.dependencies.postAssemble.prereqOf {
+	for _, dependentId := range t.dependencies.PostAssemble.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
@@ -189,7 +189,7 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 }
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
-	for _, dependentId := range append(t.dependencies.postAssemble.prereqOf, t.dependencies.chained.prereqOf...) {
+	for _, dependentId := range append(t.dependencies.PostAssemble.PrereqOf, t.dependencies.Chained.PrereqOf...) {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
@@ -212,7 +212,7 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 // when a transaction reaches State_Reverted. Each dependent handles the event via its own
 // state machine, performing its own finalization (downward pruning of the dependency chain).
 func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.chained.prereqOf {
+	for _, dependentId := range t.dependencies.Chained.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
@@ -258,7 +258,7 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 // not yet been assembled, its dependents cannot have been either — so they must be in Pooled
 // or PreAssembly_Blocked.
 func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.chained.prereqOf {
+	for _, dependentId := range t.dependencies.Chained.PrereqOf {
 		dependent := t.grapher.TransactionByID(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)

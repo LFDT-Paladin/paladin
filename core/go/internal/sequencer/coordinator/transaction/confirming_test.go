@@ -48,9 +48,9 @@ func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{uuid.New()},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{uuid.New()},
 			},
 		}).
 		Build()
@@ -82,9 +82,9 @@ func Test_notifyDependentsOfConfirmation_HandleEventReturnsError(t *testing.T) {
 	// Create main transaction with the mock grapher and a dependent
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		Build()
@@ -133,9 +133,9 @@ func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
 	tx2ID := uuid.New()
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
 			},
 		}).
 		Build()
@@ -304,7 +304,7 @@ func Test_action_NotifyDependantsOfSuccessfulConfirmation_NoDependents(t *testin
 
 	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Len(t, txn.dependencies.postAssemble.prereqOf, 0)
+	assert.Len(t, txn.dependencies.PostAssemble.PrereqOf, 0)
 }
 
 func Test_action_NotifyDependantsOfSuccessfulConfirmation_ResetLocksWhenRetentionNotConfigured(t *testing.T) {
@@ -324,9 +324,9 @@ func Test_action_NotifyDependantsOfSuccessfulConfirmation_DoesNotResetLocksWhenR
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		ConfirmedLockRetentionGracePeriod(2).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
 			},
 		}).
 		Build()
@@ -340,9 +340,9 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_AlwaysResetsLocks(t *tes
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		ConfirmedLockRetentionGracePeriod(2).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
 			},
 		}).
 		Build()
@@ -402,9 +402,9 @@ func Test_ConfirmedRevert_StateDispatched_NonRetryable_TransitionsToReverted(t *
 	ctx := context.Background()
 	revertReason := pldtypes.MustParseHexBytes("0xdead")
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
 			},
 		}).
 		Build()
@@ -433,9 +433,9 @@ func Test_ConfirmedRevert_StateDispatched_RetryableRevert_ExceedsThreshold_Trans
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		BaseLedgerRevertRetryThreshold(1).
 		RevertCount(1).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
 			},
 		}).
 		Build()
@@ -725,9 +725,9 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 	tx2ID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
 			},
 		}).
 		Build()
@@ -748,9 +748,9 @@ func Test_action_NotifyDependantsOfSuccessfulConfirmation_SendsReadyEvent(t *tes
 	tx2ID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
 			},
 		}).
 		Build()
@@ -776,9 +776,9 @@ func Test_notifyDependentsOfRevertedConfirmation_NoDependents(t *testing.T) {
 func Test_notifyDependentsOfRevertedConfirmation_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{uuid.New()},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{uuid.New()},
 			},
 		}).
 		Build()
@@ -810,9 +810,9 @@ func Test_notifyDependentsOfRevertedConfirmation_HandleEventReturnsError(t *test
 	// Create main transaction with the mock grapher and a dependent
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
-		Dependencies(&transactionDependencies{
-			postAssemble: postAssembleDependencies{
-				prereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
 			},
 		}).
 		Build()
@@ -905,7 +905,7 @@ func TestDependsOn_CascadeFailure_SendsEventToDependentWhichFinalizesItself(t *t
 		Grapher(grapher).
 		Build()
 
-	revertedTx.dependencies.chained.prereqOf = []uuid.UUID{dependentTx.pt.ID}
+	revertedTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
 
 	depMocks.SyncPoints.On("QueueTransactionFinalize",
 		mock.Anything,
@@ -957,7 +957,7 @@ func TestDependsOn_CascadeFailure_ErrorsOnMissingDependent(t *testing.T) {
 		Build()
 
 	unknownID := uuid.New()
-	revertedTx.dependencies.chained.prereqOf = []uuid.UUID{unknownID}
+	revertedTx.dependencies.Chained.PrereqOf = []uuid.UUID{unknownID}
 
 	err := action_CascadeChainedDependencyFailure(ctx, revertedTx, nil)
 	require.Error(t, err)
@@ -976,7 +976,7 @@ func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *tes
 		Grapher(grapher).
 		Build()
 
-	evictedTx.dependencies.chained.prereqOf = []uuid.UUID{dependentTx.pt.ID}
+	evictedTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
 
 	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
 	require.NoError(t, err)
@@ -993,7 +993,7 @@ func TestDependsOn_CascadeEviction_ErrorsOnMissingDependent(t *testing.T) {
 		Build()
 
 	unknownID := uuid.New()
-	evictedTx.dependencies.chained.prereqOf = []uuid.UUID{unknownID}
+	evictedTx.dependencies.Chained.PrereqOf = []uuid.UUID{unknownID}
 
 	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
 	require.Error(t, err)
