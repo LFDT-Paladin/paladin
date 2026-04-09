@@ -156,7 +156,10 @@ task protoc(type: ProtoCompile, dependsOn: [
 }
 
 task makeMocksComponents(type: Exec, dependsOn: [":installMockery", protoc]) {
+    workingDir '.'
+    inputs.file('.mockery.yml')
    executable "mockery"
+    args "--config", ".mockery.yml"
 }
 
 task makeMocksTransport(type: Exec, dependsOn: [makeMocksComponents]) {
