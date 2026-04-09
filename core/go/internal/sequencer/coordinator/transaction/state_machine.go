@@ -63,6 +63,7 @@ const (
 	Event_DependencyReset                                                                      // another transaction, for which this transaction has a dependency on, has been reset
 	Event_DependencyConfirmedReverted                                                          // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
 	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
+	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
 	Event_Dispatched                                                                           // dispatched to the public TX manager
 	Event_Collected                                                                            // collected by the public TX manager
 	Event_NonceAllocated                                                                       // nonce allocated by the dispatcher thread

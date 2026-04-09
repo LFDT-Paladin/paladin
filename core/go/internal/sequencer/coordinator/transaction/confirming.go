@@ -170,3 +170,24 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 	}
 	return nil
 }
+
+func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
+	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool)", t.pt.ID.String())
+	for _, dependentId := range t.grapher.GetDependants(ctx, t.pt.ID) {
+		dependent := t.getCoordinatorTransaction(ctx, dependentId)
+		if dependent == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.GetPrivateTransaction().ID,
+				},
+			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
+				return err
+			}
+		}
+	}
+	return nil
+}

@@ -19,7 +19,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 )
 
 // Function hasDependenciesNotAssembled checks if the transaction has a preassembly dependency that has not been assembled yet
@@ -72,25 +71,22 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	if err := txn.notifyDependentsOfReset(ctx); err != nil {
 		return err
 	}
+
 	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
 	// events while dispatched are no-ops and stale dependency links are dropped.
-	txn.dependencies = &pldapi.TransactionDependencies{}
+	txn.grapher.RemoveAllDependencyLinks(txn.pt.ID)
 	return nil
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
-	for _, dependentID := range t.dependencies.PrereqOf {
-		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
+	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
+		dependentTxn := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
+			dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},
 			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of repool of transaction %s: %s", dependentID, t.pt.ID, err)
-				return err
-			}
 		} else {
 			// The only condition under which this branch should be reachable is if the dependent has failed on
 			// assembly, which is a final state, and has been cleaned up from memory

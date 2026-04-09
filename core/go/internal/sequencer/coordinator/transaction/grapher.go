@@ -54,6 +54,7 @@ type Grapher interface {
 	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
+	RemoveAllDependencyLinks(transactionID uuid.UUID)
 }
 
 type grapher struct {
@@ -134,7 +135,7 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 func (g *grapher) Forget(transactionID uuid.UUID) error {
 	// Anything that used to depend on this transaction no longer does.
 	// Anything that this transaction used to depend on, it no longer does
-	g.removeAllDependencyLinks(transactionID)
+	g.RemoveAllDependencyLinks(transactionID)
 	g.ForgetMints(transactionID)
 	g.ForgetLocks(transactionID)
 	delete(g.transactionByID, transactionID)
@@ -143,7 +144,7 @@ func (g *grapher) Forget(transactionID uuid.UUID) error {
 
 // Temporary approach that removes updates depends-on list for any transactions this is a pre-req of
 // Note - this doesn't update the grapher itself
-func (g *grapher) removeAllDependencyLinks(transactionID uuid.UUID) {
+func (g *grapher) RemoveAllDependencyLinks(transactionID uuid.UUID) {
 	tx := g.transactionByID[transactionID]
 	if tx == nil {
 		return

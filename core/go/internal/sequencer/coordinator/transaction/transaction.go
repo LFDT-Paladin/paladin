@@ -19,13 +19,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -39,7 +37,6 @@ type CoordinatorTransaction interface {
 	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
 	GetPrivateTransaction() *components.PrivateTransaction
 	DependentsMustWait() bool
-	GetDependencies() *pldapi.TransactionDependencies
 }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
@@ -79,8 +76,7 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
-	// Transaction dependencies - used for tracking assembly and dispatch order
-	dependencies         *pldapi.TransactionDependencies
+	// Transaction pre-assemble dependencies - used for tracking pre-assembly and dispatch order
 	preAssemblePrereqOf  *uuid.UUID
 	preAssembleDependsOn *uuid.UUID
 
@@ -94,16 +90,18 @@ type coordinatorTransaction struct {
 	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
-	clock                    common.Clock
-	transportWriter          transport.TransportWriter
-	grapher                  Grapher
-	engineIntegration        common.EngineIntegration
-	syncPoints               syncpoints.SyncPoints
-	components               components.AllComponents
-	domainAPI                components.DomainSmartContract
-	dCtx                     components.DomainContext
-	queueEventForCoordinator func(context.Context, common.Event)
-	metrics                  metrics.DistributedSequencerMetrics
+	clock                     common.Clock
+	transportWriter           transport.TransportWriter
+	grapher                   Grapher
+	engineIntegration         common.EngineIntegration
+	syncPoints                syncpoints.SyncPoints
+	components                components.AllComponents
+	domainAPI                 components.DomainSmartContract
+	dCtx                      components.DomainContext
+	queueEventForCoordinator  func(context.Context, common.Event)
+	handleEventForCoordinator func(context.Context, common.Event)
+	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction
+	metrics                   metrics.DistributedSequencerMetrics
 }
 
 func NewTransaction(ctx context.Context,
@@ -117,7 +115,7 @@ func NewTransaction(ctx context.Context,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
 	handleEventForCoordinator func(context.Context, common.Event),
-	getCoordinatorTransaction func(context.Context, uuid.UUID) *CoordinatorTransaction,
+	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
@@ -143,6 +141,8 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
+		handleEventForCoordinator,
+		getCoordinatorTransaction,
 		engineIntegration,
 		syncPoints,
 		allComponents,
@@ -170,6 +170,8 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	handleEventForCoordinator func(context.Context, common.Event),
+	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
@@ -184,8 +186,6 @@ func newTransaction(
 	grapher Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
-	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
-
 	txn := &coordinatorTransaction{
 		originator:                        originator,
 		originatorNode:                    originatorNode,
@@ -210,14 +210,12 @@ func newTransaction(
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
-		dependencies:                      &pldapi.TransactionDependencies{},
 		grapher:                           grapher,
 		metrics:                           metrics,
 		preAssembleDependsOn:              preAssembleDependsOn,
 	}
 	txn.initializeStateMachine(State_Initial)
-	//grapher.Add(context.Background(), txn)
-	return txn, nil
+	return txn
 }
 
 // This function is external but doesn't not need a lock as ints are atomic
@@ -248,10 +246,4 @@ func (t *coordinatorTransaction) GetPrivateTransaction() *components.PrivateTran
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt
-}
-
-func (t *coordinatorTransaction) GetDependencies() *pldapi.TransactionDependencies {
-	t.RLock()
-	defer t.RUnlock()
-	return t.dependencies
 }

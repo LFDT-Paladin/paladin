@@ -22,7 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -153,74 +153,22 @@ func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coor
 	return txn.notifyPreAssembleDependentOfSelection(ctx)
 }
 
-func (t *CoordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
-	//this function is called when the transaction is successfully assembled
-	// and we have a duty to inform all the transactions that depend on us
-	// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyAssembled will
-	// only need to be sent to the "next" transaction from that originator as a signal that it may now assemble.
-	// The link between the transactions may be severed at this point as we have passed first assemble.
-	for _, dependentId := range t.dependencies.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			msg := fmt.Sprintf("notifyDependentsOfReadiness: Dependent transaction %s not found in memory", dependentId)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-		err := dependent.HandleEvent(ctx, &DependencyAssembledEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependentId,
-			},
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of assembly of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
-			return err
-		}
+func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
+	if t.preAssemblePrereqOf == nil {
+		return nil
 	}
-	return nil
+	dependent := t.getCoordinatorTransaction(ctx, *t.preAssemblePrereqOf)
+	if dependent == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.preAssemblePrereqOf)
+	}
+	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: t.pt.ID,
+		},
+	})
 }
 
-func (t *CoordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
-	// Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
-	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
-	// this function calculates the dependencies relating to states and sets up the reverse association
-	// it is assumed that the other dependencies have already been set up when the transaction was first received by the coordinator TODO correct this comment line with more accurate description of when we expect the static dependencies to have been calculated.  Or make it more vague.
-	if t.pt.PostAssembly == nil {
-		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PostAssembly", t.pt.ID)
-		log.L(ctx).Error(msg)
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-	}
-
-// 	found := make(map[uuid.UUID]bool)
-// 	t.dependencies = &pldapi.TransactionDependencies{
-// 		DependsOn: make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-// 		PrereqOf:  make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-// 	}
-// 	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
-// 		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
-// 		if err != nil {
-// 			errMsg := fmt.Sprintf("error looking up dependency for state %s: %s", state.ID, err)
-// 			log.L(ctx).Error(errMsg)
-// 			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, errMsg)
-// 		}
-// 		if dependency == nil {
-// 			log.L(ctx).Infof("no minter found for state %s", state.ID)
-// 			//assume the state was produced by a confirmed transaction
-// 			//TODO should we validate this by checking the domain context? If not, explain why this is safe in the architecture doc
-// 			continue
-// 		}
-// 		if found[dependency.pt.ID] {
-// 			continue
-// 		}
-// 		found[dependency.pt.ID] = true
-
-// 		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.pt.ID)
-// 		//also set up the reverse association
-// 		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.pt.ID)
-// 	}
-// 	return nil
-// }
-
-func (t *CoordinatorTransaction) writeStates(ctx context.Context) error {
+func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
 	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
 }
 

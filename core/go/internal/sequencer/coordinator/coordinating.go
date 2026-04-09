@@ -49,7 +49,10 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 }
 
 func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string, preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.metrics)
+	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.processEventInternal, func(ctx context.Context, id uuid.UUID) transaction.CoordinatorTransaction {
+		// MRW TODO unsafe placeholder
+		return c.transactionsByID[id]
+	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.metrics)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
