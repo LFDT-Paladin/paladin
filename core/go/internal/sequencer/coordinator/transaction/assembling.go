@@ -68,11 +68,17 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	err := t.writeLockStates(ctx)
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
-		seqRevertEvent := &AssembleRevertResponseEvent{}
+		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
+		seqRevertEvent := &AssembleRevertResponseEvent{
+			PostAssembly: &components.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   &revertReason,
+			},
+		}
 		seqRevertEvent.RequestID = requestID // Must match what the state machine thinks the current assemble request ID is
 		seqRevertEvent.TransactionID = t.pt.ID
 		t.queueEventForCoordinator(ctx, seqRevertEvent)
-		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+		t.revertTransactionFailedAssembly(ctx, revertReason)
 		// Return the original error
 		return err
 	}

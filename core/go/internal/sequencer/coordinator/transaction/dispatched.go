@@ -31,6 +31,16 @@ func action_NotifyDispatched(ctx context.Context, t *coordinatorTransaction, _ c
 	return t.transportWriter.SendDispatched(ctx, t.originator, uuid.New(), txSpec)
 }
 
+// action_ReleaseAssemblyPayload releases the heavy post-assembly and prepared-dispatch
+// payload data after dispatch. PreAssembly is preserved because it holds the
+// TransactionSpecification and RequiredVerifiers needed if the transaction reverts
+// and must be re-assembled.
+func action_ReleaseAssemblyPayload(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	log.L(ctx).Debugf("releasing assembly payload for dispatched transaction %s", t.pt.ID.String())
+	t.pt.ReleasePostAssemblyData()
+	return nil
+}
+
 func action_NotifyCollected(_ context.Context, t *coordinatorTransaction, event common.Event) error {
 	e := event.(*CollectedEvent)
 	t.signerAddress = &e.SignerAddress

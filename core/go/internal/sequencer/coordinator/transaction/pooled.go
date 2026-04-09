@@ -39,9 +39,7 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	// Reset anything that might have been updated during an initial attempt to assembly, endorse and dispatch this TX. This is a no-op if this is the first
 	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
 	// dependencies from a previous version of the grapher.
-	t.pt.PostAssembly = nil
-	t.pt.PreparedPublicTransaction = nil
-	t.pt.PreparedPrivateTransaction = nil
+	t.pt.ReleasePostAssemblyData()
 	t.dependencies = &pldapi.TransactionDependencies{}
 	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
