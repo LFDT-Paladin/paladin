@@ -61,7 +61,7 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		unlockData = params.Data // in V0 we used to use the same data in the unlock, so we preserve this behavior.
 	}
 
-	res, mb, states, err := h.assembleStates(ctx, tx, &spendTxId, &params.UnlockParams, req, unlockData)
+	res, mb, states, err := h.assembleStates(ctx, tx, &params.UnlockParams, req, unlockData)
 	if err != nil || res.AssemblyResult != prototk.AssembleTransactionResponse_OK {
 		return res, err
 	}
@@ -88,6 +88,18 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		if err == nil {
 			err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, states.outputs.states, cancelOutputs.states)
 		}
+
+		// Build cancel manifest and encode cancel data separately from spend data
+		var encodedCancelData []byte
+		var cancelManifestState *prototk.NewState
+		if err == nil {
+			cancelManifest := h.noto.newManifestBuilder().addOutputs(cancelOutputs)
+			endorsableShared := toEndorsable(states.sharedInfoStates)
+			encodedCancelData, cancelManifestState, err = h.buildUnlockOperationData(
+				ctx, tx, req.StateQueryContext, cancelManifest,
+				states.infoDistribution, states.sharedInfoStates, endorsableShared)
+		}
+
 		// The tx data for the prepareUnlock itself needs to be distributed (separate to the unlockData)
 		var prepareInfoStates []*prototk.NewState
 		if err == nil {
@@ -95,15 +107,18 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 		}
 		if err == nil {
 			states.info = append(states.info /* the unlockData */, prepareInfoStates...)
+			if cancelManifestState != nil {
+				states.info = append(states.info, cancelManifestState)
+			}
 
 			// ... and add the new lock state as an output
 			newLockInfo := *states.oldLock.lockInfo
 			newLockInfo.Replaces = states.oldLock.id
 			newLockInfo.Salt = pldtypes.RandBytes32()
 			newLockInfo.SpendOutputs = newStateAllocatedIDs(states.outputs.states)
-			newLockInfo.SpendData = states.encodedUnlockData
+			newLockInfo.SpendData = states.spendData
 			newLockInfo.CancelOutputs = newStateAllocatedIDs(cancelOutputs.states)
-			newLockInfo.CancelData = states.encodedUnlockData
+			newLockInfo.CancelData = encodedCancelData
 			newLockInfo.SpendTxId = spendTxId
 			lock, err = h.noto.prepareLockInfo_V1(&newLockInfo, identityList{notaryID, senderID, fromID})
 		}

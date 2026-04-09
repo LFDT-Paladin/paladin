@@ -142,6 +142,53 @@ func TestGetTransactionStatesUnavailable(t *testing.T) {
 	require.Equal(t, []pldtypes.HexBytes{stateID4}, txStates.Unavailable.Info)
 }
 
+func TestGetTransactionStatesReadInfoMultiTx(t *testing.T) {
+
+	ctx, ss, _, done := newDBTestStateManager(t)
+	defer done()
+
+	txA := uuid.New()
+	txB := uuid.New()
+	readStateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+	infoStateID := pldtypes.HexBytes(pldtypes.RandBytes(32))
+
+	// Associate the same read and info state with transaction A
+	err := ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{},
+		[]*pldapi.StateReadRecord{
+			{DomainName: "domain1", State: readStateID, Transaction: txA},
+		},
+		[]*pldapi.StateConfirmRecord{},
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: infoStateID, Transaction: txA},
+		})
+	require.NoError(t, err)
+
+	// Associate the same read and info state with transaction B
+	err = ss.WriteStateFinalizations(ctx, ss.p.NOTX(),
+		[]*pldapi.StateSpendRecord{},
+		[]*pldapi.StateReadRecord{
+			{DomainName: "domain1", State: readStateID, Transaction: txB},
+		},
+		[]*pldapi.StateConfirmRecord{},
+		[]*pldapi.StateInfoRecord{
+			{DomainName: "domain1", State: infoStateID, Transaction: txB},
+		})
+	require.NoError(t, err)
+
+	// Both transactions should see the read/info state (as unavailable since the
+	// state rows themselves don't exist, only the record association rows)
+	txAStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txA)
+	require.NoError(t, err)
+	require.Equal(t, []pldtypes.HexBytes{readStateID}, txAStates.Unavailable.Read)
+	require.Equal(t, []pldtypes.HexBytes{infoStateID}, txAStates.Unavailable.Info)
+
+	txBStates, err := ss.GetTransactionStates(ctx, ss.p.NOTX(), txB)
+	require.NoError(t, err)
+	require.Equal(t, []pldtypes.HexBytes{readStateID}, txBStates.Unavailable.Read)
+	require.Equal(t, []pldtypes.HexBytes{infoStateID}, txBStates.Unavailable.Info)
+}
+
 func TestGetTransactionStatesFail(t *testing.T) {
 
 	ctx, ss, db, _, done := newDBMockStateManager(t)

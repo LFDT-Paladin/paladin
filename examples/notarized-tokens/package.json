@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "ts-node ./src/index.ts",
+    "start:mint-lock":" ts-node ./src/create-mint-lock.ts",
     "start:prod": "node ./build/index.js",
     "verify": "ts-node ./src/tests/data-persistence.ts",
     "copy-abi": "echo 'No contracts to copy'",

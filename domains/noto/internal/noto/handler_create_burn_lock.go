@@ -37,7 +37,7 @@ type createBurnLockHandler struct {
 	unlockCommon
 }
 
-func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (interface{}, error) {
+func (h *createBurnLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, paramsJSON string) (any, error) {
 	if config.IsV0() {
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createBurnLock is not supported in Noto V0")
 	}
@@ -129,25 +129,34 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 		}
 	}
 
-	// Build and encode the unlock data (separate to the data for this TX)
-	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData)
+	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(params.Amount), identityList{notaryID, senderID, fromID})
+	if err != nil {
+		return nil, err
+	}
+
+	spendManifest := h.noto.newManifestBuilder().
+		addLockedOutputs(lockedOutputStates).
+		addOutputs(remainderOutputs)
+	cancelManifest := h.noto.newManifestBuilder().
+		addOutputs(cancelOutputs)
+
+	// Build and encode the unlock data for both spend and cancel
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, nil, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build the info for the initiating transaction
+	infoStates := unlockResult.infoStates
+	infoDistribution := unlockResult.infoDistribution
 	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
 	}
 	infoStates = append(infoStates, createDataInfo...)
 
-	// We build the cancel outputs
-	cancelOutputs, err := h.noto.prepareOutputs(fromID, (*pldtypes.HexUint256)(params.Amount), identityList{notaryID, senderID, fromID})
-	// ... and allocate ids to all the new outputs, so we can build the transaction we need to hash
-	if err == nil {
-		err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, []*prototk.NewState{}, cancelOutputs.states)
-	}
+	// Allocate ids to all the new outputs, so we can build the transaction we need to hash
+	err = h.noto.allocateStateIDs(ctx, req.StateQueryContext, []*prototk.NewState{}, cancelOutputs.states)
 	// ... and the new lock state as an output
 	var lock *preparedLockInfo
 	if err == nil {
@@ -157,9 +166,9 @@ func (h *createBurnLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 			Owner:         senderID.address,
 			Spender:       senderID.address,
 			SpendOutputs:  []pldtypes.Bytes32{ /* none for burn */ },
-			SpendData:     encodedUnlockData,
+			SpendData:     unlockResult.spendEncoded,
 			CancelOutputs: newStateAllocatedIDs(cancelOutputs.states),
-			CancelData:    encodedUnlockData,
+			CancelData:    unlockResult.cancelEncoded,
 			SpendTxId:     spendTxId,
 		}, identityList{notaryID, senderID, fromID})
 	}

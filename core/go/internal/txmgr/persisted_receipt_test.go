@@ -757,6 +757,73 @@ func TestMergeChainedTranasctionsGroupsByTransactionID(t *testing.T) {
 	assert.True(t, res.States.None)
 }
 
+func TestGetFullReceiptSharedReadInfoStates(t *testing.T) {
+
+	txID1 := uuid.New()
+	txID2 := uuid.New()
+	sharedReadState := &pldapi.StateBase{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}
+	sharedInfoState := &pldapi.StateBase{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			// Expectations are consumed in order by sqlmock. Each GetTransactionReceiptByIDFull
+			// call produces: receipt query -> states (mock) -> domain receipt (mock) -> public txns (mock).
+
+			// --- receipt 1 ---
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(
+				sqlmock.NewRows([]string{"transaction", "sequence", "indexed", "domain", "success"}).
+					AddRow(txID1, 1, "2024-01-01T00:00:00Z", "domain1", true),
+			)
+
+			// --- receipt 2 ---
+			mc.db.ExpectQuery("SELECT.*transaction_receipts").WillReturnRows(
+				sqlmock.NewRows([]string{"transaction", "sequence", "indexed", "domain", "success"}).
+					AddRow(txID2, 2, "2024-01-01T00:00:00Z", "domain1", true),
+			)
+
+			// Both transactions return the same read and info states
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID1).Return(
+				&pldapi.TransactionStates{
+					Read: []*pldapi.StateBase{sharedReadState},
+					Info: []*pldapi.StateBase{sharedInfoState},
+				}, nil,
+			)
+			mc.stateMgr.On("GetTransactionStates", mock.Anything, mock.Anything, txID2).Return(
+				&pldapi.TransactionStates{
+					Read: []*pldapi.StateBase{sharedReadState},
+					Info: []*pldapi.StateBase{sharedInfoState},
+				}, nil,
+			)
+
+			md := componentsmocks.NewDomain(t)
+			mc.domainManager.On("GetDomainByName", mock.Anything, "domain1").Return(md, nil)
+			md.On("BuildDomainReceipt", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+			mc.publicTxMgr.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(make(map[uuid.UUID][]*pldapi.PublicTx), nil)
+		})
+	defer done()
+
+	receipt1, err := txm.GetTransactionReceiptByIDFull(ctx, txID1)
+	require.NoError(t, err)
+	require.NotNil(t, receipt1)
+	require.NotNil(t, receipt1.States)
+	require.Len(t, receipt1.States.Read, 1)
+	assert.Equal(t, sharedReadState.ID, receipt1.States.Read[0].ID)
+	require.Len(t, receipt1.States.Info, 1)
+	assert.Equal(t, sharedInfoState.ID, receipt1.States.Info[0].ID)
+
+	receipt2, err := txm.GetTransactionReceiptByIDFull(ctx, txID2)
+	require.NoError(t, err)
+	require.NotNil(t, receipt2)
+	require.NotNil(t, receipt2.States)
+	require.Len(t, receipt2.States.Read, 1)
+	assert.Equal(t, sharedReadState.ID, receipt2.States.Read[0].ID)
+	require.Len(t, receipt2.States.Info, 1)
+	assert.Equal(t, sharedInfoState.ID, receipt2.States.Info[0].ID)
+}
+
 func TestGetDomainReceiptFail(t *testing.T) {
 
 	ctx, txm, done := newTestTransactionManager(t, false,

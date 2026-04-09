@@ -37,7 +37,7 @@ type createMintLockHandler struct {
 	unlockCommon
 }
 
-func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (interface{}, error) {
+func (h *createMintLockHandler) ValidateParams(ctx context.Context, config *types.NotoParsedConfig, params string) (any, error) {
 	if config.IsV0() {
 		return nil, i18n.NewError(ctx, msgs.MsgUnknownDomainVariant, "createMintLock is not supported in Noto V0")
 	}
@@ -106,18 +106,23 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 	}
 
 	// Build the outputs for unlock
-	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, tx, notaryID, nil, params.Recipients, req.ResolvedVerifiers, big.NewInt(0))
+	spendOutputs, err := h.assembleUnlockOutputs_V1(ctx, notaryID, nil, params.Recipients, req.ResolvedVerifiers, big.NewInt(0))
 	if err != nil {
 		return nil, err
 	}
 
-	// Build and encode the unlock data (separate to the data for this TX)
-	encodedUnlockData, infoStates, infoDistribution, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData)
+	// build separate spend / cancel manifests and attach outputs
+	spendManifest := h.noto.newManifestBuilder().addOutputs(spendOutputs)
+	cancelManifest := h.noto.newManifestBuilder()
+
+	unlockResult, err := h.buildUnlockData(ctx, notaryID, senderID, nil, tx, params.Recipients, req.ResolvedVerifiers, req.StateQueryContext, params.UnlockData, spendManifest, cancelManifest)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build the info for the initiating transaction
+	infoStates := unlockResult.infoStates
+	infoDistribution := unlockResult.infoDistribution
 	createDataInfo, err := h.noto.prepareDataInfo(params.Data, tx.DomainConfig.Variant, infoDistribution.identities())
 	if err != nil {
 		return nil, err
@@ -135,9 +140,9 @@ func (h *createMintLockHandler) Assemble(ctx context.Context, tx *types.ParsedTr
 			Owner:         senderID.address,
 			Spender:       senderID.address,
 			SpendOutputs:  newStateAllocatedIDs(spendOutputs.states),
-			SpendData:     encodedUnlockData,
+			SpendData:     unlockResult.spendEncoded,
 			CancelOutputs: []pldtypes.Bytes32{ /* nothing to return */ },
-			CancelData:    encodedUnlockData,
+			CancelData:    unlockResult.cancelEncoded,
 			SpendTxId:     spendTxId,
 		}, identityList{notaryID, senderID})
 	}
