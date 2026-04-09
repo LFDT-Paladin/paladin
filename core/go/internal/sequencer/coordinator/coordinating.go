@@ -236,6 +236,7 @@ func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransact
 		return nil
 	}
 	nextPooledTx := c.pooledTransactions[0]
+	c.pooledTransactions[0] = nil // clear reference so the backing array doesn't pin the transaction from GC
 	c.pooledTransactions = c.pooledTransactions[1:]
 	return nextPooledTx
 }
