@@ -280,25 +280,6 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		privateTransactionBuilder:         testutil.NewPrivateTransactionBuilderForTesting(),
 		submitterSelection:                prototk.ContractConfig_SUBMITTER_COORDINATOR,
 		nodeName:                          "node1",
-		originator: &identityForTesting{
-			identityLocator: fmt.Sprintf("%s@%s", originatorName, originatorNode),
-			identity:        originatorName,
-			verifier:        pldtypes.RandAddress().String(),
-			keyHandle:       originatorName + "_KeyHandle",
-		},
-		domainSigningIdentity:      "",
-		coordinatorSigningIdentity: "coordinator-signer",
-		dispatchConfirmed:          false,
-		signerAddress:              nil,
-		latestSubmissionHash:       nil,
-		state:                      state,
-		sentMessageRecorder:        NewSentMessageRecorder(),
-		fakeClock:                  &common.FakeClockForTesting{},
-		fakeEngineIntegration:      &common.FakeEngineIntegrationForTesting{},
-		stateTimeout:               5000,
-		requestTimeout:             100,
-		syncPoints:                 &syncpoints.MockSyncPoints{},
-		privateTransactionBuilder:  testutil.NewPrivateTransactionBuilderForTesting(),
 	}
 
 	switch state {
@@ -613,7 +594,6 @@ type transactionDependencyMocks struct {
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
-	metrics := metrics.InitMetrics(ctx, prometheus.NewRegistry())
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
 	}
