@@ -15,38 +15,35 @@
 // limitations under the License.
 
 import { Button } from "@mui/material";
-import { useState } from "react";
+import { IEvent } from "../interfaces";
+import { getShortId } from "../utils";
+import { useTranslation } from "react-i18next";
 import { HashDialog } from "../dialogs/Hash";
-import { getShortHash } from "../utils";
+import { useState } from "react";
 
 type Props = {
-  Icon?: JSX.Element
-  title: string
-  hideTitle?: boolean
-  hash: string
-  secondary?: boolean
+  event: IEvent
 }
 
-export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary }) => {
+export const EventChip: React.FC<Props> = ({ event }) => {
 
   const [hashDialogOpen, setHashDialogOpen] = useState(false);
-
-  const content = hideTitle ? getShortHash(hash) : `${title} | ${getShortHash(hash)}`
+  const { t } = useTranslation();
 
   return (
     <>
-      <Button
-        startIcon={Icon}
-        disableElevation
-        onClick={() => setHashDialogOpen(true)}
-        fullWidth
-        variant="contained"
-        color={secondary ? 'secondary' : 'primary'}
-        sx={{ paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap' }}
-        size="small">
-        {content}
-      </Button>
-      <HashDialog dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={title} hash={hash} />
+    <Button variant="contained" size="small" disableElevation
+      sx={{
+        paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap',
+        minWidth: '155px'
+      }}
+      onClick={() => setHashDialogOpen(true)}
+    >
+      <span style={{ fontWeight: 600, marginRight: '6px' }}>{t('logN', { n: event.logIndex })}</span>
+      {getShortId(event.signature)}
+    </Button>
+      <HashDialog dialogOpen={hashDialogOpen} setDialogOpen={setHashDialogOpen} title={t('signature')} hash={event.signature} />
+
     </>
   );
 

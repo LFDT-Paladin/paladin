@@ -56,13 +56,21 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Ev
 	return nil
 }
 
-func action_Idle(ctx context.Context, c *coordinator, _ common.Event) error {
+func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
-	c.heartbeatLoopMu.Lock()
-	cancel := c.heartbeatCancel
-	c.heartbeatLoopMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 	return nil
+}
+
+func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+	c.heartbeatIntervalsSinceLastReceive = 0
+	return nil
+}
+
+func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+	c.heartbeatIntervalsSinceLastReceive++
+	return nil
+}
+
+func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
+	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
 }

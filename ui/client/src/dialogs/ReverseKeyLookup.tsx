@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -60,7 +60,7 @@ export const ReverseKeyLookupDialog: React.FC<Props> = ({
   const { t } = useTranslation();
 
   const { refetch } = useQuery({
-    queryKey: ["reverseKeyLookup"],
+    queryKey: ["reverseKeyLookup", algorithm, type, verifier],
     queryFn: () => reverseKeyLookup(algorithm, type, verifier),
     enabled: false,
     refetchOnMount: false,

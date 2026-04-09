@@ -71,7 +71,7 @@ type coordinator struct {
 	activeCoordinatorNode                      string
 	activeCoordinatorBlockHeight               uint64
 	heartbeatIntervalsSinceStateChange         int
-	heartbeatInterval                          time.Duration
+	heartbeatIntervalsSinceLastReceive         int
 	transactionsByID                           map[uuid.UUID]transaction.CoordinatorTransaction
 	pooledTransactions                         []transaction.CoordinatorTransaction
 	currentBlockHeight                         uint64
@@ -83,6 +83,7 @@ type coordinator struct {
 	contractAddress                   *pldtypes.EthAddress
 	blockHeightTolerance              uint64
 	closingGracePeriod                int // expressed as a multiple of heartbeat intervals
+	inactiveToIdleGracePeriod         int // expressed as a multiple of heartbeat intervals
 	confirmedLockRetentionGracePeriod int // expressed as a multiple of heartbeat intervals
 	baseLedgerRevertRetryThreshold    int
 	assembleErrorRetryThreshhold      int
@@ -105,9 +106,6 @@ type coordinator struct {
 	syncPoints            syncpoints.SyncPoints
 	coordinatorActive     func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
 	coordinatorIdle       func(contractAddress *pldtypes.EthAddress)
-	heartbeatLoopMu       sync.Mutex
-	heartbeatCtx          context.Context
-	heartbeatCancel       context.CancelFunc
 	metrics               metrics.DistributedSequencerMetrics
 
 	/* Dispatch loop */
@@ -172,11 +170,11 @@ func NewCoordinator(
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
+	c.inactiveToIdleGracePeriod = confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod)
 	c.confirmedLockRetentionGracePeriod = confutil.IntMin(configuration.ConfirmedLockRetentionGracePeriod, pldconf.SequencerMinimum.ConfirmedLockRetentionGracePeriod, *pldconf.SequencerDefaults.ConfirmedLockRetentionGracePeriod)
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
 	c.maxInflightTransactions = confutil.IntMin(configuration.MaxInflightTransactions, pldconf.SequencerMinimum.MaxInflightTransactions, *pldconf.SequencerDefaults.MaxInflightTransactions)
-	c.heartbeatInterval = confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval)
 	c.coordinatorSelectionBlockRange = confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange)
 
 	c.signingIdentity = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())

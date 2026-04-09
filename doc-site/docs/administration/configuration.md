@@ -793,10 +793,11 @@
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
+| idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
+| inactiveToIdleGracePeriod | Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle | `int` | `10` |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
-| originatorIdleGracePeriod | Number of heartbeats to receive before moving to idle state | `int` | `10` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
 | redelegateGracePeriod | Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions | `int` | `2` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |

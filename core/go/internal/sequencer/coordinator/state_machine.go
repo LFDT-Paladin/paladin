@@ -155,6 +155,21 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			Event_HeartbeatReceived: {
+				Actions: []ActionRule{
+					{Action: action_HeartbeatReceived},
+					{Action: action_ResetHeartbeatIntervalsSinceLastReceive},
+				},
+			},
+			common.Event_HeartbeatInterval: {
+				Actions: []ActionRule{
+					{Action: action_IncrementHeartbeatIntervalsSinceLastReceive},
+				},
+				Transitions: []Transition{{
+					To: State_Idle,
+					If: guard_ObservingIdleThresholdExceeded,
+				}},
+			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
@@ -217,6 +232,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
 					{Action: action_SendHeartbeat},
+					{Action: action_PropagateHeartbeatToTransactions},
 				},
 				Transitions: []Transition{{
 					To: State_Idle,
@@ -278,6 +294,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
 					{Action: action_SendHeartbeat},
+					{Action: action_PropagateHeartbeatToTransactions},
 				},
 			},
 			common.Event_TransactionStateTransition: {
@@ -312,6 +329,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
 					{Action: action_SendHeartbeat},
+					{Action: action_PropagateHeartbeatToTransactions},
 				},
 				Transitions: []Transition{{
 					To: State_Idle,

@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -456,31 +455,6 @@ func Test_action_SelectTransaction_WhenNoPooledTransaction_ReturnsNil(t *testing
 	require.NoError(t, err)
 }
 
-func Test_action_SelectTransaction_WhenNotSender_StartsHeartbeatLoop(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Active)
-	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
-		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-	})
-	config := builder.GetSequencerConfig()
-	config.BlockRange = confutil.P(uint64(100))
-	builder.OverrideSequencerConfig(config)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
-	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0), nil)
-	c.transactionsByID[txn.GetID()] = txn
-	c.pooledTransactions = []transaction.CoordinatorTransaction{txn}
-
-	err := action_SelectTransaction(ctx, c, nil)
-	require.NoError(t, err)
-	require.Eventually(t, func() bool { return c.heartbeatCtx != nil }, 100*time.Millisecond, 5*time.Millisecond, "heartbeat loop should start when not SENDER")
-	// Cleanup so test doesn't leak
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
-	}
-}
 
 func Test_action_cancelCurrentlyAssemblingTransaction_NoAssemblingTransaction_ReturnsNil(t *testing.T) {
 	ctx := context.Background()

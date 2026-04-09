@@ -18,7 +18,6 @@ package originator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -211,9 +210,5 @@ func action_ActiveCoordinatorUpdated(ctx context.Context, o *originator, event c
 }
 
 func guard_RedelegateThresholdExceeded(_ context.Context, o *originator) bool {
-	if o.timeOfMostRecentHeartbeat == nil {
-		//we have never seen a heartbeat so that was a really long time ago, certainly longer than any threshold
-		return true
-	}
-	return o.clock.HasExpired(*o.timeOfMostRecentHeartbeat, time.Duration(o.redelegateThreshold)*o.heartbeatInterval)
+	return o.heartbeatIntervalsSinceLastReceive >= o.redelegateThreshold
 }

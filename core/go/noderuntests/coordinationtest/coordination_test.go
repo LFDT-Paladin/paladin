@@ -358,7 +358,10 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	sequencerConfig := pldconf.SequencerDefaults
 	sequencerConfig.StateTimeout = confutil.P("60s")   // In this test we don't want to hit this
 	sequencerConfig.RequestTimeout = confutil.P("10s") // Extend this enough to give the bob node enough time to restart
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
@@ -450,7 +453,10 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	sequencerConfig := pldconf.SequencerDefaults
 	sequencerConfig.RequestTimeout = confutil.P("1s") // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
 	sequencerConfig.StateTimeout = confutil.P("10s")  // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())

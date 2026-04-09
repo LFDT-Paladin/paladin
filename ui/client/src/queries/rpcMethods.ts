@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -21,6 +21,8 @@ export const RpcEndpoint = getBasePath();
 export const RpcMethods = {
   bidx_QueryIndexedEvents: 'bidx_queryIndexedEvents',
   bidx_QueryIndexedTransactions: 'bidx_queryIndexedTransactions',
+  bidx_getTransactionByHash: 'bidx_getTransactionByHash',
+  bidx_getBlockByNumber: 'bidx_getBlockByNumber',
   domain_listDomains: 'domain_listDomains',
   domain_getDomain: 'domain_getDomain',
   domain_querySmartContracts: 'domain_querySmartContracts',

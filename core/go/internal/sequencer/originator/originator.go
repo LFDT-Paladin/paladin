@@ -18,7 +18,6 @@ package originator
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -56,38 +55,31 @@ type originator struct {
 	ctx context.Context
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop     *statemachine.StateMachineEventLoop[State, *originator]
-	activeCoordinatorNode     string
-	timeOfMostRecentHeartbeat *time.Time
-	transactionsByID          map[uuid.UUID]transaction.OriginatorTransaction
-	transactionsOrdered       []transaction.OriginatorTransaction
-	currentBlockHeight        uint64
-	latestCoordinatorSnapshot *common.CoordinatorSnapshot
+	stateMachineEventLoop              *statemachine.StateMachineEventLoop[State, *originator]
+	activeCoordinatorNode              string
+	heartbeatIntervalsSinceLastReceive int
+	transactionsByID                   map[uuid.UUID]transaction.OriginatorTransaction
+	transactionsOrdered                []transaction.OriginatorTransaction
+	currentBlockHeight                 uint64
+	latestCoordinatorSnapshot          *common.CoordinatorSnapshot
 
 	/* Config */
 	nodeName            string
 	blockRangeSize      uint64
 	contractAddress     *pldtypes.EthAddress
-	heartbeatInterval   time.Duration
 	idleThreshold       int // expressed as a multiple of heartbeat intervals
 	redelegateThreshold int // expressed as a multiple of heartbeat intervals
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
-	clock             common.Clock
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
-
-	/* Heartbeat loop */
-	heartbeatCtx    context.Context
-	heartbeatCancel context.CancelFunc
 }
 
 func NewOriginator(
 	ctx context.Context,
 	nodeName string,
 	transportWriter transport.TransportWriter,
-	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	contractAddress *pldtypes.EthAddress,
 	configuration *pldconf.SequencerConfig,
@@ -101,11 +93,9 @@ func NewOriginator(
 		transportWriter:     transportWriter,
 		blockRangeSize:      confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
 		contractAddress:     contractAddress,
-		clock:               clock,
 		engineIntegration:   engineIntegration,
 		metrics:             metrics,
-		heartbeatInterval:   confutil.DurationMin(configuration.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
-		idleThreshold:       confutil.IntMin(configuration.OriginatorIdleGracePeriod, pldconf.SequencerMinimum.OriginatorIdleGracePeriod, *pldconf.SequencerDefaults.OriginatorIdleGracePeriod),
+		idleThreshold:       confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod),
 		redelegateThreshold: confutil.IntMin(configuration.RedelegateGracePeriod, pldconf.SequencerMinimum.RedelegateGracePeriod, *pldconf.SequencerDefaults.RedelegateGracePeriod),
 	}
 
@@ -138,43 +128,6 @@ func (o *originator) queueEventInternal(ctx context.Context, event common.Event)
 	log.L(ctx).Tracef("Pushing internal originator event onto priority queue: %s", event.TypeString())
 	o.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
 	log.L(ctx).Tracef("Pushed internal originator event onto priority queue: %s", event.TypeString())
-}
-
-func (o *originator) heartbeatLoop(ctx context.Context, queueEvent func(context.Context, common.Event)) {
-	if o.heartbeatCtx == nil {
-		o.heartbeatCtx, o.heartbeatCancel = context.WithCancel(ctx)
-		log.L(ctx).Debugf("orig    | %s   | Starting heartbeat loop", o.contractAddress.String()[0:8])
-
-		// Send an initial heartbeat interval event to be handled immediately
-		queueEvent(ctx, &common.HeartbeatIntervalEvent{})
-
-		// Then every N seconds
-		ticker := time.NewTicker(o.heartbeatInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				queueEvent(ctx, &common.HeartbeatIntervalEvent{})
-			case <-o.heartbeatCtx.Done():
-				log.L(ctx).Infof("Ending heartbeat loop for %s", o.contractAddress.String())
-				o.heartbeatCtx = nil
-				o.heartbeatCancel = nil
-				return
-			}
-		}
-	}
-}
-
-func action_StartHeartbeatLoop(ctx context.Context, o *originator, _ common.Event) error {
-	go o.heartbeatLoop(ctx, o.QueueEvent)
-	return nil
-}
-
-func action_StopHeartbeatLoop(ctx context.Context, o *originator, _ common.Event) error {
-	if o.heartbeatCancel != nil {
-		o.heartbeatCancel()
-	}
-	return nil
 }
 
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {

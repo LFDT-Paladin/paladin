@@ -112,21 +112,60 @@ func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_action_Idle_CancelsHeartbeatWhenSet(t *testing.T) {
+func Test_action_ResetHeartbeatIntervalsSinceLastReceive(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	heartbeatCtx, cancel := context.WithCancel(ctx)
-	c.heartbeatCtx = heartbeatCtx
-	c.heartbeatCancel = cancel
+	c.heartbeatIntervalsSinceLastReceive = 7
 
-	err := action_Idle(ctx, c, nil)
+	err := action_ResetHeartbeatIntervalsSinceLastReceive(ctx, c, nil)
 	require.NoError(t, err)
-	select {
-	case <-heartbeatCtx.Done():
-		// heartbeatCancel was called and context is cancelled
-	default:
-		t.Fatal("heartbeatCancel should have been called, context should be cancelled")
-	}
+	assert.Equal(t, 0, c.heartbeatIntervalsSinceLastReceive)
 }
+
+func Test_action_IncrementHeartbeatIntervalsSinceLastReceive(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.heartbeatIntervalsSinceLastReceive = 3
+
+	err := action_IncrementHeartbeatIntervalsSinceLastReceive(ctx, c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 4, c.heartbeatIntervalsSinceLastReceive)
+}
+
+func Test_guard_ObservingIdleThresholdExceeded_NotExceeded(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatIntervalsSinceLastReceive = 5
+
+	assert.False(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+}
+
+func Test_guard_ObservingIdleThresholdExceeded_ExactlyMet(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatIntervalsSinceLastReceive = 10
+
+	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+}
+
+func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatIntervalsSinceLastReceive = 15
+
+	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+}
+

@@ -56,7 +56,6 @@ type (
 
 var stateDefinitionsMap = StateDefinitions{
 	State_Idle: {
-		OnTransitionTo: []ActionRule{{Action: action_StopHeartbeatLoop}},
 		Events: map[EventType]EventHandler{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
@@ -90,12 +89,12 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Observing: {
-		OnTransitionTo: []ActionRule{{Action: action_StartHeartbeatLoop}}, // this is idempotent if we have already started the heartbeat loop in Observing state
 		Events: map[EventType]EventHandler{
 			Event_ActiveCoordinatorUpdated: {
 				Actions: []ActionRule{{Action: action_ActiveCoordinatorUpdated}},
 			},
 			common.Event_HeartbeatInterval: {
+				Actions:     []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceLastReceive}},
 				Transitions: []Transition{{To: State_Idle, If: guard_IdleThresholdExceeded}},
 			},
 			Event_TransactionCreated: {
@@ -125,7 +124,6 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Sending: {
 		OnTransitionTo: []ActionRule{
-			{Action: action_StartHeartbeatLoop}, // this is idempotent if we have already started the heartbeat loop in Observing state
 			{Action: action_SendDelegationRequest},
 		},
 		Events: map[EventType]EventHandler{
@@ -149,16 +147,21 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			common.Event_HeartbeatInterval: {
-				Actions: []ActionRule{{
-					// Resend all the delegation requests if we have not seen a heartbeat in a while
-					// It could be that no one thinks they are coordinating, so this will nudge the node who
-					// we think should be the active coordinator.
-					// If we have been seeing heartbeats, the handling for Event_HeartbeatReceived will ensure we
-					// are resending delegation requests only if we have transactions that the active coordinator
-					// does not know about.
-					Action: action_SendDelegationRequest,
-					If:     guard_RedelegateThresholdExceeded,
-				}},
+				Actions: []ActionRule{
+					{
+						Action: action_IncrementHeartbeatIntervalsSinceLastReceive,
+					},
+					{
+						// Resend all the delegation requests if we have not seen a heartbeat in a while
+						// It could be that no one thinks they are coordinating, so this will nudge the node who
+						// we think should be the active coordinator.
+						// If we have been seeing heartbeats, the handling for Event_HeartbeatReceived will ensure we
+						// are resending delegation requests only if we have transactions that the active coordinator
+						// does not know about.
+						Action: action_SendDelegationRequest,
+						If:     guard_RedelegateThresholdExceeded,
+					},
+				},
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{

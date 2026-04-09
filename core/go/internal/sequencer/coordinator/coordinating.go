@@ -25,7 +25,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 )
 
@@ -200,13 +199,6 @@ func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Even
 	if c.activeCoordinatorNode != c.nodeName {
 		c.activeCoordinatorNode = c.nodeName
 		c.coordinatorActive(c.contractAddress, c.nodeName)
-	}
-
-	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
-	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required
-	// because other nodes cannot take over coordination.
-	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_SENDER {
-		go c.heartbeatLoop(ctx)
 	}
 
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.

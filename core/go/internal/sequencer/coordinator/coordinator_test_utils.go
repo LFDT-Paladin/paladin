@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
@@ -343,10 +344,17 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		panic(err)
 	}
 
+	// Drain startup events (CoordinatorCreatedEvent) before overriding the test state.
+	syncEv := statemachine.NewSyncEvent()
+	coordinator.QueueEvent(buildCtx, syncEv)
+	<-syncEv.Done
+
 	for _, tx := range b.transactions {
 		coordinator.transactionsByID[tx.GetID()] = tx
 	}
 
+	// Reset activeCoordinatorNode which action_SelectActiveCoordinator may have set during startup.
+	coordinator.activeCoordinatorNode = ""
 	coordinator.stateMachineEventLoop.StateMachine().CurrentState = b.state
 	switch b.state {
 	case State_Observing:

@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
@@ -50,8 +49,8 @@ func Test_applyHeartbeatReceived_BasicUpdate(t *testing.T) {
 	err := o.applyHeartbeatReceived(ctx, heartbeatEvent)
 	assert.NoError(t, err)
 
-	// Verify time was updated
-	assert.NotNil(t, o.timeOfMostRecentHeartbeat)
+	// Verify counter was reset
+	assert.Equal(t, 0, o.heartbeatIntervalsSinceLastReceive)
 
 	// Verify coordinator was updated
 	assert.Equal(t, coordinatorLocator, o.activeCoordinatorNode)
@@ -61,32 +60,28 @@ func Test_applyHeartbeatReceived_BasicUpdate(t *testing.T) {
 	assert.Equal(t, uint64(1000), o.latestCoordinatorSnapshot.BlockHeight)
 }
 
-func Test_guard_IdleThresholdExceeded_TrueWhenNoHeartbeatReceived(t *testing.T) {
+func Test_guard_IdleThresholdExceeded_TrueWhenCounterExceedsThreshold(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
 
-	o.timeOfMostRecentHeartbeat = nil
+	o.heartbeatIntervalsSinceLastReceive = 10
+	o.idleThreshold = 10
 
 	assert.True(t, guard_IdleThresholdExceeded(ctx, o))
 }
 
-func Test_guard_IdleThresholdExceeded_TrueWhenClockSaysIdlePeriodElapsed(t *testing.T) {
+func Test_guard_IdleThresholdExceeded_FalseWhenCounterBelowThreshold(t *testing.T) {
 	ctx := context.Background()
-	mockClock := common.NewMockClock(t)
-	mockClock.EXPECT().HasExpired(mock.Anything, mock.Anything).Return(true)
-
-	builder := NewOriginatorBuilderForTesting(State_Observing).
-		CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").
-		Clock(mockClock)
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
 
-	now := time.Now()
-	o.timeOfMostRecentHeartbeat = &now
+	o.heartbeatIntervalsSinceLastReceive = 5
+	o.idleThreshold = 10
 
-	assert.True(t, guard_IdleThresholdExceeded(ctx, o))
+	assert.False(t, guard_IdleThresholdExceeded(ctx, o))
 }
 
 func Test_applyHeartbeatReceived_DispatchedTransactionNotFoundLogsAndContinues(t *testing.T) {

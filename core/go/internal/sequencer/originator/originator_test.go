@@ -17,7 +17,6 @@ package originator
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -268,67 +267,6 @@ func Test_getTransactionsInStates_EmptyStateListReturnsNoTransactions(t *testing
 
 	assert.Empty(t, o.getTransactionsInStates(nil))
 	assert.Empty(t, o.getTransactionsInStates([]transaction.State{}))
-}
-
-func Test_heartbeatLoop_TickerQueuesHeartbeatIntervalEvent(t *testing.T) {
-	ctx := context.Background()
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	o.heartbeatInterval = 25 * time.Millisecond
-
-	var mu sync.Mutex
-	heartbeatIntervalCount := 0
-	queueEvent := func(_ context.Context, ev common.Event) {
-		if _, ok := ev.(*common.HeartbeatIntervalEvent); !ok {
-			return
-		}
-		mu.Lock()
-		heartbeatIntervalCount++
-		n := heartbeatIntervalCount
-		mu.Unlock()
-		if n >= 2 && o.heartbeatCancel != nil {
-			o.heartbeatCancel()
-		}
-	}
-
-	done := make(chan struct{})
-	go func() {
-		o.heartbeatLoop(ctx, queueEvent)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("heartbeat loop did not stop after ticker-fired HeartbeatIntervalEvent")
-	}
-
-	mu.Lock()
-	n := heartbeatIntervalCount
-	mu.Unlock()
-	require.GreaterOrEqual(t, n, 2, "expected immediate HeartbeatInterval plus at least one from ticker")
-}
-
-func Test_action_StopHeartbeatLoop_CallsCancelWhenHeartbeatLoopWasStarted(t *testing.T) {
-	ctx := context.Background()
-	builder := NewOriginatorBuilderForTesting(State_Idle).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	hbCtx, hbCancel := context.WithCancel(context.Background())
-	o.heartbeatCtx = hbCtx
-	o.heartbeatCancel = hbCancel
-
-	err := action_StopHeartbeatLoop(ctx, o, nil)
-	require.NoError(t, err)
-
-	select {
-	case <-hbCtx.Done():
-	default:
-		t.Fatal("expected heartbeat context to be canceled")
-	}
 }
 
 func Test_propagateEventToTransaction_UnknownTransaction_PreDispatchRequestSendsUnknown(t *testing.T) {

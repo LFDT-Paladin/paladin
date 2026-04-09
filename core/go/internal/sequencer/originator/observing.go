@@ -18,7 +18,6 @@ package originator
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -33,8 +32,7 @@ func action_HeartbeatReceived(ctx context.Context, o *originator, event common.E
 }
 
 func (o *originator) applyHeartbeatReceived(ctx context.Context, event *HeartbeatReceivedEvent) error {
-	now := o.clock.Now()
-	o.timeOfMostRecentHeartbeat = &now
+	o.heartbeatIntervalsSinceLastReceive = 0
 	o.activeCoordinatorNode = event.From
 	o.latestCoordinatorSnapshot = &event.CoordinatorSnapshot
 	for _, dispatchedTransaction := range event.DispatchedTransactions {
@@ -86,12 +84,10 @@ func (o *originator) applyHeartbeatReceived(ctx context.Context, event *Heartbea
 }
 
 func guard_IdleThresholdExceeded(_ context.Context, o *originator) bool {
-	if o.timeOfMostRecentHeartbeat == nil {
-		//we have never seen a heartbeat so that was a really long time ago, certainly longer than any threshold
-		return true
-	}
-	if o.clock.HasExpired(*o.timeOfMostRecentHeartbeat, time.Duration(o.idleThreshold)*o.heartbeatInterval) {
-		return true
-	}
-	return false
+	return o.heartbeatIntervalsSinceLastReceive >= o.idleThreshold
+}
+
+func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, o *originator, _ common.Event) error {
+	o.heartbeatIntervalsSinceLastReceive++
+	return nil
 }

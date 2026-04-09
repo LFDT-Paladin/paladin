@@ -19,14 +19,12 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -372,47 +370,26 @@ func Test_validator_OriginatorTransactionStateTransitionToReverted(t *testing.T)
 	assert.False(t, valid)
 }
 
-func Test_guard_RedelegateThresholdExceeded_TrueWhenNoHeartbeatReceived(t *testing.T) {
+func Test_guard_RedelegateThresholdExceeded_TrueWhenCounterExceedsThreshold(t *testing.T) {
 	ctx := context.Background()
 	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
 
-	o.timeOfMostRecentHeartbeat = nil
+	o.heartbeatIntervalsSinceLastReceive = 2
+	o.redelegateThreshold = 2
 
 	assert.True(t, guard_RedelegateThresholdExceeded(ctx, o))
 }
 
-func Test_guard_RedelegateThresholdExceeded_TrueWhenClockExpired(t *testing.T) {
+func Test_guard_RedelegateThresholdExceeded_FalseWhenCounterBelowThreshold(t *testing.T) {
 	ctx := context.Background()
-	mockClock := common.NewMockClock(t)
-	mockClock.EXPECT().HasExpired(mock.Anything, mock.Anything).Return(true)
-
-	builder := NewOriginatorBuilderForTesting(State_Sending).
-		CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").
-		Clock(mockClock)
+	builder := NewOriginatorBuilderForTesting(State_Sending).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
 	o, _, cleanup := builder.Build(ctx)
 	defer cleanup()
 
-	now := time.Now()
-	o.timeOfMostRecentHeartbeat = &now
-
-	assert.True(t, guard_RedelegateThresholdExceeded(ctx, o))
-}
-
-func Test_guard_RedelegateThresholdExceeded_FalseWhenClockNotExpired(t *testing.T) {
-	ctx := context.Background()
-	mockClock := common.NewMockClock(t)
-	mockClock.EXPECT().HasExpired(mock.Anything, mock.Anything).Return(false)
-
-	builder := NewOriginatorBuilderForTesting(State_Sending).
-		CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode").
-		Clock(mockClock)
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	now := time.Now()
-	o.timeOfMostRecentHeartbeat = &now
+	o.heartbeatIntervalsSinceLastReceive = 1
+	o.redelegateThreshold = 2
 
 	assert.False(t, guard_RedelegateThresholdExceeded(ctx, o))
 }

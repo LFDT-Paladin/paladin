@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -20,7 +20,7 @@ export const formatJSONWhenApplicable = (value: any) => {
   if (typeof value === 'object') {
     try {
       return JSON.stringify(value, null, 2);
-    } catch (err) {}
+    } catch (err) { }
   }
   return String(value);
 };
@@ -102,3 +102,19 @@ export const getBasePath = () => {
   }
   return '/';
 };
+
+export const getShortHash = (hash: string) => {
+  if (hash.length < 16) {
+    return hash;
+  }
+  return `${hash.substring(0, 6)}...${hash.substring(hash.length - 4)}`
+};
+
+export const getShortId = (hash: string) => {
+  if (hash.length < 16) {
+    return hash;
+  }
+  return `${hash.substring(0, 4)}...${hash.substring(hash.length - 4)}`
+};
+
+export const isValidTransactionHash = (value: string) => /^(0x)?[a-fA-F0-9]{64}$/i.test(value);
