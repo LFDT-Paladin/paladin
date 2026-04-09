@@ -252,6 +252,7 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_EndorsedRejected: {
+				Actions: []ActionRule{{Action: action_ResetEndorsementRequests}},
 				Transitions: []Transition{
 					{
 						To: State_Pooled,
