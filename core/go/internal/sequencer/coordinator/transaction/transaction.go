@@ -116,6 +116,8 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	handleEventForCoordinator func(context.Context, common.Event),
+	getCoordinatorTransaction func(context.Context, uuid.UUID) *CoordinatorTransaction,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
@@ -192,6 +194,8 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
+		handleEventForCoordinator:         handleEventForCoordinator,
+		getCoordinatorTransaction:         getCoordinatorTransaction,
 		engineIntegration:                 engineIntegration,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
@@ -212,8 +216,8 @@ func newTransaction(
 		preAssembleDependsOn:              preAssembleDependsOn,
 	}
 	txn.initializeStateMachine(State_Initial)
-	grapher.Add(txCtx, txn)
-	return txn
+	//grapher.Add(context.Background(), txn)
+	return txn, nil
 }
 
 // This function is external but doesn't not need a lock as ints are atomic

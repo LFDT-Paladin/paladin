@@ -42,7 +42,6 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.pt.PostAssembly = nil
 	t.pt.PreparedPublicTransaction = nil
 	t.pt.PreparedPrivateTransaction = nil
-	t.dependencies = &pldapi.TransactionDependencies{}
 	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
 	t.grapher.ForgetLocks(t.pt.ID)

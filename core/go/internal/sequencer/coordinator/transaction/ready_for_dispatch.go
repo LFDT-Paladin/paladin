@@ -73,8 +73,14 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-	for _, dependencyID := range t.dependencies.DependsOn {
-		dependency := t.grapher.TransactionByID(ctx, dependencyID)
+
+	dependencies := t.grapher.GetDependencies(ctx, t.pt.ID)
+	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
+		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
+	}
+
+	for _, dependencyID := range dependencies {
+		dependency := t.getCoordinatorTransaction(ctx, dependencyID)
 		if dependency == nil {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
 			return true
@@ -107,22 +113,12 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range t.dependencies.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		} else {
-			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.GetPrivateTransaction().ID,
-				},
-			})
-
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
-				return err
-			}
-		}
+	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
+		t.handleEventForCoordinator(ctx, &DependencyReadyEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+		})
 	}
 	return nil
 }
