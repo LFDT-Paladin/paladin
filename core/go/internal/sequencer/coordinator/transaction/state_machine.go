@@ -432,15 +432,17 @@ var stateDefinitionsMap = StateDefinitions{
 	},
 	State_Blocked: {
 		Events: map[EventType]EventHandler{
+			// guard_AttestationPlanFulfilled is not needed here — State_Blocked is only
+			// reachable after the attestation plan has been fulfilled.
 			Event_DependencyReady: {
 				Actions: []ActionRule{
 					{
 						Action: action_UpdateSigningIdentity,
-						If:     statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasSigner)),
+						If:     statemachine.GuardNot(guard_HasSigner),
 					}},
 				Transitions: []Transition{{
 					To: State_Confirming_Dispatchable,
-					If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
+					If: statemachine.GuardNot(guard_HasDependenciesNotReady),
 				}},
 			},
 			Event_DependencyReset: {
