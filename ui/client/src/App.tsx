@@ -36,6 +36,7 @@ import { Registries } from "./views/Registries";
 import { Transactions } from "./views/Transactions";
 import { TransactionDetails } from "./views/TransactionDetails";
 import { ITransactionPagingReference } from "./interfaces";
+import { Submissions } from "./views/Submissions";
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({}),
@@ -46,6 +47,7 @@ function App() {
 
   const [txRefEntries, txSetRefEntries] = useState<ITransactionPagingReference[]>([]);
   const [txPage, txSetPage] = useState(0);
+  const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'all'>('pending');
   const [fromBlock, setFromBlock] = useState<number>();
   const [txRowsPerPage, txSetRowsPerPage] = useState(10);
 
@@ -107,14 +109,18 @@ function App() {
               <Header />
               <Routes>
                 <Route path={AppRoutes.Transactions} element={<Transactions
-                refEntries={txRefEntries}
-                setRefEntries={txSetRefEntries}
-                page={txPage}
-                setPage={txSetPage}
-                rowsPerPage={txRowsPerPage}
-                setRowsPerPage={txSetRowsPerPage}
-                fromBlock={fromBlock}
-                setFromBlock={setFromBlock}
+                  refEntries={txRefEntries}
+                  setRefEntries={txSetRefEntries}
+                  page={txPage}
+                  setPage={txSetPage}
+                  rowsPerPage={txRowsPerPage}
+                  setRowsPerPage={txSetRowsPerPage}
+                  fromBlock={fromBlock}
+                  setFromBlock={setFromBlock}
+                />} />
+                <Route path={AppRoutes.Submissions} element={<Submissions
+                  section={submissionsSection}
+                  setSection={setSubmissionsSection}
                 />} />
                 <Route path={AppRoutes.Transaction} element={<TransactionDetails />} />
                 <Route path={AppRoutes.Keys} element={<Keys />} />

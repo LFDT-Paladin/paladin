@@ -317,7 +317,7 @@ export const fetchTransaction = async (
 
   const block = await fetchBlockByNumber(transaction.blockNumber);
   const receiptsResult = await fetchTransactionReceipts([transaction]);
-  const paladinTransactionsResult = await fetchPaladinTransactions(
+  const paladinTransactionsResult = receiptsResult.length === 0? [] : await fetchPaladinTransactions(
     receiptsResult
   );
   const events = await fetchTransactionEvents([transaction]);
@@ -357,6 +357,24 @@ export const fetchBlockByNumber = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingBlock')
+    )
+  );
+};
+
+export const fetchPaladinTransaction = async (
+  id: string
+): Promise<IPaladinTransaction> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransactionFull,
+    params: [id]
+  };
+
+  return <Promise<IPaladinTransaction>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingPaladinTransaction')
     )
   );
 };
