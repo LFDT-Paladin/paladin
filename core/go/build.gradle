@@ -31,7 +31,7 @@ ext {
         include "mocks/**/*.go"
     }
 
-    targetCoverage = 97
+    targetCoverage = 95
     maxCoverageBarGap = 1
     coverageExcludedPackages = [
         'github.com/LFDT-Paladin/paladin/core/pkg/proto',
@@ -433,13 +433,17 @@ task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
     ]) {
 }
 
-task buildCoverageTxt(type: Exec, dependsOn: [
-        protoc,
-        unitTestSQLite,
-        unitTestPostgres,
+task coordinationAndComponentTest(dependsOn: [
         componentTestPostgres,
         componentTestWithGasSQLite,
         coordinationTestPostgres
+    ]) {
+}
+
+task buildCoverageTxt(type: Exec, dependsOn: [
+        protoc,
+        unitTestSQLite,
+        unitTestPostgres
     ]) {
     inputs.files(fileTree(project.mkdir('coverage')) {
         include "covcounters.*"

@@ -1,0 +1,43 @@
+name: Core Coordination And Component Tests
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+on:
+  workflow_call:
+
+jobs:
+  coordination-and-component-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
+      - name: Install pre-requisites
+        uses: ./.github/actions/setup
+
+      - name: Run coordination and component tests
+        run: ./gradlew -PverboseTests=true --no-daemon :core:go:coordinationAndComponentTest
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage
+
+      - name: Upload coordination/component testbed logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coord-component-testbed-logs
+          path: '**/testbed.*.log'
+
+      - name: Upload coordination/component docker compose logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coord-component-docker-compose-logs
+          path: '**/docker-compose.log'
