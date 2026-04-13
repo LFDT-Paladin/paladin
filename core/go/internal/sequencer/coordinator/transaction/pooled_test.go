@@ -20,7 +20,9 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -29,9 +31,11 @@ import (
 
 func Test_action_ResetTransactionLocks(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
 
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := action_ResetTransactionLocks(ctx, txn, nil)
 	require.NoError(t, err)
@@ -39,16 +43,17 @@ func Test_action_ResetTransactionLocks(t *testing.T) {
 
 func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	mockGrapher := grapher.NewMockGrapher(t)
 
 	// Create a transaction with PreAssembly and dependencies pointing to the dependency transaction
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(mockGrapher).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreparedPublicTransaction(&pldapi.TransactionInput{}).
 		Build()
 
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
@@ -59,14 +64,16 @@ func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
 
 func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
 	ctx := context.Background()
-
+	mockGrapher := grapher.NewMockGrapher(t)
 	// Create a transaction with a dependency that doesn't exist in grapher
 	unknownDependencyID := uuid.New()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(mockGrapher).
 		PredefinedDependencies(unknownDependencyID).
 		Build()
 
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 	// Call action_InitializeForNewAssembly - should not error, just log
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
@@ -74,86 +81,120 @@ func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
 
 func Test_guard_HasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
 
-	// Test 1: No dependencies - should return false
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		Grapher(grapher).
-		Build()
-	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
+	t.Run("no dependencies", func(t *testing.T) {
+		mockG := grapher.NewMockGrapher(t)
+		txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockG).Build()
+		mockG.EXPECT().GetDependencies(mock.Anything, txn1.pt.ID).Return(nil)
+		assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
+	})
 
-	// Test 2: Has dependency not ready
-	dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		NumberOfOutputStates(1).
-		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2).
-		Build()
+	t.Run("has dependency not ready", func(t *testing.T) {
+		g := grapher.NewGrapher(ctx)
 
-	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
-		AddPendingAssembleRequest().
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{dep2.pt.ID},
-		}).
-		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
-	txn2, txn2Mocks := txn2Builder.Build()
+		dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+			Grapher(g).
+			NumberOfOutputStates(1).
+			NumberOfRequiredEndorsers(3).
+			NumberOfEndorsements(2).
+			Build()
 
-	txn2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+		txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
+			Grapher(g).
+			AddPendingAssembleRequest().
+			InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+		txn2, txn2Mocks := txn2Builder.Build()
 
-	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
-	require.NoError(t, err)
-	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
+		txByID := map[uuid.UUID]CoordinatorTransaction{
+			dep2.pt.ID: dep2,
+			txn2.pt.ID: txn2,
+		}
+		lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+			return txByID[id]
+		}
+		dep2.getCoordinatorTransaction = lookup
+		txn2.getCoordinatorTransaction = lookup
 
-	// Test 3: Has dependency ready for dispatch
-	dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
-		NumberOfOutputStates(1).
-		NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(3).
-		Build()
+		txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+		txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
-		AddPendingAssembleRequest().
-		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
-	txn3, txn3Mocks := txn3Builder.Build()
+		err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
+		require.NoError(t, err)
+		assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
+	})
 
-	txn3Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	t.Run("has dependency ready for dispatch", func(t *testing.T) {
+		g := grapher.NewGrapher(ctx)
 
-	err = txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
-	require.NoError(t, err)
-	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
+		dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+			Grapher(g).
+			NumberOfOutputStates(1).
+			NumberOfRequiredEndorsers(3).
+			NumberOfEndorsements(3).
+			Build()
+
+		txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
+			Grapher(g).
+			AddPendingAssembleRequest().
+			InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
+		txn3, txn3Mocks := txn3Builder.Build()
+
+		txByID := map[uuid.UUID]CoordinatorTransaction{
+			dep3.pt.ID: dep3,
+			txn3.pt.ID: txn3,
+		}
+		lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+			return txByID[id]
+		}
+		dep3.getCoordinatorTransaction = lookup
+		txn3.getCoordinatorTransaction = lookup
+
+		txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+		txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+		err := txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
+		require.NoError(t, err)
+		assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
+	})
 }
 
 func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	mockG := grapher.NewMockGrapher(t)
 
-	// Create a dependent transaction
 	dependentID := uuid.New()
-	dependentTxn, dependentMocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		TransactionID(dependentID).
-		Grapher(grapher).
+		Grapher(mockG).
 		Build()
-	dependentMocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentID).Return()
 
-	// Create the main transaction
 	mainTxnID := uuid.New()
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
-		Grapher(grapher).
+		Grapher(mockG).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
 		Build()
 
-	// Call action_InitializeForNewAssembly - should re-pool dependents
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		mainTxnID:    mainTxn,
+		dependentID: dependentTxn,
+	}
+	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	mainTxn.getCoordinatorTransaction = lookup
+	dependentTxn.getCoordinatorTransaction = lookup
+
+	mockG.EXPECT().GetDependants(mock.Anything, mainTxnID).Return([]uuid.UUID{dependentID})
+	mockG.EXPECT().GetDependants(mock.Anything, dependentID).Return(nil)
+	mockG.EXPECT().RemoveAllDependencyLinks(dependentID)
+	mockG.EXPECT().ForgetMints(dependentID)
+	mockG.EXPECT().ForgetLocks(dependentID)
+	mockG.EXPECT().RemoveAllDependencyLinks(mainTxnID)
+
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.NoError(t, err)
 
-	// Verify the dependent transaction received the event
 	assert.Equal(t, State_Pooled, dependentTxn.stateMachine.GetCurrentState())
 }
 
@@ -169,33 +210,13 @@ func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *tes
 
 func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{},
-		}).
+		Grapher(mockGrapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	err := txn.notifyDependentsOfReset(ctx)
-	assert.NoError(t, err)
-}
-
-func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	dependentID := uuid.New()
-	_, _ = NewTransactionBuilderForTesting(t, State_Assembling).
-		TransactionID(dependentID).
-		Grapher(grapher).
-		Build()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
-		PreAssembly(&components.TransactionPreAssembly{}).
-		Build()
+	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
 
 	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
@@ -203,26 +224,22 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 
 func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
 	ctx := context.Background()
-	mockGrapher := NewMockGrapher(t)
+	mockGrapher := grapher.NewMockGrapher(t)
 	dependentID := uuid.New()
 
-	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
-	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
+	mockGrapher.EXPECT().GetDependants(mock.Anything, mock.Anything).Return([]uuid.UUID{dependentID})
 
 	mockDependentTxn := NewMockCoordinatorTransaction(t)
 	expectedError := errors.New("dependency reset notification failed")
 	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
-
-	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
+	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: dependentID})
 
 	mainTxnID := uuid.New()
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
+		CoordinatorTransactions(mockDependentTxn).
 		Grapher(mockGrapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
 		Build()
 
 	err := mainTxn.notifyDependentsOfReset(ctx)
@@ -232,43 +249,55 @@ func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
 
 func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *testing.T) {
 	ctx := context.Background()
-	mockGrapher := NewMockGrapher(t)
+	grapher := grapher.NewGrapher(ctx)
 	dependentID := uuid.New()
+	mainTxnID := uuid.New()
 
-	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
-	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
+	// Create a dependency between main TX and dependent TX
+	state := &components.FullState{ID: pldtypes.HexBytes(uuid.New().String())}
+
+	// Main TX mints some state
+	grapher.AddMinter(ctx, []*components.FullState{state}, mainTxnID)
+
+	// Dependent TX locks it, so and hence becomes dependent on the main TX
+	grapher.LockMintsOnSpend(ctx, []*components.FullState{state}, dependentID)
+
+	// Check the dependency chain has been created
+	dependencies := grapher.GetDependencies(ctx, dependentID)
+	require.Len(t, dependencies, 1)
+	assert.Equal(t, mainTxnID, dependencies[0])
+	dependants := grapher.GetDependants(ctx, mainTxnID)
+	require.Len(t, dependants, 1)
+	assert.Equal(t, dependentID, dependants[0])
 
 	mockDependentTxn := NewMockCoordinatorTransaction(t)
 	expectedError := errors.New("dependency reset notification failed")
 	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
-
-	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
-
-	mainTxnID := uuid.New()
+	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: dependentID})
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
-		Grapher(mockGrapher).
+		CoordinatorTransactions(mockDependentTxn).
+		Grapher(grapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
 		Build()
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
-	require.Len(t, mainTxn.dependencies.PrereqOf, 1, "dependencies must not be cleared when notify fails")
-	assert.Equal(t, dependentID, mainTxn.dependencies.PrereqOf[0])
+	require.Len(t, grapher.GetDependants(ctx, mainTxnID), 1, "dependencies must not be cleared when notify fails")
+	assert.Equal(t, dependentID, grapher.GetDependants(ctx, mainTxnID)[0])
+	require.Len(t, grapher.GetDependencies(ctx, dependentID), 1, "dependencies must not be cleared when notify fails")
+	assert.Equal(t, mainTxnID, grapher.GetDependencies(ctx, dependentID)[0])
 }
 
-func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
+func Test_notifyDependentsOfRepool_DependentTxNotKnownToCoordinator(t *testing.T) {
 	ctx := context.Background()
 	missingID := uuid.New()
+	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher.EXPECT().GetDependants(mock.Anything, mock.Anything).Return([]uuid.UUID{missingID})
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{missingID},
-		}).
+		Grapher(mockGrapher).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 

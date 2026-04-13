@@ -101,7 +101,6 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	// Add a lock for every input state to prevent other transactions using them
 	t.grapher.LockMintsOnSpend(ctx, postAssembly.InputStates, t.pt.ID)
 
-	// return t.calculatePostAssembleDependencies(ctx)
 	return nil
 }
 
@@ -159,7 +158,7 @@ func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx conte
 	}
 	dependent := t.getCoordinatorTransaction(ctx, *t.preAssemblePrereqOf)
 	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.preAssemblePrereqOf)
+		return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, *t.preAssemblePrereqOf)
 	}
 	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

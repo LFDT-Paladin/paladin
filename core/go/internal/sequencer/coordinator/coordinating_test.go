@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -229,7 +230,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	mockGrapher := transaction.NewMockGrapher(t)
+	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().Forget(txn.GetID()).Return(fmt.Errorf("forget failed"))
 	c.grapher = mockGrapher
 
@@ -455,7 +456,6 @@ func Test_action_SelectTransaction_WhenNoPooledTransaction_ReturnsNil(t *testing
 	require.NoError(t, err)
 }
 
-
 func Test_action_cancelCurrentlyAssemblingTransaction_NoAssemblingTransaction_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -468,12 +468,16 @@ func Test_action_cancelCurrentlyAssemblingTransaction_NoAssemblingTransaction_Re
 
 func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_CancelsIt(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Grapher(mockGrapher).Build()
+	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
+	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID()) // Moving the TX back to pooled should remove all depends-on and prereq-of links
+	mockGrapher.EXPECT().ForgetMints(txn.GetID())              // Moving to pooled should also reset its mints in the grapher
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_cancelCurrentlyAssemblingTransaction(ctx, c, nil)

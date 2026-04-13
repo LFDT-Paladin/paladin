@@ -268,39 +268,6 @@ func (_c *MockDistributedSequencerMetrics_IncEndorsedTransactions_Call) RunAndRe
 	return _c
 }
 
-// IncEndorsementRejectedCount provides a mock function for the type MockDistributedSequencerMetrics
-func (_mock *MockDistributedSequencerMetrics) IncEndorsementRejectedCount() {
-	_mock.Called()
-	return
-}
-
-// MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncEndorsementRejectedCount'
-type MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call struct {
-	*mock.Call
-}
-
-// IncEndorsementRejectedCount is a helper method to define mock.On call
-func (_e *MockDistributedSequencerMetrics_Expecter) IncEndorsementRejectedCount() *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call {
-	return &MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call{Call: _e.mock.On("IncEndorsementRejectedCount")}
-}
-
-func (_c *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call) Run(run func()) *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call) Return() *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call) RunAndReturn(run func()) *MockDistributedSequencerMetrics_IncEndorsementRejectedCount_Call {
-	_c.Run(run)
-	return _c
-}
-
 // IncRevertedTransactions provides a mock function for the type MockDistributedSequencerMetrics
 func (_mock *MockDistributedSequencerMetrics) IncRevertedTransactions() {
 	_mock.Called()
@@ -330,39 +297,6 @@ func (_c *MockDistributedSequencerMetrics_IncRevertedTransactions_Call) Return()
 }
 
 func (_c *MockDistributedSequencerMetrics_IncRevertedTransactions_Call) RunAndReturn(run func()) *MockDistributedSequencerMetrics_IncRevertedTransactions_Call {
-	_c.Run(run)
-	return _c
-}
-
-// IncStateTimeoutCount provides a mock function for the type MockDistributedSequencerMetrics
-func (_mock *MockDistributedSequencerMetrics) IncStateTimeoutCount() {
-	_mock.Called()
-	return
-}
-
-// MockDistributedSequencerMetrics_IncStateTimeoutCount_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncStateTimeoutCount'
-type MockDistributedSequencerMetrics_IncStateTimeoutCount_Call struct {
-	*mock.Call
-}
-
-// IncStateTimeoutCount is a helper method to define mock.On call
-func (_e *MockDistributedSequencerMetrics_Expecter) IncStateTimeoutCount() *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call {
-	return &MockDistributedSequencerMetrics_IncStateTimeoutCount_Call{Call: _e.mock.On("IncStateTimeoutCount")}
-}
-
-func (_c *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call) Run(run func()) *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call) Return() *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call) RunAndReturn(run func()) *MockDistributedSequencerMetrics_IncStateTimeoutCount_Call {
 	_c.Run(run)
 	return _c
 }
@@ -489,46 +423,6 @@ func (_c *MockDistributedSequencerMetrics_SetActiveSequencers_Call) Return() *Mo
 }
 
 func (_c *MockDistributedSequencerMetrics_SetActiveSequencers_Call) RunAndReturn(run func(numberOfActiveSequencers int)) *MockDistributedSequencerMetrics_SetActiveSequencers_Call {
-	_c.Run(run)
-	return _c
-}
-
-// SetTransactions provides a mock function for the type MockDistributedSequencerMetrics
-func (_mock *MockDistributedSequencerMetrics) SetTransactions(numberOfTransactions int) {
-	_mock.Called(numberOfTransactions)
-	return
-}
-
-// MockDistributedSequencerMetrics_SetTransactions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetTransactions'
-type MockDistributedSequencerMetrics_SetTransactions_Call struct {
-	*mock.Call
-}
-
-// SetTransactions is a helper method to define mock.On call
-//   - numberOfTransactions int
-func (_e *MockDistributedSequencerMetrics_Expecter) SetTransactions(numberOfTransactions interface{}) *MockDistributedSequencerMetrics_SetTransactions_Call {
-	return &MockDistributedSequencerMetrics_SetTransactions_Call{Call: _e.mock.On("SetTransactions", numberOfTransactions)}
-}
-
-func (_c *MockDistributedSequencerMetrics_SetTransactions_Call) Run(run func(numberOfTransactions int)) *MockDistributedSequencerMetrics_SetTransactions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 int
-		if args[0] != nil {
-			arg0 = args[0].(int)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_SetTransactions_Call) Return() *MockDistributedSequencerMetrics_SetTransactions_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockDistributedSequencerMetrics_SetTransactions_Call) RunAndReturn(run func(numberOfTransactions int)) *MockDistributedSequencerMetrics_SetTransactions_Call {
 	_c.Run(run)
 	return _c
 }

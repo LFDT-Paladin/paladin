@@ -162,11 +162,20 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 	// this function is called when the transaction enters the confirmed state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentId := range t.grapher.GetDependants(ctx, t.pt.ID) {
-		t.handleEventForCoordinator(ctx, &DependencyReadyEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependentId,
-			},
-		})
+		dependent := t.getCoordinatorTransaction(ctx, dependentId)
+		if dependent == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.GetPrivateTransaction().ID,
+				},
+			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -176,7 +185,7 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 	for _, dependentId := range t.grapher.GetDependants(ctx, t.pt.ID) {
 		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{

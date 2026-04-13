@@ -25,6 +25,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
@@ -227,6 +228,7 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 type TransactionBuilderForTesting struct {
 	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
+	coordinatorTransactions            map[uuid.UUID]CoordinatorTransaction
 	originator                         string
 	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
@@ -237,11 +239,10 @@ type TransactionBuilderForTesting struct {
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
 	errorCount                         int
-	dependencies                       *pldapi.TransactionDependencies
 	state                              State
 	useMockTransportWriter             bool
 	useMockClock                       bool
-	grapher                            Grapher
+	grapher                            grapher.Grapher
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
@@ -314,6 +315,14 @@ func (b *TransactionBuilderForTesting) NumberOfRequiredEndorsers(num int) *Trans
 	return b
 }
 
+func (b *TransactionBuilderForTesting) CoordinatorTransactions(coordinatorTransactions ...CoordinatorTransaction) *TransactionBuilderForTesting {
+	b.coordinatorTransactions = make(map[uuid.UUID]CoordinatorTransaction)
+	for _, txn := range coordinatorTransactions {
+		b.coordinatorTransactions[txn.GetPrivateTransaction().ID] = txn
+	}
+	return b
+}
+
 func (b *TransactionBuilderForTesting) NumberOfEndorsements(num int) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.NumberOfEndorsements(num)
 	return b
@@ -344,7 +353,7 @@ func (b *TransactionBuilderForTesting) Reverts(revertReason string) *Transaction
 	return b
 }
 
-func (b *TransactionBuilderForTesting) Grapher(grapher Grapher) *TransactionBuilderForTesting {
+func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
 	b.grapher = grapher
 	return b
 }
@@ -432,11 +441,6 @@ func (b *TransactionBuilderForTesting) RevertReason(revertReason pldtypes.HexByt
 
 func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBuilderForTesting {
 	b.errorCount = errorCount
-	return b
-}
-
-func (b *TransactionBuilderForTesting) Dependencies(dependencies *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
-	b.dependencies = dependencies
 	return b
 }
 
@@ -595,7 +599,7 @@ type transactionDependencyMocks struct {
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
 	if b.grapher == nil {
-		b.grapher = NewGrapher(ctx)
+		b.grapher = grapher.NewGrapher(ctx)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
@@ -662,6 +666,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
+		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return b.coordinatorTransactions[id] },
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
 		mocks.AllComponents,
@@ -710,11 +715,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	}
 
 	if privateTransaction.PostAssembly != nil {
-		if _, isRealGrapher := b.grapher.(*grapher); isRealGrapher {
-			for _, state := range privateTransaction.PostAssembly.OutputStates {
-				err := b.grapher.AddMinter(ctx, state.ID, txn)
-				require.NoError(b.t, err)
-			}
+		for _, state := range privateTransaction.PostAssembly.OutputStates {
+			err := b.grapher.AddMinter(ctx, []*components.FullState{state}, txn.pt.ID)
+			require.NoError(b.t, err)
 		}
 	}
 

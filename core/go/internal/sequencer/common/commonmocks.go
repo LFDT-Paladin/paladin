@@ -682,52 +682,6 @@ func (_c *MockEngineIntegration_MapPotentialStates_Call) RunAndReturn(run func(c
 	return _c
 }
 
-// ResetTransactions provides a mock function for the type MockEngineIntegration
-func (_mock *MockEngineIntegration) ResetTransactions(ctx context.Context, transactionID uuid.UUID) {
-	_mock.Called(ctx, transactionID)
-	return
-}
-
-// MockEngineIntegration_ResetTransactions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResetTransactions'
-type MockEngineIntegration_ResetTransactions_Call struct {
-	*mock.Call
-}
-
-// ResetTransactions is a helper method to define mock.On call
-//   - ctx context.Context
-//   - transactionID uuid.UUID
-func (_e *MockEngineIntegration_Expecter) ResetTransactions(ctx interface{}, transactionID interface{}) *MockEngineIntegration_ResetTransactions_Call {
-	return &MockEngineIntegration_ResetTransactions_Call{Call: _e.mock.On("ResetTransactions", ctx, transactionID)}
-}
-
-func (_c *MockEngineIntegration_ResetTransactions_Call) Run(run func(ctx context.Context, transactionID uuid.UUID)) *MockEngineIntegration_ResetTransactions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 uuid.UUID
-		if args[1] != nil {
-			arg1 = args[1].(uuid.UUID)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockEngineIntegration_ResetTransactions_Call) Return() *MockEngineIntegration_ResetTransactions_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockEngineIntegration_ResetTransactions_Call) RunAndReturn(run func(ctx context.Context, transactionID uuid.UUID)) *MockEngineIntegration_ResetTransactions_Call {
-	_c.Run(run)
-	return _c
-}
-
 // WriteStatesForTransaction provides a mock function for the type MockEngineIntegration
 func (_mock *MockEngineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 	ret := _mock.Called(ctx, txn)

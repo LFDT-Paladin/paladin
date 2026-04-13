@@ -27,6 +27,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
@@ -76,7 +77,7 @@ type coordinator struct {
 	pooledTransactions                         []transaction.CoordinatorTransaction
 	currentBlockHeight                         uint64
 	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.SnapshotFlushPoint
-	grapher                                    transaction.Grapher
+	grapher                                    grapher.Grapher
 	originatorNodePool                         []string // The (possibly changing) list of originator nodes
 
 	/* Config */
@@ -146,7 +147,7 @@ func NewCoordinator(
 		newPrivateTransaction:              newPrivateTransaction,
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
-		grapher:                            transaction.NewGrapher(coordCtx),
+		grapher:                            grapher.NewGrapher(coordCtx),
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,

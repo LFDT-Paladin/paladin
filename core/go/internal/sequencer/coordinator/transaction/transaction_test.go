@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -41,7 +42,7 @@ func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T)
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
-	grapher := NewGrapher(t.Context())
+	grapher := grapher.NewGrapher(t.Context())
 
 	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -57,7 +58,18 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 
 	transaction2, transaction2Mocks := transaction2Builder.Build()
 
-	transaction2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		transaction1.pt.ID: transaction1,
+		transaction2.pt.ID: transaction2,
+	}
+	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	transaction1.getCoordinatorTransaction = lookup
+	transaction2.getCoordinatorTransaction = lookup
+
+	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -72,7 +84,7 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testing.T) {
-	grapher := NewGrapher(context.Background())
+	grapher := grapher.NewGrapher(context.Background())
 
 	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -87,7 +99,18 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 		ReadStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID)
 	transaction2, transaction2Mocks := transaction2Builder.Build()
 
-	transaction2Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		transaction1.pt.ID: transaction1,
+		transaction2.pt.ID: transaction2,
+	}
+	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	transaction1.getCoordinatorTransaction = lookup
+	transaction2.getCoordinatorTransaction = lookup
+
+	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
 	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -104,7 +127,7 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 
 func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	grapher := grapher.NewGrapher(ctx)
 
 	transaction1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -131,7 +154,20 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		InputStateIDs(transaction1.pt.PostAssembly.OutputStates[0].ID, transaction2.pt.PostAssembly.OutputStates[0].ID)
 	transaction3, transaction3Mocks := transaction3Builder.Build()
 
-	transaction3Mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		transaction1.pt.ID: transaction1,
+		transaction2.pt.ID: transaction2,
+		transaction3.pt.ID: transaction3,
+	}
+	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	transaction1.getCoordinatorTransaction = lookup
+	transaction2.getCoordinatorTransaction = lookup
+	transaction3.getCoordinatorTransaction = lookup
+
+	transaction3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	transaction3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
 	err := transaction3.HandleEvent(context.Background(), &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -196,16 +232,6 @@ func TestTransaction_HasDependenciesNotReady_FalseIfHasNoDependencies(t *testing
 	assert.False(t, transaction1.hasDependenciesNotReady(context.Background()))
 }
 
-func TestTransaction_AddsItselfToGrapher(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	transaction, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
-
-	txn := grapher.TransactionByID(ctx, transaction.pt.ID)
-	assert.NotNil(t, txn)
-}
-
 func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	ctx := context.Background()
 	pt := &components.PrivateTransaction{ID: uuid.New()}
@@ -232,6 +258,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return nil },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
 		allComponents,
@@ -243,7 +270,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		0,
 		3,
 		3,
-		NewGrapher(ctx),
+		grapher.NewGrapher(ctx),
 		nil,
 	)
 	require.NotNil(t, txn)
@@ -277,6 +304,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return nil },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
 		allComponents,
@@ -288,7 +316,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		0,
 		3,
 		3,
-		NewGrapher(ctx),
+		grapher.NewGrapher(ctx),
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NotNil(t, txn)
@@ -307,6 +335,12 @@ func TestTransaction_GetCurrentState_ReturnsState(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
+func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	pt := txn.pt
+	assert.Same(t, pt, txn.GetPrivateTransaction())
 }
 
 func TestTransaction_HasDispatchedPublicTransaction_TrueWhenSetAndIntentIsSend(t *testing.T) {

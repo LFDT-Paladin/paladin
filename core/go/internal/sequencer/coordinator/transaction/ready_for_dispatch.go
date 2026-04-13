@@ -82,7 +82,7 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	for _, dependencyID := range dependencies {
 		dependency := t.getCoordinatorTransaction(ctx, dependencyID)
 		if dependency == nil {
-			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
+			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependencyID))
 			return true
 		}
 
@@ -114,11 +114,21 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
-		t.handleEventForCoordinator(ctx, &DependencyReadyEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependentID,
-			},
-		})
+		dependent := t.getCoordinatorTransaction(ctx, dependentID)
+		if dependent == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)
+		} else {
+			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{
+					TransactionID: dependent.GetPrivateTransaction().ID,
+				},
+			})
+
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
+				return err
+			}
+		}
 	}
 	return nil
 }

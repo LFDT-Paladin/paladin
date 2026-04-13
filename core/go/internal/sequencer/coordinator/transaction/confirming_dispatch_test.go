@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -130,11 +131,15 @@ func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testin
 
 func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
-		AddPendingPreDispatchRequest()
-	txn, mocks := builder.Build()
+		AddPendingPreDispatchRequest().Grapher(mockGrapher)
+	txn, _ := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
+	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

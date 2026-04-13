@@ -19,8 +19,8 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,18 +70,20 @@ func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t
 
 func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(mockGrapher).
 		ConfirmedLockRetentionGracePeriod(2).
 		FinalizingGracePeriod(10).
 		Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
 	assert.False(t, txn.confirmedLocksReleased)
-	mocks.EngineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+	mockGrapher.AssertNotCalled(t, "ForgetLocks", ctx, txn.pt.ID)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)

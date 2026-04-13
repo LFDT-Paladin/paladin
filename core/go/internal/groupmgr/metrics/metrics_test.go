@@ -41,7 +41,7 @@ func TestInitMetrics(t *testing.T) {
 	assert.NoError(t, err, "Unexpected error gathering metrics")
 
 	// Group manager transactions metric
-	assert.Equal(t, metricFamilies[0].GetName(), "transaction_manager_rpc_total")
+	assert.Equal(t, "group_manager_rpc_total", metricFamilies[0].GetName())
 
 	assert.Equal(t, metricFamilies[0].GetMetric()[0].GetCounter().GetValue(), float64(1))
 	assert.Equal(t, metricFamilies[0].GetMetric()[0].GetLabel()[0].GetValue(), "rpcMethod1")

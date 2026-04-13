@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -92,14 +93,13 @@ type coordinatorTransaction struct {
 	// Dependencies
 	clock                     common.Clock
 	transportWriter           transport.TransportWriter
-	grapher                   Grapher
+	grapher                   grapher.Grapher
 	engineIntegration         common.EngineIntegration
 	syncPoints                syncpoints.SyncPoints
 	components                components.AllComponents
 	domainAPI                 components.DomainSmartContract
 	dCtx                      components.DomainContext
 	queueEventForCoordinator  func(context.Context, common.Event)
-	handleEventForCoordinator func(context.Context, common.Event)
 	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction
 	metrics                   metrics.DistributedSequencerMetrics
 }
@@ -114,7 +114,6 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
-	handleEventForCoordinator func(context.Context, common.Event),
 	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
@@ -127,7 +126,7 @@ func NewTransaction(ctx context.Context,
 	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
-	grapher Grapher,
+	grapher grapher.Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
 	return newTransaction(
@@ -141,7 +140,6 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
-		handleEventForCoordinator,
 		getCoordinatorTransaction,
 		engineIntegration,
 		syncPoints,
@@ -170,7 +168,6 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
-	handleEventForCoordinator func(context.Context, common.Event),
 	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
@@ -183,7 +180,7 @@ func newTransaction(
 	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
-	grapher Grapher,
+	grapher grapher.Grapher,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
 	txn := &coordinatorTransaction{
@@ -194,7 +191,6 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
-		handleEventForCoordinator:         handleEventForCoordinator,
 		getCoordinatorTransaction:         getCoordinatorTransaction,
 		engineIntegration:                 engineIntegration,
 		syncPoints:                        syncPoints,

@@ -408,11 +408,6 @@ func (c *coordinator) queueEventInternal(ctx context.Context, event common.Event
 	c.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
 }
 
-// Synchronously process a state machine event generated internally for the sequencer loop to process.
-func (c *coordinator) processEventInternal(ctx context.Context, event common.Event) {
-	c.stateMachineEventLoop.ProcessEvent(ctx, event)
-}
-
 func (s State) String() string {
 	switch s {
 	case State_Initial:

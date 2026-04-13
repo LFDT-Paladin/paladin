@@ -22,7 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -256,7 +256,7 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(
 
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	grapher := grapher.NewMockGrapher(t)
 
 	blockingTXID := uuid.New()
 	_, _ = NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -269,9 +269,10 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		AddPendingEndorsementRequest(2).NumberOfRequiredEndorsers(3).
-		NumberOfEndorsements(2).
-		Dependencies(&pldapi.TransactionDependencies{DependsOn: []uuid.UUID{blockingTXID}})
+		NumberOfEndorsements(2)
 	txn, _ := builder.Build()
+
+	grapher.EXPECT().GetDependencies(mock.Anything, txn.pt.ID).Return([]uuid.UUID{blockingTXID})
 
 	require.NotNil(t, txn.pendingEndorsementRequests)
 

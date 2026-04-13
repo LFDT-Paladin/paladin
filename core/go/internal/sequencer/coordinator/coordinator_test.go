@@ -25,6 +25,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -1094,6 +1095,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 
 func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForConfirmedTransaction(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1101,9 +1103,9 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	// Create a transaction in State_Confirmed with 4 heartbeat intervals
 	// (grace period is 5, so after one more heartbeat it should transition to State_Final)
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
-		HeartbeatIntervalsSinceStateChange(4)
-	txn, mocks := txBuilder.Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+		HeartbeatIntervalsSinceStateChange(4).Grapher(mockGrapher)
+	txn, _ := txBuilder.Build()
+	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
 
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn

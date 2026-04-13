@@ -38,20 +38,10 @@ type Hooks interface {
 }
 
 type EngineIntegration interface {
-	// WriteStatesForTransaction is a method that writes the states for a transaction
-	// MRW TODO - need to confirm if this is still needed
 	WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
-
-	// Provides a hook for the coordinator transaction state machine to invoke the equivalent function on the DomainContext on TX completion
-	// MRW TODO - no longer needed?
-	ResetTransactions(ctx context.Context, transactionID uuid.UUID)
-
 	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error)
-
 	GetStateLocks(ctx context.Context) ([]byte, error)
-
 	GetBlockHeight(ctx context.Context) (int64, error)
-
 	//Assemble and sign is a single, synchronous operation that assembles a transaction using the domain smart contract
 	// and then fulfills any signature requests in the attestation plan
 	// there would be a benefit in separating this out to `assemble` and `sign` steps and to make then asynchronous
@@ -98,9 +88,6 @@ func (f *FakeEngineIntegrationForTesting) GetBlockHeight(ctx context.Context) (i
 	return 0, nil
 }
 
-func (f *FakeEngineIntegrationForTesting) ResetTransactions(ctx context.Context, transactionID uuid.UUID) {
-}
-
 func (f *FakeEngineIntegrationForTesting) AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error) {
 	ret := f.Called(ctx, transactionID, preAssembly, stateLocksJSON, blockHeight)
 	var r0 *components.TransactionPostAssembly
@@ -125,35 +112,15 @@ func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialSta
 
 func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error {
 
-	// Write output states
-	// MRW TODO
 	if (txn.PostAssembly.OutputStatesPotential != nil && txn.PostAssembly.OutputStates == nil) || (txn.PostAssembly.InfoStatesPotential != nil && txn.PostAssembly.InfoStates == nil) {
 		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
 		err := e.domainSmartContract.WritePotentialStates(e.domainContext, readTX, txn)
 		if err != nil {
-			//Any error from WritePotentialStates is likely to be caused by an invalid init or assemble of the transaction
+			// Any error from WritePotentialStates is likely to be caused by an invalid init or assemble of the transaction
 			// which is most likely a programming error in the domain or the domain manager or the sequencer
-			errorMessage := fmt.Sprintf("Failed to write potential states: %s", err)
-			log.L(ctx).Error(errorMessage)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, errorMessage)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, err)
 		} else {
 			log.L(ctx).Debugf("Potential states written %s", e.domainContext.Info().ID)
-		}
-	}
-
-	// Lock input states (out of date)
-	// MRW TODO
-	// Write states before we then lock them
-	if len(txn.PostAssembly.InputStates) > 0 && txn.Intent == prototk.TransactionSpecification_SEND_TRANSACTION {
-		readTX := e.components.Persistence().NOTX() // no DB transaction required here for the reads from the DB (writes happen on syncpoint flusher)
-		err := e.domainSmartContract.LockStates(e.domainContext, readTX, txn)
-		if err != nil {
-			errorMessage := fmt.Sprintf("Failed to lock states: %s", err)
-			log.L(ctx).Error(errorMessage)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, errorMessage)
-
-		} else {
-			log.L(ctx).Tracef("Input states locked %s: %s", e.domainContext.Info().ID, txn.PostAssembly.InputStates[0].ID)
 		}
 	}
 
@@ -168,11 +135,6 @@ func (e *engineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
 
 func (e *engineIntegration) GetBlockHeight(ctx context.Context) (int64, error) {
 	return e.environment.GetBlockHeight(), nil
-}
-
-func (e *engineIntegration) ResetTransactions(ctx context.Context, transactionID uuid.UUID) {
-	log.L(ctx).Debugf("ResetTransactions: resetting domain context for transaction %s", transactionID.String())
-	e.domainContext.ResetTransactions(transactionID)
 }
 
 // assemble a transaction that we are not coordinating, using the provided state locks

@@ -18,8 +18,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -117,8 +117,9 @@ func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *te
 
 func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
 	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(mockGrapher).Build()
+	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID).Once()
 
 	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 	require.NoError(t, err)

@@ -46,7 +46,6 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.grapher.ForgetLocks(t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
-	t.engineIntegration.ResetTransactions(ctx, t.pt.ID)
 
 	return nil
 }
@@ -56,7 +55,7 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
 	// later assembles binding to stale minters that have already been reset/reverted.
 	txn.grapher.ForgetMints(txn.pt.ID)
-	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	txn.grapher.ForgetLocks(txn.pt.ID)
 	return nil
 }
 
@@ -82,11 +81,15 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
 		dependentTxn := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependentTxn != nil {
-			dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
+			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependentID,
 				},
 			})
+			if err != nil {
+				log.L(ctx).Errorf("error notifying dependent transaction %s of repool of transaction %s: %s", dependentID, t.pt.ID, err)
+				return err
+			}
 		} else {
 			// The only condition under which this branch should be reachable is if the dependent has failed on
 			// assembly, which is a final state, and has been cleaned up from memory

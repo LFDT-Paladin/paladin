@@ -13,12 +13,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package transaction
+package grapher
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -58,6 +58,8 @@ type Grapher interface {
 }
 
 type grapher struct {
+	mu sync.RWMutex
+
 	transactionByOutputState  map[string]*grapherTX
 	transactionByID           map[uuid.UUID]*grapherTX
 	outputStatesByMinter      map[uuid.UUID][]*components.StateUpsert // used for reverse lookup to cleanup transactionByOutputState
@@ -90,8 +92,9 @@ type exportableStates struct {
 	LockedState []*stateLock              `json:"locks"`
 }
 
-// Record (idempotently) the existence of a transaction that consumes at least one state
-func (g *grapher) addConsumer(ctx context.Context, transactionID uuid.UUID) {
+// Record (idempotently) the existence of a transaction that consumes at least one state.
+// Caller must hold g.mu write lock.
+func (g *grapher) addConsumer(transactionID uuid.UUID) {
 	if _, ok := g.transactionByID[transactionID]; !ok {
 		g.transactionByID[transactionID] = &grapherTX{
 			ID: transactionID,
@@ -105,21 +108,25 @@ func (g *grapher) addConsumer(ctx context.Context, transactionID uuid.UUID) {
 
 // Record that a set of states has been minted by the specified transaction. Adds the transaction to the grapher if it doesn't exist already.
 func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.transactionByID[transactionID] = &grapherTX{
+		ID: transactionID,
+		dependencies: &pldapi.TransactionDependencies{
+			DependsOn: make([]uuid.UUID, 0),
+			PrereqOf:  make([]uuid.UUID, 0),
+		},
+	}
 	for _, state := range states {
 		if txn, ok := g.transactionByOutputState[state.ID.String()]; ok {
-			return i18n.NewError(ctx, msgs.MsgSequencerAddMinterAlreadyExistsError, transactionID.String(), state.ID.String(), txn.ID.String())
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherAddMinterAlreadyExistsError, transactionID.String(), state.ID.String(), txn.ID.String())
 		}
-		g.transactionByOutputState[state.ID.String()] = &grapherTX{
-			ID: transactionID,
-			dependencies: &pldapi.TransactionDependencies{
-				DependsOn: make([]uuid.UUID, 0),
-				PrereqOf:  make([]uuid.UUID, 0),
-			},
-		}
+		g.transactionByOutputState[state.ID.String()] = g.transactionByID[transactionID]
 
 		if g.outputStatesByMinter[transactionID] == nil {
 			g.outputStatesByMinter[transactionID] = []*components.StateUpsert{
-				&components.StateUpsert{
+				{
 					ID:     state.ID,
 					Schema: state.Schema,
 					Data:   state.Data,
@@ -131,13 +138,16 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 	return nil
 }
 
-// Forget about a transaction from the grapher, including any states it produced and any locks it held.
+// Forget about a transaction from the grapher, including any states it produced, any locks it held, and any dependency chain it is part of
 func (g *grapher) Forget(transactionID uuid.UUID) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	// Anything that used to depend on this transaction no longer does.
 	// Anything that this transaction used to depend on, it no longer does
-	g.RemoveAllDependencyLinks(transactionID)
-	g.ForgetMints(transactionID)
-	g.ForgetLocks(transactionID)
+	g.removeAllDependencyLinks(transactionID)
+	g.forgetMints(transactionID)
+	g.forgetLocks(transactionID)
 	delete(g.transactionByID, transactionID)
 	return nil
 }
@@ -145,6 +155,12 @@ func (g *grapher) Forget(transactionID uuid.UUID) error {
 // Temporary approach that removes updates depends-on list for any transactions this is a pre-req of
 // Note - this doesn't update the grapher itself
 func (g *grapher) RemoveAllDependencyLinks(transactionID uuid.UUID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.removeAllDependencyLinks(transactionID)
+}
+
+func (g *grapher) removeAllDependencyLinks(transactionID uuid.UUID) {
 	tx := g.transactionByID[transactionID]
 	if tx == nil {
 		return
@@ -190,6 +206,13 @@ func removeUUID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
 }
 
 func (g *grapher) ForgetMints(transactionID uuid.UUID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.forgetMints(transactionID)
+}
+
+// Caller must hold g.mu write lock
+func (g *grapher) forgetMints(transactionID uuid.UUID) {
 	if outputStates, ok := g.outputStatesByMinter[transactionID]; ok {
 		for _, state := range outputStates {
 			delete(g.transactionByOutputState, state.ID.String())
@@ -200,6 +223,13 @@ func (g *grapher) ForgetMints(transactionID uuid.UUID) {
 }
 
 func (g *grapher) ForgetLocks(transactionID uuid.UUID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.forgetLocks(transactionID)
+}
+
+// Caller must hold g.mu write lock
+func (g *grapher) forgetLocks(transactionID uuid.UUID) {
 	if locks, ok := g.lockedStatesByTransaction[transactionID]; ok {
 		for _, lock := range locks {
 			delete(g.lockedStatesByTransaction, lock.Transaction)
@@ -211,35 +241,55 @@ func (g *grapher) ForgetLocks(transactionID uuid.UUID) {
 
 // Get transactions we are dependent on
 func (g *grapher) GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
-	return g.transactionByID[transactionID].dependencies.DependsOn
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if tx, ok := g.transactionByID[transactionID]; ok {
+		out := make([]uuid.UUID, len(tx.dependencies.DependsOn))
+		copy(out, tx.dependencies.DependsOn)
+		return out
+	}
+	return nil
 }
 
 // Get transactions we are a pre-req of
 func (g *grapher) GetDependants(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
-	return g.transactionByID[transactionID].dependencies.PrereqOf
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	if tx, ok := g.transactionByID[transactionID]; ok {
+		out := make([]uuid.UUID, len(tx.dependencies.PrereqOf))
+		copy(out, tx.dependencies.PrereqOf)
+		return out
+	}
+	return nil
 }
-func (g *grapher) lockMints(ctx context.Context, states []*components.FullState, transactionID uuid.UUID, lockType pldapi.StateLockType) {
-	g.addConsumer(ctx, transactionID)
+
+// Caller must hold write lock
+func (g *grapher) lockMints(states []*components.FullState, transactionID uuid.UUID, lockType pldapi.StateLockType) {
+	g.addConsumer(transactionID)
 	for _, state := range states {
 		if g.lockedStatesByTransaction[transactionID] == nil {
 			g.lockedStatesByTransaction[transactionID] = []*stateLock{
-				&stateLock{
+				{
 					State:       state.ID,
 					Transaction: transactionID,
 					Type:        lockType.Enum(),
 				},
 			}
 		} else {
-			g.lockedStatesByTransaction[transactionID] = append(g.lockedStatesByTransaction[transactionID], &stateLock{
-				State:       state.ID,
-				Transaction: transactionID,
-				Type:        lockType.Enum(),
-			})
+			g.lockedStatesByTransaction[transactionID] = append(g.lockedStatesByTransaction[transactionID],
+				&stateLock{
+					State:       state.ID,
+					Transaction: transactionID,
+					Type:        lockType.Enum(),
+				})
 		}
 	}
 }
 
 func (g *grapher) LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	createLocks := make([]*components.FullState, 0, len(states))
 	for i, ps := range upserts {
 		if ps.CreatedBy != nil {
@@ -249,55 +299,59 @@ func (g *grapher) LockMintsOnCreate(ctx context.Context, upserts []*components.S
 			})
 		}
 	}
-	g.lockMints(ctx, createLocks, transactionID, pldapi.StateLockTypeCreate)
+	g.lockMints(createLocks, transactionID, pldapi.StateLockTypeCreate)
 }
 
 func (g *grapher) LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
-	g.lockMints(ctx, states, transactionID, pldapi.StateLockTypeRead)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.lockMints(states, transactionID, pldapi.StateLockTypeRead)
 	for _, state := range states {
+		log.L(ctx).Debugf("LockMintsOnRead: TX %s taking read lock on state %s", transactionID.String(), state.ID.String())
 		mintedBy := g.transactionByOutputState[state.ID.String()]
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
+			// Add depends-on chain
 			g.transactionByID[transactionID].dependencies.DependsOn = append(g.transactionByID[transactionID].dependencies.DependsOn, mintedBy.ID)
+			// Add pre-req chain
+			mintedBy.dependencies.PrereqOf = append(mintedBy.dependencies.PrereqOf, transactionID)
 		}
 	}
 }
 
 func (g *grapher) LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
-	g.lockMints(ctx, states, transactionID, pldapi.StateLockTypeSpend)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.lockMints(states, transactionID, pldapi.StateLockTypeSpend)
 	for _, state := range states {
+		log.L(ctx).Debugf("LockMintsOnRead: TX %s taking spend lock on state %s", transactionID.String(), state.ID.String())
 		mintedBy := g.transactionByOutputState[state.ID.String()]
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
+			// Add depends-on chain
 			g.transactionByID[transactionID].dependencies.DependsOn = append(g.transactionByID[transactionID].dependencies.DependsOn, mintedBy.ID)
+			// Add pre-req chain
+			mintedBy.dependencies.PrereqOf = append(mintedBy.dependencies.PrereqOf, transactionID)
 		}
 	}
 }
 
-// func (s *grapher) LookupMinter(ctx context.Context, stateID pldtypes.HexBytes) (*CoordinatorTransaction, error) {
-// 	return s.transactionByOutputState[stateID.String()], nil
-// }
-
 func (g *grapher) ExportMints(ctx context.Context) ([]byte, error) {
-	log.L(ctx).Debugf("ExportMints: exporting %d output states and %d locked states", len(g.outputStatesByMinter), len(g.lockedStatesByTransaction))
+	g.mu.RLock()
 	exportableStates := exportableStates{}
 	exportableStates.OutputState = make([]*components.StateUpsert, 0, len(g.outputStatesByMinter))
 	for _, states := range g.outputStatesByMinter {
-		log.L(ctx).Debugf("ExportMints: exporting %d output states", len(states))
 		exportableStates.OutputState = append(exportableStates.OutputState, states...)
 	}
 	exportableStates.LockedState = make([]*stateLock, 0, len(g.lockedStatesByTransaction))
 	for _, locks := range g.lockedStatesByTransaction {
-		log.L(ctx).Debugf("ExportMints: exporting %d locked states", len(locks))
 		exportableStates.LockedState = append(exportableStates.LockedState, locks...)
 	}
+	g.mu.RUnlock()
 	jsonStr, err := json.Marshal(exportableStates)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Printf("ExportMints: JSON string: %s\n", jsonStr)
-	return jsonStr, nil
+	return jsonStr, err
 }
