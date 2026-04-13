@@ -16,8 +16,9 @@
 
 export const AppRoutes = {
   Keys: '/ui/keys',
+  Submissions: '/ui/submissions',
   Registry: '/ui/registry',
   Domains: '/ui/domains',
   Transactions: '/ui/transactions',
-  Transaction: '/ui/transactions/:hash/:id?'
+  Transaction: '/ui/transactions/:hashOrId'
 };

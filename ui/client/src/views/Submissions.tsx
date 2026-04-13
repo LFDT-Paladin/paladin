@@ -16,7 +16,7 @@
 
 import { Alert, Box, Fade, LinearProgress, ToggleButton, ToggleButtonGroup, Typography, useTheme } from "@mui/material";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useContext, useEffect, useState } from "react";
+import { Dispatch, SetStateAction, useContext, useEffect, useState } from "react";
 import { PaladinTransaction } from "../components/PaladinTransaction";
 import { ApplicationContext } from "../contexts/ApplicationContext";
 import { fetchSubmissions } from "../queries/transactions";
@@ -27,7 +27,15 @@ import { useTranslation } from "react-i18next";
 import { Filters } from "../components/Filters";
 import { constants } from "../components/config";
 
-export const Submissions: React.FC = () => {
+type Props = {
+  section: 'pending' | 'all'
+  setSection: Dispatch<SetStateAction<'pending' | 'all'>>
+};
+
+export const Submissions: React.FC<Props> = ({ 
+  section,
+  setSection
+ }) => {
 
   const getFiltersFromStorage = () => {
     const value = window.localStorage.getItem(constants.SUBMISSIONS_FILTERS_KEY);
@@ -41,14 +49,13 @@ export const Submissions: React.FC = () => {
 
   const { lastBlockWithTransactions } = useContext(ApplicationContext);
   const [filters, setFilters] = useState<IFilter[]>(getFiltersFromStorage());
-  const [tab, setTab] = useState<'all' | 'pending'>('all');
 
   const theme = useTheme();
   const { t } = useTranslation();
 
   const { data: transactions, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
-    queryKey: ["submissions", tab, lastBlockWithTransactions, filters],
-    queryFn: ({ pageParam }) => fetchSubmissions(tab, filters, pageParam),
+    queryKey: ['submissions', section, lastBlockWithTransactions, filters],
+    queryFn: ({ pageParam }) => fetchSubmissions(section, filters, pageParam),
     initialPageParam: undefined as IPaladinTransaction | undefined,
     getNextPageParam: (lastPage) => { return lastPage.length > 0 ? lastPage[lastPage.length - 1] : undefined },
   });
@@ -72,12 +79,12 @@ export const Submissions: React.FC = () => {
         }}
       >
         <Typography align="center" variant="h5">
-          {t("transactions")}
+          {t("submissions")}
         </Typography>
         <Box sx={{ marginTop: '15px', marginBottom: '25px', textAlign: 'center' }}>
-          <ToggleButtonGroup exclusive onChange={(_event, value) => setTab(value)} value={tab}>
-            <ToggleButton color="primary" value="all" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
+          <ToggleButtonGroup exclusive onChange={(_event, value) => setSection(value)} value={section}>
             <ToggleButton color="primary" value="pending" sx={{ width: '130px', height: '45px' }}>{t('pending')}</ToggleButton>
+            <ToggleButton color="primary" value="all" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
           </ToggleButtonGroup>
         </Box>
         <Box sx={{ marginBottom: '20px' }}>
@@ -143,7 +150,6 @@ export const Submissions: React.FC = () => {
               </InfiniteScroll>
               {transactions.pages.length === 1 && transactions.pages[0].length === 0 &&
                 <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>{t('noPendingTransactions')}</Typography>}
-
             </>
           }
         </Box>
