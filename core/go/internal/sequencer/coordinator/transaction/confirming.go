@@ -170,6 +170,7 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
 					TransactionID: dependent.GetPrivateTransaction().ID,
 				},
+				SourceTransactionID: t.pt.ID,
 			})
 			if err != nil {
 				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
@@ -248,4 +249,24 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 		}
 	}
 	return nil
+}
+
+// action_NotifyPreAssembleDependentOfTermination sends an Event_PreAssembleDependencyFinalized
+// to the pre-assemble dependent (if any) when this transaction reaches a terminal state.
+// This severs the FIFO ordering link so the dependent is not stuck waiting forever.
+func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
+	if t.dependencies.PreAssemble.PrereqOf == nil {
+		return nil
+	}
+	dependentID := *t.dependencies.PreAssemble.PrereqOf
+	dependent := t.grapher.TransactionByID(ctx, dependentID)
+	if dependent == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
+	}
+	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
+	return dependent.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: dependentID,
+		},
+	})
 }

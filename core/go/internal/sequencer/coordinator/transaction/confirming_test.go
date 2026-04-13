@@ -901,3 +901,81 @@ func TestDependsOn_ParentRecognition_OnChainRevertNotAffected(t *testing.T) {
 	assert.Equal(t, 1, txn.revertCount)
 	assert.True(t, txn.lastCanRetryRevert)
 }
+
+func Test_action_NotifyPreAssembleDependentOfTermination_NilPrereqOf(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).Build()
+	txn.dependencies.PreAssemble.PrereqOf = nil
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_DependentNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	dependentID := uuid.New()
+	txn.dependencies.PreAssemble.PrereqOf = &dependentID
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PD012645")
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_SendsEventToDependent(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, mocks := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(grapher).
+		Build()
+	dependentTx.dependencies.PreAssemble.DependsOn = &prereqTx.pt.ID
+
+	prereqTx.dependencies.PreAssemble.PrereqOf = &dependentTx.pt.ID
+
+	// The dependent has no other unassembled deps, so it should transition to State_Pooled
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentTx.pt.ID).Return()
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
+	require.NoError(t, err)
+
+	assert.Nil(t, dependentTx.dependencies.PreAssemble.DependsOn)
+	assert.Equal(t, State_Pooled, dependentTx.GetCurrentState())
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_StaysBlockedWithChainedDeps(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(grapher).
+		Build()
+
+	chainedDepTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(grapher).
+		Build()
+	dependentTx.dependencies.PreAssemble.DependsOn = &prereqTx.pt.ID
+	dependentTx.dependencies.Chained.DependsOn = []uuid.UUID{chainedDepTx.pt.ID}
+	dependentTx.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{chainedDepTx.pt.ID: {}}
+
+	prereqTx.dependencies.PreAssemble.PrereqOf = &dependentTx.pt.ID
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
+	require.NoError(t, err)
+
+	assert.Nil(t, dependentTx.dependencies.PreAssemble.DependsOn)
+	assert.Equal(t, State_PreAssembly_Blocked, dependentTx.GetCurrentState())
+}

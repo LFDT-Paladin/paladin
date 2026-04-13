@@ -46,34 +46,35 @@ const (
 type EventType = common.EventType
 
 const (
-	Event_Delegated                      EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
-	Event_DependencySelectedForAssemble                                                        // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
-	Event_NewPreAssembleDependency                                                             // a new preassemble dependency has been established
-	Event_Selected                                                                             // selected from the pool as the next transaction to be assembled
-	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
-	Event_Assemble_Success                                                                     // assemble response received from the originator
-	Event_Assemble_Revert_Response                                                             // assemble response received from the originator with a revert reason
-	Event_Assemble_Error_Response                                                              // assemble response received from the originator with an error
-	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
-	Event_Endorsed                                                                             // endorsement received from one endorser
-	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
-	Event_DependencyReady                                                                      // another transaction, for which this transaction has a dependency on, has become ready for dispatch
-	Event_DependencyReset                                                                      // another transaction, for which this transaction has a dependency on, has been reset
-	Event_DependencyConfirmedReverted                                                          // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
-	Event_DispatchRequestApproved                                                              // dispatch confirmation received from the originator
-	Event_DispatchRequestRejected                                                              // dispatch confirmation response received from the originator with a rejection
-	Event_Dispatched                                                                           // dispatched to the public TX manager
-	Event_Collected                                                                            // collected by the public TX manager
-	Event_NonceAllocated                                                                       // nonce allocated by the dispatcher thread
-	Event_Submitted                                                                            // submission made to the blockchain.  Each time this event is received, the submission hash is updated
-	Event_ConfirmedSuccess                                                                     // confirmation received from the blockchain of a successful transaction
-	Event_ConfirmedReverted                                                                    // confirmation received from the blockchain of a reverted transaction
-	Event_RequestTimeoutInterval                                                               // event emitted by the state machine on a regular period while we have pending requests
-	Event_StateTimeoutInterval                                                                 // event emitted when a state has exceeded its maximum allowed duration
-	Event_StateTransition                                                                      // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
-	Event_TransactionUnknownByOriginator                                                       // originator has reported that it doesn't recognize this transaction
-	Event_ChainedDependencyFailed                                                              // a chained (same-coordinator) dependency has been permanently finalized as failed
-	Event_ChainedDependencyEvicted                                                             // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
+	Event_Delegated                       EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
+	Event_DependencySelectedForAssemble                                                         // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
+	Event_NewPreAssembleDependency                                                              // a new preassemble dependency has been established
+	Event_Selected                                                                              // selected from the pool as the next transaction to be assembled
+	Event_AssembleRequestSent                                                                   // assemble request sent to the assembler
+	Event_Assemble_Success                                                                      // assemble response received from the originator
+	Event_Assemble_Revert_Response                                                              // assemble response received from the originator with a revert reason
+	Event_Assemble_Error_Response                                                               // assemble response received from the originator with an error
+	Event_Assemble_Cancelled                                                                    // the assemble attempt has been cancelled
+	Event_Endorsed                                                                              // endorsement received from one endorser
+	Event_EndorsedRejected                                                                      // endorsement received from one endorser with a revert reason
+	Event_DependencyReady                                                                       // another transaction, for which this transaction has a dependency on, has become ready for dispatch
+	Event_DependencyReset                                                                       // another transaction, for which this transaction has a dependency on, has been reset
+	Event_DependencyConfirmedReverted                                                           // another transaction, for which this transaction has a dependency on, has been confirmed as reverted
+	Event_DispatchRequestApproved                                                               // dispatch confirmation received from the originator
+	Event_DispatchRequestRejected                                                               // dispatch confirmation response received from the originator with a rejection
+	Event_Dispatched                                                                            // dispatched to the public TX manager
+	Event_Collected                                                                             // collected by the public TX manager
+	Event_NonceAllocated                                                                        // nonce allocated by the dispatcher thread
+	Event_Submitted                                                                             // submission made to the blockchain.  Each time this event is received, the submission hash is updated
+	Event_ConfirmedSuccess                                                                      // confirmation received from the blockchain of a successful transaction
+	Event_ConfirmedReverted                                                                     // confirmation received from the blockchain of a reverted transaction
+	Event_RequestTimeoutInterval                                                                // event emitted by the state machine on a regular period while we have pending requests
+	Event_StateTimeoutInterval                                                                  // event emitted when a state has exceeded its maximum allowed duration
+	Event_StateTransition                                                                       // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
+	Event_TransactionUnknownByOriginator                                                        // originator has reported that it doesn't recognize this transaction
+	Event_ChainedDependencyFailed                                                               // a chained (same-coordinator) dependency has been permanently finalized as failed
+	Event_ChainedDependencyEvicted                                                              // a chained (same-coordinator) dependency has been evicted (e.g. assembly failure threshold exceeded)
+	Event_PreAssembleDependencyTerminated                                                       // the pre-assemble (FIFO ordering) predecessor has reached a terminal state
 )
 
 // Type aliases for the generic statemachine types, specialized for Transaction
@@ -92,8 +93,20 @@ type (
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
 		Events: map[EventType]EventHandler{
+			// State_Initial only needs to handle Event_Delegated. The transaction is created and
+			// immediately delegated on the coordinator event loop, so no other events can arrive
+			// before Event_Delegated is processed.
 			Event_Delegated: {
 				Transitions: []Transition{
+					{
+						To:      State_Reverted,
+						If:      guard_HasRevertedChainedDependency,
+						Actions: []ActionRule{{Action: action_FinalizeOnRevertedChainedDependencyAtCreation}},
+					},
+					{
+						To: State_Evicted,
+						If: guard_HasEvictedChainedDependency,
+					},
 					{
 						To: State_PreAssembly_Blocked,
 						If: guard_HasUnassembledDependencies,
@@ -103,20 +116,6 @@ var stateDefinitionsMap = StateDefinitions{
 						If: statemachine.GuardNot(guard_HasUnassembledDependencies), // No-op check (opposite of guard_HasUnassembledDependencies above) but including to be explicit when we should go to pooled
 					},
 				},
-			},
-			Event_NewPreAssembleDependency: {
-				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
-			},
-			Event_ChainedDependencyFailed: {
-				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
-				Transitions: []Transition{{To: State_Reverted}},
-			},
-			// Event_ChainedDependencyEvicted is only handled in pre-assembly states (Initial,
-			// PreAssembly_Blocked, Pooled) because if a dependency hasn't been assembled, its
-			// dependents cannot have been either. Once past assembly, only ChainedDependencyFailed
-			// (terminal revert) is relevant.
-			Event_ChainedDependencyEvicted: {
-				Transitions: []Transition{{To: State_Evicted}},
 			},
 		},
 	},
@@ -128,6 +127,26 @@ var stateDefinitionsMap = StateDefinitions{
 			// Waiting for this event before we move to pooled ensures FIFO ordering for first assembly within an originator
 			// and preservers chained dependency ordering
 			Event_DependencySelectedForAssemble: {
+				Actions: []ActionRule{
+					{
+						Action:    action_RemovePreAssembleDependency,
+						Validator: validator_IsPreAssembleDependency,
+					},
+					{
+						Action:    action_MarkChainedDependencyAssembled,
+						Validator: validator_IsChainedDependency,
+					},
+				},
+				Transitions: []Transition{
+					{
+						To: State_Pooled,
+						If: statemachine.GuardNot(guard_HasUnassembledDependencies),
+					},
+				},
+			},
+			// The pre-assemble predecessor reached a terminal state — sever the FIFO link
+			// so this transaction is not stuck waiting forever
+			Event_PreAssembleDependencyTerminated: {
 				Actions: []ActionRule{{Action: action_RemovePreAssembleDependency}},
 				Transitions: []Transition{
 					{
@@ -140,6 +159,9 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions:     []ActionRule{{Action: action_FinalizeOnChainedDependencyFailure}},
 				Transitions: []Transition{{To: State_Reverted}},
 			},
+			// Event_ChainedDependencyEvicted is only handled in pre-assembly states (Initial,
+			// PreAssembly_Blocked, Pooled) because eviction only happens as a result of errored
+			// assembly. Once past assembly, only ChainedDependencyFailed (terminal revert) is relevant.
 			Event_ChainedDependencyEvicted: {
 				Transitions: []Transition{{To: State_Evicted}},
 			},
@@ -166,6 +188,10 @@ var stateDefinitionsMap = StateDefinitions{
 					}},
 			},
 			Event_DependencyReset: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To: State_PreAssembly_Blocked,
@@ -174,6 +200,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyConfirmedReverted: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To: State_PreAssembly_Blocked,
@@ -215,7 +245,8 @@ var stateDefinitionsMap = StateDefinitions{
 					{
 						To: State_Confirming_Dispatchable,
 						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
-					}},
+					},
+				},
 			},
 			Event_RequestTimeoutInterval: {
 				Actions: []ActionRule{{
@@ -328,6 +359,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyReset: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -342,6 +377,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyConfirmedReverted: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -375,6 +414,10 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_DependencyReset: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -389,6 +432,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyConfirmedReverted: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -449,6 +496,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyReset: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -463,6 +514,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyConfirmedReverted: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -501,6 +556,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyReset: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -515,6 +574,10 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 			},
 			Event_DependencyConfirmedReverted: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyUnassembled,
+					Validator: validator_IsChainedDependency,
+				}},
 				Transitions: []Transition{
 					{
 						To:      State_PreAssembly_Blocked,
@@ -592,12 +655,28 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_DependencyReset: {
 				Actions: []ActionRule{
+					{
+						Action:    action_MarkChainedDependencyUnassembled,
+						Validator: validator_IsChainedDependency,
+					},
 					{Action: action_ResetTransactionLocks},
 					{Action: action_NotifyDependentsOfReset},
 				},
 			},
+			// This event will be received if a chained dependency has reverted, we are still waiting for
+			// our revert event, and the chained dependency is reassembled in that time.
+			Event_DependencySelectedForAssemble: {
+				Actions: []ActionRule{{
+					Action:    action_MarkChainedDependencyAssembled,
+					Validator: validator_IsChainedDependency,
+				}},
+			},
 			Event_DependencyConfirmedReverted: {
 				Actions: []ActionRule{
+					{
+						Action:    action_MarkChainedDependencyUnassembled,
+						Validator: validator_IsChainedDependency,
+					},
 					{Action: action_ResetTransactionLocks},
 					{Action: action_NotifyDependentsOfReset},
 				},
@@ -612,6 +691,7 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: []ActionRule{
 			{Action: action_ResetTransactionLocks},
 			{Action: action_CascadeChainedDependencyFailure},
+			{Action: action_NotifyPreAssembleDependentOfTermination},
 		},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
@@ -654,6 +734,7 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Evicted: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_CascadeChainedDependencyEviction},
+			{Action: action_NotifyPreAssembleDependentOfTermination},
 		},
 		// Cleanup is handled by the coordinator in response to the state transition event
 	},

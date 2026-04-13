@@ -53,9 +53,10 @@ type PostAssembleDependencies struct {
 	PrereqOf  []uuid.UUID
 }
 
-type chainedDependencies struct {
-	DependsOn []uuid.UUID
-	PrereqOf  []uuid.UUID
+type ChainedDependencies struct {
+	DependsOn   []uuid.UUID
+	PrereqOf    []uuid.UUID
+	Unassembled map[uuid.UUID]struct{}
 }
 
 // TransactionDependencies tracks all dependency categories for a coordinator transaction.
@@ -65,7 +66,7 @@ type chainedDependencies struct {
 type TransactionDependencies struct {
 	PreAssemble  PreAssembleDependencies
 	PostAssemble PostAssembleDependencies
-	Chained      chainedDependencies
+	Chained      ChainedDependencies
 }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
@@ -237,11 +238,10 @@ func newTransaction(
 		grapher: grapher,
 		metrics: metrics,
 	}
-	txn.initializeStateMachine(State_Initial)
-	grapher.Add(txCtx, txn)
 
 	// Set up chained dependencies carried from the parent coordinator's grapher.
 	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
+	txn.dependencies.Chained.Unassembled = make(map[uuid.UUID]struct{})
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
 		for _, depID := range pt.PreAssembly.ChainedDependsOn {
 			dep := grapher.TransactionByID(txCtx, depID)
@@ -264,19 +264,26 @@ func newTransaction(
 				// TODO: this is directly modifying the prereq transaction without a mutex. This is ok at the current
 				// point in time, because the only other goroutine which has access to the transaction is the dispatch
 				// loop and this does not touch dependencies. This should be made more resilient to concurrent access by
-				// the new grapher.
+				// the new grapher. TODO AM: is this actually true?
+				log.L(txCtx).Debugf("Transaction %s has a chained dependency on %s", pt.ID, depID)
 				depTx.dependencies.Chained.PrereqOf = append(depTx.dependencies.Chained.PrereqOf, pt.ID)
+			}
+			state := dep.GetCurrentState()
+			if state == State_Initial || state == State_PreAssembly_Blocked || state == State_Pooled {
+				txn.dependencies.Chained.Unassembled[depID] = struct{}{}
 			}
 		}
 	}
 
+	txn.initializeStateMachine(State_Initial)
+	grapher.Add(txCtx, txn)
+
 	return txn
 }
 
-// This function is external but doesn't not need a lock as ints are atomic
+// This function is external but doesn't need a lock as ints are atomic
+// TODO: come back to locking strategy - the dispatch loop also calls HandleEvent
 func (t *coordinatorTransaction) GetCurrentState() State {
-	t.RLock()
-	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
 

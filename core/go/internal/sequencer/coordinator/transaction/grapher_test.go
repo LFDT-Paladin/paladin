@@ -117,7 +117,7 @@ func Test_pruneDependencyLinks_PrereqOfNotInGrapher(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000001")},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000002")},
 			},
 		}).
@@ -145,7 +145,7 @@ func Test_pruneDependencyLinks_PrereqsNotInGrapher(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				DependsOn: []uuid.UUID{postAssemblePrereqID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{externalPrereqID},
 			},
 		}).
@@ -197,7 +197,7 @@ func Test_pruneDependencyLinks_RemovesDependsOnLinks(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{tx2ID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{tx3ID},
 			},
 		}).
@@ -213,7 +213,7 @@ func Test_pruneDependencyLinks_RemovesDependsOnLinks(t *testing.T) {
 	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx3ID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{tx1ID},
 			},
 		}).
@@ -244,7 +244,7 @@ func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{tx2ID, tx3ID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{tx4ID, tx5ID},
 			},
 		}).
@@ -268,7 +268,7 @@ func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
 	txn4, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx4ID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{tx1ID},
 			},
 		}).
@@ -276,7 +276,7 @@ func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
 	txn5, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx5ID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{tx1ID},
 			},
 		}).
@@ -312,7 +312,7 @@ func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{tx2ID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{tx3ID},
 			},
 		}).
@@ -328,7 +328,7 @@ func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
 	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx3ID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{tx1ID, otherID},
 			},
 		}).
@@ -361,7 +361,7 @@ func Test_pruneDependencyLinks_RemovesSelfFromPrerequisitePrereqOf(t *testing.T)
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{txPostAssembleDependentID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{txExternalDependentID},
 			},
 		}).
@@ -378,7 +378,7 @@ func Test_pruneDependencyLinks_RemovesSelfFromPrerequisitePrereqOf(t *testing.T)
 	externalDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(txExternalDependentID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{txPrereqID},
 			},
 		}).
@@ -414,7 +414,7 @@ func Test_pruneDependencyLinks_PrereqOfRetainsOtherDependents(t *testing.T) {
 			PostAssemble: PostAssembleDependencies{
 				PrereqOf: []uuid.UUID{txPostAssembleDependentID, otherDependentID},
 			},
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				PrereqOf: []uuid.UUID{txExternalDependentID, otherDependentID},
 			},
 		}).
@@ -430,7 +430,7 @@ func Test_pruneDependencyLinks_PrereqOfRetainsOtherDependents(t *testing.T) {
 	externalDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(txExternalDependentID).
 		Dependencies(&TransactionDependencies{
-			Chained: chainedDependencies{
+			Chained: ChainedDependencies{
 				DependsOn: []uuid.UUID{txPrereqID},
 			},
 		}).

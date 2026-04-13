@@ -430,9 +430,6 @@ func (sMgr *sequencerManager) HandleNewTx(ctx context.Context, dbTX persistence.
 		Domain:  tx.Domain,
 		Address: *tx.To,
 		Intent:  intent,
-		PreAssembly: &components.TransactionPreAssembly{
-			ChainedDependsOn: txi.ChainedDependsOn,
-		},
 	}, &txi.ResolvedTransaction, false)
 }
 
@@ -478,9 +475,6 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 			Domain:  tx.Domain,
 			Address: *tx.To,
 			Intent:  intent,
-			PreAssembly: &components.TransactionPreAssembly{
-				ChainedDependsOn: txi.ChainedDependsOn,
-			},
 		}, &txi.ResolvedTransaction, true)
 	})
 }
@@ -513,6 +507,9 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 	if tx.PreAssembly == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
+
+	// Set chained dependencies after InitTransaction, which replaces PreAssembly
+	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
 
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {

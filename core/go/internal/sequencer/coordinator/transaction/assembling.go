@@ -143,6 +143,7 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
+			SourceTransactionID: t.pt.ID,
 		})
 		if err != nil {
 			return err
@@ -187,6 +188,7 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 		//also set up the reverse association
 		dependency.dependencies.PostAssemble.PrereqOf = append(dependency.dependencies.PostAssemble.PrereqOf, t.pt.ID)
 	}
+	log.L(ctx).Debugf("Post-assembly dependencies for TX %s: %v", t.pt.ID, t.dependencies.PostAssemble.DependsOn)
 	return nil
 }
 

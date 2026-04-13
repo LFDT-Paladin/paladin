@@ -130,7 +130,6 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 			validatedPrivateTx.NewTransaction.Transaction.ID != nil {
 
 			childID := *validatedPrivateTx.NewTransaction.Transaction.ID
-			// TODO AM: test coverage??
 			t.chainedChildID = &childID
 
 			// Propagate ordering knowledge: for each dependency of this transaction,

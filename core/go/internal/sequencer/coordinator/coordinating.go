@@ -132,6 +132,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if previousTransaction != nil {
 			switch previousTransaction.GetCurrentState() {
 			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
+				txID := previousTransaction.GetID()
 				// There is an incredibly slim possibility that the transaction has actually been repooled, so we are past first assembly,
 				// but since we have no way of checking this it causes no issues to establish the dependency, since the already pooled transaction
 				// will be selected for assembly ahead of this new transaction anyway.
@@ -141,7 +142,7 @@ func (c *coordinator) addToDelegatedTransactions(
 				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
 				err := previousTransaction.HandleEvent(ctx, &transaction.NewPreAssembleDependencyEvent{
 					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-						TransactionID: previousTransaction.GetID(),
+						TransactionID: txID,
 					},
 					PrereqTransactionID: transactions[i-1].ID,
 				})
@@ -150,6 +151,7 @@ func (c *coordinator) addToDelegatedTransactions(
 					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
 					continue
 				}
+				previousTransactionID = &txID
 			}
 		}
 
