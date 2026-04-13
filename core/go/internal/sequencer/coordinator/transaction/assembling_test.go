@@ -855,6 +855,32 @@ func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNotReady(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	dependency, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
+		Build()
+
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		AddPendingAssembleRequest().
+		NumberOfRequiredEndorsers(0).
+		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].ID)
+
+	txn, mocks := txnBuilder.Build()
+
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+}
+
 func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)

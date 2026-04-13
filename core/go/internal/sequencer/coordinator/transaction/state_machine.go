@@ -246,6 +246,10 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Confirming_Dispatchable,
 						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, statemachine.GuardNot(guard_HasDependenciesNotReady)),
 					},
+					{
+						To: State_Blocked,
+						If: statemachine.GuardAnd(guard_AttestationPlanFulfilled, guard_HasDependenciesNotReady),
+					},
 				},
 			},
 			Event_RequestTimeoutInterval: {
