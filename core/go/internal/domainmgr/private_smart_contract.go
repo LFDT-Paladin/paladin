@@ -361,7 +361,6 @@ func (dc *domainContract) LockStates(dCtx components.DomainContext, readTX persi
 	stateLocks := make([]*pldapi.StateLock, 0, len(postAssembly.InputStates)+len(postAssembly.ReadStates))
 	inputIDs := make([]string, len(postAssembly.InputStates))
 	for i, s := range postAssembly.InputStates {
-		// MRW TODO
 		stateLocks = append(stateLocks, &pldapi.StateLock{
 			StateID:     s.ID,
 			DomainName:  domainName,
@@ -378,7 +377,6 @@ func (dc *domainContract) LockStates(dCtx components.DomainContext, readTX persi
 	}
 	readIDs := make([]string, len(postAssembly.ReadStates))
 	for i, s := range postAssembly.ReadStates {
-		// MRW TODO
 		stateLocks = append(stateLocks, &pldapi.StateLock{
 			StateID:     s.ID,
 			DomainName:  domainName,

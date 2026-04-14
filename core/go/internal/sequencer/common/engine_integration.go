@@ -40,7 +40,6 @@ type Hooks interface {
 type EngineIntegration interface {
 	WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error)
-	// GetStateLocks(ctx context.Context) ([]byte, error)
 	GetBlockHeight(ctx context.Context) (int64, error)
 	//Assemble and sign is a single, synchronous operation that assembles a transaction using the domain smart contract
 	// and then fulfills any signature requests in the attestation plan
@@ -76,10 +75,6 @@ func (f *FakeEngineIntegrationForTesting) WriteStatesForTransaction(ctx context.
 }
 
 func (f *FakeEngineIntegrationForTesting) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
-	return nil, nil
-}
-
-func (f *FakeEngineIntegrationForTesting) GetStateLocks(ctx context.Context) ([]byte, error) {
 	return nil, nil
 }
 
@@ -125,11 +120,6 @@ func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *
 	return nil
 
 }
-
-// func (e *engineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
-// 	log.L(ctx).Debugf("GetStateLocks: Exporting snapshot for domain context %s", e.domainContext.Info().ID)
-// 	return e.domainContext.ExportSnapshot(ctx)
-// }
 
 func (e *engineIntegration) GetBlockHeight(ctx context.Context) (int64, error) {
 	return e.environment.GetBlockHeight(), nil

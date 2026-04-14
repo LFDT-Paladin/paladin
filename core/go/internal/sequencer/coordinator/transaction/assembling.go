@@ -63,9 +63,6 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return nil
 	}
 
-	// MRW TODO - this writes to the domain context. We need to do the WRITE part of this,
-	// and then record locks in the grapher
-
 	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
 	err := t.writeStates(ctx)
 

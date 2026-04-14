@@ -240,6 +240,19 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func Test_sendAssembleRequest_ExportMintsError(t *testing.T) {
+	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher.EXPECT().ExportMints(mock.Anything).Return(nil, errors.New("export mints failed"))
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(mockGrapher).
+		Build()
+
+	err := txn.sendAssembleRequest(ctx)
+	require.ErrorContains(t, err, "export mints failed")
+}
+
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).UseMockTransportWriter().Build()
