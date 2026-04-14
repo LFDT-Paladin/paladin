@@ -176,7 +176,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 		Build()
 
 	txByID := map[uuid.UUID]CoordinatorTransaction{
-		mainTxnID:    mainTxn,
+		mainTxnID:   mainTxn,
 		dependentID: dependentTxn,
 	}
 	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
@@ -185,8 +185,8 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 	mainTxn.getCoordinatorTransaction = lookup
 	dependentTxn.getCoordinatorTransaction = lookup
 
-	mockG.EXPECT().GetDependants(mock.Anything, mainTxnID).Return([]uuid.UUID{dependentID})
-	mockG.EXPECT().GetDependants(mock.Anything, dependentID).Return(nil)
+	mockG.EXPECT().GetDependents(mock.Anything, mainTxnID).Return([]uuid.UUID{dependentID})
+	mockG.EXPECT().GetDependents(mock.Anything, dependentID).Return(nil)
 	mockG.EXPECT().RemoveAllDependencyLinks(dependentID)
 	mockG.EXPECT().ForgetMints(dependentID)
 	mockG.EXPECT().ForgetLocks(dependentID)
@@ -216,7 +216,7 @@ func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
 
 	err := txn.notifyDependentsOfReset(ctx)
 	assert.NoError(t, err)
@@ -227,7 +227,7 @@ func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
 	mockGrapher := grapher.NewMockGrapher(t)
 	dependentID := uuid.New()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, mock.Anything).Return([]uuid.UUID{dependentID})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, mock.Anything).Return([]uuid.UUID{dependentID})
 
 	mockDependentTxn := NewMockCoordinatorTransaction(t)
 	expectedError := errors.New("dependency reset notification failed")
@@ -266,9 +266,9 @@ func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *test
 	dependencies := grapher.GetDependencies(ctx, dependentID)
 	require.Len(t, dependencies, 1)
 	assert.Equal(t, mainTxnID, dependencies[0])
-	dependants := grapher.GetDependants(ctx, mainTxnID)
-	require.Len(t, dependants, 1)
-	assert.Equal(t, dependentID, dependants[0])
+	dependents := grapher.GetDependents(ctx, mainTxnID)
+	require.Len(t, dependents, 1)
+	assert.Equal(t, dependentID, dependents[0])
 
 	mockDependentTxn := NewMockCoordinatorTransaction(t)
 	expectedError := errors.New("dependency reset notification failed")
@@ -284,8 +284,8 @@ func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *test
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.Error(t, err)
 	assert.Equal(t, expectedError, err)
-	require.Len(t, grapher.GetDependants(ctx, mainTxnID), 1, "dependencies must not be cleared when notify fails")
-	assert.Equal(t, dependentID, grapher.GetDependants(ctx, mainTxnID)[0])
+	require.Len(t, grapher.GetDependents(ctx, mainTxnID), 1, "dependencies must not be cleared when notify fails")
+	assert.Equal(t, dependentID, grapher.GetDependents(ctx, mainTxnID)[0])
 	require.Len(t, grapher.GetDependencies(ctx, dependentID), 1, "dependencies must not be cleared when notify fails")
 	assert.Equal(t, mainTxnID, grapher.GetDependencies(ctx, dependentID)[0])
 }
@@ -294,7 +294,7 @@ func Test_notifyDependentsOfRepool_DependentTxNotKnownToCoordinator(t *testing.T
 	ctx := context.Background()
 	missingID := uuid.New()
 	mockGrapher := grapher.NewMockGrapher(t)
-	mockGrapher.EXPECT().GetDependants(mock.Anything, mock.Anything).Return([]uuid.UUID{missingID})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, mock.Anything).Return([]uuid.UUID{missingID})
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(mockGrapher).

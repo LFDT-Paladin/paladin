@@ -135,10 +135,10 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	// if our block height is ahead of the coordinator, there is a small chance that we we assemble a transaction that the coordinator will not be able to
 	// endorse yet but it is better to wait around on the endorsement flow than to wait around on the assemble flow which is single threaded per domain
 
+	// Create a throwaway domain context for this call
 	delegateDomainContext := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
 	err := delegateDomainContext.ImportSnapshot(ctx, stateLocksJSON)
 	if err != nil {
-		log.L(ctx).Errorf("error importing state locks: %s", err)
 		return nil, err
 	}
 
@@ -154,7 +154,6 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 			v.VerifierType,
 		)
 		if err != nil {
-			log.L(ctx).Errorf("error resolving verifier %s: %s", v.Lookup, err)
 			return nil, err
 		}
 		preAssembly.Verifiers = append(preAssembly.Verifiers, &prototk.ResolvedVerifier{

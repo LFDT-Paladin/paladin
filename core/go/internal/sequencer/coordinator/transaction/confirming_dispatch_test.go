@@ -137,7 +137,7 @@ func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest
 	txn, _ := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
 	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
 	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 

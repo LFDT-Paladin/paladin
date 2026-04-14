@@ -475,7 +475,7 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Grapher(mockGrapher).Build()
 	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID()) // Moving the TX back to pooled should remove all depends-on and prereq-of links
 	mockGrapher.EXPECT().ForgetMints(txn.GetID())              // Moving to pooled should also reset its mints in the grapher
 	c.transactionsByID[txn.GetID()] = txn

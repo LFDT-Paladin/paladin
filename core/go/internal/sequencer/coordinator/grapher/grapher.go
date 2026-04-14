@@ -50,7 +50,7 @@ type Grapher interface {
 	ForgetMints(transactionID uuid.UUID)
 	ForgetLocks(transactionID uuid.UUID)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
-	GetDependants(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
+	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
@@ -244,7 +244,7 @@ func (g *grapher) GetDependencies(ctx context.Context, transactionID uuid.UUID) 
 }
 
 // Get transactions we are a pre-req of
-func (g *grapher) GetDependants(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
+func (g *grapher) GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	if tx, ok := g.transactionByID[transactionID]; ok {

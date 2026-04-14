@@ -121,25 +121,25 @@ func TestGetDependencies_UnknownTransaction_ReturnsNil(t *testing.T) {
 	assert.Nil(t, g.GetDependencies(ctx, uuid.New()))
 }
 
-func TestGetDependants_UnknownTransaction_ReturnsNil(t *testing.T) {
+func TestGetDependents_UnknownTransaction_ReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx)
-	assert.Nil(t, g.GetDependants(ctx, uuid.New()))
+	assert.Nil(t, g.GetDependents(ctx, uuid.New()))
 }
 
-func TestGetDependants_ConsumerWithNoPrereqs_ReturnsEmptySlice(t *testing.T) {
+func TestGetDependents_ConsumerWithNoPrereqs_ReturnsEmptySlice(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
 	g.LockMintsOnSpend(ctx, []*components.FullState{{ID: unknown}}, consumerID)
 
-	deps := g.GetDependants(ctx, consumerID)
+	deps := g.GetDependents(ctx, consumerID)
 	require.NotNil(t, deps)
 	assert.Empty(t, deps)
 }
 
-func TestGetDependants_ReturnsPrereqOf(t *testing.T) {
+func TestGetDependents_ReturnsPrereqOf(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx).(*grapher)
 	prereqID := uuid.New()
@@ -154,7 +154,7 @@ func TestGetDependants_ReturnsPrereqOf(t *testing.T) {
 	prereqTX.dependencies.PrereqOf = []uuid.UUID{dependentA, dependentB}
 	g.mu.Unlock()
 
-	assert.Equal(t, []uuid.UUID{dependentA, dependentB}, g.GetDependants(ctx, prereqID))
+	assert.Equal(t, []uuid.UUID{dependentA, dependentB}, g.GetDependents(ctx, prereqID))
 }
 
 func TestLockMintsOnSpend_UnknownState_NoDependency(t *testing.T) {

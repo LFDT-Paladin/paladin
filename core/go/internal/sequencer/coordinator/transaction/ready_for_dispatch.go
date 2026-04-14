@@ -113,7 +113,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
+	for _, dependentID := range t.grapher.GetDependents(ctx, t.pt.ID) {
 		dependent := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)

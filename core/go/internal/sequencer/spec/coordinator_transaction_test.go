@@ -126,7 +126,7 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 		StateTimeout(1).
 		Build()
 	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
 	mockGrapher.EXPECT().ForgetMints(txn.GetID())
 
@@ -310,7 +310,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 
 	txn, _ := builder.Build()
 	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
 	mockGrapher.EXPECT().ForgetMints(txn.GetID())
 
@@ -371,7 +371,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_NoTransition_OnDispatchConfir
 // 	//TODO rethink naming of this test and/or the guard function because we end up with a double negative
 // 	ctx := context.Background()
 
-// 	//A transaction (A) is dependant on another 2 transactions (B and C).  One of which (B) is ready for dispatch and the other (C) becomes ready for dispatch,
+// 	//A transaction (A) is dependent on another 2 transactions (B and C).  One of which (B) is ready for dispatch and the other (C) becomes ready for dispatch,
 // 	// triggering a transition for A to move from blocked to confirming dispatch
 
 // 	//we need 3 transactions to know about each other so they need to share a state index
@@ -414,7 +414,7 @@ func TestCoordinatorTransaction_ConfirmingDispatch_NoTransition_OnDispatchConfir
 // func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDependenciesNotReady(t *testing.T) {
 // 	ctx := context.Background()
 
-// 	//A transaction (A) is dependant on another 2 transactions (B and C).  Neither of which a ready for dispatch. One of them (B) becomes ready for dispatch, but the other is still not ready
+// 	//A transaction (A) is dependent on another 2 transactions (B and C).  Neither of which a ready for dispatch. One of them (B) becomes ready for dispatch, but the other is still not ready
 // 	// thus gating the triggering of a transition for A to move from blocked to confirming dispatch
 
 // 	//we need 3 transactions to know about each other so they need to share a state index
@@ -520,7 +520,7 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
 	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
 	mockGrapher.EXPECT().ForgetMints(txn.GetID())
 

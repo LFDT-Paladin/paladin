@@ -76,7 +76,7 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
-	for _, dependentID := range t.grapher.GetDependants(ctx, t.pt.ID) {
+	for _, dependentID := range t.grapher.GetDependents(ctx, t.pt.ID) {
 		dependentTxn := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependentTxn != nil {
 			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{

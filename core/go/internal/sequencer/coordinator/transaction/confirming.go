@@ -136,7 +136,7 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 	return nil
 }
 
-func action_NotifyDependantsOfSuccessfulConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfSuccessfulConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("notifying dependents of successful confirmation for transaction %s", txn.pt.ID.String())
 	if txn.confirmedLockRetentionGracePeriod == 0 {
 		if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
@@ -146,7 +146,7 @@ func action_NotifyDependantsOfSuccessfulConfirmation(ctx context.Context, txn *c
 	return txn.notifyDependentsOfConfirmation(ctx)
 }
 
-func action_NotifyDependantsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s", txn.pt.ID.String())
 	if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
 		return err
@@ -161,7 +161,7 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 
 	// this function is called when the transaction enters the confirmed state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
-	for _, dependentId := range t.grapher.GetDependants(ctx, t.pt.ID) {
+	for _, dependentId := range t.grapher.GetDependents(ctx, t.pt.ID) {
 		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
@@ -182,7 +182,7 @@ func (t *coordinatorTransaction) notifyDependentsOfConfirmation(ctx context.Cont
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool)", t.pt.ID.String())
-	for _, dependentId := range t.grapher.GetDependants(ctx, t.pt.ID) {
+	for _, dependentId := range t.grapher.GetDependents(ctx, t.pt.ID) {
 		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)

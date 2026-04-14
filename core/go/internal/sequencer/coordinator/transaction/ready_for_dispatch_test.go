@@ -249,7 +249,7 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 		Grapher(mockGrapher).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return(nil)
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return(nil)
 
 	err := txn.notifyDependentsOfReadiness(ctx)
 	assert.NoError(t, err)
@@ -263,7 +263,7 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 		Grapher(mockGrapher).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn.pt.ID).Return([]uuid.UUID{missingID})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{missingID})
 
 	err := txn.notifyDependentsOfReadiness(ctx)
 	require.ErrorContains(t, err, "PD012645")
@@ -287,7 +287,7 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 		Grapher(mockGrapher).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{txn2.pt.ID}).Once()
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{txn2.pt.ID}).Once()
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return(nil).Once()
 
 	txByID := map[uuid.UUID]CoordinatorTransaction{
@@ -336,7 +336,7 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 		}).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn1.pt.ID).Return(nil)
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return(nil)
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)
@@ -365,11 +365,11 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
-	mockGrapher.EXPECT().GetDependants(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{dependentTxn.pt.ID}).Once()
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{dependentTxn.pt.ID}).Once()
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, dependentTxn.pt.ID).Return(nil).Once()
 
 	txByID := map[uuid.UUID]CoordinatorTransaction{
-		txn1.pt.ID:           txn1,
+		txn1.pt.ID:         txn1,
 		dependentTxn.pt.ID: dependentTxn,
 	}
 	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {

@@ -696,7 +696,7 @@ func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 		Grapher(mockGrapher).
 		Build()
 	mockGrapher.EXPECT().ForgetLocks(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().GetDependants(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(dependentTxn.pt.ID)
 	mockGrapher.EXPECT().ForgetMints(dependentTxn.pt.ID)
 
@@ -746,7 +746,7 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 		Grapher(mockGrapher).
 		Build()
 	mockGrapher.EXPECT().ForgetLocks(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().GetDependants(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
+	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().RemoveAllDependencyLinks(dependentTxn.pt.ID)
 	mockGrapher.EXPECT().ForgetMints(dependentTxn.pt.ID)
 

@@ -404,7 +404,7 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_RecordConfirmation},
 					{Action: action_NotifyOriginatorOfConfirmation},
-					{Action: action_NotifyDependantsOfSuccessfulConfirmation},
+					{Action: action_NotifyDependentsOfSuccessfulConfirmation},
 				},
 				Transitions: []Transition{{To: State_Confirmed}},
 			},
@@ -427,7 +427,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Reverted,
 						Actions: []ActionRule{
 							{Action: action_NotifyOriginatorOfNonRetryableRevert},
-							{Action: action_NotifyDependantsOfRevertedConfirmation},
+							{Action: action_NotifyDependentsOfRevertedConfirmation},
 							{Action: action_FinalizeNonRetryableRevert},
 						},
 					},

@@ -194,7 +194,6 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 		return err
 	}
 	for addr, batch := range batchesByAddress {
-		log.L(ctx).Debugf("Handling event batch for contract %s", addr.String())
 		res, err := d.handleEventBatchForContract(ctx, dbTX, addr, batch)
 		if err != nil {
 			return err
