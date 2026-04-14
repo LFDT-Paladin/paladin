@@ -38,9 +38,8 @@ type CoordinatorTransaction interface {
 	HasDispatchedPublicTransaction() bool
 	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
 	GetPrivateTransaction() *components.PrivateTransaction
-	DependentsMustWait() bool
+	DependentsMustWait(ctx context.Context) bool
 	GetDependencies() *pldapi.TransactionDependencies
-	GetChainedChildID() *uuid.UUID
 }
 
 type PreAssembleDependencies struct {
@@ -107,8 +106,8 @@ type coordinatorTransaction struct {
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
 	// Transaction dependencies - tracked by dependency type.
-	dependencies   TransactionDependencies
-	chainedChildID *uuid.UUID
+	dependencies      TransactionDependencies
+	chainedChildStore ChainedChildStore
 
 	//Configuration
 
@@ -154,6 +153,7 @@ func NewTransaction(ctx context.Context,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher Grapher,
+	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
 	return newTransaction(
@@ -179,6 +179,7 @@ func NewTransaction(ctx context.Context,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
 		grapher,
+		chainedChildStore,
 		metrics,
 	)
 }
@@ -206,6 +207,7 @@ func newTransaction(
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher Grapher,
+	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
 	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
@@ -235,8 +237,9 @@ func newTransaction(
 		dependencies: TransactionDependencies{
 			PreAssemble: PreAssembleDependencies{DependsOn: preAssembleDependsOn},
 		},
-		grapher: grapher,
-		metrics: metrics,
+		grapher:           grapher,
+		chainedChildStore: chainedChildStore,
+		metrics:           metrics,
 	}
 
 	// Set up chained dependencies carried from the parent coordinator's grapher.
@@ -263,8 +266,7 @@ func newTransaction(
 			if depTx, ok := dep.(*coordinatorTransaction); ok {
 				// TODO: this is directly modifying the prereq transaction without a mutex. This is ok at the current
 				// point in time, because the only other goroutine which has access to the transaction is the dispatch
-				// loop and this does not touch dependencies. This should be made more resilient to concurrent access by
-				// the new grapher. TODO AM: is this actually true?
+				// loop and this only touches dependencies not prereqs
 				log.L(txCtx).Debugf("Transaction %s has a chained dependency on %s", pt.ID, depID)
 				depTx.dependencies.Chained.PrereqOf = append(depTx.dependencies.Chained.PrereqOf, pt.ID)
 			}
@@ -281,9 +283,9 @@ func newTransaction(
 	return txn
 }
 
-// This function is external but doesn't need a lock as ints are atomic
-// TODO: come back to locking strategy - the dispatch loop also calls HandleEvent
 func (t *coordinatorTransaction) GetCurrentState() State {
+	t.RLock()
+	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
 
@@ -320,10 +322,4 @@ func (t *coordinatorTransaction) GetDependencies() *pldapi.TransactionDependenci
 		DependsOn: append([]uuid.UUID{}, t.dependencies.PostAssemble.DependsOn...),
 		PrereqOf:  append([]uuid.UUID{}, t.dependencies.PostAssemble.PrereqOf...),
 	}
-}
-
-func (t *coordinatorTransaction) GetChainedChildID() *uuid.UUID {
-	t.RLock()
-	defer t.RUnlock()
-	return t.chainedChildID
 }

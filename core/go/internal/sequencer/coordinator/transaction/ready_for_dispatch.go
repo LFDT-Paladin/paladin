@@ -50,16 +50,15 @@ func (t *coordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *coordinatorTransaction) DependentsMustWait() bool {
-	// TODO AM: this doesn't have a lock which is significant as it would cause a deadlock otherwise
+func (t *coordinatorTransaction) DependentsMustWait(ctx context.Context) bool {
 	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
-	log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
+	log.L(ctx).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 	// Safe to dispatch as soon as the dependency TX is dispatched
 	notReady := t.stateMachine.CurrentState != State_Confirmed &&
 		t.stateMachine.CurrentState != State_Dispatched &&
 		t.stateMachine.CurrentState != State_Ready_For_Dispatch
 	if notReady {
-		log.L(context.Background()).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
+		log.L(ctx).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
 	}
 	return notReady
 
@@ -82,7 +81,7 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 			return true
 		}
 
-		if dependency.DependentsMustWait() {
+		if dependency.DependentsMustWait(ctx) {
 			log.L(ctx).Debugf("TX %s blocked by dependency %s", t.pt.ID, dependencyID)
 			return true
 		}

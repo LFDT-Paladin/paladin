@@ -51,7 +51,7 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	t.pt.PostAssembly = nil
 	t.pt.PreparedPublicTransaction = nil
 	t.pt.PreparedPrivateTransaction = nil
-	t.chainedChildID = nil
+	t.chainedChildStore.ForgetChainedChild(t.pt.ID)
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
 	t.dependencies.PostAssemble.DependsOn = nil
 	t.dependencies.PostAssemble.PrereqOf = nil
@@ -77,8 +77,9 @@ func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTrans
 	return txn.hasDependenciesNotAssembled(ctx)
 }
 
-func action_MarkChainedDependencyAssembled(_ context.Context, txn *coordinatorTransaction, event common.Event) error {
+func action_MarkChainedDependencyAssembled(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
 	e := event.(*DependencySelectedForAssemblyEvent)
+	log.L(ctx).Debugf("marking chained dependency %s as assembled for TX %s", e.SourceTransactionID, txn.pt.ID)
 	delete(txn.dependencies.Chained.Unassembled, e.SourceTransactionID)
 	return nil
 }
@@ -103,7 +104,7 @@ func validator_IsChainedDependency(_ context.Context, txn *coordinatorTransactio
 	return false, nil
 }
 
-func action_MarkChainedDependencyUnassembled(_ context.Context, txn *coordinatorTransaction, event common.Event) error {
+func action_MarkChainedDependencyUnassembled(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
 	var sourceID uuid.UUID
 	switch e := event.(type) {
 	case *DependencyResetEvent:
@@ -113,6 +114,7 @@ func action_MarkChainedDependencyUnassembled(_ context.Context, txn *coordinator
 	default:
 		return nil
 	}
+	log.L(ctx).Debugf("marking chained dependency %s as unassembled for TX %s", sourceID, txn.pt.ID)
 	txn.dependencies.Chained.Unassembled[sourceID] = struct{}{}
 	return nil
 }

@@ -739,16 +739,19 @@ func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t *testing.T) {
 	ctx := context.Background()
+	store := NewChainedChildStore()
 	grapher := NewGrapher(ctx)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		Build()
 	depChildID := uuid.New()
-	dep.chainedChildID = &depChildID
+	store.SetChainedChild(dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
@@ -776,21 +779,24 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t 
 	require.NoError(t, err)
 	require.Len(t, batch.PrivateDispatches, 1)
 	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
-	assert.Equal(t, &childTxID, txn.chainedChildID)
+	assert.Equal(t, &childTxID, store.GetChainedChild(txn.pt.ID))
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {
 	ctx := context.Background()
+	store := NewChainedChildStore()
 	grapher := NewGrapher(ctx)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		Build()
 	depChildID := uuid.New()
-	dep.chainedChildID = &depChildID
+	store.SetChainedChild(dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
@@ -822,16 +828,19 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *test
 
 func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testing.T) {
 	ctx := context.Background()
+	store := NewChainedChildStore()
 	grapher := NewGrapher(ctx)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		Build()
 	depChildID := uuid.New()
-	dep.chainedChildID = &depChildID
+	store.SetChainedChild(dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
@@ -867,15 +876,18 @@ func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testin
 
 func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
 	ctx := context.Background()
+	store := NewChainedChildStore()
 	grapher := NewGrapher(ctx)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		Build()
-	// dep.chainedChildID is nil — no chained child
+	// no chained child set in store for dep
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
 		Grapher(grapher).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{

@@ -242,6 +242,7 @@ type TransactionBuilderForTesting struct {
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            Grapher
+	chainedChildStore                  ChainedChildStore
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
@@ -341,6 +342,11 @@ func (b *TransactionBuilderForTesting) ChainedDependencies(transactionIDs ...uui
 
 func (b *TransactionBuilderForTesting) Reverts(revertReason string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.Reverts(revertReason)
+	return b
+}
+
+func (b *TransactionBuilderForTesting) ChainedChildStore(store ChainedChildStore) *TransactionBuilderForTesting {
+	b.chainedChildStore = store
 	return b
 }
 
@@ -604,6 +610,9 @@ type transactionDependencyMocks struct {
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
+	if b.chainedChildStore == nil {
+		b.chainedChildStore = NewChainedChildStore()
+	}
 	if b.grapher == nil {
 		b.grapher = NewGrapher(ctx)
 	}
@@ -684,6 +693,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
 		b.grapher,
+		b.chainedChildStore,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NoError(b.t, err)

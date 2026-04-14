@@ -130,7 +130,7 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 			validatedPrivateTx.NewTransaction.Transaction.ID != nil {
 
 			childID := *validatedPrivateTx.NewTransaction.Transaction.ID
-			t.chainedChildID = &childID
+			t.chainedChildStore.SetChainedChild(t.pt.ID, childID)
 
 			// Propagate ordering knowledge: for each dependency of this transaction,
 			// if that dependency also produced a chained child, the new child must depend on it.
@@ -144,12 +144,9 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 			seen := make(map[uuid.UUID]bool)
 			var chainedDeps []uuid.UUID
 			for _, depID := range append(t.dependencies.PostAssemble.DependsOn, t.dependencies.Chained.DependsOn...) {
-				dep := t.grapher.TransactionByID(ctx, depID)
-				if dep != nil {
-					if depChildID := dep.GetChainedChildID(); depChildID != nil && !seen[*depChildID] {
-						seen[*depChildID] = true
-						chainedDeps = append(chainedDeps, *depChildID)
-					}
+				if depChildID := t.chainedChildStore.GetChainedChild(depID); depChildID != nil && !seen[*depChildID] {
+					seen[*depChildID] = true
+					chainedDeps = append(chainedDeps, *depChildID)
 				}
 			}
 			if len(chainedDeps) > 0 {

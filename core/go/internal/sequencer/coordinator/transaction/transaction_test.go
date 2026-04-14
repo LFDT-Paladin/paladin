@@ -221,6 +221,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
+	store := NewChainedChildStore()
 	txn := newTransaction(
 		ctx,
 		"sender@node1",
@@ -244,6 +245,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		3,
 		3,
 		NewGrapher(ctx),
+		store,
 		nil,
 	)
 	require.NotNil(t, txn)
@@ -266,6 +268,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
+	store := NewChainedChildStore()
 	txn := NewTransaction(
 		ctx,
 		"sender@node1",
@@ -289,6 +292,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		3,
 		3,
 		NewGrapher(ctx),
+		store,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NotNil(t, txn)
@@ -379,16 +383,4 @@ func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
 
 	assert.Empty(t, txn.dependencies.Chained.DependsOn)
 	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
-}
-
-func TestDependsOn_GetChainedChildID_ReturnsNilWhenNotSet(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	assert.Nil(t, txn.GetChainedChildID())
-}
-
-func TestDependsOn_GetChainedChildID_ReturnsIDWhenSet(t *testing.T) {
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
-	childID := uuid.New()
-	txn.chainedChildID = &childID
-	assert.Equal(t, &childID, txn.GetChainedChildID())
 }
