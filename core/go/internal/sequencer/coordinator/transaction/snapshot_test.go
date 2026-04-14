@@ -24,65 +24,144 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetSnapshot_PooledStates(t *testing.T) {
+func TestGetSnapshot_PooledStates_StateBlocked(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@node1"
-	pooledStates := []State{
-		State_Blocked,
-		State_Confirming_Dispatchable,
-		State_Endorsement_Gathering,
-		State_PreAssembly_Blocked,
-		State_Assembling,
-		State_Pooled,
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Originator(originator).
+		Build()
 
-	for _, state := range pooledStates {
-		t.Run(state.String(), func(t *testing.T) {
-			txn, _ := NewTransactionBuilderForTesting(t, state).
-				Originator(originator).
-				Build()
-
-			pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
-			require.NotNil(t, pooledSnapshot)
-			assert.Nil(t, dispatchedSnapshot)
-			assert.Nil(t, confirmedSnapshot)
-			assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
-			assert.Equal(t, "", pooledSnapshot.Originator)
-		})
-	}
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
 }
 
-func TestGetSnapshot_DispatchedStates_WithSigner(t *testing.T) {
+func TestGetSnapshot_PooledStates_StateConfirmingDispatchable(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
+		Originator(originator).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
+}
+
+func TestGetSnapshot_PooledStates_StateEndorsementGathering(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Originator(originator).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
+}
+
+func TestGetSnapshot_PooledStates_StatePreAssemblyBlocked(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Originator(originator).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
+}
+
+func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Originator(originator).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
+}
+
+func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Originator(originator).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	require.NotNil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, pooledSnapshot.ID)
+	assert.Equal(t, "", pooledSnapshot.Originator)
+}
+
+func TestGetSnapshot_DispatchedStates_WithSigner_StateReadyForDispatch(t *testing.T) {
 	ctx := context.Background()
 	originator := "sender@node1"
 	nonce := uint64(42)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 	signer := pldtypes.RandAddress()
 
-	dispatchedStates := []State{
-		State_Ready_For_Dispatch,
-		State_Dispatched,
-	}
-	for _, state := range dispatchedStates {
-		t.Run(state.String(), func(t *testing.T) {
-			txn, _ := NewTransactionBuilderForTesting(t, state).
-				Originator(originator).
-				SignerAddress(signer).
-				Nonce(&nonce).
-				LatestSubmissionHash(&submissionHash).
-				Build()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Originator(originator).
+		SignerAddress(signer).
+		Nonce(&nonce).
+		LatestSubmissionHash(&submissionHash).
+		Build()
 
-			pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
-			assert.Nil(t, pooledSnapshot)
-			require.NotNil(t, dispatchedSnapshot)
-			assert.Nil(t, confirmedSnapshot)
-			assert.Equal(t, txn.pt.ID, dispatchedSnapshot.ID)
-			assert.Equal(t, originator, dispatchedSnapshot.Originator)
-			assert.Equal(t, *signer, dispatchedSnapshot.Signer)
-			assert.Equal(t, &nonce, dispatchedSnapshot.Nonce)
-			assert.Equal(t, &submissionHash, dispatchedSnapshot.LatestSubmissionHash)
-		})
-	}
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	assert.Nil(t, pooledSnapshot)
+	require.NotNil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, dispatchedSnapshot.ID)
+	assert.Equal(t, originator, dispatchedSnapshot.Originator)
+	assert.Equal(t, *signer, dispatchedSnapshot.Signer)
+	assert.Equal(t, &nonce, dispatchedSnapshot.Nonce)
+	assert.Equal(t, &submissionHash, dispatchedSnapshot.LatestSubmissionHash)
+}
+
+func TestGetSnapshot_DispatchedStates_WithSigner_StateDispatched(t *testing.T) {
+	ctx := context.Background()
+	originator := "sender@node1"
+	nonce := uint64(42)
+	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
+	signer := pldtypes.RandAddress()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Originator(originator).
+		SignerAddress(signer).
+		Nonce(&nonce).
+		LatestSubmissionHash(&submissionHash).
+		Build()
+
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	assert.Nil(t, pooledSnapshot)
+	require.NotNil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+	assert.Equal(t, txn.pt.ID, dispatchedSnapshot.ID)
+	assert.Equal(t, originator, dispatchedSnapshot.Originator)
+	assert.Equal(t, *signer, dispatchedSnapshot.Signer)
+	assert.Equal(t, &nonce, dispatchedSnapshot.Nonce)
+	assert.Equal(t, &submissionHash, dispatchedSnapshot.LatestSubmissionHash)
 }
 
 func TestGetSnapshot_DispatchedState_WithoutSigner(t *testing.T) {
@@ -144,21 +223,29 @@ func TestGetSnapshot_Confirmed_WithoutSigner(t *testing.T) {
 	assert.Equal(t, pldtypes.EthAddress{}, confirmedSnapshot.Signer)
 }
 
-func TestGetSnapshot_ExcludedStates(t *testing.T) {
+func TestGetSnapshot_ExcludedStates_StateInitial(t *testing.T) {
 	ctx := context.Background()
-	excludedStates := []State{
-		State_Initial,
-		State_Reverted,
-		State_Final,
-	}
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	assert.Nil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+}
 
-	for _, state := range excludedStates {
-		t.Run(state.String(), func(t *testing.T) {
-			txn, _ := NewTransactionBuilderForTesting(t, state).Build()
-			pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
-			assert.Nil(t, pooledSnapshot)
-			assert.Nil(t, dispatchedSnapshot)
-			assert.Nil(t, confirmedSnapshot)
-		})
-	}
+func TestGetSnapshot_ExcludedStates_StateReverted(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).Build()
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	assert.Nil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
+}
+
+func TestGetSnapshot_ExcludedStates_StateFinal(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Final).Build()
+	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
+	assert.Nil(t, pooledSnapshot)
+	assert.Nil(t, dispatchedSnapshot)
+	assert.Nil(t, confirmedSnapshot)
 }

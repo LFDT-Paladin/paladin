@@ -79,83 +79,82 @@ func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_guard_HasDependenciesNotReady(t *testing.T) {
+func Test_guard_HasDependenciesNotReady_NoDependencies(t *testing.T) {
 	ctx := context.Background()
+	mockG := grapher.NewMockGrapher(t)
+	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockG).Build()
+	mockG.EXPECT().GetDependencies(mock.Anything, txn1.pt.ID).Return(nil)
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
+}
 
-	t.Run("no dependencies", func(t *testing.T) {
-		mockG := grapher.NewMockGrapher(t)
-		txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockG).Build()
-		mockG.EXPECT().GetDependencies(mock.Anything, txn1.pt.ID).Return(nil)
-		assert.False(t, guard_HasDependenciesNotReady(ctx, txn1))
-	})
+func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
+	ctx := context.Background()
+	g := grapher.NewGrapher(ctx)
 
-	t.Run("has dependency not ready", func(t *testing.T) {
-		g := grapher.NewGrapher(ctx)
+	dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(g).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
+		Build()
 
-		dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-			Grapher(g).
-			NumberOfOutputStates(1).
-			NumberOfRequiredEndorsers(3).
-			NumberOfEndorsements(2).
-			Build()
+	txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(g).
+		AddPendingAssembleRequest().
+		InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
+	txn2, txn2Mocks := txn2Builder.Build()
 
-		txn2Builder := NewTransactionBuilderForTesting(t, State_Assembling).
-			Grapher(g).
-			AddPendingAssembleRequest().
-			InputStateIDs(dep2.pt.PostAssembly.OutputStates[0].ID)
-		txn2, txn2Mocks := txn2Builder.Build()
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		dep2.pt.ID: dep2,
+		txn2.pt.ID: txn2,
+	}
+	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	dep2.getCoordinatorTransaction = lookup
+	txn2.getCoordinatorTransaction = lookup
 
-		txByID := map[uuid.UUID]CoordinatorTransaction{
-			dep2.pt.ID: dep2,
-			txn2.pt.ID: txn2,
-		}
-		lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-			return txByID[id]
-		}
-		dep2.getCoordinatorTransaction = lookup
-		txn2.getCoordinatorTransaction = lookup
+	txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-		txn2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-		txn2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
+}
 
-		err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
-		require.NoError(t, err)
-		assert.True(t, guard_HasDependenciesNotReady(ctx, txn2))
-	})
+func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T) {
+	ctx := context.Background()
+	g := grapher.NewGrapher(ctx)
 
-	t.Run("has dependency ready for dispatch", func(t *testing.T) {
-		g := grapher.NewGrapher(ctx)
+	dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(g).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(3).
+		Build()
 
-		dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-			Grapher(g).
-			NumberOfOutputStates(1).
-			NumberOfRequiredEndorsers(3).
-			NumberOfEndorsements(3).
-			Build()
+	txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(g).
+		AddPendingAssembleRequest().
+		InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
+	txn3, txn3Mocks := txn3Builder.Build()
 
-		txn3Builder := NewTransactionBuilderForTesting(t, State_Assembling).
-			Grapher(g).
-			AddPendingAssembleRequest().
-			InputStateIDs(dep3.pt.PostAssembly.OutputStates[0].ID)
-		txn3, txn3Mocks := txn3Builder.Build()
+	txByID := map[uuid.UUID]CoordinatorTransaction{
+		dep3.pt.ID: dep3,
+		txn3.pt.ID: txn3,
+	}
+	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+		return txByID[id]
+	}
+	dep3.getCoordinatorTransaction = lookup
+	txn3.getCoordinatorTransaction = lookup
 
-		txByID := map[uuid.UUID]CoordinatorTransaction{
-			dep3.pt.ID: dep3,
-			txn3.pt.ID: txn3,
-		}
-		lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-			return txByID[id]
-		}
-		dep3.getCoordinatorTransaction = lookup
-		txn3.getCoordinatorTransaction = lookup
+	txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-		txn3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
-		txn3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-
-		err := txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
-		require.NoError(t, err)
-		assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
-	})
+	err := txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.False(t, guard_HasDependenciesNotReady(ctx, txn3))
 }
 
 func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
