@@ -181,16 +181,16 @@ func (g *grapher) removeAllDependencyLinks(transactionID uuid.UUID) {
 
 	// Find all transactions that this TX depends on
 	prereqIDs := make(map[uuid.UUID]struct{})
-	for _, prereqID := range tx.dependencies.PrereqOf {
+	for _, prereqID := range tx.dependencies.DependsOn {
 		prereqIDs[prereqID] = struct{}{}
 	}
-	// Then remove the pre-req chain from those transactions to this one
+	// Then remove this TX from each prerequisite's pre-req list
 	for prereqID := range prereqIDs {
-		tx := g.transactionByID[prereqID]
-		if tx == nil {
+		prereqTX := g.transactionByID[prereqID]
+		if prereqTX == nil {
 			continue
 		}
-		tx.dependencies.DependsOn = removeUUID(tx.dependencies.DependsOn, transactionID)
+		prereqTX.dependencies.PrereqOf = removeUUID(prereqTX.dependencies.PrereqOf, transactionID)
 	}
 }
 

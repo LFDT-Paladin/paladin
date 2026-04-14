@@ -120,19 +120,12 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		stateLocks, err := t.engineIntegration.GetStateLocks(ctx)
-		if err != nil {
-			log.L(ctx).Errorf("failed to get engine state locks: %s", err)
-			return err
-		}
-		log.L(ctx).Debugf("engine state locks: %s", string(stateLocks))
-
-		grapherStateLocks, err := t.grapher.ExportMints(ctx)
+		grapherStatesAndLocks, err := t.grapher.ExportMints(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err
 		}
-		log.L(ctx).Debugf("grapher state locks: %s", string(grapherStateLocks))
+		log.L(ctx).Debugf("grapher state locks: %s", string(grapherStatesAndLocks))
 
 		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
 		if err != nil {
@@ -140,7 +133,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStateLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, blockHeight)
 	})
 
 	t.scheduleRequestTimeout(ctx)

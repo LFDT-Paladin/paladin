@@ -216,7 +216,6 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	// Mock transport writer - use mock.Anything for idempotency key since it's generated dynamically
@@ -230,23 +229,11 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 	assert.NotNil(t, txn.cancelRequestTimeoutSchedule)
 }
 
-func Test_sendAssembleRequest_GetStateLocksError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-
-	// Mock engine integration to return error
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return(nil, errors.New("state locks error"))
-
-	err := txn.sendAssembleRequest(ctx)
-	require.Error(t, err)
-}
-
 func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(0), errors.New("block height error"))
 
 	err := txn.sendAssembleRequest(ctx)
@@ -258,7 +245,6 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).UseMockTransportWriter().Build()
 
 	// Mock engine integration
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	// Mock transport writer to return error - use mock.Anything for idempotency key
@@ -286,7 +272,6 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 		Build()
 
 	// Create a pending request first
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -296,7 +281,6 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now nudge it - should succeed since request exists
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -333,7 +317,6 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -359,7 +342,6 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -397,7 +379,6 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Ma
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -423,7 +404,6 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_Mat
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -450,7 +430,6 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NoM
 		Build()
 
 	// Create a pending request
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{\"states\":[],\"locks\":[]}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -500,7 +479,6 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 		UseMockTransportWriter().
 		Build()
 
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -520,7 +498,6 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 		Build()
 
 	// Create a pending request first
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -530,7 +507,6 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now nudge it
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, txn.pendingAssembleRequest.IdempotencyKey(), txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),
@@ -608,7 +584,6 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 		callback()
 	})
 
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 	mocks.TransportWriter.EXPECT().SendAssembleRequest(
 		ctx, txn.originatorNode, txn.pt.ID, mock.Anything, txn.pt.PreAssembly, []byte("{\"states\":[],\"locks\":[]}"), int64(100),

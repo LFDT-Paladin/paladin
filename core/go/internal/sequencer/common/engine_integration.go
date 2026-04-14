@@ -40,7 +40,7 @@ type Hooks interface {
 type EngineIntegration interface {
 	WriteStatesForTransaction(ctx context.Context, txn *components.PrivateTransaction) error
 	MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error)
-	GetStateLocks(ctx context.Context) ([]byte, error)
+	// GetStateLocks(ctx context.Context) ([]byte, error)
 	GetBlockHeight(ctx context.Context) (int64, error)
 	//Assemble and sign is a single, synchronous operation that assembles a transaction using the domain smart contract
 	// and then fulfills any signature requests in the attestation plan
@@ -54,14 +54,13 @@ type EngineIntegration interface {
 	AssembleAndSign(ctx context.Context, transactionID uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocksJSON []byte, blockHeight int64) (*components.TransactionPostAssembly, error)
 }
 
-func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainContext components.DomainContext, delegateDomainContext components.DomainContext, hooks Hooks) EngineIntegration {
+func NewEngineIntegration(ctx context.Context, allComponents components.AllComponents, nodeName string, domainSmartContract components.DomainSmartContract, domainContext components.DomainContext, hooks Hooks) EngineIntegration {
 	return &engineIntegration{
-		environment:           hooks,
-		components:            allComponents,
-		domainSmartContract:   domainSmartContract,
-		domainContext:         domainContext,
-		delegateDomainContext: delegateDomainContext,
-		nodeName:              nodeName,
+		environment:         hooks,
+		components:          allComponents,
+		domainSmartContract: domainSmartContract,
+		domainContext:       domainContext,
+		nodeName:            nodeName,
 	}
 
 }
@@ -98,12 +97,11 @@ func (f *FakeEngineIntegrationForTesting) AssembleAndSign(ctx context.Context, t
 }
 
 type engineIntegration struct {
-	components            components.AllComponents
-	domainSmartContract   components.DomainSmartContract
-	domainContext         components.DomainContext
-	delegateDomainContext components.DomainContext
-	nodeName              string
-	environment           Hooks
+	components          components.AllComponents
+	domainSmartContract components.DomainSmartContract
+	domainContext       components.DomainContext
+	nodeName            string
+	environment         Hooks
 }
 
 func (e *engineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
@@ -128,10 +126,10 @@ func (e *engineIntegration) WriteStatesForTransaction(ctx context.Context, txn *
 
 }
 
-func (e *engineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
-	log.L(ctx).Debugf("GetStateLocks: Exporting snapshot for domain context %s", e.domainContext.Info().ID)
-	return e.domainContext.ExportSnapshot(ctx)
-}
+// func (e *engineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
+// 	log.L(ctx).Debugf("GetStateLocks: Exporting snapshot for domain context %s", e.domainContext.Info().ID)
+// 	return e.domainContext.ExportSnapshot(ctx)
+// }
 
 func (e *engineIntegration) GetBlockHeight(ctx context.Context) (int64, error) {
 	return e.environment.GetBlockHeight(), nil
@@ -147,9 +145,8 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	// if our block height is ahead of the coordinator, there is a small chance that we we assemble a transaction that the coordinator will not be able to
 	// endorse yet but it is better to wait around on the endorsement flow than to wait around on the assemble flow which is single threaded per domain
 
-	// TODO - we're not actually policing anything based on block height differences?
-
-	err := e.delegateDomainContext.ImportSnapshot(ctx, stateLocksJSON)
+	delegateDomainContext := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
+	err := delegateDomainContext.ImportSnapshot(ctx, stateLocksJSON)
 	if err != nil {
 		log.L(ctx).Errorf("error importing state locks: %s", err)
 		return nil, err
@@ -178,7 +175,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		})
 	}
 
-	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, e.delegateDomainContext)
+	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, delegateDomainContext)
 
 	if err != nil {
 		return nil, err

@@ -546,68 +546,6 @@ func (_c *MockEngineIntegration_GetBlockHeight_Call) RunAndReturn(run func(ctx c
 	return _c
 }
 
-// GetStateLocks provides a mock function for the type MockEngineIntegration
-func (_mock *MockEngineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
-	ret := _mock.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStateLocks")
-	}
-
-	var r0 []byte
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]byte, error)); ok {
-		return returnFunc(ctx)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context) []byte); ok {
-		r0 = returnFunc(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = returnFunc(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockEngineIntegration_GetStateLocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStateLocks'
-type MockEngineIntegration_GetStateLocks_Call struct {
-	*mock.Call
-}
-
-// GetStateLocks is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockEngineIntegration_Expecter) GetStateLocks(ctx interface{}) *MockEngineIntegration_GetStateLocks_Call {
-	return &MockEngineIntegration_GetStateLocks_Call{Call: _e.mock.On("GetStateLocks", ctx)}
-}
-
-func (_c *MockEngineIntegration_GetStateLocks_Call) Run(run func(ctx context.Context)) *MockEngineIntegration_GetStateLocks_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		run(
-			arg0,
-		)
-	})
-	return _c
-}
-
-func (_c *MockEngineIntegration_GetStateLocks_Call) Return(bytes []byte, err error) *MockEngineIntegration_GetStateLocks_Call {
-	_c.Call.Return(bytes, err)
-	return _c
-}
-
-func (_c *MockEngineIntegration_GetStateLocks_Call) RunAndReturn(run func(ctx context.Context) ([]byte, error)) *MockEngineIntegration_GetStateLocks_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // MapPotentialStates provides a mock function for the type MockEngineIntegration
 func (_mock *MockEngineIntegration) MapPotentialStates(ctx context.Context, potentialStates []*prototk.NewState, createdByTX *components.PrivateTransaction) ([]*components.StateUpsert, error) {
 	ret := _mock.Called(ctx, potentialStates, createdByTX)

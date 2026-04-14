@@ -49,7 +49,6 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 	ctx := context.Background()
 
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	err := txn.HandleEvent(ctx, &transaction.SelectedEvent{

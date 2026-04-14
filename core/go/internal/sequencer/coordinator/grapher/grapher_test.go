@@ -228,6 +228,26 @@ func TestExportMints_OutputAndLocks(t *testing.T) {
 	assert.True(t, exp.LockedState[0].State.Equals(stateID))
 }
 
+func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx).(*grapher)
+	minterID := uuid.New()
+	consumerID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("f0", 32))
+	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("f1", 32)), Data: pldtypes.RawJSON(`{}`)}
+
+	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
+	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
+
+	minterTX := g.transactionByID[minterID]
+	require.Contains(t, minterTX.dependencies.PrereqOf, consumerID)
+
+	require.NoError(t, g.Forget(consumerID))
+
+	minterTX = g.transactionByID[minterID]
+	require.NotContains(t, minterTX.dependencies.PrereqOf, consumerID)
+}
+
 func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx).(*grapher)
