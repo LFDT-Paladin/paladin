@@ -300,7 +300,7 @@ func Test_action_NotifyDependentsOfSuccessfulConfirmation_GrapherForgetsLocksWhe
 		Grapher(grapher).
 		Build()
 
-	grapher.EXPECT().ForgetLocks(txn.pt.ID).Return()
+	grapher.EXPECT().Forget(txn.pt.ID).Return()
 	grapher.EXPECT().GetDependents(ctx, txn.pt.ID).Return([]uuid.UUID{})
 
 	err := action_NotifyDependentsOfSuccessfulConfirmation(ctx, txn, nil)
@@ -332,7 +332,7 @@ func Test_action_NotifyDependentsOfRevertedConfirmation_AlwaysResetsLocks(t *tes
 		ConfirmedLockRetentionGracePeriod(2).
 		Grapher(grapher).
 		Build()
-	grapher.EXPECT().ForgetLocks(txn.pt.ID).Return().Once()
+	grapher.EXPECT().Forget(txn.pt.ID).Return().Once()
 	grapher.EXPECT().GetDependents(ctx, txn.pt.ID).Return([]uuid.UUID{})
 
 	err := action_NotifyDependentsOfRevertedConfirmation(ctx, txn, nil)
@@ -365,10 +365,8 @@ func Test_ConfirmedRevert_StateDispatched_RetryableRevert_TransitionsToPooled(t 
 		Grapher(mockGrapher).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	nonce := pldtypes.HexUint64(88)
 	event := &ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -408,8 +406,7 @@ func Test_ConfirmedRevert_StateDispatched_NonRetryable_TransitionsToReverted(t *
 		RevertReason: revertReason,
 	}
 
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID).Twice()
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID).Once()
+	mockGrapher.EXPECT().Forget(txn.pt.ID).Twice()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
 
 	mocks.TransportWriter.EXPECT().
@@ -448,8 +445,7 @@ func Test_ConfirmedRevert_StateDispatched_RetryableRevert_ExceedsThreshold_Trans
 		RevertReason: revertReason,
 	}
 
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID).Twice()
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID).Once()
+	mockGrapher.EXPECT().Forget(txn.pt.ID).Twice()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
 
 	mocks.TransportWriter.EXPECT().
@@ -739,7 +735,7 @@ func Test_action_NotifyDependentsOfRevertedConfirmation_SendsRevertedEvent(t *te
 		CoordinatorTransactions(mockDependentTxn).
 		Build()
 
-	mockG.EXPECT().ForgetLocks(mainID)
+	mockG.EXPECT().Forget(mainID)
 	mockG.EXPECT().GetDependents(mock.Anything, mainID).Return([]uuid.UUID{dependentID})
 
 	err := action_NotifyDependentsOfRevertedConfirmation(ctx, txn, nil)
@@ -823,9 +819,7 @@ func Test_DependencyReset_Dispatched_StaysDispatched(t *testing.T) {
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -838,10 +832,8 @@ func Test_DependencyConfirmedReverted_Dispatched_StaysDispatched(t *testing.T) {
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -854,10 +846,8 @@ func Test_DependencyReset_PreDispatch_EndorsementGathering_TransitionsToPooled(t
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -870,10 +860,8 @@ func Test_DependencyReset_PreDispatch_Blocked_TransitionsToPooled(t *testing.T) 
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -886,10 +874,8 @@ func Test_DependencyReset_PreDispatch_ConfirmingDispatchable_TransitionsToPooled
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -902,10 +888,8 @@ func Test_DependencyReset_PreDispatch_ReadyForDispatch_TransitionsToPooled(t *te
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -918,10 +902,8 @@ func Test_DependencyConfirmedReverted_PreDispatch_EndorsementGathering_Transitio
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -934,10 +916,8 @@ func Test_DependencyConfirmedReverted_PreDispatch_Blocked_TransitionsToPooled(t 
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -950,10 +930,8 @@ func Test_DependencyConfirmedReverted_PreDispatch_ConfirmingDispatchable_Transit
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -966,10 +944,8 @@ func Test_DependencyConfirmedReverted_PreDispatch_ReadyForDispatch_TransitionsTo
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},

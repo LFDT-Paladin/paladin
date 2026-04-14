@@ -1105,7 +1105,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
 		HeartbeatIntervalsSinceStateChange(4).Grapher(mockGrapher)
 	txn, _ := txBuilder.Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn

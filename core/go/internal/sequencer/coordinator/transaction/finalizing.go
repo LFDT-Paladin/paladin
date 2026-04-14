@@ -36,7 +36,7 @@ func action_ResetConfirmedTransactionLocksOnce(ctx context.Context, txn *coordin
 		return nil
 	}
 	log.L(ctx).Debugf("releasing confirmed transaction locks for %s", txn.pt.ID.String())
-	txn.grapher.ForgetLocks(txn.pt.ID)
+	txn.grapher.Forget(txn.pt.ID)
 	txn.confirmedLocksReleased = true
 	return nil
 }

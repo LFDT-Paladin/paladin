@@ -46,15 +46,12 @@ import (
 type Grapher interface {
 	AddMinter(ctx context.Context, state []*components.FullState, txID uuid.UUID) error
 	ExportMints(ctx context.Context) ([]byte, error)
-	Forget(transactionID uuid.UUID) error
-	ForgetMints(transactionID uuid.UUID)
-	ForgetLocks(transactionID uuid.UUID)
+	Forget(transactionID uuid.UUID)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
 	LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
-	RemoveAllDependencyLinks(transactionID uuid.UUID)
 }
 
 type grapher struct {
@@ -138,7 +135,7 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 }
 
 // Forget about a transaction from the grapher, including any states it produced, any locks it held, and any dependency chain it is part of
-func (g *grapher) Forget(transactionID uuid.UUID) error {
+func (g *grapher) Forget(transactionID uuid.UUID) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -148,15 +145,6 @@ func (g *grapher) Forget(transactionID uuid.UUID) error {
 	g.forgetMints(transactionID)
 	g.forgetLocks(transactionID)
 	delete(g.transactionByID, transactionID)
-	return nil
-}
-
-// Temporary approach that removes updates depends-on list for any transactions this is a pre-req of
-// Note - this doesn't update the grapher itself
-func (g *grapher) RemoveAllDependencyLinks(transactionID uuid.UUID) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.removeAllDependencyLinks(transactionID)
 }
 
 func (g *grapher) removeAllDependencyLinks(transactionID uuid.UUID) {
@@ -204,12 +192,6 @@ func removeUUID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
 	return filtered
 }
 
-func (g *grapher) ForgetMints(transactionID uuid.UUID) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.forgetMints(transactionID)
-}
-
 // Caller must hold g.mu write lock
 func (g *grapher) forgetMints(transactionID uuid.UUID) {
 	if outputStates, ok := g.outputStatesByMinter[transactionID]; ok {
@@ -218,12 +200,6 @@ func (g *grapher) forgetMints(transactionID uuid.UUID) {
 		}
 		delete(g.outputStatesByMinter, transactionID)
 	}
-}
-
-func (g *grapher) ForgetLocks(transactionID uuid.UUID) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.forgetLocks(transactionID)
 }
 
 // Caller must hold g.mu write lock

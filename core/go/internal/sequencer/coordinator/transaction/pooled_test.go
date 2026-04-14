@@ -34,8 +34,7 @@ func Test_action_ResetTransactionLocks(t *testing.T) {
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
 
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 
 	err := action_ResetTransactionLocks(ctx, txn, nil)
 	require.NoError(t, err)
@@ -52,8 +51,7 @@ func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
 		PreparedPublicTransaction(&pldapi.TransactionInput{}).
 		Build()
 
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
@@ -72,8 +70,7 @@ func Test_action_InitializeForNewAssembly_MissingDependency(t *testing.T) {
 		PredefinedDependencies(unknownDependencyID).
 		Build()
 
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	// Call action_InitializeForNewAssembly - should not error, just log
 	err := action_InitializeForNewAssembly(ctx, txn, nil)
 	require.NoError(t, err)
@@ -186,10 +183,8 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 
 	mockG.EXPECT().GetDependents(mock.Anything, mainTxnID).Return([]uuid.UUID{dependentID})
 	mockG.EXPECT().GetDependents(mock.Anything, dependentID).Return(nil)
-	mockG.EXPECT().RemoveAllDependencyLinks(dependentID)
-	mockG.EXPECT().ForgetMints(dependentID)
-	mockG.EXPECT().ForgetLocks(dependentID)
-	mockG.EXPECT().RemoveAllDependencyLinks(mainTxnID)
+	mockG.EXPECT().Forget(dependentID)
+	mockG.EXPECT().Forget(mainTxnID)
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.NoError(t, err)

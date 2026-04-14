@@ -222,27 +222,6 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	assert.False(t, ok, "transaction should be removed from map")
 }
 
-func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
-	c.transactionsByID[txn.GetID()] = txn
-
-	mockGrapher := grapher.NewMockGrapher(t)
-	mockGrapher.EXPECT().Forget(txn.GetID()).Return(fmt.Errorf("forget failed"))
-	c.grapher = mockGrapher
-
-	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
-		TransactionID: txn.GetID(),
-		To:            transaction.State_Final,
-	})
-	require.NoError(t, err)
-	_, ok := c.transactionsByID[txn.GetID()]
-	assert.False(t, ok, "transaction should still be removed from map despite grapher error")
-}
-
 func Test_validator_TransactionStateTransitionToPooled(t *testing.T) {
 	ctx := context.Background()
 	valid, err := validator_TransactionStateTransitionToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
@@ -474,10 +453,8 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 	defer done()
 
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID()) // Moving the TX back to pooled should remove all depends-on and prereq-of links
-	mockGrapher.EXPECT().ForgetMints(txn.GetID())              // Moving to pooled should also reset its mints in the grapher
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_cancelCurrentlyAssemblingTransaction(ctx, c, nil)

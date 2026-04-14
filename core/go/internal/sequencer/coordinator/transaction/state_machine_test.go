@@ -76,14 +76,14 @@ func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing
 		ConfirmedLockRetentionGracePeriod(2).
 		FinalizingGracePeriod(10).
 		Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
 	assert.False(t, txn.confirmedLocksReleased)
-	mockGrapher.AssertNotCalled(t, "ForgetLocks", ctx, txn.pt.ID)
+	mockGrapher.AssertNotCalled(t, "Forget", ctx, txn.pt.ID)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)

@@ -695,10 +695,8 @@ func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(mockGrapher).
 		Build()
-	mockGrapher.EXPECT().ForgetLocks(dependentTxn.pt.ID)
+	mockGrapher.EXPECT().Forget(dependentTxn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(dependentTxn.pt.ID)
 
 	mockGrapher2 := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -745,10 +743,8 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(mockGrapher).
 		Build()
-	mockGrapher.EXPECT().ForgetLocks(dependentTxn.pt.ID)
+	mockGrapher.EXPECT().Forget(dependentTxn.pt.ID)
 	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().ForgetMints(dependentTxn.pt.ID)
 
 	mockGrapher2 := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).

@@ -119,7 +119,7 @@ func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *test
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.pt.ID).Once()
+	mockGrapher.EXPECT().Forget(txn.pt.ID).Once()
 
 	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 	require.NoError(t, err)

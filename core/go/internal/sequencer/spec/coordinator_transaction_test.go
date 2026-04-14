@@ -125,10 +125,8 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 		Grapher(mockGrapher).
 		StateTimeout(1).
 		Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
-	mockGrapher.EXPECT().ForgetMints(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -151,8 +149,7 @@ func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t
 	txn, mocks := txnBuilder.Build()
 
 	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockGrapher.EXPECT().ForgetMints(txn.GetID())
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleRevertEvent())
 	require.NoError(t, err)
@@ -309,10 +306,8 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 		AddPendingEndorsementRequest(2)
 
 	txn, _ := builder.Build()
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
-	mockGrapher.EXPECT().ForgetMints(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	require.NoError(t, err)
@@ -519,10 +514,8 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 		Grapher(mockGrapher).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mockGrapher.EXPECT().ForgetLocks(txn.GetID())
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
-	mockGrapher.EXPECT().RemoveAllDependencyLinks(txn.GetID())
-	mockGrapher.EXPECT().ForgetMints(txn.GetID())
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{

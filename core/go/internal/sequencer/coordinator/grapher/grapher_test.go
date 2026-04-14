@@ -228,6 +228,61 @@ func TestExportMints_OutputAndLocks(t *testing.T) {
 	assert.True(t, exp.LockedState[0].State.Equals(stateID))
 }
 
+func TestForget_UnknownTransaction_RemoveAllDependencyLinksEarlyReturn(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx)
+	unknown := uuid.New()
+	g.Forget(unknown)
+	assert.Nil(t, g.GetDependencies(ctx, unknown))
+}
+
+func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx).(*grapher)
+	ghostDependent := uuid.New()
+	realDependent := uuid.New()
+	minterID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("a0", 32))
+	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("a1", 32)), Data: pldtypes.RawJSON(`{}`)}
+
+	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
+	g.LockMintsOnSpend(ctx, []*components.FullState{state}, realDependent)
+
+	g.mu.Lock()
+	minterTX := g.transactionByID[minterID]
+	minterTX.dependencies.PrereqOf = append(minterTX.dependencies.PrereqOf, ghostDependent)
+	g.mu.Unlock()
+
+	g.Forget(minterID)
+
+	assert.Empty(t, g.GetDependencies(ctx, realDependent))
+}
+
+func TestForget_RemoveAllDependencyLinks_SkipsMissingPrerequisite(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx).(*grapher)
+	txID := uuid.New()
+	ghostPrereq := uuid.New()
+	minterID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b0", 32))
+	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("b1", 32)), Data: pldtypes.RawJSON(`{}`)}
+
+	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
+
+	g.mu.Lock()
+	g.addConsumer(txID)
+	tx := g.transactionByID[txID]
+	tx.dependencies.DependsOn = append(tx.dependencies.DependsOn, minterID, ghostPrereq)
+	minterTX := g.transactionByID[minterID]
+	minterTX.dependencies.PrereqOf = append(minterTX.dependencies.PrereqOf, txID)
+	g.mu.Unlock()
+
+	g.Forget(txID)
+
+	minterTX = g.transactionByID[minterID]
+	require.NotContains(t, minterTX.dependencies.PrereqOf, txID)
+}
+
 func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx).(*grapher)
@@ -242,7 +297,7 @@ func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
 	minterTX := g.transactionByID[minterID]
 	require.Contains(t, minterTX.dependencies.PrereqOf, consumerID)
 
-	require.NoError(t, g.Forget(consumerID))
+	g.Forget(consumerID)
 
 	minterTX = g.transactionByID[minterID]
 	require.NotContains(t, minterTX.dependencies.PrereqOf, consumerID)
@@ -258,93 +313,31 @@ func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
 	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
-
-	require.NoError(t, g.Forget(minterID))
+	g.Forget(minterID)
 	_, ok := g.transactionByOutputState[stateID.String()]
 	assert.False(t, ok)
 	_, ok = g.outputStatesByMinter[minterID]
 	assert.False(t, ok)
 }
 
-func TestForget_UnknownTransaction_NoError(t *testing.T) {
+func TestLockMints_InitializesNilLockedStatesMap(t *testing.T) {
 	ctx := context.Background()
-	g := NewGrapher(ctx)
-	require.NoError(t, g.Forget(uuid.New()))
-}
-
-func TestForgetMints_RemovesOutputStatesOnly(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
-	minterID := uuid.New()
-	consumerID := uuid.New()
-	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("99", 32))
-	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("ab", 32)), Data: pldtypes.RawJSON(`{}`)}
-
-	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
-
-	g.ForgetMints(minterID)
-	_, ok := g.transactionByOutputState[stateID.String()]
-	assert.False(t, ok)
-	// Consumer entry remains until Forget
-	_, ok = g.transactionByID[consumerID]
-	assert.True(t, ok)
-}
-
-func TestForgetLocks(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	g := &grapher{
+		transactionByOutputState:  make(map[string]*grapherTX),
+		transactionByID:           make(map[uuid.UUID]*grapherTX),
+		outputStatesByMinter:      make(map[uuid.UUID][]*components.StateUpsert),
+		lockedStatesByTransaction: nil,
+	}
 	txID := uuid.New()
-	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cd", 32))
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("e1", 32))
+
 	g.LockMintsOnRead(ctx, []*components.FullState{{ID: stateID}}, txID)
 
-	g.ForgetLocks(txID)
-	_, ok := g.lockedStatesByTransaction[txID]
-	assert.False(t, ok)
-}
-
-func TestRemoveAllDependencyLinks_ClearsDependsOnForPrereqOfEntries(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
-	prereqID := uuid.New()
-	dependentID := uuid.New()
-
-	g.mu.Lock()
-	g.addConsumer(prereqID)
-	g.addConsumer(dependentID)
-	prereqTX := g.transactionByID[prereqID]
-	dependentTX := g.transactionByID[dependentID]
-	prereqTX.dependencies.PrereqOf = []uuid.UUID{dependentID}
-	dependentTX.dependencies.DependsOn = []uuid.UUID{prereqID}
-	g.mu.Unlock()
-
-	g.RemoveAllDependencyLinks(prereqID)
-	assert.Empty(t, dependentTX.dependencies.DependsOn)
-}
-
-func TestRemoveAllDependencyLinks_SkipsMissingLinkedTransactions(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
-	prereqID := uuid.New()
-	missingDependent := uuid.New()
-
-	g.mu.Lock()
-	g.addConsumer(prereqID)
-	prereqTX := g.transactionByID[prereqID]
-	prereqTX.dependencies.PrereqOf = []uuid.UUID{missingDependent}
-	g.mu.Unlock()
-
-	assert.NotPanics(t, func() {
-		g.RemoveAllDependencyLinks(prereqID)
-	})
-}
-
-func TestRemoveAllDependencyLinks_UnknownTransaction_NoOp(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
-	assert.NotPanics(t, func() {
-		g.RemoveAllDependencyLinks(uuid.New())
-	})
+	require.NotNil(t, g.lockedStatesByTransaction)
+	locks := g.lockedStatesByTransaction[txID]
+	require.Len(t, locks, 1)
+	assert.True(t, locks[0].State.Equals(stateID))
+	assert.Equal(t, pldapi.StateLockTypeRead.Enum(), locks[0].Type)
 }
 
 func Test_removeUUID(t *testing.T) {
