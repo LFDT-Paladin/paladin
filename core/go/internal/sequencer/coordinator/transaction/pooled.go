@@ -125,8 +125,9 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	if err := txn.notifyDependentsOfReset(ctx); err != nil {
 		return err
 	}
-	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
-	// events while dispatched are no-ops and stale dependency links are dropped.
+	// Remove ourselves from each dependency's PrereqOf before clearing our DependsOn,
+	// so stale reverse links don't accumulate across repool cycles.
+	txn.removeFromDependencyPrereqOf(ctx)
 	// Clear post-assembly dependency links while preserving chained links across repool.
 	txn.dependencies.PostAssemble.DependsOn = nil
 	txn.dependencies.PostAssemble.PrereqOf = nil
@@ -155,6 +156,22 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 	}
 
 	return nil
+}
+
+func (t *coordinatorTransaction) removeFromDependencyPrereqOf(ctx context.Context) {
+	for _, depID := range t.dependencies.PostAssemble.DependsOn {
+		dep, ok := t.grapher.TransactionByID(ctx, depID).(*coordinatorTransaction)
+		if !ok || dep == nil {
+			continue
+		}
+		prereqOf := dep.dependencies.PostAssemble.PrereqOf
+		for i, id := range prereqOf {
+			if id == t.pt.ID {
+				dep.dependencies.PostAssemble.PrereqOf = append(prereqOf[:i], prereqOf[i+1:]...)
+				break
+			}
+		}
+	}
 }
 
 // guard_HasRevertedChainedDependency returns true if any chained dependency is in State_Reverted.

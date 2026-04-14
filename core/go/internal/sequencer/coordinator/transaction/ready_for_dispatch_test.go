@@ -445,6 +445,48 @@ func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T
 	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
 
+func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+
+	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirming_Dispatchable, txn.GetCurrentState())
+}
+
+func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+
+	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+}
+
 func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)

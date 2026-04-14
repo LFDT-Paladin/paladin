@@ -921,6 +921,64 @@ func Test_ChainedDep_DelegatedGoesToEvictedIfDepEvicted(t *testing.T) {
 	assert.Equal(t, State_Evicted, txn.GetCurrentState())
 }
 
+func Test_RemoveFromDependencyPrereqOf_CleansReverseLinks(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.PostAssemble.PrereqOf = []uuid.UUID{txn.pt.ID}
+
+	txn.removeFromDependencyPrereqOf(ctx)
+
+	assert.Empty(t, depTx.dependencies.PostAssemble.PrereqOf)
+}
+
+func Test_RemoveFromDependencyPrereqOf_PreservesOtherPrereqs(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+
+	otherID := uuid.New()
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.PostAssemble.PrereqOf = []uuid.UUID{otherID, txn.pt.ID}
+
+	txn.removeFromDependencyPrereqOf(ctx)
+
+	require.Len(t, depTx.dependencies.PostAssemble.PrereqOf, 1)
+	assert.Equal(t, otherID, depTx.dependencies.PostAssemble.PrereqOf[0])
+}
+
+func Test_RemoveFromDependencyPrereqOf_DependencyNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{uuid.New()}
+
+	// Should not panic when dependency is not found in grapher
+	txn.removeFromDependencyPrereqOf(ctx)
+}
+
 func Test_PreAssembleDependencyFinalized_UnblocksPreAssemblyBlocked(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
