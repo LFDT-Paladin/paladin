@@ -637,6 +637,7 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Dispatched: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_NotifyDispatched},
+			{Action: action_CleanUpAssemblyPayload},
 		},
 		Events: map[EventType]EventHandler{
 			Event_Collected: {
