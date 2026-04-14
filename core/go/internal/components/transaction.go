@@ -103,6 +103,16 @@ type PrivateTransaction struct {
 	PreparedMetadata           pldtypes.RawJSON         `json:"-"`
 }
 
+// CleanUpPostAssemblyData releases the heavy post-assembly and prepared-dispatch
+// payload data. Shared by re-assembly cleanup (which retains PreAssembly for reuse)
+// and post-dispatch cleanup (which additionally releases PreAssembly).
+func (pt *PrivateTransaction) CleanUpPostAssemblyData() {
+	pt.PostAssembly = nil
+	pt.PreparedPublicTransaction = nil
+	pt.PreparedPrivateTransaction = nil
+	pt.PreparedMetadata = nil
+}
+
 // PrivateContractDeploy is a simpler transaction type that constructs new private smart contract instances
 // within a domain, according to the constructor specification of that domain.
 type PrivateContractDeploy struct {
