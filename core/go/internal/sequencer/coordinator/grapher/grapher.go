@@ -125,14 +125,13 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 		g.transactionByOutputState[state.ID.String()] = g.transactionByID[transactionID]
 
 		if g.outputStatesByMinter[transactionID] == nil {
-			g.outputStatesByMinter[transactionID] = []*components.StateUpsert{
-				{
-					ID:     state.ID,
-					Schema: state.Schema,
-					Data:   state.Data,
-				},
-			}
+			g.outputStatesByMinter[transactionID] = make([]*components.StateUpsert, 0)
 		}
+		g.outputStatesByMinter[transactionID] = append(g.outputStatesByMinter[transactionID], &components.StateUpsert{
+			ID:     state.ID,
+			Schema: state.Schema,
+			Data:   state.Data,
+		})
 	}
 
 	return nil
@@ -219,7 +218,6 @@ func (g *grapher) forgetMints(transactionID uuid.UUID) {
 		}
 		delete(g.outputStatesByMinter, transactionID)
 	}
-	// Note we specifically don't delete the transaction (i.e. the minter) here. Use Forget() to do both.
 }
 
 func (g *grapher) ForgetLocks(transactionID uuid.UUID) {
@@ -230,13 +228,7 @@ func (g *grapher) ForgetLocks(transactionID uuid.UUID) {
 
 // Caller must hold g.mu write lock
 func (g *grapher) forgetLocks(transactionID uuid.UUID) {
-	if locks, ok := g.lockedStatesByTransaction[transactionID]; ok {
-		for _, lock := range locks {
-			delete(g.lockedStatesByTransaction, lock.Transaction)
-		}
-		delete(g.lockedStatesByTransaction, transactionID)
-	}
-	// Note we specifically don't delete the transaction (i.e. the minter) here. Use Forget() to do both.
+	delete(g.lockedStatesByTransaction, transactionID)
 }
 
 // Get transactions we are dependent on
@@ -266,23 +258,16 @@ func (g *grapher) GetDependants(ctx context.Context, transactionID uuid.UUID) []
 // Caller must hold write lock
 func (g *grapher) lockMints(states []*components.FullState, transactionID uuid.UUID, lockType pldapi.StateLockType) {
 	g.addConsumer(transactionID)
+	if g.lockedStatesByTransaction == nil {
+		g.lockedStatesByTransaction = make(map[uuid.UUID][]*stateLock)
+	}
 	for _, state := range states {
-		if g.lockedStatesByTransaction[transactionID] == nil {
-			g.lockedStatesByTransaction[transactionID] = []*stateLock{
-				{
-					State:       state.ID,
-					Transaction: transactionID,
-					Type:        lockType.Enum(),
-				},
-			}
-		} else {
-			g.lockedStatesByTransaction[transactionID] = append(g.lockedStatesByTransaction[transactionID],
-				&stateLock{
-					State:       state.ID,
-					Transaction: transactionID,
-					Type:        lockType.Enum(),
-				})
-		}
+		g.lockedStatesByTransaction[transactionID] = append(g.lockedStatesByTransaction[transactionID],
+			&stateLock{
+				State:       state.ID,
+				Transaction: transactionID,
+				Type:        lockType.Enum(),
+			})
 	}
 }
 
