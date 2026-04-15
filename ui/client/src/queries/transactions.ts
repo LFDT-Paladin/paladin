@@ -22,6 +22,7 @@ import {
   IEvent,
   IFilter,
   IPaladinTransaction,
+  IPaladinTransactionPagingReference,
   ITransaction,
   ITransactionInput,
   ITransactionPagingReference,
@@ -130,7 +131,7 @@ export const fetchIndexedTransactions = async (
 export const fetchSubmissions = async (
   type: 'pending' | 'failed',
   filters: IFilter[],
-  pageParam?: IPaladinTransaction
+  pageParam?: IPaladinTransactionPagingReference
 ): Promise<IPaladinTransaction[]> => {
   let translatedFilters = translateFilters(filters);
 

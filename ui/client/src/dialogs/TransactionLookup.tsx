@@ -27,18 +27,20 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchTransaction, fetchTransactionReceipt } from '../queries/transactions';
+import { fetchPaladinTransaction, fetchTransaction, fetchTransactionReceipt } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  label: string
 }
 
 export const TransactionLookupDialog: React.FC<Props> = ({
   dialogOpen,
-  setDialogOpen
+  setDialogOpen,
+  label
 }) => {
 
   const { t } = useTranslation();
@@ -62,7 +64,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
 
   const { refetch: paladinTransactionById } = useQuery({
     queryKey: ["paladinTransactionById", hashOrId],
-    queryFn: () => fetchTransactionReceipt(hashOrId),
+    queryFn: () => fetchPaladinTransaction(hashOrId),
     enabled: isValidUUID(hashOrId),
     refetchOnMount: false,
     retry: false
@@ -104,21 +106,21 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         handleSubmit();
       }}>
         <DialogTitle>
-          {t('lookupTransaction')}
+          {t('lookup')}
           {notFound &&
             <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('transactionNotFound')}</Alert>}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ marginTop: '6px'}}>
+          <Box sx={{ marginTop: '6px' }}>
 
-          <TextField
-          label={t('blockchainTransactionHashOrPaladinTransactionId')}
-            autoComplete="OFF"
-            sx={{ marginBottom: '20px' }}
-            fullWidth
-            value={hashOrId}
-            onChange={event => setHashOrId(event.target.value)}
-          />
+            <TextField
+              label={label}
+              autoComplete="OFF"
+              sx={{ marginBottom: '20px' }}
+              fullWidth
+              value={hashOrId}
+              onChange={event => setHashOrId(event.target.value)}
+            />
           </Box>
 
         </DialogContent>
