@@ -359,7 +359,7 @@ export async function doPrepareUnlock(
   expect(event0).to.exist;
   expect(event0?.name).to.equal("LockUpdated");
   expect(event0?.args.lockId).to.equal(lockId);
-  expect(event0?.args.operator).to.equal(notaryAddr);
+  expect(event0?.args.owner).to.equal(notaryAddr);
   expect(event0?.args.data).to.equal(data);
 
   // Second log is the INoto.NotoLockUpdated event that gives the inputs and outputs

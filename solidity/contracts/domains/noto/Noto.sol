@@ -749,7 +749,6 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
             lockId,
             previousSpender,
             newSpender,
-            msg.sender,
             data
         );
 

@@ -77,7 +77,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     event NotoLockUpdated(
         bytes32 indexed txId,
         bytes32 indexed lockId,
-        address indexed operator,
+        address indexed owner,
         bytes32[] contents,
         bytes32 oldLockState,
         bytes32 newLockState,

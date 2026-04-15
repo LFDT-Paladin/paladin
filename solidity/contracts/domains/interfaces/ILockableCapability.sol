@@ -94,7 +94,7 @@ interface ILockableCapability {
      */
     event LockUpdated(
         bytes32 indexed lockId,
-        address indexed operator,
+        address indexed owner,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes data
@@ -107,7 +107,6 @@ interface ILockableCapability {
         bytes32 indexed lockId,
         address indexed from,
         address indexed to,
-        address operator,
         bytes data
     );
 
