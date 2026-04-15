@@ -23,7 +23,7 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Run coordination and component tests
-        run: ./gradlew -PverboseTests=true --no-daemon :core:go:coordinationAndComponentTest
+        run: ./gradlew -PverboseTests=true --no-daemon :core:go:componentTest
 
       - name: Print disk usage
         uses: ./.github/actions/print-disk-usage

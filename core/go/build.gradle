@@ -433,7 +433,7 @@ task coordinationTestPostgres(type: CoordinationTest, dependsOn: [
     ]) {
 }
 
-task coordinationAndComponentTest(dependsOn: [
+task componentTest(dependsOn: [
         componentTestPostgres,
         componentTestWithGasSQLite,
         coordinationTestPostgres
