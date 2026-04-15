@@ -200,8 +200,8 @@ type BalanceOfResult struct {
 	Overflow     bool                 `json:"overflow"`
 }
 
-// Encoded params for Noto implementation of ILockableCapability.createLock()
-type NotoCreateLockOperation struct {
+// Encoded params for Noto_V1 implementation of NotoCreateLockOperation
+type NotoCreateLockOperation_V1 struct {
 	TxId         string            `json:"txId"`
 	Inputs       []string          `json:"inputs"`
 	Outputs      []string          `json:"outputs"`
@@ -210,15 +210,35 @@ type NotoCreateLockOperation struct {
 	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
-// Encoded params for Noto implementation of ILockableCapability.updateLock()
-type NotoUpdateLockOperation struct {
+// Encoded params for Noto_V1 implementation of NotoUpdateLockOperation
+type NotoUpdateLockOperation_V1 struct {
 	TxId         string            `json:"txId"`
 	OldLockState pldtypes.Bytes32  `json:"oldLockState"`
 	NewLockState pldtypes.Bytes32  `json:"newLockState"`
 	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
-// Encoded params for Noto implementation of ILockableCapability.spendLock() / ILockableCapability.cancelLock()
+// Encoded params for Noto implementation of ILockableCapability.createLock()
+type NotoCreateLockOperation struct {
+	TxId         string            `json:"txId"`
+	Inputs       []string          `json:"inputs"`
+	Outputs      []string          `json:"outputs"`
+	Contents     []string          `json:"contents"`
+	NewLockState pldtypes.Bytes32  `json:"newLockState"`
+	Options      *NotoLockOptions  `json:"options"`
+	Proof        pldtypes.HexBytes `json:"proof"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.updateLock()
+type NotoUpdateLockOperation struct {
+	TxId         string            `json:"txId"`
+	OldLockState pldtypes.Bytes32  `json:"oldLockState"`
+	NewLockState pldtypes.Bytes32  `json:"newLockState"`
+	Options      NotoLockOptions   `json:"options"`
+	Proof        pldtypes.HexBytes `json:"proof"`
+}
+
+// Encoded params for Noto implementation of ILockableCapability.spendLock()/cancelLock()
 type NotoUnlockOperation struct {
 	TxId    string            `json:"txId"`
 	Inputs  []string          `json:"inputs"`
@@ -235,7 +255,7 @@ type NotoDelegateOperation struct {
 	Proof        pldtypes.HexBytes `json:"proof"`
 }
 
-var NotoCreateLockOperationABI = abi.ParameterArray{
+var NotoCreateLockOperationABI_V1 = abi.ParameterArray{
 	{
 		Type:         "tuple",
 		InternalType: "struct NotoCreateLockOperation",
@@ -250,6 +270,42 @@ var NotoCreateLockOperationABI = abi.ParameterArray{
 	},
 }
 
+var NotoUpdateLockOperationABI_V1 = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoUpdateLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "oldLockState", Type: "bytes32"},
+			{Name: "newLockState", Type: "bytes32"},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
+var NotoCreateLockOperationABI = abi.ParameterArray{
+	{
+		Type:         "tuple",
+		InternalType: "struct NotoCreateLockOperation",
+		Components: abi.ParameterArray{
+			{Name: "txId", Type: "bytes32"},
+			{Name: "inputs", Type: "bytes32[]"},
+			{Name: "outputs", Type: "bytes32[]"},
+			{Name: "contents", Type: "bytes32[]"},
+			{Name: "newLockState", Type: "bytes32"},
+			{
+				Name:         "options",
+				Type:         "tuple",
+				InternalType: "struct NotoLockOptions",
+				Components: abi.ParameterArray{
+					{Name: "spendTxId", Type: "bytes32"},
+				},
+			},
+			{Name: "proof", Type: "bytes"},
+		},
+	},
+}
+
 var NotoUpdateLockOperationABI = abi.ParameterArray{
 	{
 		Type:         "tuple",
@@ -258,6 +314,14 @@ var NotoUpdateLockOperationABI = abi.ParameterArray{
 			{Name: "txId", Type: "bytes32"},
 			{Name: "oldLockState", Type: "bytes32"},
 			{Name: "newLockState", Type: "bytes32"},
+			{
+				Name:         "options",
+				Type:         "tuple",
+				InternalType: "struct NotoLockOptions",
+				Components: abi.ParameterArray{
+					{Name: "spendTxId", Type: "bytes32"},
+				},
+			},
 			{Name: "proof", Type: "bytes"},
 		},
 	},

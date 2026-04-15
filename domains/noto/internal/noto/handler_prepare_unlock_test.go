@@ -103,7 +103,7 @@ func TestPrepareUnlock(t *testing.T) {
 			ContractAddress: contractAddress,
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
 				NotaryLookup: "notary@node1",
-				Variant:      types.NotoVariantDefault,
+				Variant:      types.NotoVariantV2,
 			}),
 		},
 		FunctionAbiJson:   mustParseJSON(fn),
@@ -289,7 +289,7 @@ func TestPrepareUnlock(t *testing.T) {
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Extract the options from the response to get the generated SpendTxId
-	updateLockABI := interfaceV1Build.ABI.Functions()["updateLock"]
+	updateLockABI := interfaceV2Build.ABI.Functions()["updateLock"]
 	expectedFunction := mustParseJSON(updateLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
@@ -310,29 +310,75 @@ func TestPrepareUnlock(t *testing.T) {
 	// Decode the options we store into the lockInfo
 	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
 	require.NoError(t, err)
-	notoOptions := decodeSingleABITuple[types.NotoLockOptions](t, types.NotoLockOptionsABI, fnParams.Params.Options)
+	notoParams := decodeSingleABITuple[types.NotoUpdateLockOperation](t, types.NotoUpdateLockOperationABI, fnParams.UpdateInputs)
+	notoOptions := notoParams.Options
 	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[1:2]), unlockTxData)
 	require.NoError(t, err)
-	require.Equal(t, expectedSpendHash, fnParams.Params.SpendHash)
+	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
 	expectedCancelHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), endorsableStateIDs(infoStates[2:3]), unlockTxData)
 	require.NoError(t, err)
-	require.Equal(t, expectedCancelHash, fnParams.Params.CancelHash)
+	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
-	notoParams := decodeSingleABITuple[types.NotoUpdateLockOperation](t, types.NotoUpdateLockOperationABI, fnParams.UpdateInputs)
 	require.Equal(t, &types.NotoUpdateLockOperation{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Options:      notoParams.Options,
 		Proof:        signatureBytes,
 	}, notoParams)
+
+	// Prepare again with V1 variant to exercise compatibility parameter shape
+	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
+		NotaryLookup: "notary@node1",
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		Variant:      types.NotoVariantV1,
+	})
+	prepareResV1, err := n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
+		Transaction:       tx,
+		ResolvedVerifiers: verifiers,
+		ReadStates:        readStates,
+		InfoStates:        infoStates,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
+		AttestationResult: []*prototk.AttestationResult{
+			{
+				Name:     "sender",
+				Verifier: &prototk.ResolvedVerifier{Verifier: senderKey.Address.String()},
+				Payload:  signatureBytes,
+			},
+			{
+				Name:     "notary",
+				Verifier: &prototk.ResolvedVerifier{Lookup: "notary@node1"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Decode the parameters for the V1 variant
+	updateLockV1ABI := interfaceV1Build.ABI.Functions()["updateLock"]
+	assert.JSONEq(t, mustParseJSON(updateLockV1ABI), prepareResV1.Transaction.FunctionAbiJson)
+	paramsV1 := decodeFnParams[UpdateLockParams_V1](t, updateLockV1ABI, prepareResV1.Transaction.ParamsJson)
+	require.Equal(t, fnParams.LockID, paramsV1.LockID)
+	require.Equal(t, fnParams.SpendCommitment, paramsV1.Params.SpendHash)
+	require.Equal(t, fnParams.CancelCommitment, paramsV1.Params.CancelHash)
+	require.Equal(t, fnParams.Data.String(), paramsV1.Data.String())
+
+	// Validate the encoded noto parameters passed in for the V1 variant
+	notoParamsV1 := decodeSingleABITuple[types.NotoUpdateLockOperation_V1](t, types.NotoUpdateLockOperationABI_V1, paramsV1.UpdateInputs)
+	require.Equal(t, &types.NotoUpdateLockOperation_V1{
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
+		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
+		Proof:        signatureBytes,
+	}, notoParamsV1)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),

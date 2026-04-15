@@ -9,17 +9,17 @@ import {ILockableCapability} from "../interfaces/ILockableCapability.sol";
  * @dev All implementations of Noto must conform to this interface.
  */
 interface INoto is IConfidentialToken, ILockableCapability {
-
     // The structure definition for a Noto create lock operation, which includes:
     // - The input states to be consumed in this operation. e.g. the value to be locked
     // - The output states to be generated in this operation. e.g. if there is any change to return
     // - The contents that were stored in the lock. e.g. the locked value states
     struct NotoCreateLockOperation {
-        bytes32 txId;
-        bytes32[] inputs; // spent in the transaction
+        bytes32 txId; // unique identifier for the transaction
+        bytes32[] inputs; // unlocked states spent in the transaction
         bytes32[] outputs; // created outside the lock by the transaction
-        bytes32[] contents; // created inside of the lock - this array ABI encoded is the lock contents (can be empty for mint-locks)
-        bytes32 newLockState; 
+        bytes32[] content; // created inside of the lock - this is the lock contents (empty for mint-locks)
+        bytes32 newLockState; // new state for the lock itself
+        NotoLockOptions options; // options for the lock
         bytes proof; // recorded signature for the lock operation
     }
 
@@ -27,27 +27,28 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // - The input states to be consumed in this operation. e.g. the old lock record
     // - The output states to be generated in this operation. e.g. the new lock record
     struct NotoUpdateLockOperation {
-        bytes32 txId;
-        bytes32 oldLockState;
-        bytes32 newLockState;
+        bytes32 txId; // unique identifier for the transaction
+        bytes32 oldLockState; // old state for the lock
+        bytes32 newLockState; // new state for the lock
+        NotoLockOptions options; // options for the lock
         bytes proof; // recorded signature for the lock operation
     }
 
     // The structure definition for a Noto unlock operation, which can be hashed
     // in order to construct a spendHash or a cancelHash.
     struct NotoUnlockOperation {
-        bytes32 txId;
-        bytes32[] inputs; // exactly per the spendHash/cancelHash, if set in the lock state
-        bytes32[] outputs; // exactly per the spendHash/cancelHash, if set in the lock state
-        bytes data; // exactly per the spendHash/cancelHash, meaning this is the data from the time of the prepare
-        bytes proof; // does not contribute to the hash
+        bytes32 txId; // unique identifier for the transaction (exactly per spendTxId, if set)
+        bytes32[] inputs; // locked states spend in the transaction (exactly per spendHash/cancelHash, if set)
+        bytes32[] outputs; // unlocked states created in the transaction (exactly per spendHash/cancelHash, if set)
+        bytes data; // additional transaction data (exactly per spendHash/cancelHash, if set)
+        bytes proof; // recorded signature (does not contribute to the hash)
     }
 
     // The structure definition for a Noto delegate operation
     struct NotoDelegateOperation {
-        bytes32 txId;
-        bytes32 oldLockState;
-        bytes32 newLockState;
+        bytes32 txId; // unique identifier for the transaction
+        bytes32 oldLockState; // old state for the lock
+        bytes32 newLockState; // new state for the lock
         bytes proof;
     }
 
@@ -56,8 +57,8 @@ interface INoto is IConfidentialToken, ILockableCapability {
         // A unique transaction ID that must be used to spend or cancel the lock.
         bytes32 spendTxId;
     }
-    
-    // The Noto event for creation of a lock contains the inputs,outputs and contents
+
+    // The Noto event for creation of a lock (contains inputs, outputs, contents, and initial lock state)
     event NotoLockCreated(
         bytes32 indexed txId,
         bytes32 indexed lockId,
@@ -70,8 +71,9 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
-    // The Noto event for updating of a lock contains lockState transition
-    // Note: The contents cannot be changed in this operation, they are emitted to allow preparing of the unlock operation
+    // The Noto event for updating of a lock (contains a lock state transition)
+    // Note: The contents cannot be changed in this operation, but they
+    // are emitted to allow preparing of the unlock operation.
     event NotoLockUpdated(
         bytes32 indexed txId,
         bytes32 indexed lockId,
@@ -83,8 +85,8 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
-    // The Noto event for spending of a lock, contains the inputs, outputs, data and consumed lockState.
-    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
+    // The Noto event for spending of a lock (contains inputs, outputs, and consumed lock state)
+    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, txData
     event NotoLockSpent(
         bytes32 indexed txId,
         bytes32 indexed lockId,
@@ -97,8 +99,8 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
-    // The Noto event for cancelling a lock, contains the inputs, outputs, data and consumed lockState.
-    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, data
+    // The Noto event for cancelling a lock (contains inputs, outputs, and consumed lock state)
+    // Note: the spendHash/cancelHash only cover the txId, inputs, outputs, txData
     event NotoLockCancelled(
         bytes32 indexed txId,
         bytes32 indexed lockId,
@@ -111,7 +113,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes data
     );
 
-    // The Noto event for delegating the lock, including the txId, proof and lockState transition
+    // The Noto event for delegating the lock (contains a lock state transition)
     event NotoLockDelegated(
         bytes32 indexed txId,
         bytes32 indexed lockId,
@@ -144,12 +146,11 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes calldata createInputs
     ) external view returns (bytes32 lockId);
 
-   /**
+    /**
      * @dev Query the lockId for a locked state.
      *
      * @param id The state identifier.
      * @return lockId The lockId set when the lock was created.
      */
     function getLockId(bytes32 id) external view returns (bytes32 lockId);
-
 }

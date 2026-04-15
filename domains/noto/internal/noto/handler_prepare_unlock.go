@@ -29,7 +29,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
@@ -127,13 +126,14 @@ func (h *prepareUnlockHandler) Assemble(ctx context.Context, tx *types.ParsedTra
 	assembledTransaction.InfoStates = states.info
 	assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.outputs.states...)
 	var v0LockedCoins []*types.NotoLockedCoin
-	if tx.DomainConfig.IsV1() {
+	if tx.DomainConfig.IsV0() {
+		v0LockedCoins = states.v0LockedOutputs.coins
+		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.v0LockedOutputs.states...)
+	} else {
 		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, cancelOutputs.states...)
 		assembledTransaction.InputStates = append(assembledTransaction.InputStates, states.oldLock.stateRef)
 		assembledTransaction.OutputStates = append(assembledTransaction.OutputStates, lock.state)
-	} else {
-		v0LockedCoins = states.v0LockedOutputs.coins
-		assembledTransaction.InfoStates = append(assembledTransaction.InfoStates, states.v0LockedOutputs.states...)
+
 	}
 
 	encodedUnlock, err := h.noto.encodeUnlock(ctx, tx.ContractAddress, states.lockedInputs.coins, v0LockedCoins, states.outputs.coins)
@@ -246,21 +246,11 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	var interfaceABI abi.ABI
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	var functionName string
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
-		var lockParams *UpdateLockParams
-		lockParams, err = h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
-		if err == nil {
-			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-			functionName = "updateLock"
-			params := lockParams
-			paramsJSON, err = json.Marshal(params)
-		}
-	default:
+	if tx.DomainConfig.IsV0() {
 		var unlockHash ethtypes.HexBytes0xPrefix
 		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, endorsableStateIDs(lockedInputs), endorsableStateIDs(lockedOutputs), endorsableStateIDs(spendOutputs),
 			inParams.Data /* we do not have unlockData in V0 inputs */)
@@ -272,16 +262,17 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		var txData pldtypes.HexBytes
 		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
 		if err == nil {
-			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 			functionName = "prepareUnlock"
-			params := &NotoPrepareUnlock_V0_Params{
+			paramsJSON, err = json.Marshal(&NotoPrepareUnlock_V0_Params{
 				LockedInputs: endorsableStateIDs(lockedInputs),
 				UnlockHash:   unlockHash.String(),
 				Signature:    sender.Payload,
 				Data:         txData,
-			}
-			paramsJSON, err = json.Marshal(params)
+			})
 		}
+	} else {
+		functionName = "updateLock"
+		paramsJSON, err = h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, lockedInputs, spendOutputs, cancelOutputs, req.InfoStates)
 	}
 	if err != nil {
 		return nil, err

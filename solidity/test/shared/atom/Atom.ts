@@ -1,15 +1,13 @@
 import { expect } from "chai";
-import { ZeroAddress, ZeroHash } from "ethers";
+import { ZeroHash } from "ethers";
 import { ethers } from "hardhat";
-import { Atom, ILockableCapability, Noto } from "../../../typechain-types";
+import { Atom, Noto } from "../../../typechain-types";
 import {
-  createLockOptions,
   deployNotoInstance,
   doLock,
-  encodeCreateLockParams,
   encodeDelegateLockParams,
-  encodeUpdateLockParams,
   encodeUnlockParams,
+  encodeUpdateLockParams,
   fakeTXO,
   newUnlockHash,
   NotoCreateLockOperation,
@@ -31,16 +29,10 @@ describe("Atom", function () {
 
     // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
     const lockStateId1 = randomBytes32();
-    const options1 = createLockOptions(ZeroHash);
-    const unpreparedLockParams = {
-      spendHash: ZeroHash,
-      cancelHash: ZeroHash,
-      options: options1,
-    } as ILockableCapability.LockInfoStruct;
 
     // Deploy two contracts
     const noto = Noto.attach(
-      await deployNotoInstance(notoFactory, notary1.address)
+      await deployNotoInstance(notoFactory, notary1.address),
     ) as Noto;
     const erc20 = await ERC20Simple.connect(notary2).deploy("Token", "TOK");
 
@@ -54,10 +46,18 @@ describe("Atom", function () {
       outputs: [],
       contents: [f1txo1, f1txo2],
       newLockState: lockStateId1,
+      options: { spendTxId: ZeroHash },
       proof: "0x",
     } as NotoCreateLockOperation;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
-    const lockId = await doLock(notary1, noto, params, unpreparedLockParams, "0x");
+    const lockId = await doLock(
+      notary1,
+      noto,
+      params,
+      ZeroHash,
+      ZeroHash,
+      "0x",
+    );
     await erc20.mint(notary2, 1000);
 
     // Encode two function calls
@@ -70,7 +70,7 @@ describe("Atom", function () {
       inputs: [f1txo1, f1txo2],
       outputs: [f1txo3, f1txo4],
       data: f1TxData,
-      proof: '0x',
+      proof: "0x",
     };
     const encodedParams = encodeUnlockParams(unlockParams);
     const spendHash = await newUnlockHash(
@@ -78,19 +78,19 @@ describe("Atom", function () {
       unlockTxId,
       [f1txo1, f1txo2],
       [f1txo3, f1txo4],
-      f1TxData
+      f1TxData,
     );
     const cancelHash = await newUnlockHash(
       noto,
       unlockTxId,
       [f1txo1, f1txo2],
       [],
-      f1TxData
+      f1TxData,
     );
     const encoded1 = noto.interface.encodeFunctionData("spendLock", [
       lockId,
       encodedParams,
-      '0x',
+      "0x",
     ]);
     const encoded2 = erc20.interface.encodeFunctionData("transferFrom", [
       notary2.address,
@@ -118,24 +118,23 @@ describe("Atom", function () {
 
     // Do the delegation/approval transactions
     const lockStateId2 = randomBytes32();
-    const options2 = createLockOptions(unlockTxId);
     const txId2 = randomBytes32();
-    const lockUpdate = {
-      spendHash,
-      cancelHash,
-      options: options2,
-    } as ILockableCapability.LockParamsStruct;
     const updateParams = {
       txId: txId2,
-      inputs: [],
-      outputs: [],
-      contents: [],
       oldLockState: lockStateId1,
       newLockState: lockStateId2,
       proof: "0x",
-      options: "0x",
+      options: { spendTxId: unlockTxId },
     } as NotoUpdateLockOperation;
-    await noto.connect(notary1).updateLock(lockId, encodeUpdateLockParams(updateParams), lockUpdate, "0x");
+    await noto
+      .connect(notary1)
+      .updateLock(
+        lockId,
+        encodeUpdateLockParams(updateParams),
+        spendHash,
+        cancelHash,
+        "0x",
+      );
     // Encode DelegateLockParams with txId and data
     const delegateTxId = randomBytes32();
     const lockStateId3 = randomBytes32();
@@ -148,7 +147,9 @@ describe("Atom", function () {
       proof: "0x",
     };
     const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);
-    await noto.connect(notary1).delegateLock(lockId, encodedDelegateParams, atomAddr, '0x');
+    await noto
+      .connect(notary1)
+      .delegateLock(lockId, encodedDelegateParams, atomAddr, "0x");
     await erc20.approve(atomAddr, 1000);
 
     // Run the atomic op (anyone can initiate)
@@ -176,7 +177,7 @@ describe("Atom", function () {
 
     // Deploy noto contract
     const noto = Noto.attach(
-      await deployNotoInstance(notoFactory, notary1.address)
+      await deployNotoInstance(notoFactory, notary1.address),
     ) as Noto;
 
     // Fake up a delegation
@@ -203,13 +204,13 @@ describe("Atom", function () {
           unlockParams.contents,
           unlockParams.data,
         ],
-      ]
+      ],
     );
 
     const encoded1 = noto.interface.encodeFunctionData("spendLock", [
       lockId,
       encodedParams,
-      '0x',
+      "0x",
     ]);
 
     // Deploy the delegation contract

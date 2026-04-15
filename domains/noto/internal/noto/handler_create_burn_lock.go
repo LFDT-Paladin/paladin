@@ -30,7 +30,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type createBurnLockHandler struct {
@@ -303,12 +302,9 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	var interfaceABI abi.ABI
-	var functionName string
-	var paramsJSON []byte
-
-	var lockParams *CreateLockParams
-	lockParams, err = h.buildCreateLockParams(ctx,
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	functionName := "createLock"
+	paramsJSON, err := h.buildCreateLockParams(ctx,
 		tx,
 		lockTransition,
 		sender.Payload,
@@ -319,12 +315,6 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		cancelOutputs,
 		req.InfoStates,
 	)
-	if err == nil {
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "createLock"
-		params := lockParams
-		paramsJSON, err = json.Marshal(params)
-	}
 	if err != nil {
 		return nil, err
 	}

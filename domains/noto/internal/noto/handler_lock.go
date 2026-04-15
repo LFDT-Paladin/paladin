@@ -29,7 +29,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type lockHandler struct {
@@ -292,14 +291,24 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		}
 	}
 
-	var interfaceABI abi.ABI
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
 	var functionName string
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
+	if tx.DomainConfig.IsV0() {
+		functionName = "lock"
+		paramsJSON, err = json.Marshal(&NotoLock_V0_Params{
+			TxId:          req.Transaction.TransactionId,
+			Inputs:        endorsableStateIDs(inputs),
+			Outputs:       endorsableStateIDs(outputs),
+			LockedOutputs: endorsableStateIDs(lockedOutputs),
+			Signature:     lockSignature.Payload,
+			Data:          data,
+		})
+	} else if tx.DomainConfig.IsV1() {
+		functionName = "createLock"
 		var notoLockOpEncoded []byte
-		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
+		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperationV1(ctx, &types.NotoCreateLockOperation_V1{
 			TxId:         req.Transaction.TransactionId,
 			Inputs:       endorsableStateIDs(inputs),
 			Outputs:      endorsableStateIDs(outputs),
@@ -307,28 +316,48 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 			NewLockState: lt.newLockStateID,
 			Proof:        lockSignature.Payload,
 		})
+
 		if err == nil {
-			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-			functionName = "createLock"
-			params := &CreateLockParams{
-				CreateInputs: notoLockOpEncoded,
-				Params:       LockParams{},
-				Data:         data,
+			var optionsEncoded pldtypes.HexBytes
+			optionsEncoded, err = h.noto.encodeNotoLockOptions(ctx, &types.NotoLockOptions{
+				SpendTxId: lt.newLockInfo.SpendTxId,
+			})
+			if err != nil {
+				return nil, err
 			}
-			paramsJSON, err = json.Marshal(params)
+
+			paramsJSON, err = json.Marshal(&CreateLockParams_V1{
+				CreateInputs: notoLockOpEncoded,
+				Params: LockParams_V1{
+					SpendHash:  pldtypes.Bytes32{},
+					CancelHash: pldtypes.Bytes32{},
+					Options:    optionsEncoded,
+				},
+				Data: data,
+			})
 		}
-	default:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
-		functionName = "lock"
-		params := &NotoLock_V0_Params{
-			TxId:          req.Transaction.TransactionId,
-			Inputs:        endorsableStateIDs(inputs),
-			Outputs:       endorsableStateIDs(outputs),
-			LockedOutputs: endorsableStateIDs(lockedOutputs),
-			Signature:     lockSignature.Payload,
-			Data:          data,
+	} else {
+		functionName = "createLock"
+		var notoLockOpEncoded []byte
+		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
+			TxId:         req.Transaction.TransactionId,
+			Inputs:       endorsableStateIDs(inputs),
+			Outputs:      endorsableStateIDs(outputs),
+			Contents:     endorsableStateIDs(lockedOutputs),
+			NewLockState: lt.newLockStateID,
+			Options: &types.NotoLockOptions{
+				SpendTxId: lt.newLockInfo.SpendTxId,
+			},
+			Proof: lockSignature.Payload,
+		})
+		if err == nil {
+			paramsJSON, err = json.Marshal(&CreateLockParams{
+				CreateInputs:     notoLockOpEncoded,
+				SpendCommitment:  pldtypes.Bytes32{},
+				CancelCommitment: pldtypes.Bytes32{},
+				Data:             data,
+			})
 		}
-		paramsJSON, err = json.Marshal(params)
 	}
 	if err != nil {
 		return nil, err

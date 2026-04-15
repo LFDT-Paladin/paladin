@@ -183,7 +183,7 @@ func (n *Noto) makeNewInfoState(info *types.TransactionData, variant pldtypes.He
 	if err != nil {
 		return nil, err
 	}
-	if variant == types.NotoVariantLegacy {
+	if variant == types.NotoVariantV0 {
 		return &prototk.NewState{
 			SchemaId:         n.dataSchemaV0.Id,
 			StateDataJson:    string(infoJSON),

@@ -219,21 +219,24 @@ func TestLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode the parameters
-	createLockABI := interfaceV1Build.ABI.Functions()["createLock"]
+	createLockABI := interfaceV2Build.ABI.Functions()["createLock"]
 	expectedFunction := mustParseJSON(createLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Validate the parameters
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
-	require.Empty(t, params.Params.Options)
+	require.Zero(t, params.SpendCommitment)
+	require.Zero(t, params.CancelCommitment)
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
+	require.Equal(t, &types.NotoLockOptions{}, notoParams.Options)
 	require.Equal(t, &types.NotoCreateLockOperation{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoin.ID.String()},
 		Outputs:      []string{},
 		Contents:     []string{*outCoin1State.Id},
 		NewLockState: pldtypes.MustParseBytes32(*lockState.Id),
+		Options:      &types.NotoLockOptions{},
 		Proof:        signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
@@ -243,6 +246,51 @@ func TestLock(t *testing.T) {
 			pldtypes.MustParseBytes32(*dataState.Id),
 		},
 	}, data)
+
+	// Prepare again with V1 variant to exercise compatibility parameter shape
+	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
+		NotaryLookup: "notary@node1",
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		Variant:      types.NotoVariantV1,
+	})
+	prepareResV1, err := n.PrepareTransaction(ctx, &prototk.PrepareTransactionRequest{
+		Transaction:       tx,
+		ResolvedVerifiers: verifiers,
+		InputStates:       inputStates,
+		OutputStates:      outputStates,
+		InfoStates:        infoStates,
+		AttestationResult: []*prototk.AttestationResult{
+			{
+				Name:     "sender",
+				Verifier: &prototk.ResolvedVerifier{Verifier: senderKey.Address.String()},
+				Payload:  signatureBytes,
+			},
+			{
+				Name:     "notary",
+				Verifier: &prototk.ResolvedVerifier{Lookup: "notary@node1"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Decode the parameters for the V1 variant
+	createLockV1ABI := interfaceV1Build.ABI.Functions()["createLock"]
+	assert.JSONEq(t, mustParseJSON(createLockV1ABI), prepareResV1.Transaction.FunctionAbiJson)
+	paramsV1 := decodeFnParams[CreateLockParams_V1](t, createLockV1ABI, prepareResV1.Transaction.ParamsJson)
+	require.Equal(t, params.SpendCommitment, paramsV1.Params.SpendHash)
+	require.Equal(t, params.CancelCommitment, paramsV1.Params.CancelHash)
+	require.Equal(t, params.Data.String(), paramsV1.Data.String())
+
+	// Validate the encoded noto parameters passed in for the V1 variant
+	notoParamsV1 := decodeSingleABITuple[types.NotoCreateLockOperation_V1](t, types.NotoCreateLockOperationABI_V1, paramsV1.CreateInputs)
+	require.Equal(t, &types.NotoCreateLockOperation_V1{
+		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		Inputs:       []string{inputCoin.ID.String()},
+		Outputs:      []string{},
+		Contents:     []string{*outCoin1State.Id},
+		NewLockState: pldtypes.MustParseBytes32(*lockState.Id),
+		Proof:        signatureBytes,
+	}, notoParamsV1)
 
 	var invokeFn abi.Entry
 	err = json.Unmarshal([]byte(prepareRes.Transaction.FunctionAbiJson), &invokeFn)
@@ -255,7 +303,7 @@ func TestLock(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
@@ -718,21 +766,24 @@ func TestLockEmpty(t *testing.T) {
 	require.NoError(t, err)
 
 	// Decode the parameters
-	createLockABI := interfaceV1Build.ABI.Functions()["createLock"]
+	createLockABI := interfaceV2Build.ABI.Functions()["createLock"]
 	expectedFunction := mustParseJSON(createLockABI)
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 
 	// Validate the parameters
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
-	require.Empty(t, params.Params.Options)
+	require.Zero(t, params.SpendCommitment)
+	require.Zero(t, params.CancelCommitment)
 	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
+	require.Equal(t, &types.NotoLockOptions{}, notoParams.Options)
 	require.Equal(t, &types.NotoCreateLockOperation{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{},
 		Outputs:      []string{},
 		Contents:     []string{},
 		NewLockState: pldtypes.MustParseBytes32(*lockState.Id),
+		Options:      &types.NotoLockOptions{},
 		Proof:        signatureBytes,
 	}, notoParams)
 	data, err := n.decodeTransactionDataV1(ctx, params.Data)
@@ -754,7 +805,7 @@ func TestLockEmpty(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),
