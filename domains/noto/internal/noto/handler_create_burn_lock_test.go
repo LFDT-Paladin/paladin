@@ -464,3 +464,42 @@ func TestCreateBurnLockInsufficientFunds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, prototk.AssembleTransactionResponse_REVERT, assembleRes.AssemblyResult)
 }
+
+func TestCreateBurnLockBasicModeRestriction(t *testing.T) {
+	ctx, _, n := newNotoFullSchemaSet(t)
+	fn := types.NotoABI.Functions()["createBurnLock"]
+
+	allowBurn := false
+	config := &types.NotoParsedConfig{
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantV2,
+		Options: types.NotoOptions{
+			Basic: &types.NotoBasicOptions{
+				AllowBurn: &allowBurn,
+			},
+		},
+	}
+
+	tx := &prototk.TransactionSpecification{
+		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		From:          "sender@node1",
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+			ContractConfigJson: mustParseJSON(config),
+		},
+		FunctionAbiJson:   mustParseJSON(fn),
+		FunctionSignature: fn.SolString(),
+		FunctionParamsJson: `{
+			"from": "sender@node1",
+			"amount": 100,
+			"data": "0x1234"
+		}`,
+	}
+
+	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
+		Transaction: tx,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Burn is not enabled")
+}

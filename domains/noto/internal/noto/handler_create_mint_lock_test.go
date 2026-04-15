@@ -370,3 +370,43 @@ func TestCreateMintLock(t *testing.T) {
 	require.Equal(t, "spendLock", receipt.LockInfo.UnlockFunction)
 	require.NotNil(t, receipt.LockInfo.UnlockParams)
 }
+
+func TestCreateMintLockBasicModeRestrictMint(t *testing.T) {
+	ctx, _, n := newNotoFullSchemaSet(t)
+	fn := types.NotoABI.Functions()["createMintLock"]
+
+	restrictMint := true
+	config := &types.NotoParsedConfig{
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantV2,
+		Options: types.NotoOptions{
+			Basic: &types.NotoBasicOptions{
+				RestrictMint: &restrictMint,
+				AllowLock:    confutil.P(true),
+			},
+		},
+	}
+
+	tx := &prototk.TransactionSpecification{
+		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		From:          "sender@node1",
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+			ContractConfigJson: mustParseJSON(config),
+		},
+		FunctionAbiJson:   mustParseJSON(fn),
+		FunctionSignature: fn.SolString(),
+		FunctionParamsJson: `{
+			"recipients":[{"to":"receiver@node1","amount":100}],
+			"unlockData":"0x9999",
+			"data":"0x1234"
+		}`,
+	}
+
+	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
+		Transaction: tx,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Mint can only be initiated by notary")
+}

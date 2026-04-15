@@ -416,3 +416,50 @@ func TestPrepareMintUnlock(t *testing.T) {
 		incompleteForIdentity(senderKey.Address.String()).
 		incompleteForIdentity(receiverAddress)
 }
+
+func TestPrepareMintUnlockBasicModeAllowLockDisabled(t *testing.T) {
+	ctx := t.Context()
+	mockCallbacks := newMockCallbacks()
+	n := &Noto{
+		Callbacks: mockCallbacks,
+	}
+	fn := types.NotoABI.Functions()["prepareMintUnlock"]
+
+	restrictMint := true
+	allowLock := false
+	config := &types.NotoParsedConfig{
+		NotaryMode:   types.NotaryModeBasic.Enum(),
+		NotaryLookup: "notary@node1",
+		Variant:      types.NotoVariantV2,
+		Options: types.NotoOptions{
+			Basic: &types.NotoBasicOptions{
+				RestrictMint: &restrictMint,
+				AllowLock:    &allowLock,
+			},
+		},
+	}
+
+	lockID := pldtypes.RandBytes32()
+	tx := &prototk.TransactionSpecification{
+		TransactionId: "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
+		From:          "notary@node1",
+		ContractInfo: &prototk.ContractInfo{
+			ContractAddress:    "0xf6a75f065db3cef95de7aa786eee1d0cb1aeafc3",
+			ContractConfigJson: mustParseJSON(config),
+		},
+		FunctionAbiJson:   mustParseJSON(fn),
+		FunctionSignature: fn.SolString(),
+		FunctionParamsJson: fmt.Sprintf(`{
+			"lockId":"%s",
+			"recipients":[{"to":"receiver@node1","amount":100}],
+			"unlockData":"0x9999",
+			"data":"0x1234"
+		}`, lockID),
+	}
+
+	_, err := n.InitTransaction(ctx, &prototk.InitTransactionRequest{
+		Transaction: tx,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Lock is not enabled")
+}
