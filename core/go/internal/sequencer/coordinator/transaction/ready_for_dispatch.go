@@ -73,12 +73,7 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-
 	dependencies := t.grapher.GetDependencies(ctx, t.pt.ID)
-	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
-	}
-
 	for _, dependencyID := range dependencies {
 		dependency := t.getCoordinatorTransaction(ctx, dependencyID)
 		if dependency == nil {
