@@ -49,7 +49,7 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 }
 
 func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string, preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.metrics)
+	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.chainedChildStore, c.metrics)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
@@ -132,6 +132,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		if previousTransaction != nil {
 			switch previousTransaction.GetCurrentState() {
 			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
+				txID := previousTransaction.GetID()
 				// There is an incredibly slim possibility that the transaction has actually been repooled, so we are past first assembly,
 				// but since we have no way of checking this it causes no issues to establish the dependency, since the already pooled transaction
 				// will be selected for assembly ahead of this new transaction anyway.
@@ -141,15 +142,16 @@ func (c *coordinator) addToDelegatedTransactions(
 				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
 				err := previousTransaction.HandleEvent(ctx, &transaction.NewPreAssembleDependencyEvent{
 					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-						TransactionID: previousTransaction.GetID(),
+						TransactionID: txID,
 					},
-					PrereqTransactionID: transactions[i-1].ID,
+					PrereqTransactionID: txn.ID,
 				})
 				if err != nil {
 					txnHandlingError = err
 					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
 					continue
 				}
+				previousTransactionID = &txID
 			}
 		}
 
@@ -241,6 +243,16 @@ func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransact
 	return nextPooledTx
 }
 
+func (c *coordinator) removeTransactionFromPool(id uuid.UUID) {
+	for i, txn := range c.pooledTransactions {
+		if txn.GetID() == id {
+			c.pooledTransactions[i] = nil
+			c.pooledTransactions = append(c.pooledTransactions[:i], c.pooledTransactions[i+1:]...)
+			return
+		}
+	}
+}
+
 func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	return e.To == transaction.State_Pooled, nil
@@ -294,11 +306,14 @@ func validator_TransactionStateTransitionToEvicted(ctx context.Context, _ *coord
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	delete(c.transactionsByID, e.TransactionID)
+	// this is a no-op if the transaction is not in the pool
+	c.removeTransactionFromPool(e.TransactionID)
 	c.metrics.DecCoordinatingTransactions()
-	err := c.grapher.Forget(e.TransactionID)
+	err := c.grapher.Forget(ctx, e.TransactionID)
 	if err != nil {
 		log.L(ctx).Errorf("error forgetting transaction %s: %v", e.TransactionID.String(), err)
 	}
+	c.chainedChildStore.ForgetChainedChild(e.TransactionID)
 	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
 	return nil
 }

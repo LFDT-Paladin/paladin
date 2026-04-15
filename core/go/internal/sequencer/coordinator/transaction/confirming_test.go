@@ -20,128 +20,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-func Test_notifyDependentsOfConfirmation_NoDependents(t *testing.T) {
-	ctx := context.Background()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	err := txn.notifyDependentsOfConfirmation(ctx)
-	require.NoError(t, err)
-}
-
-func Test_notifyDependentsOfConfirmation_DependentNotInMemory(t *testing.T) {
-	ctx := context.Background()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{uuid.New()}}).
-		Build()
-
-	err := txn.notifyDependentsOfConfirmation(ctx)
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "PD012645"))
-}
-
-func Test_notifyDependentsOfConfirmation_HandleEventReturnsError(t *testing.T) {
-	ctx := context.Background()
-	mockGrapher := NewMockGrapher(t)
-	dependentID := uuid.New()
-	privateTxnID := uuid.New()
-
-	// Set up mock expectations for grapher operations used during transaction creation
-	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return().Maybe()
-	mockGrapher.EXPECT().ForgetMints(mock.Anything).Return().Maybe()
-
-	// Create a mock dependent transaction that returns an error from HandleEvent
-	mockDependentTxn := NewMockCoordinatorTransaction(t)
-	expectedError := errors.New("handle event error")
-	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: privateTxnID})
-	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyReadyEvent")).Return(expectedError)
-
-	// Configure mock grapher to return the mock dependent transaction
-	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(mockDependentTxn)
-
-	// Create main transaction with the mock grapher and a dependent
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Grapher(mockGrapher).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
-		}).
-		Build()
-
-	// Call notifyDependentsOfConfirmation - should return the error from HandleEvent
-	err := txn.notifyDependentsOfConfirmation(ctx)
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
-}
-
-func Test_notifyDependentsOfConfirmation_WithTraceEnabled(t *testing.T) {
-	ctx := context.Background()
-
-	// Enable trace logging to cover the traceDispatch path
-	log.EnsureInit()
-	originalLevel := log.GetLevel()
-	log.SetLevel("trace")
-	defer log.SetLevel(originalLevel)
-
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		PostAssembly(&components.TransactionPostAssembly{
-			Signatures: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier1",
-					},
-				},
-			},
-			Endorsements: []*prototk.AttestationResult{
-				{
-					Verifier: &prototk.ResolvedVerifier{
-						Lookup: "verifier2",
-					},
-				},
-			},
-		}).
-		Build()
-
-	err := txn1.notifyDependentsOfConfirmation(ctx)
-	require.NoError(t, err)
-}
-func Test_notifyDependentsOfConfirmation_DependentInMemory(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	tx2ID := uuid.New()
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{tx2ID}}).
-		Build()
-	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
-		TransactionID(tx2ID).
-		Grapher(grapher).
-		TransactionID(tx2ID).
-		Build()
-
-	err := txn1.notifyDependentsOfConfirmation(ctx)
-	require.NoError(t, err)
-}
-
-// TODO: this test can be implemented when there is a way to mock the dependent transaction
-// func Test_notifyDependentsOfConfirmation_DependentHandleEventError(t *testing.T) {}
 
 func Test_action_NotifyOriginatorOfConfirmation_Success(t *testing.T) {
 	ctx := context.Background()
@@ -288,48 +177,15 @@ func Test_action_RecordConfirmation_SuccessDifferentHash(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_action_NotifyDependantsOfSuccessfulConfirmation_NoDependents(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.Len(t, txn.dependencies.PrereqOf, 0)
-}
-
-func Test_action_NotifyDependantsOfSuccessfulConfirmation_ResetLocksWhenRetentionNotConfigured(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(0).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
-
-	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, txn.confirmedLocksReleased)
-}
-
-func Test_action_NotifyDependantsOfSuccessfulConfirmation_DoesNotResetLocksWhenRetentionConfigured(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(2).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
-		Build()
-
-	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.False(t, txn.confirmedLocksReleased)
-}
-
 func Test_action_NotifyDependantsOfRevertedConfirmation_AlwaysResetsLocks(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
 		ConfirmedLockRetentionGracePeriod(2).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
+			},
+		}).
 		Build()
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
 
@@ -387,7 +243,11 @@ func Test_ConfirmedRevert_StateDispatched_NonRetryable_TransitionsToReverted(t *
 	ctx := context.Background()
 	revertReason := pldtypes.MustParseHexBytes("0xdead")
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
+			},
+		}).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded error", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
@@ -414,7 +274,11 @@ func Test_ConfirmedRevert_StateDispatched_RetryableRevert_ExceedsThreshold_Trans
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		BaseLedgerRevertRetryThreshold(1).
 		RevertCount(1).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{},
+			},
+		}).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
@@ -702,7 +566,11 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 	tx2ID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{tx2ID}}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
+			},
+		}).
 		Build()
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
@@ -715,28 +583,9 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 	require.NoError(t, err)
 }
 
-func Test_action_NotifyDependantsOfSuccessfulConfirmation_SendsReadyEvent(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-	tx2ID := uuid.New()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{tx2ID}}).
-		Build()
-
-	_, _ = NewTransactionBuilderForTesting(t, State_Blocked).
-		TransactionID(tx2ID).
-		Grapher(grapher).
-		Build()
-
-	err := action_NotifyDependantsOfSuccessfulConfirmation(ctx, txn, nil)
-	require.NoError(t, err)
-}
-
 func Test_notifyDependentsOfRevertedConfirmation_NoDependents(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
 
 	err := txn.notifyDependentsOfRevertedConfirmation(ctx)
@@ -746,7 +595,11 @@ func Test_notifyDependentsOfRevertedConfirmation_NoDependents(t *testing.T) {
 func Test_notifyDependentsOfRevertedConfirmation_DependentNotInMemory(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{uuid.New()}}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{uuid.New()},
+			},
+		}).
 		Build()
 
 	err := txn.notifyDependentsOfRevertedConfirmation(ctx)
@@ -776,8 +629,10 @@ func Test_notifyDependentsOfRevertedConfirmation_HandleEventReturnsError(t *test
 	// Create main transaction with the mock grapher and a dependent
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{dependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{dependentID},
+			},
 		}).
 		Build()
 
@@ -855,4 +710,248 @@ func Test_DependencyConfirmedReverted_PreDispatchStates_TransitionsToPooled(t *t
 			assert.Equal(t, State_Pooled, txn.stateMachine.GetCurrentState())
 		})
 	}
+}
+
+func TestDependsOn_CascadeFailure_SendsEventToDependentWhichFinalizesItself(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	revertedTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, depMocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(grapher).
+		Build()
+
+	revertedTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
+
+	depMocks.SyncPoints.On("QueueTransactionFinalize",
+		mock.Anything,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.TransactionID == dependentTx.pt.ID &&
+				req.FailureMessage != ""
+		}),
+		mock.Anything,
+		mock.Anything,
+	).Return()
+	depMocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentTx.pt.ID).Return().Once()
+
+	err := action_CascadeChainedDependencyFailure(ctx, revertedTx, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Reverted, dependentTx.stateMachine.CurrentState)
+}
+
+func TestDependsOn_FinalizeOnChainedDependencyFailure(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+	dependencyID := uuid.New()
+	failureMsg := i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, dependencyID).Error()
+
+	mocks.SyncPoints.On("QueueTransactionFinalize",
+		mock.Anything,
+		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
+			return req.TransactionID == txn.pt.ID &&
+				req.FailureMessage == failureMsg
+		}),
+		mock.Anything,
+		mock.Anything,
+	).Return()
+
+	event := &ChainedDependencyFailedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		FailedTxID:           dependencyID,
+	}
+	err := action_FinalizeOnChainedDependencyFailure(ctx, txn, event)
+	require.NoError(t, err)
+}
+
+func TestDependsOn_CascadeFailure_ErrorsOnMissingDependent(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	revertedTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	unknownID := uuid.New()
+	revertedTx.dependencies.Chained.PrereqOf = []uuid.UUID{unknownID}
+
+	err := action_CascadeChainedDependencyFailure(ctx, revertedTx, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PD012645")
+}
+
+func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	evictedTx, _ := NewTransactionBuilderForTesting(t, State_Evicted).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+
+	evictedTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
+
+	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, State_Evicted, dependentTx.stateMachine.CurrentState)
+}
+
+func TestDependsOn_CascadeEviction_ErrorsOnMissingDependent(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	evictedTx, _ := NewTransactionBuilderForTesting(t, State_Evicted).
+		Grapher(grapher).
+		Build()
+
+	unknownID := uuid.New()
+	evictedTx.dependencies.Chained.PrereqOf = []uuid.UUID{unknownID}
+
+	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PD012645")
+}
+
+func TestDependsOn_ParentRecognition_ChainedDependencyRevert(t *testing.T) {
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+
+	event := &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		FailureMessage: "PD012256: Transaction dependency abc12345 failed",
+	}
+
+	err := action_RecordConfirmation(context.Background(), txn, event)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, txn.revertCount)
+	assert.True(t, txn.lastCanRetryRevert)
+	assert.Equal(t, "PD012256: Transaction dependency abc12345 failed", txn.decodedRevertReason)
+}
+
+func TestDependsOn_ParentRecognition_RegularOffChainRevert(t *testing.T) {
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+
+	event := &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		FailureMessage: "Some other error",
+	}
+
+	err := action_RecordConfirmation(context.Background(), txn, event)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, txn.revertCount)
+	assert.False(t, txn.lastCanRetryRevert)
+}
+
+func TestDependsOn_ParentRecognition_OnChainRevertNotAffected(t *testing.T) {
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Dispatched).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
+
+	mocks.DomainAPI.On("IsBaseLedgerRevertRetryable", mock.Anything, mock.Anything).
+		Return(true, "decoded reason", nil)
+
+	event := &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		RevertReason: pldtypes.HexBytes{0x01, 0x02},
+		OnChain:      pldtypes.OnChainLocation{Type: pldtypes.OnChainTransaction},
+		Hash:         pldtypes.Bytes32(pldtypes.RandBytes(32)),
+	}
+
+	err := action_RecordConfirmation(context.Background(), txn, event)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, txn.revertCount)
+	assert.True(t, txn.lastCanRetryRevert)
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_NilPrereqOf(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).Build()
+	txn.dependencies.PreAssemble.PrereqOf = nil
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_DependentNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	dependentID := uuid.New()
+	txn.dependencies.PreAssemble.PrereqOf = &dependentID
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, txn, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PD012645")
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_SendsEventToDependent(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, mocks := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(grapher).
+		Build()
+	dependentTx.dependencies.PreAssemble.DependsOn = &prereqTx.pt.ID
+
+	prereqTx.dependencies.PreAssemble.PrereqOf = &dependentTx.pt.ID
+
+	// The dependent has no other unassembled deps, so it should transition to State_Pooled
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentTx.pt.ID).Return()
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
+	require.NoError(t, err)
+
+	assert.Nil(t, dependentTx.dependencies.PreAssemble.DependsOn)
+	assert.Equal(t, State_Pooled, dependentTx.GetCurrentState())
+}
+
+func Test_action_NotifyPreAssembleDependentOfTermination_StaysBlockedWithChainedDeps(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(grapher).
+		Build()
+
+	chainedDepTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(grapher).
+		Build()
+	dependentTx.dependencies.PreAssemble.DependsOn = &prereqTx.pt.ID
+	dependentTx.dependencies.Chained.DependsOn = []uuid.UUID{chainedDepTx.pt.ID}
+	dependentTx.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{chainedDepTx.pt.ID: {}}
+
+	prereqTx.dependencies.PreAssemble.PrereqOf = &dependentTx.pt.ID
+
+	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
+	require.NoError(t, err)
+
+	assert.Nil(t, dependentTx.dependencies.PreAssemble.DependsOn)
+	assert.Equal(t, State_PreAssembly_Blocked, dependentTx.GetCurrentState())
 }

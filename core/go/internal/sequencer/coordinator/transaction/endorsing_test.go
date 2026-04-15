@@ -22,7 +22,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -270,7 +269,11 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 		Grapher(grapher).
 		AddPendingEndorsementRequest(2).NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		Dependencies(&pldapi.TransactionDependencies{DependsOn: []uuid.UUID{blockingTXID}})
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{blockingTXID},
+			},
+		})
 	txn, _ := builder.Build()
 
 	require.NotNil(t, txn.pendingEndorsementRequests)
