@@ -1784,11 +1784,11 @@ func TestInvokeRPCOK(t *testing.T) {
 	psc := goodPSC(t, td)
 
 	td.tp.Functions.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
-		assert.Equal(t, "GetCodeHash", req.Method)
+		assert.Equal(t, "pente_getCodeHash", req.Method)
 		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
 	}
 
-	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "GetCodeHash", pldtypes.RawJSON(`[]`))
+	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "pente_getCodeHash", pldtypes.RawJSON(`[]`))
 	require.NoError(t, err)
 	assert.Equal(t, pldtypes.RawJSON(`"0x1234"`), got)
 }
@@ -1804,6 +1804,6 @@ func TestInvokeRPCError(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "GetCodeHash", pldtypes.RawJSON(`[]`))
+	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "pente_getCodeHash", pldtypes.RawJSON(`[]`))
 	require.Regexp(t, "pop", err)
 }

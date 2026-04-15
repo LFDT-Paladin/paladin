@@ -554,7 +554,7 @@ func TestDomainFunction_InvokeRPC(t *testing.T) {
 	}
 	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
 		req.RequestToDomain = &prototk.DomainMessage_InvokeRpc{
-			InvokeRpc: &prototk.InvokeRPCRequest{Method: "GetCodeHash", ParamsJson: `{"address":"0xabcd"}`},
+			InvokeRpc: &prototk.InvokeRPCRequest{Method: "pente_getCodeHash", ParamsJson: `["0xabcd"]`},
 		}
 	}, func(res *prototk.DomainMessage) {
 		r := res.ResponseFromDomain.(*prototk.DomainMessage_InvokeRpcRes)

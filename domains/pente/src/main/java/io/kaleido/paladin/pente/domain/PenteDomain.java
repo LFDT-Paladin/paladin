@@ -931,8 +931,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
          try {
              var params = new ObjectMapper().readTree(request.getParamsJson());
              return switch (request.getMethod()) {
-                 case "GetCodeHash" -> invokeGetCodeHash(request.getStateQueryContext(), params);
-                 case "GetCode" -> invokeGetCode(request.getStateQueryContext(), params);
+                 case "pente_getCodeHash" -> invokeGetCodeHash(request.getStateQueryContext(), params);
+                 case "pente_getCode" -> invokeGetCode(request.getStateQueryContext(), params);
                  default -> CompletableFuture.failedFuture(
                          new UnsupportedOperationException("unknown RPC method: " + request.getMethod()));
              };
@@ -943,8 +943,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
      private CompletableFuture<InvokeRPCResponse> invokeGetCodeHash(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
          try {
-             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get("address").asText());
-             var qualifier = params.has("stateQualifier") ? params.get("stateQualifier").asText() : "";
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get(0).asText());
+             var qualifier = (params.size() > 1 && !params.get(1).isNull()) ? params.get(1).asText() : "";
              if (!qualifier.isEmpty() && !qualifier.equals("available")) {
                  return CompletableFuture.failedFuture(
                          new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
@@ -963,8 +963,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 
      private CompletableFuture<InvokeRPCResponse> invokeGetCode(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
          try {
-             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get("address").asText());
-             var qualifier = params.has("stateQualifier") ? params.get("stateQualifier").asText() : "";
+             var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get(0).asText());
+             var qualifier = (params.size() > 1 && !params.get(1).isNull()) ? params.get(1).asText() : "";
              if (!qualifier.isEmpty() && !qualifier.equals("available")) {
                  return CompletableFuture.failedFuture(
                          new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
