@@ -305,6 +305,7 @@ var (
 	MsgDomainInvalidPGroupGenesisABI          = pde("PD011664", "Domain generated an invalid privacy group genesis ABI parameter schema")
 	MsgDomainInvalidPGroupTxTypeNotPrivate    = pde("PD011665", "Resulting wrapped function call for privacy group must be a private transaction (type=%s)")
 	MsgDomainInvalidPGroupTxCannotRedirect    = pde("PD011666", "Resulting wrapped function call must target the same smart contract (contract=%s,addr=%s)")
+	MsgDomainUnsupportedStateQualifier        = pde("PD011667", "Unsupported state qualifier '%s'")
 
 	// Entrypoint PD0117XX
 	MsgEntrypointUnknownRunMode = pde("PD011700", "Unknown run mode '%s'")

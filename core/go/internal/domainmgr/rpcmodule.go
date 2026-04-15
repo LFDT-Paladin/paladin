@@ -18,8 +18,10 @@ package domainmgr
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -129,8 +131,8 @@ func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod3(func(ctx context.Context,
 		address pldtypes.EthAddress,
-		method string,
-		params pldtypes.RawJSON,
+		stateQualifier pldapi.StateStatusQualifier,
+		rpcCall pldapi.DomainInvokeRPC,
 	) (pldtypes.RawJSON, error) {
 		ctx = log.WithComponent(ctx, "domainmanager")
 		var sc components.DomainSmartContract
@@ -141,9 +143,12 @@ func (dm *domainManager) rpcInvokeRPC() rpcserver.RPCHandler {
 			if err != nil {
 				return err
 			}
+			if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+				return i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+			}
 			dCtx := dm.stateStore.NewDomainContext(ctx, sc.Domain(), address)
 			defer dCtx.Close()
-			resultJSON, err = sc.InvokeRPC(ctx, dCtx, dbTX, method, params)
+			resultJSON, err = sc.InvokeRPC(ctx, dCtx, dbTX, rpcCall)
 			return err
 		})
 		if err != nil {

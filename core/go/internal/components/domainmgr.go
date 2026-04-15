@@ -92,7 +92,7 @@ type DomainSmartContract interface {
 	ExecCall(dCtx DomainContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
 
 	WrapPrivacyGroupEVMTX(context.Context, *pldapi.PrivacyGroup, *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error)
-	InvokeRPC(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, method string, paramsJSON pldtypes.RawJSON) (pldtypes.RawJSON, error)
+	InvokeRPC(ctx context.Context, dCtx DomainContext, dbTX persistence.DBTX, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error)
 
 	IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (retryable bool, decodedReason string, err error)
 }

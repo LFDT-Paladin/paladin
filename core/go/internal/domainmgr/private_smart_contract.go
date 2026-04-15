@@ -810,13 +810,13 @@ func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, rever
 	return res.Retryable, res.DecodedReason, nil
 }
 
-func (dc *domainContract) InvokeRPC(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, method string, paramsJSON pldtypes.RawJSON) (pldtypes.RawJSON, error) {
+func (dc *domainContract) InvokeRPC(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
 	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
 	defer c.close()
 	res, err := dc.api.InvokeRPC(ctx, &prototk.InvokeRPCRequest{
 		StateQueryContext: c.id,
-		Method:            method,
-		ParamsJson:        string(paramsJSON),
+		Method:            rpcCall.Method,
+		ParamsJson:        string(rpcCall.Params),
 	})
 	if err != nil {
 		return nil, err

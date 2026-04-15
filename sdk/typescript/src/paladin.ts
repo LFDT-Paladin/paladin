@@ -3,6 +3,7 @@ import { ethers, InterfaceAbi } from "ethers";
 import {
   ActiveFilter,
   Algorithms,
+  DomainInvokeRPC,
   IABIDecodedData,
   IBlockchainEventListener,
   IDomain,
@@ -1056,10 +1057,10 @@ export default class PaladinClient {
       return res.data.result;
     },
 
-    invokeRPC: async (domainName: string, groupID: string, method: string, params: unknown) => {
+    invokeRPC: async (domainName: string, groupID: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
       const res = await this.post<JsonRpcResult<unknown>>(
         "pgroup_invokeRPC",
-        [domainName, groupID, method, params]
+        [domainName, groupID, stateQualifier, rpcCall]
       );
       return res.data.result;
     },
@@ -1171,10 +1172,10 @@ export default class PaladinClient {
       return res.status === 404 ? undefined : res.data.result;
     },
 
-    invokeRPC: async (contractAddress: string, method: string, params: unknown) => {
+    invokeRPC: async (contractAddress: string, stateQualifier: string, rpcCall: DomainInvokeRPC) => {
       const res = await this.post<JsonRpcResult<unknown>>(
         "domain_invokeRPC",
-        [contractAddress, method, params]
+        [contractAddress, stateQualifier, rpcCall]
       );
       return res.data.result;
     },

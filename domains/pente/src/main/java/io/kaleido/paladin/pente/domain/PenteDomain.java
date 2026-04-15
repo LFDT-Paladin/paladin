@@ -944,11 +944,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      private CompletableFuture<InvokeRPCResponse> invokeGetCodeHash(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
          try {
              var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get(0).asText());
-             var qualifier = (params.size() > 1 && !params.get(1).isNull()) ? params.get(1).asText() : "";
-             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
-                 return CompletableFuture.failedFuture(
-                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
-             }
              var accountLoader = new AssemblyAccountLoader(stateQueryContext);
              var codeHash = accountLoader.load(address)
                      .map(PersistedAccount::getCodeHashOrZero)
@@ -964,11 +959,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
      private CompletableFuture<InvokeRPCResponse> invokeGetCode(String stateQueryContext, com.fasterxml.jackson.databind.JsonNode params) {
          try {
              var address = org.hyperledger.besu.datatypes.Address.fromHexString(params.get(0).asText());
-             var qualifier = (params.size() > 1 && !params.get(1).isNull()) ? params.get(1).asText() : "";
-             if (!qualifier.isEmpty() && !qualifier.equals("available")) {
-                 return CompletableFuture.failedFuture(
-                         new UnsupportedOperationException("invalid state qualifier '" + qualifier + "'"));
-             }
              var accountLoader = new AssemblyAccountLoader(stateQueryContext);
              var codeBytes = accountLoader.load(address)
                      .map(PersistedAccount::getCode)

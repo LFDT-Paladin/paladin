@@ -1788,7 +1788,7 @@ func TestInvokeRPCOK(t *testing.T) {
 		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
 	}
 
-	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "pente_getCodeHash", pldtypes.RawJSON(`[]`))
+	got, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.NoError(t, err)
 	assert.Equal(t, pldtypes.RawJSON(`"0x1234"`), got)
 }
@@ -1804,6 +1804,6 @@ func TestInvokeRPCError(t *testing.T) {
 		return nil, fmt.Errorf("pop")
 	}
 
-	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, "pente_getCodeHash", pldtypes.RawJSON(`[]`))
+	_, err := psc.InvokeRPC(td.ctx, td.c.dCtx, td.c.dbTX, pldapi.DomainInvokeRPC{Method: "pente_getCodeHash", Params: pldtypes.RawJSON(`[]`)})
 	require.Regexp(t, "pop", err)
 }

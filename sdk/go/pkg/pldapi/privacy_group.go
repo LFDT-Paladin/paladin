@@ -24,18 +24,6 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
-// PrivacyGroupStateQualifier controls which state snapshot is used when querying
-// against private smart contracts.
-//
-// Currently only "available" is supported.
-//
-// The type here is intentionally similar to StateStatusQualifier, which is
-// used for queries directly against the state store. This field may be extended
-// in the future to support other state qualifiers, such as querying against
-// historic state snapshots.
-type PrivacyGroupStateQualifier string
-
-const PrivacyGroupStateQualifierAvailable PrivacyGroupStateQualifier = "available"
 
 type PrivacyGroup struct {
 	ID                 pldtypes.HexBytes    `docstruct:"PrivacyGroup" json:"id"`

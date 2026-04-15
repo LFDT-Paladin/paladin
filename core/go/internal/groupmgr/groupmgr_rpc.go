@@ -194,11 +194,11 @@ func (gm *groupManager) rpcInvokeRPC() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod4(func(ctx context.Context,
 		domainName string,
 		groupID pldtypes.HexBytes,
-		method string,
-		params pldtypes.RawJSON,
+		stateQualifier pldapi.StateStatusQualifier,
+		rpcCall pldapi.DomainInvokeRPC,
 	) (pldtypes.RawJSON, error) {
 		ctx = log.WithComponent(ctx, "groupmanager")
-		resultJSON, err := gm.invokeRPC(ctx, gm.p.NOTX(), domainName, groupID, method, params)
+		resultJSON, err := gm.invokeRPC(ctx, gm.p.NOTX(), domainName, groupID, stateQualifier, rpcCall)
 		if err != nil {
 			return nil, err
 		}

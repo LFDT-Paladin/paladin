@@ -566,12 +566,15 @@ func (gm *groupManager) resolvePrivateContract(ctx context.Context, dbTX persist
 	return pg, psc, nil
 }
 
-func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, method string, paramsJSON pldtypes.RawJSON) (pldtypes.RawJSON, error) {
+func (gm *groupManager) invokeRPC(ctx context.Context, dbTX persistence.DBTX, domainName string, groupID pldtypes.HexBytes, stateQualifier pldapi.StateStatusQualifier, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
 	pg, psc, err := gm.resolvePrivateContract(ctx, dbTX, domainName, groupID)
 	if err != nil {
 		return nil, err
 	}
+	if stateQualifier != "" && stateQualifier != pldapi.StateStatusAvailable {
+		return nil, i18n.NewError(ctx, msgs.MsgDomainUnsupportedStateQualifier, stateQualifier)
+	}
 	dCtx := gm.stateManager.NewDomainContext(ctx, psc.Domain(), *pg.ContractAddress)
 	defer dCtx.Close()
-	return psc.InvokeRPC(ctx, dCtx, dbTX, method, paramsJSON)
+	return psc.InvokeRPC(ctx, dCtx, dbTX, rpcCall)
 }
