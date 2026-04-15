@@ -243,8 +243,8 @@ func TestDelegateLock(t *testing.T) {
 
 	// Validate the parameters
 	params := decodeFnParams[DelegateLockParams](t, delegateLockABI, prepareRes.Transaction.ParamsJson)
-	notoParams := decodeSingleABITuple[types.NotoDelegateOperation](t, types.NotoDelegateOperationABI, params.DelegateInputs)
-	require.Equal(t, &types.NotoDelegateOperation{
+	notoParams := decodeSingleABITuple[types.NotoDelegateLockArgs](t, types.NotoDelegateLockArgsABI, params.DelegateArgs)
+	require.Equal(t, &types.NotoDelegateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*lockInfoState.Id),

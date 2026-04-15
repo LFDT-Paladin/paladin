@@ -17,7 +17,7 @@ interface INoto_V1 is IConfidentialToken {
         bytes options;
     }
 
-    struct NotoCreateLockOperation {
+    struct NotoCreateLockArgs {
         bytes32 txId;
         bytes32[] inputs;
         bytes32[] outputs;
@@ -26,14 +26,14 @@ interface INoto_V1 is IConfidentialToken {
         bytes proof;
     }
 
-    struct NotoUpdateLockOperation {
+    struct NotoUpdateLockArgs {
         bytes32 txId;
         bytes32 oldLockState;
         bytes32 newLockState;
         bytes proof;
     }
 
-    struct NotoUnlockOperation {
+    struct NotoSpendLockArgs {
         bytes32 txId;
         bytes32[] inputs;
         bytes32[] outputs;
@@ -41,7 +41,7 @@ interface INoto_V1 is IConfidentialToken {
         bytes proof;
     }
 
-    struct NotoDelegateOperation {
+    struct NotoDelegateLockArgs {
         bytes32 txId;
         bytes32 oldLockState;
         bytes32 newLockState;
@@ -158,40 +158,40 @@ interface INoto_V1 is IConfidentialToken {
     ) external view returns (bytes memory);
 
     function computeLockId(
-        bytes calldata createInputs
+        bytes calldata createArgs
     ) external view returns (bytes32 lockId);
 
     function getLockId(bytes32 id) external view returns (bytes32 lockId);
 
     function createLock(
-        bytes calldata createInputs,
+        bytes calldata createArgs,
         LockParams calldata params,
         bytes calldata data
     ) external returns (bytes32 lockId);
 
     function updateLock(
         bytes32 lockId,
-        bytes calldata updateInputs,
+        bytes calldata updateArgs,
         LockParams calldata params,
         bytes calldata data
     ) external;
 
     function delegateLock(
         bytes32 lockId,
-        bytes calldata delegateInputs,
+        bytes calldata delegateArgs,
         address newSpender,
         bytes calldata data
     ) external;
 
     function spendLock(
         bytes32 lockId,
-        bytes calldata spendInputs,
+        bytes calldata spendArgs,
         bytes calldata data
     ) external;
 
     function cancelLock(
         bytes32 lockId,
-        bytes calldata cancelInputs,
+        bytes calldata cancelArgs,
         bytes calldata data
     ) external;
 

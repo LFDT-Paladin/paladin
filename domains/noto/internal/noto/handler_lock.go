@@ -307,8 +307,8 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		})
 	} else if tx.DomainConfig.IsV1() {
 		functionName = "createLock"
-		var notoLockOpEncoded []byte
-		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperationV1(ctx, &types.NotoCreateLockOperation_V1{
+		var createLockArgs []byte
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgsV1(ctx, &types.NotoCreateLockArgs_V1{
 			TxId:         req.Transaction.TransactionId,
 			Inputs:       endorsableStateIDs(inputs),
 			Outputs:      endorsableStateIDs(outputs),
@@ -327,7 +327,7 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 			}
 
 			paramsJSON, err = json.Marshal(&CreateLockParams_V1{
-				CreateInputs: notoLockOpEncoded,
+				CreateArgs: createLockArgs,
 				Params: LockParams_V1{
 					SpendHash:  pldtypes.Bytes32{},
 					CancelHash: pldtypes.Bytes32{},
@@ -338,8 +338,8 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		}
 	} else {
 		functionName = "createLock"
-		var notoLockOpEncoded []byte
-		notoLockOpEncoded, err = h.noto.encodeNotoCreateLockOperation(ctx, &types.NotoCreateLockOperation{
+		var createLockArgs []byte
+		createLockArgs, err = h.noto.encodeNotoCreateLockArgs(ctx, &types.NotoCreateLockArgs{
 			TxId:         req.Transaction.TransactionId,
 			Inputs:       endorsableStateIDs(inputs),
 			Outputs:      endorsableStateIDs(outputs),
@@ -352,7 +352,7 @@ func (h *lockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		})
 		if err == nil {
 			paramsJSON, err = json.Marshal(&CreateLockParams{
-				CreateInputs:     notoLockOpEncoded,
+				CreateArgs:       createLockArgs,
 				SpendCommitment:  pldtypes.Bytes32{},
 				CancelCommitment: pldtypes.Bytes32{},
 				Data:             data,

@@ -268,9 +268,9 @@ func (n *Noto) receiptLockInfoV1V2(ctx context.Context, req *prototk.BuildReceip
 		}
 
 		// Encode the operation to spend the lock
-		var notoUnlockOpEncoded []byte
+		var spendLockArgs []byte
 		var unlockParamsJSON []byte
-		notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
+		spendLockArgs, err = n.encodeNotoSpendLockArgs(ctx, &types.NotoSpendLockArgs{
 			TxId:    lt.newLockInfo.SpendTxId.String(),
 			Inputs:  lockedInputIDs,
 			Outputs: stringIDs(lt.newLockInfo.SpendOutputs),
@@ -280,9 +280,9 @@ func (n *Noto) receiptLockInfoV1V2(ctx context.Context, req *prototk.BuildReceip
 		if err == nil {
 			lockInfo.UnlockFunction = "spendLock"
 			lockInfo.UnlockParams = map[string]any{
-				"lockId":      lockInfo.LockID,
-				"spendInputs": pldtypes.HexBytes(notoUnlockOpEncoded),
-				"data":        lt.newLockInfo.SpendData,
+				"lockId":    lockInfo.LockID,
+				"spendArgs": pldtypes.HexBytes(spendLockArgs),
+				"data":      lt.newLockInfo.SpendData,
 			}
 		}
 		if err == nil {
@@ -294,10 +294,10 @@ func (n *Noto) receiptLockInfoV1V2(ctx context.Context, req *prototk.BuildReceip
 		}
 
 		// Encode the operation to cancel the lock
-		var notoCancelOpEncoded []byte
+		var cancelLockArgs []byte
 		var cancelParamsJSON []byte
 		if err == nil {
-			notoCancelOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
+			cancelLockArgs, err = n.encodeNotoSpendLockArgs(ctx, &types.NotoSpendLockArgs{
 				TxId:    lt.newLockInfo.SpendTxId.String(),
 				Inputs:  lockedInputIDs,
 				Outputs: stringIDs(lt.newLockInfo.CancelOutputs),
@@ -308,9 +308,9 @@ func (n *Noto) receiptLockInfoV1V2(ctx context.Context, req *prototk.BuildReceip
 		if err == nil {
 			lockInfo.CancelFunction = "cancelLock"
 			lockInfo.CancelParams = map[string]any{
-				"lockId":       lockInfo.LockID,
-				"cancelInputs": pldtypes.HexBytes(notoCancelOpEncoded),
-				"data":         lt.newLockInfo.CancelData,
+				"lockId":     lockInfo.LockID,
+				"cancelArgs": pldtypes.HexBytes(cancelLockArgs),
+				"data":       lt.newLockInfo.CancelData,
 			}
 		}
 		if err == nil {

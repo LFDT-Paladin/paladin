@@ -385,17 +385,17 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @dev Compute the lockId for given parameters (deterministic generation).
      *      This allows callers to predict the lockId before calling createLock().
      *
-     * @param createInputs The inputs that will be passed to the createLock call
+     * @param createArgs The args that will be passed to the createLock call
      * @return lockId The computed unique identifier for the lock.
      */
     function computeLockId(
-        bytes calldata createInputs
+        bytes calldata createArgs
     ) public view override returns (bytes32) {
-        NotoCreateLockOperation memory lockOp = abi.decode(
-            createInputs,
-            (NotoCreateLockOperation)
+        NotoCreateLockArgs memory args = abi.decode(
+            createArgs,
+            (NotoCreateLockArgs)
         );
-        return _computeLockId(lockOp.txId);
+        return _computeLockId(args.txId);
     }
 
     function _computeLockId(bytes32 txId) internal view returns (bytes32) {
@@ -408,7 +408,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      *      Locked states can be spent using spendLock(), or control of the lock can be
      *      delegated using delegateLock().
      *
-     * @param createInputs The inputs must be a valid ABI encoded NotoCreateLockOperation structure
+     * @param createArgs The inputs must be a valid ABI encoded NotoCreateLockArgs structure
      * @param spendCommitment Commitment that constrains spendLock() to a specific spend operation (may be zero for unrestricted).
      * @param cancelCommitment Commitment that constrains cancelLock() to a specific cancel operation (may be zero for unrestricted).
      * @param data Any additional transaction data (opaque to the blockchain).
@@ -418,16 +418,16 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * Emits a {NotoLockCreated} event containing decoded Noto parameters.
      */
     function createLock(
-        bytes calldata createInputs,
+        bytes calldata createArgs,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes calldata data
     ) external virtual override onlyNotary returns (bytes32) {
-        NotoCreateLockOperation memory lockOp = abi.decode(
-            createInputs,
-            (NotoCreateLockOperation)
+        NotoCreateLockArgs memory args = abi.decode(
+            createArgs,
+            (NotoCreateLockArgs)
         );
-        bytes32 lockId = _computeLockId(lockOp.txId);
+        bytes32 lockId = _computeLockId(args.txId);
         NotoLockInfo storage lock = _locks[lockId];
         if (lock.owner != address(0)) {
             revert NotoDuplicateLock(lockId);
@@ -436,9 +436,9 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         // Set the initial ownership, and immutable content of the lock
         lock.owner = msg.sender;
         lock.spender = msg.sender;
-        lock.content = abi.encode(lockOp.content);
+        lock.content = abi.encode(args.content);
 
-        _createLock(lockOp, spendCommitment, cancelCommitment, lockId, lock);
+        _createLock(args, spendCommitment, cancelCommitment, lockId, lock);
 
         emit LockCreated(
             lockId,
@@ -450,14 +450,14 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         );
 
         emit NotoLockCreated(
-            lockOp.txId,
+            args.txId,
             lockId,
             msg.sender,
-            lockOp.inputs,
-            lockOp.outputs,
-            lockOp.content,
-            lockOp.newLockState,
-            lockOp.proof,
+            args.inputs,
+            args.outputs,
+            args.content,
+            args.newLockState,
+            args.proof,
             data
         );
 
@@ -468,7 +468,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      * @dev Update the current options for a lock.
      *
      * @param lockId Unique identifier for the lock.
-     * @param updateInputs The inputs must be a valid ABI encoded NotoUpdateLockOperation structure
+     * @param updateArgs The inputs must be a valid ABI encoded NotoUpdateLockArgs structure
      * @param spendCommitment Replacement spend commitment (may be zero for unrestricted).
      * @param cancelCommitment Replacement cancel commitment (may be zero for unrestricted).
      * @param data Any additional transaction data (opaque to the blockchain).
@@ -478,21 +478,21 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      */
     function updateLock(
         bytes32 lockId,
-        bytes calldata updateInputs,
+        bytes calldata updateArgs,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes calldata data
     ) external virtual override lockActive(lockId) onlyNotary {
-        NotoUpdateLockOperation memory lockOp = abi.decode(
-            updateInputs,
-            (NotoUpdateLockOperation)
+        NotoUpdateLockArgs memory args = abi.decode(
+            updateArgs,
+            (NotoUpdateLockArgs)
         );
         NotoLockInfo storage lock = _locks[lockId];
         if (lock.owner != lock.spender) {
             revert LockImmutable(lockId);
         }
 
-        _updateLock(lockOp, spendCommitment, cancelCommitment, lockId, lock);
+        _updateLock(args, spendCommitment, cancelCommitment, lockId, lock);
 
         emit LockUpdated(
             lockId,
@@ -505,85 +505,84 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32[] memory lockContent = abi.decode(lock.content, (bytes32[]));
 
         emit NotoLockUpdated(
-            lockOp.txId,
+            args.txId,
             lockId,
             msg.sender,
             lockContent,
-            lockOp.oldLockState,
-            lockOp.newLockState,
-            lockOp.proof,
+            args.oldLockState,
+            args.newLockState,
+            args.proof,
             data
         );
     }
 
     function _createLock(
-        NotoCreateLockOperation memory lockOp,
+        NotoCreateLockArgs memory args,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes32 lockId,
         NotoLockInfo storage lock
     ) internal virtual {
-        useTxId(lockOp.txId);
+        useTxId(args.txId);
 
-        _processInputs(lockOp.inputs);
-        _processOutputs(lockOp.outputs);
-        _processLockContent(lockId, lockOp.content);
+        _processInputs(args.inputs);
+        _processOutputs(args.outputs);
+        _processLockContent(lockId, args.content);
 
-        _processOutput(lockOp.newLockState);
-        _lockStates[lockId] = lockOp.newLockState;
+        _processOutput(args.newLockState);
+        _lockStates[lockId] = args.newLockState;
 
         lock.spendCommitment = spendCommitment;
         lock.cancelCommitment = cancelCommitment;
 
-        if (lockOp.options.spendTxId != 0) {
-            _setLockOptions(lockId, lock, lockOp.options);
+        if (args.options.spendTxId != 0) {
+            _setLockOptions(lockId, lock, args.options);
         }
     }
 
     function _updateLock(
-        NotoUpdateLockOperation memory lockOp,
+        NotoUpdateLockArgs memory args,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes32 lockId,
         NotoLockInfo storage lock
     ) internal virtual {
-        useTxId(lockOp.txId);
+        useTxId(args.txId);
 
-        _transitionLockState(lockId, lockOp.oldLockState, lockOp.newLockState);
+        _transitionLockState(lockId, args.oldLockState, args.newLockState);
 
         lock.spendCommitment = spendCommitment;
         lock.cancelCommitment = cancelCommitment;
 
-        if (lockOp.options.spendTxId != 0) {
-            _setLockOptions(lockId, lock, lockOp.options);
+        if (args.options.spendTxId != 0) {
+            _setLockOptions(lockId, lock, args.options);
         }
     }
 
     function _setLockOptions(
         bytes32 lockId,
         NotoLockInfo storage lock,
-        NotoLockOptions memory lockOptions
+        NotoLockOptions memory options
     ) internal virtual {
         NotoLockOptions memory oldOptions = lock.options;
         if (
-            lockOptions.spendTxId != 0 &&
-            oldOptions.spendTxId != lockOptions.spendTxId
+            options.spendTxId != 0 && oldOptions.spendTxId != options.spendTxId
         ) {
-            if (_txIds[lockOptions.spendTxId]) {
-                revert NotoDuplicateTransaction(lockOptions.spendTxId);
+            if (_txIds[options.spendTxId]) {
+                revert NotoDuplicateTransaction(options.spendTxId);
             }
             if (
-                _lockTxIds[lockOptions.spendTxId] != 0 &&
-                _lockTxIds[lockOptions.spendTxId] != lockId
+                _lockTxIds[options.spendTxId] != 0 &&
+                _lockTxIds[options.spendTxId] != lockId
             ) {
-                revert NotoDuplicateSpendTransaction(lockOptions.spendTxId);
+                revert NotoDuplicateSpendTransaction(options.spendTxId);
             }
             if (oldOptions.spendTxId != 0) {
                 delete _lockTxIds[oldOptions.spendTxId];
             }
-            _lockTxIds[lockOptions.spendTxId] = lockId;
+            _lockTxIds[options.spendTxId] = lockId;
         }
-        lock.options = lockOptions;
+        lock.options = options;
     }
 
     /**
@@ -593,7 +592,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      *      and the provided state data must match the spendHash.
      *
      * @param lockId The identifier of the lock.
-     * @param spendInputs Must be a valid ABI encoded NotoUnlockOperation struct
+     * @param spendArgs Must be a valid ABI encoded NotoSpendLockArgs struct
      * @param data Any additional transaction data (opaque to the blockchain).
      *
      * Emits a {LockSpent} event as defined in ILockableCapability.
@@ -601,13 +600,13 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      */
     function spendLock(
         bytes32 lockId,
-        bytes calldata spendInputs,
+        bytes calldata spendArgs,
         bytes calldata data
     ) external override lockActive(lockId) onlySpender(lockId) {
         NotoLockInfo storage lock = _locks[lockId];
-        NotoUnlockOperation memory unlockOp = abi.decode(
-            spendInputs,
-            (NotoUnlockOperation)
+        NotoSpendLockArgs memory unlockOp = abi.decode(
+            spendArgs,
+            (NotoSpendLockArgs)
         );
         bytes32 oldLockState = _lockStates[lockId];
         _spendLock(lockId, lock, lock.spendCommitment, unlockOp, oldLockState);
@@ -632,7 +631,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      *      and the provided state data must match the cancelHash.
      *
      * @param lockId The identifier of the lock.
-     * @param cancelInputs Must be a valid ABI encoded NotoUnlockOperation
+     * @param cancelArgs Must be a valid ABI encoded NotoSpendLockArgs
      * @param data Any additional transaction data (opaque to the blockchain).
      *
      * Emits a {LockCancelled} event as defined in ILockableCapability.
@@ -640,13 +639,13 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      */
     function cancelLock(
         bytes32 lockId,
-        bytes calldata cancelInputs,
+        bytes calldata cancelArgs,
         bytes calldata data
     ) external override lockActive(lockId) onlySpender(lockId) {
         NotoLockInfo storage lock = _locks[lockId];
-        NotoUnlockOperation memory unlockOp = abi.decode(
-            cancelInputs,
-            (NotoUnlockOperation)
+        NotoSpendLockArgs memory unlockOp = abi.decode(
+            cancelArgs,
+            (NotoSpendLockArgs)
         );
         bytes32 oldLockState = _lockStates[lockId];
         _spendLock(lockId, lock, lock.cancelCommitment, unlockOp, oldLockState);
@@ -668,7 +667,7 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
         bytes32 lockId,
         NotoLockInfo storage lock,
         bytes32 expectedHash,
-        NotoUnlockOperation memory unlockOp,
+        NotoSpendLockArgs memory unlockOp,
         bytes32 oldLockState
     ) internal {
         NotoLockOptions storage options = lock.options;
@@ -722,13 +721,13 @@ contract Noto is EIP712Upgradeable, UUPSUpgradeable, INoto, INotoErrors {
      */
     function delegateLock(
         bytes32 lockId,
-        bytes calldata delegateInputs,
+        bytes calldata delegateArgs,
         address newSpender,
         bytes calldata data
     ) external override lockActive(lockId) onlySpender(lockId) {
-        NotoDelegateOperation memory delegateOp = abi.decode(
-            delegateInputs,
-            (NotoDelegateOperation)
+        NotoDelegateLockArgs memory delegateOp = abi.decode(
+            delegateArgs,
+            (NotoDelegateLockArgs)
         );
         NotoLockInfo storage lock = _locks[lockId];
         if (lock.spendCommitment == 0 || lock.cancelCommitment == 0) {

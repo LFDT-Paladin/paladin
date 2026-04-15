@@ -292,7 +292,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	// Decode the options we store into the lockInfo
 	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
 	require.NoError(t, err)
-	notoParams := decodeSingleABITuple[types.NotoUpdateLockOperation](t, types.NotoUpdateLockOperationABI, fnParams.UpdateInputs)
+	notoParams := decodeSingleABITuple[types.NotoUpdateLockArgs](t, types.NotoUpdateLockArgsABI, fnParams.UpdateArgs)
 	notoOptions := notoParams.Options
 	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(readStates), []string{}, unlockTxData)
 	require.NoError(t, err)
@@ -302,7 +302,7 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
-	require.Equal(t, &types.NotoUpdateLockOperation{
+	require.Equal(t, &types.NotoUpdateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
@@ -347,8 +347,8 @@ func TestPrepareBurnUnlock(t *testing.T) {
 	require.Equal(t, fnParams.Data.String(), paramsV1.Data.String())
 
 	// Validate the encoded noto parameters passed in for the V1 variant
-	notoParamsV1 := decodeSingleABITuple[types.NotoUpdateLockOperation_V1](t, types.NotoUpdateLockOperationABI_V1, paramsV1.UpdateInputs)
-	require.Equal(t, &types.NotoUpdateLockOperation_V1{
+	notoParamsV1 := decodeSingleABITuple[types.NotoUpdateLockArgs_V1](t, types.NotoUpdateLockArgsABI_V1, paramsV1.UpdateArgs)
+	require.Equal(t, &types.NotoUpdateLockArgs_V1{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		OldLockState: pldtypes.MustParseBytes32(inputLockInfo.Id),
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),

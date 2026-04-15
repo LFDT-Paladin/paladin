@@ -13,7 +13,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // - The input states to be consumed in this operation. e.g. the value to be locked
     // - The output states to be generated in this operation. e.g. if there is any change to return
     // - The contents that were stored in the lock. e.g. the locked value states
-    struct NotoCreateLockOperation {
+    struct NotoCreateLockArgs {
         bytes32 txId; // unique identifier for the transaction
         bytes32[] inputs; // unlocked states spent in the transaction
         bytes32[] outputs; // created outside the lock by the transaction
@@ -26,7 +26,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     // The structure definition for a Noto update lock operation, which includes:
     // - The input states to be consumed in this operation. e.g. the old lock record
     // - The output states to be generated in this operation. e.g. the new lock record
-    struct NotoUpdateLockOperation {
+    struct NotoUpdateLockArgs {
         bytes32 txId; // unique identifier for the transaction
         bytes32 oldLockState; // old state for the lock
         bytes32 newLockState; // new state for the lock
@@ -34,9 +34,9 @@ interface INoto is IConfidentialToken, ILockableCapability {
         bytes proof; // recorded signature for the lock operation
     }
 
-    // The structure definition for a Noto unlock operation, which can be hashed
+    // The structure definition for a Noto spendLock or cancelLock operation, which can be hashed
     // in order to construct a spendHash or a cancelHash.
-    struct NotoUnlockOperation {
+    struct NotoSpendLockArgs {
         bytes32 txId; // unique identifier for the transaction (exactly per spendTxId, if set)
         bytes32[] inputs; // locked states spend in the transaction (exactly per spendHash/cancelHash, if set)
         bytes32[] outputs; // unlocked states created in the transaction (exactly per spendHash/cancelHash, if set)
@@ -45,7 +45,7 @@ interface INoto is IConfidentialToken, ILockableCapability {
     }
 
     // The structure definition for a Noto delegate operation
-    struct NotoDelegateOperation {
+    struct NotoDelegateLockArgs {
         bytes32 txId; // unique identifier for the transaction
         bytes32 oldLockState; // old state for the lock
         bytes32 newLockState; // new state for the lock

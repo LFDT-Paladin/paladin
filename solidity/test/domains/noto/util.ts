@@ -8,7 +8,7 @@ export interface NotoLockOptions {
   spendTxId: BytesLike;
 }
 
-export interface NotoCreateLockOperation {
+export interface NotoCreateLockArgs {
   txId: BytesLike;
   inputs: BytesLike[];
   outputs: BytesLike[];
@@ -18,7 +18,7 @@ export interface NotoCreateLockOperation {
   proof: BytesLike;
 }
 
-export interface NotoUpdateLockOperation {
+export interface NotoUpdateLockArgs {
   txId: BytesLike;
   oldLockState: BytesLike;
   newLockState: BytesLike;
@@ -26,7 +26,7 @@ export interface NotoUpdateLockOperation {
   proof: BytesLike;
 }
 
-export interface NotoUnlockOperation {
+export interface NotoSpendLockArgs {
   txId: BytesLike;
   inputs: BytesLike[];
   outputs: BytesLike[];
@@ -34,7 +34,7 @@ export interface NotoUnlockOperation {
   proof: BytesLike;
 }
 
-export interface NotoDelegateLockOperation {
+export interface NotoDelegateLockArgs {
   txId: BytesLike;
   oldLockState: BytesLike;
   newLockState: BytesLike;
@@ -148,8 +148,8 @@ export async function doMint(
   }
 }
 
-export function encodeCreateLockParams(
-  lockOp: NotoCreateLockOperation,
+export function encodeCreateLockArgs(
+  lockOp: NotoCreateLockArgs,
 ): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     [
@@ -169,8 +169,8 @@ export function encodeCreateLockParams(
   );
 }
 
-export function encodeUpdateLockParams(
-  lockOp: NotoUpdateLockOperation,
+export function encodeUpdateLockArgs(
+  lockOp: NotoUpdateLockArgs,
 ): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     ["tuple(bytes32,bytes32,bytes32,tuple(bytes32),bytes)"],
@@ -186,7 +186,7 @@ export function encodeUpdateLockParams(
   );
 }
 
-export function encodeUnlockParams(unlockOp: NotoUnlockOperation): BytesLike {
+export function encodeUnlockArgs(unlockOp: NotoSpendLockArgs): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     ["tuple(bytes32,bytes32[],bytes32[],bytes,bytes)"],
     [
@@ -201,8 +201,8 @@ export function encodeUnlockParams(unlockOp: NotoUnlockOperation): BytesLike {
   );
 }
 
-export function encodeDelegateLockParams(
-  delegateOp: NotoDelegateLockOperation,
+export function encodeDelegateLockArgs(
+  delegateOp: NotoDelegateLockArgs,
 ): BytesLike {
   return ethers.AbiCoder.defaultAbiCoder().encode(
     ["tuple(bytes32,bytes32,bytes32,bytes)"],
@@ -220,15 +220,13 @@ export function encodeDelegateLockParams(
 export async function doLock(
   notary: Signer,
   noto: Noto,
-  lockOp: NotoCreateLockOperation,
+  lockOp: NotoCreateLockArgs,
   spendCommitment: BytesLike,
   cancelCommitment: BytesLike,
   data: string,
 ) {
   const notaryAddr = await notary.getAddress();
-
-  // NotoLockOperation
-  const encodedParams = encodeCreateLockParams(lockOp);
+  const encodedParams = encodeCreateLockArgs(lockOp);
 
   const tx = await noto
     .connect(notary)
@@ -281,7 +279,7 @@ export async function doUnlock(
   outputs: string[],
   data: string,
 ) {
-  const encodedParams = encodeUnlockParams({
+  const encodedParams = encodeUnlockArgs({
     txId,
     inputs: lockedInputs,
     outputs,
@@ -342,7 +340,7 @@ export async function doPrepareUnlock(
 ) {
   const notaryAddr = await notary.getAddress();
 
-  const encodedParams = encodeUpdateLockParams({
+  const encodedParams = encodeUpdateLockArgs({
     txId,
     oldLockState: oldLockStateId,
     newLockState: newLockStateId,
@@ -391,7 +389,7 @@ export async function doDelegateLock(
     proof: "0x",
   };
   // NotoDelegateOperation
-  const encodedParams = encodeDelegateLockParams(delegateLockParams);
+  const encodedParams = encodeDelegateLockArgs(delegateLockParams);
   const tx = await noto
     .connect(notary)
     .delegateLock(lockId, encodedParams, delegate, data);

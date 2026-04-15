@@ -273,7 +273,7 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 		})
 	} else {
 		var delegateInputsEncoded pldtypes.HexBytes
-		delegateInputsEncoded, err = h.noto.encodeNotoDelegateOperation(ctx, &types.NotoDelegateOperation{
+		delegateInputsEncoded, err = h.noto.encodeNotoDelegateLockArgs(ctx, &types.NotoDelegateLockArgs{
 			TxId:         req.Transaction.TransactionId,
 			OldLockState: lt.prevLockStateID,
 			NewLockState: lt.newLockStateID,
@@ -281,10 +281,10 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 		})
 		if err == nil {
 			paramsJSON, err = json.Marshal(&DelegateLockParams{
-				LockID:         inParams.LockID,
-				DelegateInputs: delegateInputsEncoded,
-				NewSpender:     inParams.Delegate,
-				Data:           txData,
+				LockID:       inParams.LockID,
+				DelegateArgs: delegateInputsEncoded,
+				NewSpender:   inParams.Delegate,
+				Data:         txData,
 			})
 		}
 	}

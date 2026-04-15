@@ -260,7 +260,7 @@ func TestUnlock(t *testing.T) {
 	require.Empty(t, params.Data /* outer data not used */)
 
 	// Validate the parameters
-	notoParams := decodeSingleABITuple[types.NotoUnlockOperation](t, types.NotoUnlockOperationABI, params.SpendInputs)
+	notoParams := decodeSingleABITuple[types.NotoSpendLockArgs](t, types.NotoSpendLockArgsABI, params.SpendArgs)
 	require.Equal(t, "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d", notoParams.TxId)
 	require.Equal(t, []string{inputCoin.ID.String(), inputLockInfo.Id}, notoParams.Inputs)
 	require.Equal(t, []string{*outputCoinState.Id}, notoParams.Outputs)

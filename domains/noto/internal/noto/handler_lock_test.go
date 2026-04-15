@@ -228,9 +228,9 @@ func TestLock(t *testing.T) {
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
 	require.Zero(t, params.SpendCommitment)
 	require.Zero(t, params.CancelCommitment)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
+	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, params.CreateArgs)
 	require.Equal(t, &types.NotoLockOptions{}, notoParams.Options)
-	require.Equal(t, &types.NotoCreateLockOperation{
+	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoin.ID.String()},
 		Outputs:      []string{},
@@ -282,8 +282,8 @@ func TestLock(t *testing.T) {
 	require.Equal(t, params.Data.String(), paramsV1.Data.String())
 
 	// Validate the encoded noto parameters passed in for the V1 variant
-	notoParamsV1 := decodeSingleABITuple[types.NotoCreateLockOperation_V1](t, types.NotoCreateLockOperationABI_V1, paramsV1.CreateInputs)
-	require.Equal(t, &types.NotoCreateLockOperation_V1{
+	notoParamsV1 := decodeSingleABITuple[types.NotoCreateLockArgs_V1](t, types.NotoCreateLockArgsABI_V1, paramsV1.CreateArgs)
+	require.Equal(t, &types.NotoCreateLockArgs_V1{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoin.ID.String()},
 		Outputs:      []string{},
@@ -775,9 +775,9 @@ func TestLockEmpty(t *testing.T) {
 	params := decodeFnParams[CreateLockParams](t, createLockABI, prepareRes.Transaction.ParamsJson)
 	require.Zero(t, params.SpendCommitment)
 	require.Zero(t, params.CancelCommitment)
-	notoParams := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, params.CreateInputs)
+	notoParams := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, params.CreateArgs)
 	require.Equal(t, &types.NotoLockOptions{}, notoParams.Options)
-	require.Equal(t, &types.NotoCreateLockOperation{
+	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{},
 		Outputs:      []string{},

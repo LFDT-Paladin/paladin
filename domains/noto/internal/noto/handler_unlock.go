@@ -166,8 +166,8 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		})
 	} else {
 		functionName = "spendLock"
-		var notoUnlockOpEncoded []byte
-		notoUnlockOpEncoded, err = h.noto.encodeNotoUnlockOperation(ctx, inParams.LockID, &types.NotoUnlockOperation{
+		var spendLockArgs []byte
+		spendLockArgs, err = h.noto.encodeNotoSpendLockArgs(ctx, &types.NotoSpendLockArgs{
 			TxId:    req.Transaction.TransactionId,
 			Inputs:  endorsableStateIDs(lockedInputs),
 			Outputs: endorsableStateIDs(outputs),
@@ -176,9 +176,9 @@ func (h *unlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTr
 		})
 		if err == nil {
 			paramsJSON, err = json.Marshal(&SpendLockParams{
-				LockID:      inParams.LockID,
-				SpendInputs: notoUnlockOpEncoded,
-				Data:        []byte{}, // we don't need this outer data
+				LockID:    inParams.LockID,
+				SpendArgs: spendLockArgs,
+				Data:      []byte{}, // we don't need this outer data
 			})
 		}
 	}

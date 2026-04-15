@@ -13,7 +13,7 @@ import {
   doUnlock,
   fakeTXO,
   newUnlockHash,
-  NotoCreateLockOperation,
+  NotoCreateLockArgs,
   randomBytes32,
 } from "./util";
 
@@ -135,7 +135,7 @@ describe("Noto", function () {
       newLockState: lockStateId1,
       options: { spendTxId: ZeroHash },
       proof: "0x",
-    } as NotoCreateLockOperation;
+    } as NotoCreateLockArgs;
     const lockId = await doLock(
       notary,
       noto,
@@ -332,7 +332,7 @@ describe("Noto", function () {
       newLockState: lockStateId1,
       options: { spendTxId: ZeroHash },
       proof: "0x",
-    } as NotoCreateLockOperation;
+    } as NotoCreateLockArgs;
     await expect(
       doLock(notary, noto, params1, ZeroHash, ZeroHash, "0x"),
     ).to.be.revertedWithCustomError(noto, "NotoDuplicateTransaction");

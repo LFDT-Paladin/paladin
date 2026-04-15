@@ -34,11 +34,14 @@ pragma solidity ^0.8.20;
  *        - the provided data failing validation as defined by the specific
  *          implementation.
  *
- *      Notes on dynamically typed inputs:
- *        - Each `*Inputs` parameter contains implementation-specific
- *          calldata, used to carry out that lifecycle action.
- *        - Each `data` parameter contains application-specific
- *          calldata, which is passed through to emitted events.
+ *      Notes on dynamically typed arguments:
+ *        - Each `*Args` parameter contains implementation-specific,
+ *          ABI-encoded calldata used to carry out that lifecycle action.
+ *          Implementations are RECOMMENDED to define and document a canonical
+ *          struct type for each such argument payload, and to encode that
+ *          struct using `abi.encode(...)` when calling the interface methods.
+ *        - Each `data` parameter contains application-specific calldata,
+ *          which is passed through to emitted events.
  */
 interface ILockableCapability {
     /**
@@ -156,7 +159,7 @@ interface ILockableCapability {
      *  - MUST set owner to msg.sender
      *  - MUST set spender to msg.sender initially
      *
-     * @param createInputs     Implementation-specific calldata needed to create the lock.
+     * @param createArgs       Implementation-specific calldata needed to create the lock.
      * @param spendCommitment  An implementation-defined commitment to the spend operation permitted for this lock.
      * @param cancelCommitment An implementation-defined commitment to the cancellation operation permitted for this lock.
      * @param data             Auxiliary application-specific calldata.
@@ -165,7 +168,7 @@ interface ILockableCapability {
      * Emits a {LockCreated} event.
      */
     function createLock(
-        bytes calldata createInputs,
+        bytes calldata createArgs,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes calldata data
@@ -185,7 +188,7 @@ interface ILockableCapability {
      *    permitted by the implementation
      *
      * @param lockId           The unique identifier for the lock.
-     * @param updateInputs     Implementation-specific calldata needed to update the lock.
+     * @param updateArgs       Implementation-specific calldata needed to update the lock.
      * @param spendCommitment  Replacement spend commitment.
      * @param cancelCommitment Replacement cancel commitment.
      * @param data             Auxiliary application-specific calldata.
@@ -194,7 +197,7 @@ interface ILockableCapability {
      */
     function updateLock(
         bytes32 lockId,
-        bytes calldata updateInputs,
+        bytes calldata updateArgs,
         bytes32 spendCommitment,
         bytes32 cancelCommitment,
         bytes calldata data
@@ -217,16 +220,16 @@ interface ILockableCapability {
      *    if msg.sender is not the current spender for lockId
      *  - MUST revert with LockNotActive(lockId) if the lock is not active
      *
-     * @param lockId         The unique identifier for the lock.
-     * @param delegateInputs Implementation-specific calldata needed to delegate the lock.
-     * @param newSpender     The address to delegate the lock to.
-     * @param data           Auxiliary application-specific calldata.
+     * @param lockId       The unique identifier for the lock.
+     * @param delegateArgs Implementation-specific calldata needed to delegate the lock.
+     * @param newSpender   The address to delegate the lock to.
+     * @param data         Auxiliary application-specific calldata.
      *
      * Emits a {LockDelegated} event.
      */
     function delegateLock(
         bytes32 lockId,
-        bytes calldata delegateInputs,
+        bytes calldata delegateArgs,
         address newSpender,
         bytes calldata data
     ) external;
@@ -242,15 +245,15 @@ interface ILockableCapability {
      *  - MUST revert with LockNotActive(lockId) if the lock is not active
      *  - MUST remove the lock (or mark as inactive) if successful
      *
-     * @param lockId      The unique identifier for the lock.
-     * @param spendInputs Implementation-specific calldata needed to spend the lock.
-     * @param data        Auxiliary application-specific calldata.
+     * @param lockId    The unique identifier for the lock.
+     * @param spendArgs Implementation-specific calldata needed to spend the lock.
+     * @param data      Auxiliary application-specific calldata.
      *
      * Emits a {LockSpent} event.
      */
     function spendLock(
         bytes32 lockId,
-        bytes calldata spendInputs,
+        bytes calldata spendArgs,
         bytes calldata data
     ) external;
 
@@ -265,15 +268,15 @@ interface ILockableCapability {
      *  - MUST revert with LockNotActive(lockId) if the lock is not active
      *  - MUST remove the lock (or mark as inactive) if successful
      *
-     * @param lockId       The unique identifier for the lock.
-     * @param cancelInputs Implementation-specific calldata needed to cancel the lock.
-     * @param data         Auxiliary application-specific calldata.
+     * @param lockId     The unique identifier for the lock.
+     * @param cancelArgs Implementation-specific calldata needed to cancel the lock.
+     * @param data       Auxiliary application-specific calldata.
      *
      * Emits a {LockCancelled} event.
      */
     function cancelLock(
         bytes32 lockId,
-        bytes calldata cancelInputs,
+        bytes calldata cancelArgs,
         bytes calldata data
     ) external;
 

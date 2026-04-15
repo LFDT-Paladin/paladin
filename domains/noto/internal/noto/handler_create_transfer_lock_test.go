@@ -279,8 +279,8 @@ func TestCreateTransferLock(t *testing.T) {
 	// Decode the options we store into the lockInfo
 	unlockTxData, err := n.encodeTransactionDataV1(ctx, newStateToEndorsableState([]*prototk.NewState{unlockDataState}))
 	require.NoError(t, err)
-	createLockOp := decodeSingleABITuple[types.NotoCreateLockOperation](t, types.NotoCreateLockOperationABI, fnParams.CreateInputs)
-	notoOptions := createLockOp.Options
+	createLockArgs := decodeSingleABITuple[types.NotoCreateLockArgs](t, types.NotoCreateLockArgsABI, fnParams.CreateArgs)
+	notoOptions := createLockArgs.Options
 	expectedSpendHash, err := n.unlockHashFromIDs_V1(ctx, ethtypes.MustNewAddress(contractAddress), lockID, notoOptions.SpendTxId.HexString(), endorsableStateIDs(outputStates[1:2]), endorsableStateIDs(infoStates[1:2]), unlockTxData)
 	require.NoError(t, err)
 	require.Equal(t, expectedSpendHash, fnParams.SpendCommitment)
@@ -289,15 +289,15 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Equal(t, expectedCancelHash, fnParams.CancelCommitment)
 
 	// Validate the encoded noto parameters passed in
-	require.Equal(t, &types.NotoCreateLockOperation{
+	require.Equal(t, &types.NotoCreateLockArgs{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoinState.Id},
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
-		Options:      createLockOp.Options,
+		Options:      createLockArgs.Options,
 		Proof:        signatureBytes,
-	}, createLockOp)
+	}, createLockArgs)
 
 	// Prepare again with V1 variant to check parameter shape
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
@@ -335,15 +335,15 @@ func TestCreateTransferLock(t *testing.T) {
 	require.Equal(t, fnParams.Data.String(), paramsV1.Data.String())
 
 	// Validate the encoded noto parameters passed in for the V1 variant
-	createLockOpV1 := decodeSingleABITuple[types.NotoCreateLockOperation_V1](t, types.NotoCreateLockOperationABI_V1, paramsV1.CreateInputs)
-	require.Equal(t, &types.NotoCreateLockOperation_V1{
+	createLockArgsV1 := decodeSingleABITuple[types.NotoCreateLockArgs_V1](t, types.NotoCreateLockArgsABI_V1, paramsV1.CreateArgs)
+	require.Equal(t, &types.NotoCreateLockArgs_V1{
 		TxId:         "0x015e1881f2ba769c22d05c841f06949ec6e1bd573f5e1e0328885494212f077d",
 		Inputs:       []string{inputCoinState.Id},
 		Outputs:      []string{*remainderCoinState.Id},
 		Contents:     []string{*lockedCoinState.Id},
 		NewLockState: pldtypes.MustParseBytes32(*newLockInfoState.Id),
 		Proof:        signatureBytes,
-	}, createLockOpV1)
+	}, createLockArgsV1)
 
 	// Prepare again to test hook invoke
 	hookAddress := "0x515fba7fe1d8b9181be074bd4c7119544426837c"

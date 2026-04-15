@@ -5,13 +5,13 @@ import { Atom, Noto } from "../../../typechain-types";
 import {
   deployNotoInstance,
   doLock,
-  encodeDelegateLockParams,
-  encodeUnlockParams,
-  encodeUpdateLockParams,
+  encodeDelegateLockArgs,
+  encodeUnlockArgs,
+  encodeUpdateLockArgs,
   fakeTXO,
   newUnlockHash,
-  NotoCreateLockOperation,
-  NotoUpdateLockOperation,
+  NotoCreateLockArgs,
+  NotoUpdateLockArgs,
   randomBytes32,
 } from "../../domains/noto/util";
 
@@ -48,7 +48,7 @@ describe("Atom", function () {
       newLockState: lockStateId1,
       options: { spendTxId: ZeroHash },
       proof: "0x",
-    } as NotoCreateLockOperation;
+    } as NotoCreateLockArgs;
     // Create lock with no inputs/outputs, just locked outputs (minting locked states)
     const lockId = await doLock(
       notary1,
@@ -72,7 +72,7 @@ describe("Atom", function () {
       data: f1TxData,
       proof: "0x",
     };
-    const encodedParams = encodeUnlockParams(unlockParams);
+    const encodedParams = encodeUnlockArgs(unlockParams);
     const spendHash = await newUnlockHash(
       noto,
       unlockTxId,
@@ -125,12 +125,12 @@ describe("Atom", function () {
       newLockState: lockStateId2,
       proof: "0x",
       options: { spendTxId: unlockTxId },
-    } as NotoUpdateLockOperation;
+    } as NotoUpdateLockArgs;
     await noto
       .connect(notary1)
       .updateLock(
         lockId,
-        encodeUpdateLockParams(updateParams),
+        encodeUpdateLockArgs(updateParams),
         spendHash,
         cancelHash,
         "0x",
@@ -146,7 +146,7 @@ describe("Atom", function () {
       outputs: [lockStateId3],
       proof: "0x",
     };
-    const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);
+    const encodedDelegateParams = encodeDelegateLockArgs(delegateLockParams);
     await noto
       .connect(notary1)
       .delegateLock(lockId, encodedDelegateParams, atomAddr, "0x");
