@@ -53,13 +53,23 @@ type persistedTransaction struct {
 	From               string                                `gorm:"column:from"`
 	To                 *pldtypes.EthAddress                  `gorm:"column:to"`
 	Data               pldtypes.RawJSON                      `gorm:"column:data"` // we always store in JSON object format
-	TransactionDeps    []*transactionDep                     `gorm:"foreignKey:transaction;references:id"`
-	TransactionReceipt *transactionReceipt                   `gorm:"foreignKey:transaction;references:id"`
+	TransactionDeps        []*transactionDep        `gorm:"foreignKey:transaction;references:id"`
+	TransactionChainedDeps []*transactionChainedDep `gorm:"foreignKey:transaction;references:id"`
+	TransactionReceipt     *transactionReceipt      `gorm:"foreignKey:transaction;references:id"`
 }
 
 type transactionDep struct {
 	Transaction uuid.UUID `gorm:"column:transaction;primaryKey"`
 	DependsOn   uuid.UUID `gorm:"column:depends_on"`
+}
+
+type transactionChainedDep struct {
+	Transaction uuid.UUID `gorm:"column:transaction;primaryKey"`
+	DependsOn   uuid.UUID `gorm:"column:depends_on"`
+}
+
+func (transactionChainedDep) TableName() string {
+	return "transaction_chained_deps"
 }
 
 func (persistedTransaction) TableName() string {
@@ -719,6 +729,7 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	ptxs := make([]*persistedTransaction, len(txis))
 	txhs := make([]*persistedTransactionHistory, len(txis))
 	var transactionDeps []*transactionDep
+	var transactionChainedDeps []*transactionChainedDep
 	for i, txi := range txis {
 		// Resolve the finalized fields on the input object for return
 		tx := txi.Transaction
@@ -741,6 +752,12 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 		}
 		for _, d := range txi.DependsOn {
 			transactionDeps = append(transactionDeps, &transactionDep{
+				Transaction: *tx.ID,
+				DependsOn:   d,
+			})
+		}
+		for _, d := range txi.ChainedDependsOn {
+			transactionChainedDeps = append(transactionChainedDeps, &transactionChainedDep{
 				Transaction: *tx.ID,
 				DependsOn:   d,
 			})
@@ -768,7 +785,7 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	insert := dbTX.DB().
 		WithContext(ctx).
 		Table("transactions").
-		Omit("TransactionDeps")
+		Omit("TransactionDeps", "TransactionChainedDeps")
 	if ignoreConflicts {
 		insert = insert.Clauses(clause.OnConflict{DoNothing: true})
 	}
@@ -789,6 +806,14 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 			Create(transactionDeps).
 			Error
 	}
+	if err == nil && len(transactionChainedDeps) > 0 {
+		log.L(ctx).Debugf("insertTransactions to table 'transaction_chained_deps'")
+		err = dbTX.DB().
+			Table("transaction_chained_deps").
+			Clauses(clause.OnConflict{DoNothing: true}).
+			Create(transactionChainedDeps).
+			Error
+	}
 	if err != nil {
 		return -1, err
 	}
@@ -799,9 +824,10 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 		if rowsAffected == int64(len(txis)) {
 			for _, tx := range txis {
 				tm.txCache.Set(*tx.Transaction.ID, &components.ResolvedTransaction{
-					Transaction: tx.Transaction,
-					DependsOn:   tx.DependsOn,
-					Function:    tx.Function,
+					Transaction:      tx.Transaction,
+					DependsOn:        tx.DependsOn,
+					ChainedDependsOn: tx.ChainedDependsOn,
+					Function:         tx.Function,
 				})
 			}
 		}

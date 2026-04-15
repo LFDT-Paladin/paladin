@@ -151,6 +151,9 @@ func (tm *txManager) mapPersistedTXResolved(pt *persistedTransaction) *component
 	for _, dep := range pt.TransactionDeps {
 		res.DependsOn = append(res.DependsOn, dep.DependsOn)
 	}
+	for _, dep := range pt.TransactionChainedDeps {
+		res.ChainedDependsOn = append(res.ChainedDependsOn, dep.DependsOn)
+	}
 	return res
 }
 
@@ -191,6 +194,7 @@ func (tm *txManager) QueryTransactionsResolved(ctx context.Context, jq *query.Qu
 		Finalize: func(q *gorm.DB) *gorm.DB {
 			q = q.
 				Preload("TransactionDeps").
+				Preload("TransactionChainedDeps").
 				Joins("TransactionReceipt")
 			if pending {
 				q = q.Joins("TransactionReceipt").

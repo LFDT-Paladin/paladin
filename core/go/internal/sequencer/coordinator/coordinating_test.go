@@ -221,6 +221,53 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 	assert.False(t, ok, "transaction should be removed from map")
 }
 
+func Test_action_CleanUpTransaction_RemovesFromPool(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID[txn.GetID()] = txn
+	c.addTransactionToBackOfPool(txn)
+	require.Len(t, c.pooledTransactions, 1)
+
+	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
+		TransactionID: txn.GetID(),
+		To:            transaction.State_Evicted,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, c.pooledTransactions, "transaction should be removed from pool on cleanup")
+}
+
+func Test_removeTransactionFromPool_RemovesMatchingTransaction(t *testing.T) {
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(context.Background())
+	defer done()
+	txn1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	txn2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.addTransactionToBackOfPool(txn1)
+	c.addTransactionToBackOfPool(txn2)
+	require.Len(t, c.pooledTransactions, 2)
+
+	c.removeTransactionFromPool(txn1.GetID())
+
+	require.Len(t, c.pooledTransactions, 1)
+	assert.Equal(t, txn2.GetID(), c.pooledTransactions[0].GetID())
+}
+
+func Test_removeTransactionFromPool_NoOpIfNotInPool(t *testing.T) {
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(context.Background())
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.addTransactionToBackOfPool(txn)
+	require.Len(t, c.pooledTransactions, 1)
+
+	c.removeTransactionFromPool(uuid.New())
+
+	require.Len(t, c.pooledTransactions, 1, "pool should be unchanged when removing non-existent ID")
+}
+
 func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
@@ -230,7 +277,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	c.transactionsByID[txn.GetID()] = txn
 
 	mockGrapher := transaction.NewMockGrapher(t)
-	mockGrapher.EXPECT().Forget(txn.GetID()).Return(fmt.Errorf("forget failed"))
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID()).Return(fmt.Errorf("forget failed"))
 	c.grapher = mockGrapher
 
 	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{

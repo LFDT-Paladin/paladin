@@ -54,7 +54,7 @@ type PrivateTransactionBuilderForTesting struct {
 	readStateIDs               []pldtypes.HexBytes
 	endorsers                  []*identityForTesting
 	revertReason               *string
-	predefinedDependencies     []uuid.UUID
+	chainedDependencies        []uuid.UUID
 	preAssemblyOverride        *components.TransactionPreAssembly
 	postAssemblyOverride       *components.TransactionPostAssembly
 	preparedPrivateTransaction *pldapi.TransactionInput
@@ -201,8 +201,8 @@ func (b *PrivateTransactionBuilderForTesting) ReadStateIDs(stateIDs ...pldtypes.
 	return b
 }
 
-func (b *PrivateTransactionBuilderForTesting) PredefinedDependencies(transactionIDs ...uuid.UUID) *PrivateTransactionBuilderForTesting {
-	b.predefinedDependencies = transactionIDs
+func (b *PrivateTransactionBuilderForTesting) ChainedDependencies(transactionIDs ...uuid.UUID) *PrivateTransactionBuilderForTesting {
+	b.chainedDependencies = transactionIDs
 	return b
 }
 
@@ -298,6 +298,9 @@ func (b *PrivateTransactionBuilderForTesting) Build() *components.PrivateTransac
 	if b.postAssemblyOverride != nil {
 		postAssembly = b.postAssemblyOverride
 	}
+	if len(b.chainedDependencies) > 0 {
+		preAssembly.ChainedDependsOn = b.chainedDependencies
+	}
 	pt := &components.PrivateTransaction{
 		ID:           b.id,
 		Domain:       b.domain,
@@ -365,11 +368,6 @@ func (b *PrivateTransactionBuilderForTesting) BuildPreAssembly() *components.Tra
 			VerifierType: verifiers.ETH_ADDRESS,
 			Verifier:     b.endorsers[i].verifier,
 		}
-	}
-
-	if b.predefinedDependencies != nil {
-		preAssembly.Dependencies = &pldapi.TransactionDependencies{}
-		preAssembly.Dependencies.DependsOn = append(preAssembly.Dependencies.DependsOn, b.predefinedDependencies...)
 	}
 
 	return preAssembly
