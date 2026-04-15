@@ -1,0 +1,31 @@
+# Noto revertable hooks test
+# Deploys Noto with Pente hooks that include a revertable external call on the
+# base ledger, then submits mint transactions that are expected to revert.
+# Validates that every receipt comes back with revert/failure data.
+
+nodes:
+  - name: node1
+    httpEndpoint: http://127.0.0.1:31548
+    wsEndpoint: ws://127.0.0.1:31549
+  - name: node2
+    httpEndpoint: http://127.0.0.1:31648
+    wsEndpoint: ws://127.0.0.1:31649
+  - name: node3
+    httpEndpoint: http://127.0.0.1:31748
+    wsEndpoint: ws://127.0.0.1:31749
+
+instances:
+  - name: noto-revertable-hooks-test
+    test:
+      name: noto_revertable_hooks
+      workers: 4
+      actionsPerLoop: 1
+      options:
+        errorInterval: 15s
+        includeInvalidInputErrors: true
+    maxSubmissionsPerSecond: 4  # Target transactions per second
+    completionTimeout: 5m  # Wait up to 5 minutes for all transactions to complete
+    maxActions: 500
+    length: 5m
+logLevel: info
+logEvents: false
