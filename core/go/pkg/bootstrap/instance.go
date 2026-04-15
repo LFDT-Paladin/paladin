@@ -19,6 +19,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"syscall"
@@ -101,6 +102,11 @@ func (i *instance) run() RC {
 	var additionalManagers []components.AdditionalManager
 	switch i.runMode {
 	case "testbed":
+		// Limit the Go scheduler to one logical processor in testbed mode.
+		// The c-shared runtime cannot unload between tests, so idle OS threads
+		// accumulate across Run()/Stop() cycles. GOMAXPROCS(1) caps the thread
+		// pool to ~1, preventing starvation of the host JVM.
+		runtime.GOMAXPROCS(1)
 		additionalManagers = append(additionalManagers, testbed.NewTestBed())
 	case "engine":
 	default:
