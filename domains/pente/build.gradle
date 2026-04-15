@@ -63,6 +63,9 @@ test {
         }
     }
     useJUnitPlatform()
+    // Each test class gets its own JVM to limit accumulation of Go C-shared
+    // library native threads which busy-spin and eventually starve the JVM.
+    forkEvery = 1
     systemProperty "jna.library.path", [
         new File(project(":core:go").buildDir, "libs").absolutePath,
         new File(project(":toolkit:go").buildDir, "libs").absolutePath,
