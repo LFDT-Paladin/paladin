@@ -98,6 +98,26 @@ func TestSelectedEvent_GetTransactionID(t *testing.T) {
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
+func TestAssembleCancelledEvent_Type(t *testing.T) {
+	event := &AssembleCancelledEvent{}
+	assert.Equal(t, Event_Assemble_Cancelled, event.Type())
+}
+
+func TestAssembleCancelledEvent_TypeString(t *testing.T) {
+	event := &AssembleCancelledEvent{}
+	assert.Equal(t, "Event_Assemble_Cancelled", event.TypeString())
+}
+
+func TestAssembleCancelledEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &AssembleCancelledEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
 func TestAssembleRequestSentEvent_Type(t *testing.T) {
 	event := &AssembleRequestSentEvent{}
 	assert.Equal(t, Event_AssembleRequestSent, event.Type())
@@ -209,6 +229,44 @@ func TestAssembleRevertResponseEvent_Fields(t *testing.T) {
 
 	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, postAssembly, event.PostAssembly)
+	assert.Equal(t, requestID, event.RequestID)
+}
+
+func TestAssembleErrorResponseEvent_Type(t *testing.T) {
+	event := &AssembleErrorResponseEvent{}
+	assert.Equal(t, Event_Assemble_Error_Response, event.Type())
+}
+
+func TestAssembleErrorResponseEvent_TypeString(t *testing.T) {
+	event := &AssembleErrorResponseEvent{}
+	assert.Equal(t, "Event_Assemble_Error_Response", event.TypeString())
+}
+
+func TestAssembleErrorResponseEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestAssembleErrorResponseEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	requestID := uuid.New()
+
+	event := &AssembleErrorResponseEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			BaseEvent: common.BaseEvent{
+				EventTime: time.Now(),
+			},
+			TransactionID: txID,
+		},
+		RequestID: requestID,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
 	assert.Equal(t, requestID, event.RequestID)
 }
 
@@ -563,6 +621,26 @@ func TestConfirmedRevertedEvent_Fields(t *testing.T) {
 	assert.Equal(t, revertReason, event.RevertReason)
 }
 
+func TestDependencySelectedForAssemblyEvent_Type(t *testing.T) {
+	event := &DependencySelectedForAssemblyEvent{}
+	assert.Equal(t, Event_DependencySelectedForAssemble, event.Type())
+}
+
+func TestDependencySelectedForAssemblyEvent_TypeString(t *testing.T) {
+	event := &DependencySelectedForAssemblyEvent{}
+	assert.Equal(t, "Event_DependencySelectedForAssembly", event.TypeString())
+}
+
+func TestDependencySelectedForAssemblyEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &DependencySelectedForAssemblyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
 func TestDependencyConfirmedRevertedEvent_Type(t *testing.T) {
 	event := &DependencyConfirmedRevertedEvent{}
 	assert.Equal(t, Event_DependencyConfirmedReverted, event.Type())
@@ -580,61 +658,6 @@ func TestDependencyConfirmedRevertedEvent_GetTransactionID(t *testing.T) {
 			TransactionID: txID,
 		},
 	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestDependencyAssembledEvent_Type(t *testing.T) {
-	event := &DependencyAssembledEvent{}
-	assert.Equal(t, Event_DependencyAssembled, event.Type())
-}
-
-func TestDependencyAssembledEvent_TypeString(t *testing.T) {
-	event := &DependencyAssembledEvent{}
-	assert.Equal(t, "Event_DependencyAssembled", event.TypeString())
-}
-
-func TestDependencyAssembledEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &DependencyAssembledEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestDependencyRevertedEvent_Type(t *testing.T) {
-	event := &DependencyRevertedEvent{}
-	assert.Equal(t, Event_DependencyReverted, event.Type())
-}
-
-func TestDependencyRevertedEvent_TypeString(t *testing.T) {
-	event := &DependencyRevertedEvent{}
-	assert.Equal(t, "Event_DependencyReverted", event.TypeString())
-}
-
-func TestDependencyRevertedEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &DependencyRevertedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestDependencyRevertedEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-
-	event := &DependencyRevertedEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			BaseEvent: common.BaseEvent{
-				EventTime: time.Now(),
-			},
-			TransactionID: txID,
-		},
-	}
-
 	assert.Equal(t, txID, event.GetTransactionID())
 }
 
@@ -789,6 +812,41 @@ func TestStateTransitionEvent_Fields(t *testing.T) {
 	assert.Equal(t, toState, event.ToState)
 }
 
+func TestNewPreAssembleDependencyEvent_Type(t *testing.T) {
+	event := &NewPreAssembleDependencyEvent{}
+	assert.Equal(t, Event_NewPreAssembleDependency, event.Type())
+}
+
+func TestNewPreAssembleDependencyEvent_TypeString(t *testing.T) {
+	event := &NewPreAssembleDependencyEvent{}
+	assert.Equal(t, "Event_NewPreAssembleDependency", event.TypeString())
+}
+
+func TestNewPreAssembleDependencyEvent_GetTransactionID(t *testing.T) {
+	txID := uuid.New()
+	event := &NewPreAssembleDependencyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+	}
+	assert.Equal(t, txID, event.GetTransactionID())
+}
+
+func TestNewPreAssembleDependencyEvent_Fields(t *testing.T) {
+	txID := uuid.New()
+	prereqTxID := uuid.New()
+
+	event := &NewPreAssembleDependencyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txID,
+		},
+		PrereqTransactionID: prereqTxID,
+	}
+
+	assert.Equal(t, txID, event.GetTransactionID())
+	assert.Equal(t, prereqTxID, event.PrereqTransactionID)
+}
+
 func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseCoordinatorEvent implement the Event interface
 	txID := uuid.New()
@@ -799,6 +857,11 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&SelectedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&AssembleCancelledEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
@@ -814,6 +877,11 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&AssembleRevertResponseEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&AssembleErrorResponseEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
@@ -863,7 +931,7 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 				TransactionID: txID,
 			},
 		},
-		&DependencyAssembledEvent{
+		&DependencySelectedForAssemblyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},
@@ -899,6 +967,11 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&TransactionUnknownByOriginatorEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: txID,
+			},
+		},
+		&NewPreAssembleDependencyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

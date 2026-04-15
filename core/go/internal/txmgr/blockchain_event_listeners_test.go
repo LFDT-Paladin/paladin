@@ -426,6 +426,7 @@ func TestAddRemoveBlockchainEventReceiver(t *testing.T) {
 
 	// success
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
+		tm: txm,
 		definition: &blockindexer.EventStream{
 			Name: "bel1",
 		},
@@ -452,6 +453,12 @@ func TestNextReceiver(t *testing.T) {
 	// waiting for a receiver to be added
 	nextReceiver := make(chan components.BlockchainEventReceiver, 1)
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		definition: &blockindexer.EventStream{
+			Name: "test-next-receiver",
+		},
 		newReceivers: make(chan bool, 1),
 	}
 
@@ -505,6 +512,12 @@ func TestNextReceiverSkipsInactive(t *testing.T) {
 	defer cancel()
 
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		definition: &blockindexer.EventStream{
+			Name: "test-next-receiver-skips-inactive",
+		},
 		newReceivers: make(chan bool, 1),
 	}
 
@@ -532,6 +545,9 @@ func TestNextReceiverSkipsInactive(t *testing.T) {
 func TestHandleEventBatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
 		newReceivers: make(chan bool, 1),
 		definition: &blockindexer.EventStream{
 			Name: "bel1",

@@ -217,6 +217,7 @@ func TestHandleEventBatch(t *testing.T) {
 	fakeHash1 := pldtypes.RandHex(32)
 	fakeSchema := pldtypes.RandBytes32()
 	eventTx2Hash := pldtypes.RandHex(32)
+	sequencerNotified := make(chan struct{}, 1)
 
 	event1 := &pldapi.EventWithData{
 		Address: *contract1,
@@ -244,7 +245,6 @@ func TestHandleEventBatch(t *testing.T) {
 	}
 
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
-
 		mc.stateStore.On("WriteStateFinalizations", mock.Anything, mock.Anything, []*pldapi.StateSpendRecord{
 			{DomainName: "test1", State: pldtypes.MustParseHexBytes(stateSpent), Transaction: txID}, // the SpentStates StateUpdate
 		}, []*pldapi.StateReadRecord{
@@ -279,7 +279,9 @@ func TestHandleEventBatch(t *testing.T) {
 			return true
 		})).Return(nil)
 
-		mc.sequencerManager.On("PrivateTransactionConfirmed", mock.Anything, mock.Anything).Return(nil)
+		mc.sequencerManager.On("PrivateTransactionsConfirmed", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+			sequencerNotified <- struct{}{}
+		}).Return(nil)
 
 		mc.txManager.On("SendTransactions", mock.Anything, mock.Anything, mock.Anything).Return([]uuid.UUID{txID}, nil)
 
@@ -373,6 +375,8 @@ func TestHandleEventBatch(t *testing.T) {
 
 	_, err = req.Wait()
 	require.NoError(t, err)
+
+	<-sequencerNotified
 }
 
 func TestHandleEventBatchFinalizeFail(t *testing.T) {

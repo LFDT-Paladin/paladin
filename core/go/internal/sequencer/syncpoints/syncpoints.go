@@ -25,6 +25,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -42,10 +43,10 @@ type SyncPoints interface {
 	// to the PrivateTxnManager's persistence store in the same database transaction
 	// Although the actual persistence is offloaded to the flushwriter, this method is synchronous and will block until the
 	// dispatch sequence is written to the database
-	PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
+	PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error
 
 	// Deploy is a special case of dispatch batch, where there are no private states, so no domain context is required
-	PersistDeployDispatchBatch(ctx context.Context, dispatchBatch *DispatchBatch) error
+	PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error
 
 	// QueueTransactionFinalize integrates with TxManager to mark a transaction as finalized.
 	// For off-chain failures, req.FailureMessage is set. For on-chain failures, req.OnChain and req.RevertData are set.

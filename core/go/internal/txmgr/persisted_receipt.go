@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -84,7 +83,7 @@ func mapPersistedReceipt(receipt *transactionReceipt) *pldapi.TransactionReceipt
 
 var transactionReceiptFilters = filters.FieldMap{
 	"id":              filters.UUIDField(`"transaction"`),
-	"sequence":        filters.Int64Field("sequence"),
+	"sequence":        filters.Int64Field(`"sequence"`),
 	"indexed":         filters.TimestampField("indexed"),
 	"success":         filters.BooleanField("success"),
 	"domain":          filters.StringField("domain"),
@@ -193,14 +192,13 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 	}
 
 	if len(transactionIDs) > 0 {
-		var chainingRecords []*persistedChainedPrivateTxn
+		var chainingRecords []*persistedChainedDispatch
 		err := dbTX.DB().
 			Where(`"chained_transaction" IN ?`, transactionIDs).
 			Find(&chainingRecords).
 			Error
-		// Recurse into the sequencer manager, who will call us back, or send via the transport mgr
+		// Recurse into the sequencer manager to notify the original coordinator of chained outcomes.
 		if err == nil {
-			receiptsToWrite := make([]*components.ReceiptInputWithOriginator, 0, len(chainingRecords))
 			for _, cr := range chainingRecords {
 				for _, receipt := range info {
 					if receipt.TransactionID == cr.ChainedTransaction {
@@ -215,6 +213,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 						} else {
 							origTxID := cr.Transaction
 							outcomeType := receipt.ReceiptType
+							failureMessage := receipt.FailureMessage
 							// take a copy of the on chain data and the revert bytes so we have original data when the post commit is called
 							onChainCopy := receipt.OnChain
 							var revertBytesCopy pldtypes.HexBytes
@@ -223,30 +222,11 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 								copy(revertBytesCopy, receipt.RevertData)
 							}
 							dbTX.AddPostCommit(func(ctx context.Context) {
-								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, revertBytesCopy, onChainCopy)
+								tm.sequencerMgr.HandleChainedTransactionOutcome(ctx, *contractAddr, origTxID, outcomeType, failureMessage, revertBytesCopy, onChainCopy)
 							})
 						}
-
-						// For on-chain reverts with revert data, the coordinator evaluates retryability
-						// and handles finalization, so skip immediate receipt propagation.
-						if receipt.ReceiptType != components.RT_Success && len(receipt.RevertData) > 0 {
-							continue
-						}
-
-						// For success and off-chain reverts, propagate the receipt to A's originator.
-						upstreamReceipt := &components.ReceiptInputWithOriginator{
-							Originator:            cr.Sender,
-							DomainContractAddress: cr.ContractAddress,
-							ReceiptInput:          *receipt, // note copy by value
-						}
-						upstreamReceipt.TransactionID = cr.Transaction
-						upstreamReceipt.Domain = cr.Domain
-						receiptsToWrite = append(receiptsToWrite, upstreamReceipt)
 					}
 				}
-			}
-			if len(receiptsToWrite) > 0 {
-				err = tm.sequencerMgr.WriteOrDistributeChainedTransactionReceipts(ctx, dbTX, receiptsToWrite)
 			}
 		}
 		if err != nil {
@@ -297,6 +277,11 @@ func (tm *txManager) ensureSuccessOverridesFailure(ctx context.Context, dbTX per
 				if !existing.Success /* do not override success */ && receipt.Success /* do not replace the first failure */ {
 					log.L(ctx).Warnf("Duplicate receipt for transaction %s replaces existing failure receipt. Previous error: %s", receipt.TransactionID, stringOrEmpty(existing.FailureMessage))
 					replacementIDsToDelete = append(replacementIDsToDelete, existing.TransactionID)
+					// Copy and clear sequence so replacement rows always allocate a fresh DB identity value.
+					// This works around GORM behaviour, where if we entered this function after inserting
+					// transactions A,B,C where B failed on a conflict so we only inserted A and C, the sequence
+					// for C gets written to B, which results in an unrecoverable insert error on B the retry for B.
+					receipt.Sequence = 0
 					replacementInserts = append(replacementInserts, receipt)
 				} else {
 					log.L(ctx).Warnf("Duplicate receipt for transaction %s discarded (success=%t) Error: %s", receipt.TransactionID, receipt.Success, stringOrEmpty(receipt.FailureMessage))
@@ -489,13 +474,28 @@ func (tm *txManager) QueryTransactionReceipts(ctx context.Context, jq *query.Que
 
 func (tm *txManager) getTransactionReceiptByIDWithTX(ctx context.Context, dbTX persistence.DBTX, id uuid.UUID) (*pldapi.TransactionReceipt, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
-	// Log the query details
 	log.L(ctx).Debugf("Querying transaction receipt by ID: %s", id)
-	prs, err := tm.queryTransactionReceiptsWithTX(ctx, dbTX, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
-	if len(prs) == 0 || err != nil {
+	if dbTX == nil {
+		dbTX = tm.p.NOTX()
+	}
+	var prs []*transactionReceipt
+	err := dbTX.DB().Table("transaction_receipts").
+		WithContext(ctx).
+		Where(`"transaction" = ?`, id).
+		Order(`"sequence" DESC`).
+		Limit(1).
+		Find(&prs).
+		Error
+	if err != nil {
 		return nil, err
 	}
-	return prs[0], nil
+	if len(prs) == 0 {
+		return nil, nil
+	}
+	return &pldapi.TransactionReceipt{
+		ID:                     prs[0].TransactionID,
+		TransactionReceiptData: *mapPersistedReceipt(prs[0]),
+	}, nil
 }
 
 func (tm *txManager) addStateReceipt(ctx context.Context, receipt *pldapi.TransactionReceiptFull) (err error) {
@@ -533,16 +533,6 @@ func (tm *txManager) buildFullReceipt(ctx context.Context, receipt *pldapi.Trans
 		}
 	}
 
-	fullReceipt, err = tm.mergeDispatches(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
-	if err != nil {
-		return nil, err
-	}
-
-	fullReceipt, err = tm.mergeChainedTranasctions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
-	if err != nil {
-		return nil, err
-	}
-
 	return tm.mergeReceiptPublicTransactions(ctx, dbtx, []uuid.UUID{fullReceipt.ID}, []*pldapi.TransactionReceiptFull{fullReceipt})
 }
 
@@ -553,58 +543,6 @@ func (tm *txManager) mergeReceiptPublicTransactions(ctx context.Context, dbTX pe
 	}
 	for _, tx := range txs {
 		tx.Public = pubTxByTX[tx.ID]
-	}
-	return txs[0], nil
-}
-
-func (tm *txManager) mergeDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
-	txdps := []*syncpoints.DispatchPersisted{}
-	err := dbTX.DB().Table("dispatches").
-		WithContext(ctx).
-		Where(`"private_transaction_id" IN (?)`, txIDs).
-		Find(&txdps).
-		Error
-	if err != nil {
-		return nil, err
-	}
-	// group by txID
-	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
-	for _, txdp := range txdps {
-		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
-	}
-	for _, tx := range txs {
-		if txdps, ok := txdpMap[tx.ID.String()]; ok {
-			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
-			for i, txdp := range txdps {
-				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
-			}
-		}
-	}
-	return txs[0], nil
-}
-
-func (tm *txManager) mergeChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, txs []*pldapi.TransactionReceiptFull) (*pldapi.TransactionReceiptFull, error) {
-	txdps := []*persistedChainedPrivateTxn{}
-	err := dbTX.DB().Table("chained_private_txns").
-		WithContext(ctx).
-		Where(`"transaction" IN (?)`, txIDs).
-		Find(&txdps).
-		Error
-	if err != nil {
-		return nil, err
-	}
-	// group by txID
-	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
-	for _, txdp := range txdps {
-		txdpMap[string(txdp.Transaction.String())] = append(txdpMap[string(txdp.Transaction.String())], txdp)
-	}
-	for _, tx := range txs {
-		if txdps, ok := txdpMap[tx.ID.String()]; ok {
-			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
-			for i, txdp := range txdps {
-				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
-			}
-		}
 	}
 	return txs[0], nil
 }

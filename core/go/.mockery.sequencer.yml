@@ -4,13 +4,13 @@ structname: "{{.InterfaceName}}"
 filename: "{{.SrcPackageName}}mocks.go"
 dir: "mocks/{{.SrcPackageName}}mocks"
 packages:
-  github.com/LFDT-Paladin/paladin/core/internal/sequencer/common:
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics:
     config:
       all: true
       dir: "{{.InterfaceDir}}"
       pkgname: "{{.SrcPackageName}}"
       structname: "Mock{{.InterfaceName}}"
-  github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics:
+  github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction:
     config:
       all: true
       dir: "{{.InterfaceDir}}"
@@ -29,12 +29,6 @@ packages:
       pkgname: "{{.SrcPackageName}}"
       structname: "Mock{{.InterfaceName}}"
   github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator:
-    config:
-      all: true
-      dir: "{{.InterfaceDir}}"
-      pkgname: "{{.SrcPackageName}}"
-      structname: "Mock{{.InterfaceName}}"
-  github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport:
     config:
       all: true
       dir: "{{.InterfaceDir}}"

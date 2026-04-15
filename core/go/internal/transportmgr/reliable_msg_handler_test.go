@@ -1343,14 +1343,21 @@ func TestHandleSequencingActivityOk(t *testing.T) {
 		mockEmptyReliableMsgs,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mc.db.Mock.ExpectCommit()
-			mc.sequencerManager.On("WriteReceivedSequencingActivities", mock.Anything, mock.Anything, mock.Anything).
-				Return(nil)
 		},
 	)
 	defer done()
 
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node2",
@@ -1408,13 +1415,21 @@ func TestHandleSequencingActivityFail(t *testing.T) {
 	ctx, tm, _, done := newTestTransport(t, false,
 		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectBegin()
-			mc.sequencerManager.On("WriteReceivedSequencingActivities", mock.Anything, mock.Anything, mock.Anything).
-				Return(fmt.Errorf("pop"))
+			mc.db.Mock.ExpectQuery(`INSERT INTO "sequencer_activities"`).
+				WithArgs(
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+					sqlmock.AnyArg(),
+				).
+				WillReturnError(fmt.Errorf("pop"))
+			mc.db.Mock.ExpectRollback()
 		},
 	)
 	defer done()
 
-	sequencingActivity := &pldapi.SequencerActivity{
+	sequencingActivity := &components.SequencingActivity{
 		TransactionID:  uuid.New(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 		SequencingNode: "node2",

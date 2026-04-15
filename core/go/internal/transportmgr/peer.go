@@ -181,11 +181,15 @@ func (tm *transportManager) connectPeer(ctx context.Context, nodeName string, se
 	if p == nil {
 		// We need to resolve the node transport, and build a new connection
 		log.L(ctx).Debugf("activating new peer '%s'", nodeName)
+		now := pldtypes.TimestampNow()
 		p = &peer{
 			tm: tm,
 			PeerInfo: pldapi.PeerInfo{
 				Name:      nodeName,
-				Activated: pldtypes.TimestampNow(),
+				Activated: now,
+				Stats: pldapi.PeerStats{
+					CreatedAt: &now,
+				},
 			},
 			persistedMsgsAvailable: make(chan struct{}, 1),
 			sendQueue:              make(chan *msgWithErrChan, tm.senderBufferLen),
@@ -310,11 +314,27 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 	if !fullScan && !checkNew {
 		return nil // Nothing to do
 	}
+	log.L(p.ctx).Debugf(
+		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d lastDrainHWM=%v",
+		p.Name,
+		checkNew,
+		fullScan,
+		p.tm.reliableMessagePageSize,
+		p.lastDrainHWM,
+	)
 
 	pageSize := p.tm.reliableMessagePageSize
 	var total = 0
 	var lastPageEnd *uint64
 	for {
+		log.L(p.ctx).Tracef(
+			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v lastDrainHWM=%v",
+			p.Name,
+			pageSize,
+			fullScan,
+			lastPageEnd,
+			p.lastDrainHWM,
+		)
 		query := p.tm.persistence.DB().
 			WithContext(p.ctx).
 			Order("sequence ASC").
@@ -332,6 +352,17 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		err := query.Find(&page).Error
 		if err != nil {
 			return err
+		}
+		if len(page) > 0 {
+			log.L(p.ctx).Debugf(
+				"reliableMessageScan fetched page node=%s count=%d firstSeq=%d lastSeq=%d",
+				p.Name,
+				len(page),
+				page[0].Sequence,
+				page[len(page)-1].Sequence,
+			)
+		} else {
+			log.L(p.ctx).Debugf("reliableMessageScan fetched page node=%s count=0", p.Name)
 		}
 
 		// Process the page - building and sending the proto messages
@@ -391,6 +422,13 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			log.L(p.ctx).Infof("Unacknowledged message %s not yet eligible for re-send", rm.ID)
 			continue
 		}
+		log.L(p.ctx).Debugf(
+			"reliableMessageScan selected message from DB id=%s seq=%d type=%s node=%s",
+			rm.ID,
+			rm.Sequence,
+			rm.MessageType,
+			rm.Node,
+		)
 
 		// Process it
 		var msg *prototk.PaladinMsg
@@ -500,7 +538,6 @@ func (p *peer) sender() {
 				resendTimer.Stop()
 				return // we're done
 			case msg := <-p.sendQueue:
-				resendTimer.Stop()
 				// send and spin straight round
 				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
@@ -528,7 +565,8 @@ func (p *peer) isInactive() bool {
 	defer p.statsLock.Unlock()
 
 	now := time.Now()
-	return (p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
+	return (p.Stats.CreatedAt == nil || now.Sub(p.Stats.CreatedAt.Time()) > p.tm.peerInactivityTimeout) &&
+		(p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
 		(p.Stats.LastReceive == nil || now.Sub(p.Stats.LastReceive.Time()) > p.tm.peerInactivityTimeout)
 }
 

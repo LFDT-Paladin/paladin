@@ -123,17 +123,9 @@ func (dm *domainManager) registrationIndexer(ctx context.Context, dbTX persisten
 	return nonRegisterEvents, txCompletions, nil
 }
 
-func (dm *domainManager) notifyTransactions(txCompletions txCompletionsOrdered) {
+// Direct waiters are only used by the testbed
+func (dm *domainManager) notifyWaiters(txCompletions txCompletionsOrdered) {
 	for _, completion := range txCompletions {
-		// The domain manager is responsible ONLY for a notification to the sequencer that a completion has happened.
-		// Likely this results in a set of batch optimized queries by a worker in the sequencer, to generate
-		// transition events to the various state machines.
-		// However, that is processing that must happen outside of this goroutine, which is critical path for the
-		// event indexer of the Paladin node.
-		// So only if the channel to the sequencer ends up with back pressure will any slow-down happen to this routine
-		dm.sequencerManager.PrivateTransactionConfirmed(dm.bgCtx, completion)
-
-		// We also provide a direct waiter that's used by the testbed
 		inflight := dm.privateTxWaiter.GetInflight(completion.TransactionID)
 		log.L(dm.bgCtx).Debugf("Notifying of completion for private deployment TransactionID %s (waiter=%t)", completion.TransactionID, inflight != nil)
 		if inflight != nil {
@@ -263,7 +255,13 @@ func (d *domain) handleEventBatch(ctx context.Context, dbTX persistence.DBTX, ba
 	}
 
 	dbTX.AddPostCommit(func(txCtx context.Context) {
-		d.dm.notifyTransactions(txCompletions)
+		// Enqueue the full sorted batch to the sequencer for ordered background processing.
+		// Handling of the completions on the queue must happen outside of this goroutine, which is critical path for the
+		// event indexer of the Paladin node.
+		// So only if the channel to the sequencer ends up with back pressure will any slow-down happen to this routine
+		d.enqueueCompletions(txCompletions)
+		// We also provide a direct waiter that's used by the testbed
+		d.dm.notifyWaiters(txCompletions)
 	})
 	return nil
 }
@@ -280,7 +278,9 @@ func (d *domain) recoverTransactionID(ctx context.Context, txIDString string) (*
 func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, batch *pscEventBatch) (*prototk.HandleEventBatchResponse, error) {
 	// We have a domain context for queries, but we never flush it to DB - as the only updates
 	// we allow in this function are those performed within our dbTX.
-	c := d.newInFlightDomainRequest(dbTX, d.dm.stateStore.NewDomainContext(ctx, d, addr), false /* write enabled */)
+	dCtx := d.dm.stateStore.NewDomainContext(ctx, d, addr)
+	defer dCtx.Close()
+	c := d.newInFlightDomainRequest(dbTX, dCtx, false /* write enabled */)
 	defer c.close()
 
 	batch.StateQueryContext = c.id

@@ -841,6 +841,6 @@ func TestStopTransportTimeout(t *testing.T) {
 	defer done()
 
 	plugin.gracefulShutdownTimeout = 1 * time.Microsecond
-	plugin.waitStopOrForce(make(chan struct{}))
+	plugin.waitStopOrForce(plugin.grpcServer, make(chan struct{}))
 
 }

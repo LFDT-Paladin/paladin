@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -235,11 +235,15 @@ export const Keys: React.FC = () => {
     if (newPage === 0) {
       setRefEntries([]);
     } else if (newPage > page) {
-      if(keys !== undefined) {
-        refEntries.push(keys[keys.length - 1]);
+      if (keys !== undefined) {
+        const refEntriesCopy = [...refEntries];
+        refEntriesCopy.push(keys[keys.length - 1]);
+        setRefEntries(refEntriesCopy);
       }
     } else {
-      refEntries.pop();
+      const refEntriesCopy = [...refEntries];
+      refEntriesCopy.pop();
+      setRefEntries(refEntriesCopy);
     }
     setPage(newPage);
   };

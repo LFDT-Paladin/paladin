@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -63,6 +64,30 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 	err := action_NudgeEndorsementRequests(ctx, txn, nil)
 	require.NoError(t, err)
 	// Assert state: pending endorsement requests were initialized (sendEndorsementRequests path)
+	assert.NotNil(t, txn.pendingEndorsementRequests)
+}
+
+func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndContinues(t *testing.T) {
+	ctx := context.Background()
+	sendErr := errors.New("transport send failed")
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
+		UseMockTransportWriter().
+		Build()
+
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementRequest(
+			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
+			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(sendErr)
+
+	err := txn.sendEndorsementRequests(ctx)
+	require.NoError(t, err)
 	assert.NotNil(t, txn.pendingEndorsementRequests)
 }
 
@@ -155,6 +180,32 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
 }
 
+// Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty covers the branch that logs
+// "ignoring endorsement response ... because idempotency key ... does not match expected".
+// We use the same attestation name and party as the pending request so we find the request,
+// then pass a requestID that does not match the pending request's IdempotencyKey.
+func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
+		AddPendingEndorsementRequest(0).
+		Build()
+
+	// AddPendingEndorsementRequest(0) creates attName "endorse-0" and party "endorser-0@node-0"
+	expectedKey := txn.pendingEndorsementRequests["endorse-0"]["endorser-0@node-0"].IdempotencyKey()
+	wrongRequestID := uuid.New()
+	require.NotEqual(t, expectedKey, wrongRequestID, "test must use a different request ID")
+
+	endorsement := &prototk.AttestationResult{
+		Name:     "endorse-0",
+		Verifier: &prototk.ResolvedVerifier{Lookup: "endorser-0@node-0"},
+	}
+
+	err := txn.applyEndorsement(ctx, endorsement, wrongRequestID)
+	require.NoError(t, err)
+	assert.Empty(t, txn.pt.PostAssembly.Endorsements, "endorsement with mismatched idempotency key should be ignored")
+}
+
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -171,28 +222,6 @@ func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *test
 	err := txn.applyEndorsement(ctx, endorsement, requestID)
 	require.NoError(t, err)
 	assert.Empty(t, txn.pt.PostAssembly.Endorsements)
-}
-
-func Test_sendEndorsementRequests_NudgeReturnsError_SetsLatestError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		UseMockTransportWriter().
-		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
-			Endorsements:    []*prototk.AttestationResult{},
-		}).
-		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
-			(*prototk.TransactionSpecification)(nil), mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		).Return(assert.AnError)
-
-	err := txn.sendEndorsementRequests(ctx)
-	require.NoError(t, err)
-	assert.NotEmpty(t, txn.latestError)
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
@@ -250,26 +279,4 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, State_Blocked, txn.stateMachine.GetCurrentState())
 	assert.Nil(t, txn.pendingEndorsementRequests)
-}
-
-func Test_requestEndorsement_TransportError_SetsLatestErrorAndReturnsError(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		UseMockTransportWriter().
-		PostAssembly(&components.TransactionPostAssembly{
-			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
-			Endorsements:    []*prototk.AttestationResult{},
-		}).
-		Build()
-
-	mocks.TransportWriter.EXPECT().
-		SendEndorsementRequest(
-			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything,
-			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		).Return(assert.AnError)
-
-	err := txn.requestEndorsement(ctx, uuid.New(), "party1", &prototk.AttestationRequest{Name: "att1"})
-	require.Error(t, err)
-	assert.NotEmpty(t, txn.latestError)
 }

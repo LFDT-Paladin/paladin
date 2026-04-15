@@ -161,10 +161,11 @@ func TestTransactionSuccessPrivacyGroupEndorsement(t *testing.T) {
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch)) // Only 1 activity type supported currently
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID, aliceTx.ID())
 
 	// Check Bob has the dispatch
-	assert.True(t, len(bobTxFull.Dispatches) == 1)
+	bobDispatches, err := bob.GetClient().PTX().QueryDispatches(ctx, query.NewQueryBuilder().Limit(10).Equal("transactionId", bobTxFull.ID.String()).Query())
+	require.NoError(t, err)
+	assert.Len(t, bobDispatches, 1)
 }
 
 func TestTransactionSuccessAfterStartStopSingleNode(t *testing.T) {
@@ -357,7 +358,10 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedDuringSubmission(t *testi
 	sequencerConfig := pldconf.SequencerDefaults
 	sequencerConfig.StateTimeout = confutil.P("60s")   // In this test we don't want to hit this
 	sequencerConfig.RequestTimeout = confutil.P("10s") // Extend this enough to give the bob node enough time to restart
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
@@ -449,7 +453,10 @@ func TestTransactionSuccessIfOneRequiredVerifierStoppedLongerThanRequestTimeout(
 	sequencerConfig := pldconf.SequencerDefaults
 	sequencerConfig.RequestTimeout = confutil.P("1s") // In this test we don't want to rely on request timeout so make sure it fires before the bob node is restarted
 	sequencerConfig.StateTimeout = confutil.P("10s")  // In this test we want to ensure state timeout causes the transaction to be re-pooled and re-assembled
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())
@@ -782,27 +789,28 @@ func TestTransactionSuccessChainedTransactionSelfEndorsementThenPrivacyGroupEndo
 	require.NoError(t, err)
 	require.NotNil(t, aliceTxFull)
 
-	assert.True(t, len(aliceTxFull.ChainedPrivateTransactions) == 1)
-	assert.Equal(t, aliceTxFull.ChainedPrivateTransactions[0].TransactionID, aliceTx.ID().String())
+	require.Len(t, aliceTxFull.SequencerActivity, 1)
+	assert.Equal(t, string(pldapi.SequencerActivityType_ChainedDispatch), aliceTxFull.SequencerActivity[0].ActivityType)
+	aliceChainedDispatch, err := alice.GetClient().PTX().GetChainedDispatch(ctx, aliceTxFull.SequencerActivity[0].SubjectID)
+	require.NoError(t, err)
+	require.NotNil(t, aliceChainedDispatch)
+	assert.Equal(t, aliceTx.ID().String(), aliceChainedDispatch.TransactionID)
 
 	// Now query the chained transaction on Alice's node, which should have sequencing activity sent from Bob, the coordinator
-	aliceChainedTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	aliceChainedTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(aliceChainedDispatch.ChainedTransactionID))
 	require.NoError(t, err)
 	require.NotNil(t, aliceChainedTxFull)
 
 	assert.True(t, len(aliceChainedTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].TransactionID.String(), aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
 	assert.Equal(t, aliceChainedTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_Dispatch))
 
-	// Finally check that Bob who coordinated the chained transaction has a receipt with dispatch information that correlates with Alice's sequencing activity
-	bobChainedTxReceiptFull, err := bob.GetClient().PTX().GetTransactionReceiptFull(ctx, uuid.MustParse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	// Finally check that Bob who coordinated the chained transaction has dispatch records that correlate with Alice's sequencing activity
+	bobChainedDispatch, err := bob.GetClient().PTX().GetDispatch(ctx, aliceChainedTxFull.SequencerActivity[0].SubjectID)
 	require.NoError(t, err)
-	require.NotNil(t, bobChainedTxReceiptFull)
-
-	assert.True(t, len(bobChainedTxReceiptFull.Dispatches) == 1)
-	assert.Equal(t, bobChainedTxReceiptFull.Dispatches[0].ID, aliceChainedTxFull.SequencerActivity[0].SubjectID)
-	assert.Equal(t, bobChainedTxReceiptFull.Dispatches[0].PrivateTransactionID, aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	require.NotNil(t, bobChainedDispatch)
+	assert.Equal(t, bobChainedDispatch.ID, aliceChainedTxFull.SequencerActivity[0].SubjectID)
+	assert.Equal(t, bobChainedDispatch.TransactionID, aliceChainedDispatch.ChainedTransactionID)
 }
 
 func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndorsement(t *testing.T) {
@@ -887,25 +895,28 @@ func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenSelfEndo
 
 	assert.True(t, len(aliceTxFull.SequencerActivity) == 1)
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].SequencingNode, bob.GetName())
-	assert.Equal(t, aliceTxFull.SequencerActivity[0].TransactionID.String(), aliceTx.ID().String())
 	assert.Equal(t, aliceTxFull.SequencerActivity[0].ActivityType, string(pldapi.SequencerActivityType_ChainedDispatch)) // The coordination resulted in a chained transaction, not a public dispatch
 
-	// Query the transaction receipt on bob's node, to get the chained transaction and check it correlates with Alice's sequencing activity
-	bobTxReceiptFull, err := bob.GetClient().PTX().GetTransactionReceiptFull(ctx, aliceTx.ID())
+	// Query chained dispatch on Bob's node by subject ID from Alice's sequencing activity
+	bobChainedDispatch, err := bob.GetClient().PTX().GetChainedDispatch(ctx, aliceTxFull.SequencerActivity[0].SubjectID)
 	require.NoError(t, err)
-	require.NotNil(t, bobTxReceiptFull)
-
-	assert.True(t, len(bobTxReceiptFull.ChainedPrivateTransactions) == 1)
-	assert.Equal(t, bobTxReceiptFull.ChainedPrivateTransactions[0].TransactionID, aliceTx.ID().String())
-	assert.Equal(t, bobTxReceiptFull.ChainedPrivateTransactions[0].LocalID, aliceTxFull.SequencerActivity[0].SubjectID)
+	require.NotNil(t, bobChainedDispatch)
+	assert.Equal(t, bobChainedDispatch.TransactionID, aliceTx.ID().String())
+	assert.Equal(t, bobChainedDispatch.ID, aliceTxFull.SequencerActivity[0].SubjectID)
 
 	// Finally query Bob for the full chained transaction. It is coordinated by Bob so should have public dispatch, but not sequencing activity
-	bobChainedTxFull, err := bob.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(bobTxReceiptFull.ChainedPrivateTransactions[0].ChainedTransactionID))
+	bobChainedTxFull, err := bob.GetClient().PTX().GetTransactionFull(ctx, uuid.MustParse(bobChainedDispatch.ChainedTransactionID))
 	require.NoError(t, err)
 	require.NotNil(t, bobChainedTxFull)
 
-	assert.True(t, len(bobChainedTxFull.Dispatches) == 1)
-	assert.Equal(t, bobChainedTxFull.Dispatches[0].PrivateTransactionID, bobTxReceiptFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	// Dispatch subject ID is available on Bob's chained transaction sequencing activity
+	require.Len(t, bobChainedTxFull.SequencerActivity, 1)
+	assert.Equal(t, string(pldapi.SequencerActivityType_Dispatch), bobChainedTxFull.SequencerActivity[0].ActivityType)
+
+	bobChainedTxDispatch, err := bob.GetClient().PTX().GetDispatch(ctx, bobChainedTxFull.SequencerActivity[0].SubjectID)
+	require.NoError(t, err)
+	require.NotNil(t, bobChainedTxDispatch)
+	assert.Equal(t, bobChainedTxDispatch.TransactionID, bobChainedDispatch.ChainedTransactionID)
 }
 
 func TestTransactionSuccessChainedTransactionPrivacyGroupEndorsementThenPrivacyGroupEndorsement(t *testing.T) {
@@ -1035,6 +1046,95 @@ func TestTransactionRevertDuringAssembly(t *testing.T) {
 	require.Error(t, aliceTx.Error())
 	require.NotNil(t, aliceTx.Receipt())
 	require.False(t, aliceTx.Receipt().Success)
+}
+
+func TestTransactionErrorDuringAssembly(t *testing.T) {
+	// Test that an error from the domain is handle gracefully (this is not a revert, but a failure of an assemble to return any post-assemble data)
+	ctx := t.Context()
+	domainRegistryAddress := deployDomainRegistry(t, "alice")
+
+	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
+	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	sequencerConfig := pldconf.SequencerDefaults
+	// Limit the coordinator to 2 transactions at a time. If the assemble error causes all transactions delegated after it to be stuck forever in a dependency queue they will fail to complete and the test will fail.
+	sequencerConfig.MaxInflightTransactions = confutil.P(2)
+
+	sequencerConfig.StateTimeout = confutil.P("240s")    // Make this nice and big - we shouldn't observe any such timeouts if the assemble error is handled cleanly, so make sure the test fails/times out if we do
+	sequencerConfig.HeartbeatInterval = confutil.P("1s") // Allow the coordinator to heartbeat frequently to cause the originator to re-delegate as often as it needs
+	bob.OverrideSequencerConfig(&sequencerConfig)
+
+	alice.AddPeer(bob.GetNodeConfig())
+	bob.AddPeer(alice.GetNodeConfig())
+
+	domainConfig := &domains.SimpleDomainConfig{
+		SubmitMode: domains.ENDORSER_SUBMISSION,
+	}
+
+	startNode(t, alice, domainConfig)
+	startNode(t, bob, domainConfig)
+	t.Cleanup(func() {
+		stopNode(t, alice)
+		stopNode(t, bob)
+	})
+
+	constructorParameters := &domains.ConstructorParameters{
+		From:            alice.GetIdentity(),
+		Name:            "FakeToken1",
+		Symbol:          "FT1",
+		EndorsementMode: domains.PrivacyGroupEndorsement,
+		EndorsementSet:  []string{alice.GetIdentityLocator(), bob.GetIdentityLocator()},
+	}
+
+	contractAddress := alice.DeploySimpleDomainInstanceContract(t, constructorParameters, transactionLatencyThreshold)
+
+	// This transaction will result in an assemble error (note - not a clean revert). The subsequent batch of transactions shouldn't
+	// be prevented from being successful just because this one errors at assemble time.
+	_ = alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+		Private().
+		Domain("domain1").
+		IdempotencyKey("tx1-alice-" + uuid.New().String()).
+		From(alice.GetIdentity()).
+		To(contractAddress).
+		Function("transfer").
+		Inputs(pldtypes.RawJSON(`{
+			"from": "",
+			"to": "` + bob.GetIdentityLocator() + `",
+			"amount": "1006"
+		}`)). // Special value 1006 in the simple domain causes assembly to error (not revert)
+		Send()
+
+	// With max-inflight = 1, these would be stuck forever if the previous assemble error wasn't handled correctly.
+	// As it is, the coordinator should give the error TX sufficient retries, but then evict it. The originator
+	// can re-delegate but should do so behind non-errored transactions.
+	aliceSuccessTxns := make([]pldclient.SentTransaction, 5)
+	for i := range 5 {
+		idempotencyKey := fmt.Sprintf("tx-alice-%d-%s", i, uuid.New().String())
+		aliceSuccessTxns[i] = alice.GetClient().ForABI(ctx, *domains.SimpleTokenTransferABI()).
+			Private().
+			Domain("domain1").
+			IdempotencyKey(idempotencyKey).
+			From(alice.GetIdentity()).
+			To(contractAddress).
+			Function("transfer").
+			Inputs(pldtypes.RawJSON(`{
+				"from": "",
+				"to": "` + bob.GetIdentityLocator() + `",
+				"amount": "100"
+			}`)).
+			Send()
+	}
+
+	for _, tx := range aliceSuccessTxns {
+		// Check alice has the TX including the public TX information
+		customThreshold := 10 * time.Second
+		require.Eventually(t,
+			transactionReceiptCondition(t, ctx, *tx.ID(), alice.GetClient(), false),
+			transactionLatencyThresholdCustom(t, &customThreshold),
+			100*time.Millisecond,
+			"Transaction did not receive a receipt",
+		)
+	}
 }
 
 func TestTransactionRevertDuringEndorsement(t *testing.T) {
@@ -1169,7 +1269,8 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 	// because node B is still coming up. If nothing else happens on the contract there's nothing to nudge re-delegation except the delegate timeout.
 	// Reduce it down a little here to speed up the test.
 	sequencerConfig := pldconf.SequencerDefaults
-	sequencerConfig.DelegateTimeout = confutil.P("2s")
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
 
 	alice.OverrideSequencerConfig(&sequencerConfig)
 	bob.OverrideSequencerConfig(&sequencerConfig)
@@ -1247,7 +1348,9 @@ func TestTransactionSuccessChainedTransactionStopNodesBeforeCompletion(t *testin
 		stopNode(t, alice)
 	})
 
-	customDuration := 10 * time.Second
+	// this has the potential to be slow on a GH action runner that might be struggling for resource
+	// as the nodes have to all restart, then catch up on any missed blocks, and then index the receipt
+	customDuration := 20 * time.Second
 	assert.Eventually(t,
 		transactionReceiptCondition(t, ctx, aliceTx.ID(), alice.GetClient(), false),
 		transactionLatencyThresholdCustom(t, &customDuration),
@@ -1329,9 +1432,15 @@ func TestTransactionFailureWhenChainedTransactionAssembleReverts(t *testing.T) {
 
 	aliceTxFull, err := alice.GetClient().PTX().GetTransactionFull(ctx, aliceTx.ID())
 	require.NoError(t, err)
-	require.Len(t, aliceTxFull.ChainedPrivateTransactions, 1)
+	require.NotNil(t, aliceTxFull)
+	require.Len(t, aliceTxFull.SequencerActivity, 1)
+	assert.Equal(t, string(pldapi.SequencerActivityType_ChainedDispatch), aliceTxFull.SequencerActivity[0].ActivityType)
 
-	chainedTxID, err := uuid.Parse(aliceTxFull.ChainedPrivateTransactions[0].ChainedTransactionID)
+	aliceChainedDispatch, err := alice.GetClient().PTX().GetChainedDispatch(ctx, aliceTxFull.SequencerActivity[0].SubjectID)
+	require.NoError(t, err)
+	require.NotNil(t, aliceChainedDispatch)
+
+	chainedTxID, err := uuid.Parse(aliceChainedDispatch.ChainedTransactionID)
 	require.NoError(t, err)
 
 	alicesChainedTransaction, err := alice.GetClient().PTX().GetTransactionFull(ctx, chainedTxID)
@@ -1507,6 +1616,14 @@ func TestTransactionWaitsUntilExplicitPrereqTransactionSuccessful(t *testing.T) 
 
 	alice := testutils.NewPartyForTesting(t, "alice", domainRegistryAddress)
 	bob := testutils.NewPartyForTesting(t, "bob", domainRegistryAddress)
+
+	// Re-delegation happens on an interval to catch the case where node A resumes a TX but the initial
+	// fire-and-forget delegate fails because node B is still coming up.
+	sequencerConfig := pldconf.SequencerDefaults
+	sequencerConfig.HeartbeatInterval = confutil.P("1s")
+	sequencerConfig.RedelegateGracePeriod = confutil.P(1)
+	alice.OverrideSequencerConfig(&sequencerConfig)
+	bob.OverrideSequencerConfig(&sequencerConfig)
 
 	alice.AddPeer(bob.GetNodeConfig())
 	bob.AddPeer(alice.GetNodeConfig())

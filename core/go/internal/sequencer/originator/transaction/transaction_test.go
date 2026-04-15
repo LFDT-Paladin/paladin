@@ -20,8 +20,12 @@ import (
 	"time"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +35,22 @@ func TestNewTransaction_NilPrivateTransaction_ReturnsError(t *testing.T) {
 	_, err := NewTransaction(ctx, nil, nil, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot create transaction without private tx")
+}
+
+func TestNewTransaction_Success_ReturnsOriginatorTransaction(t *testing.T) {
+	ctx := context.Background()
+	pt := testutil.NewPrivateTransactionBuilderForTesting().Build()
+	engine := &common.FakeEngineIntegrationForTesting{}
+	recorder := NewSentMessageRecorder()
+	queue := func(context.Context, common.Event) {}
+	m := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
+
+	ot, err := NewTransaction(ctx, pt, recorder, queue, engine, m)
+	require.NoError(t, err)
+	require.NotNil(t, ot)
+	assert.Equal(t, pt.ID, ot.GetID())
+	assert.Equal(t, State_Initial, ot.GetCurrentState())
+	assert.Same(t, pt, ot.GetPrivateTransaction())
 }
 
 func TestTransaction_GetPrivateTransaction_ReturnsPt(t *testing.T) {
@@ -156,7 +176,7 @@ func TestTransaction_Hash_ErrorWhenPrivateTransactionIsNil(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a transaction with nil PrivateTransaction by manually constructing it
-	txn := &OriginatorTransaction{
+	txn := &originatorTransaction{
 		pt: nil,
 		stateMachine: &StateMachine{
 			CurrentState: State_Initial,

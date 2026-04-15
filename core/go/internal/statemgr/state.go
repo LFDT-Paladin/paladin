@@ -60,6 +60,14 @@ func (ss *stateManager) WritePreVerifiedStates(ctx context.Context, dbTX persist
 
 func (ss *stateManager) WriteReceivedStates(ctx context.Context, dbTX persistence.DBTX, domainName string, states []*components.StateUpsertOutsideContext) ([]*pldapi.State, error) {
 	ctx = log.WithComponent(ctx, "statemanager")
+	if log.IsDebugEnabled() {
+		stateIDs := make([]string, len(states))
+		for i, s := range states {
+			stateIDs[i] = s.ID.String()
+		}
+		log.L(ctx).Debugf("WriteReceivedStates domain=%s count=%d stateIds=%v", domainName, len(states), stateIDs)
+	}
+
 	d, err := ss.domainManager.GetDomainByName(ctx, domainName)
 	if err != nil {
 		return nil, err
@@ -313,7 +321,7 @@ func (ss *stateManager) findStates(
 	if err != nil {
 		return nil, nil, err
 	}
-	return dc.FindAvailableStates(dbTX, schemaID, jq)
+	return dc.FindAvailableStates(ctx, dbTX, schemaID, jq)
 }
 
 func (ss *stateManager) findNullifiers(
@@ -361,7 +369,7 @@ func (ss *stateManager) findNullifiers(
 	if err != nil {
 		return nil, nil, err
 	}
-	return dc.FindAvailableNullifiers(dbTX, schemaID, jq)
+	return dc.FindAvailableNullifiers(ctx, dbTX, schemaID, jq)
 }
 
 func (ss *stateManager) findStatesCommon(
@@ -396,7 +404,8 @@ func (ss *stateManager) findStatesCommon(
 		if fi.labelType == labelTypeInt64 || fi.labelType == labelTypeBool {
 			typeMod = "int64_"
 		}
-		q = q.Joins(fmt.Sprintf(`INNER JOIN state_%[1]slabels AS %[2]s ON %[2]s.state = "states"."id" AND %[2]s.label = ?`, typeMod, fi.virtualColumn), fi.label)
+		// Include domain_name so the join matches the state_labels PK/FK and Postgres can use (domain_name, label, value) indexes.
+		q = q.Joins(fmt.Sprintf(`INNER JOIN state_%[1]slabels AS %[2]s ON %[2]s.state = "states"."id" AND %[2]s.domain_name = "states"."domain_name" AND %[2]s.label = ?`, typeMod, fi.virtualColumn), fi.label)
 	}
 
 	q = q.Where("states.domain_name = ?", domainName).

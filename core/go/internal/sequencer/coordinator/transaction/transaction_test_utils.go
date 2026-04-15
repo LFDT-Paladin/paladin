@@ -31,6 +31,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -168,6 +169,10 @@ func (r *SentMessageRecorder) SendAssembleResponse(ctx context.Context, txID uui
 	return nil
 }
 
+func (r *SentMessageRecorder) SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, requestID uuid.UUID, recipient string) error {
+	return nil
+}
+
 func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, transactionOriginator string, idempotencyKey uuid.UUID, transactionSpecification *prototk.TransactionSpecification) error {
 	return nil
 }
@@ -184,7 +189,7 @@ func (r *SentMessageRecorder) SendTransactionSubmitted(ctx context.Context, txID
 	return nil
 }
 
-func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, revertReason pldtypes.HexBytes, willRetry bool) error {
+func (r *SentMessageRecorder) SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engine.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error {
 	return nil
 }
 
@@ -196,7 +201,7 @@ func (r *SentMessageRecorder) SendDelegationRequest(ctx context.Context, coordin
 	return nil
 }
 
-func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, delegateNodeName string, transactionID string) error {
+func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error {
 	return nil
 }
 
@@ -223,6 +228,7 @@ type TransactionBuilderForTesting struct {
 	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
 	originator                         string
+	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
 	domainSigningIdentity              string
 	coordinatorSigningIdentity         string
@@ -251,6 +257,8 @@ type TransactionBuilderForTesting struct {
 	submitterSelection                 prototk.ContractConfig_SubmitterSelection
 	nodeName                           string
 	baseLedgerRevertRetryThreshold     int
+	assembleErrorCount                 int
+	assembleErrorRetryThreshhold       int
 	revertCount                        int
 }
 
@@ -260,6 +268,7 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 	builder := &TransactionBuilderForTesting{
 		t:                                 t,
 		originator:                        "sender@node1",
+		originatorNode:                    "node1",
 		queueEventForCoordinator:          func(context.Context, common.Event) {},
 		signerAddress:                     nil,
 		latestSubmissionHash:              nil,
@@ -490,6 +499,16 @@ func (b *TransactionBuilderForTesting) BaseLedgerRevertRetryThreshold(threshold 
 	return b
 }
 
+func (b *TransactionBuilderForTesting) AssembleErrorCount(count int) *TransactionBuilderForTesting {
+	b.assembleErrorCount = count
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AssembleErrorRetryThreshold(threshold int) *TransactionBuilderForTesting {
+	b.assembleErrorRetryThreshhold = threshold
+	return b
+}
+
 func (b *TransactionBuilderForTesting) RevertCount(count int) *TransactionBuilderForTesting {
 	b.revertCount = count
 	return b
@@ -632,12 +651,14 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		clock = common.RealClock()
 	}
 
-	txn, err := newTransaction(
+	txn := newTransaction(
 		ctx,
 		b.originator,
+		b.originatorNode,
 		b.nodeName,
 		privateTransaction,
 		b.coordinatorSigningIdentity,
+		nil,
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
@@ -651,6 +672,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.finalizingGracePeriod,
 		b.confirmedLockRetentionGracePeriod,
 		b.baseLedgerRevertRetryThreshold,
+		b.assembleErrorRetryThreshhold,
 		b.grapher,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
@@ -667,6 +689,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.stateMachine.CurrentState = b.state
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
+	txn.assembleErrorCount = b.assembleErrorCount
 
 	if b.dependencies != nil {
 		txn.dependencies = b.dependencies

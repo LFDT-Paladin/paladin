@@ -40,16 +40,20 @@ const (
 	State_Dispatched                           // collected by the dispatcher/public TX manager and in-flight on base ledger
 	State_Confirmed                            // "recently" confirmed on the base ledger.  NOTE: confirmed transactions are not held in memory for ever so getting a list of confirmed transactions will only return those confirmed recently
 	State_Final                                // final state for the transaction. Transactions are removed from memory as soon as they enter this state
+	State_Evicted                              // evicted state for a problematic transaction. Transactions are removed from memory as soon as they enter this state. Distinct from State_Final because it might just used for memory or in-flight slot management
 )
 
 type EventType = common.EventType
 
 const (
 	Event_Delegated                      EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
+	Event_DependencySelectedForAssemble                                                        // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
+	Event_NewPreAssembleDependency                                                             // a new preassemble dependency has been established
 	Event_Selected                                                                             // selected from the pool as the next transaction to be assembled
 	Event_AssembleRequestSent                                                                  // assemble request sent to the assembler
 	Event_Assemble_Success                                                                     // assemble response received from the originator
 	Event_Assemble_Revert_Response                                                             // assemble response received from the originator with a revert reason
+	Event_Assemble_Error_Response                                                              // assemble response received from the originator with an error
 	Event_Assemble_Cancelled                                                                   // the assemble attempt has been cancelled
 	Event_Endorsed                                                                             // endorsement received from one endorser
 	Event_EndorsedRejected                                                                     // endorsement received from one endorser with a revert reason
@@ -91,35 +95,30 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_Delegated: {
 				Transitions: []Transition{
 					{
-						To: State_Pooled,
-						If: statemachine.GuardAnd(statemachine.GuardNot(guard_HasUnassembledDependencies), statemachine.GuardNot(guard_HasUnknownDependencies)),
+						To: State_PreAssembly_Blocked,
+						If: guard_HasUnassembledDependencies,
 					},
 					{
-						To: State_PreAssembly_Blocked,
-						If: statemachine.GuardOr(guard_HasUnassembledDependencies, guard_HasUnknownDependencies),
+						To: State_Pooled,
+						If: statemachine.GuardNot(guard_HasUnassembledDependencies), // No-op check (opposite of guard_HasUnassembledDependencies above) but including to be explicit when we should go to pooled
 					},
 				},
+			},
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
 			},
 		},
 	},
 	State_PreAssembly_Blocked: {
 		Events: map[EventType]EventHandler{
-			// TODO: when we have best effort FIFO ordering for first assemble within an originator, these transitions become relevant.
-			// they are currently unreachable as transactions only currently gain dependencies once they have been assembled.
-			// In both case it should only be the "previous" transaction that queues this event to us. The guard is likely wrong
-			// as we know that this event means we must sever the next/previous dependency link as we are now past first assembly.
-			// The guard comes from a time when it was possible for predefined explicit dependencies to be passed in, meaning there
-			// could be multiple dependencies blocking assembly, but explicit dependencies are now handled in the transaction manager.
-			Event_DependencyAssembled: {
-				Transitions: []Transition{{
-					To: State_Pooled,
-					If: statemachine.GuardNot(guard_HasUnassembledDependencies),
-				}},
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
 			},
-			Event_DependencyReverted: {
+			// Waiting for this event before we moved to pooled ensures FIFO ordering for first assembly within an originator.
+			Event_DependencySelectedForAssemble: {
+				Actions: []ActionRule{{Action: action_RemovePreAssembleDependency}},
 				Transitions: []Transition{{
 					To: State_Pooled,
-					If: statemachine.GuardNot(guard_HasUnassembledDependencies),
 				}},
 			},
 		},
@@ -130,16 +129,20 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandler{
+			Event_NewPreAssembleDependency: {
+				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
+			},
 			Event_Selected: {
+				Actions: []ActionRule{
+					// We notify the preassemble dependent at the point of selection, since the outcome of assembly is irrelevant
+					// to ensuring FIFO for first assembly within an originator.
+					{Action: action_NotifyPreAssembleDependentOfSelection},
+					{Action: action_RemovePreAssemblePrereqOf},
+				},
 				Transitions: []Transition{
 					{
 						To: State_Assembling,
 					}},
-			},
-			Event_DependencyReverted: {
-				Transitions: []Transition{{
-					To: State_PreAssembly_Blocked,
-				}},
 			},
 		},
 	},
@@ -162,9 +165,8 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 				Transitions: []Transition{
 					{
-						To:      State_Endorsement_Gathering,
-						Actions: []ActionRule{{Action: action_NotifyDependentsOfAssembled}},
-						If:      statemachine.GuardNot(guard_AttestationPlanFulfilled),
+						To: State_Endorsement_Gathering,
+						If: statemachine.GuardNot(guard_AttestationPlanFulfilled),
 					},
 					{
 						To: State_Confirming_Dispatchable,
@@ -192,6 +194,20 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Reverted,
 				}},
+			},
+			Event_Assemble_Error_Response: {
+				Validator: validator_MatchesPendingAssembleRequest,
+				Actions:   []ActionRule{{Action: action_AssembleError}},
+				Transitions: []Transition{
+					{
+						If: guard_CanRetryErroredAssemble,
+						To: State_Pooled,
+					},
+					{
+						If: statemachine.GuardNot(guard_CanRetryErroredAssemble),
+						To: State_Evicted,
+					},
+				},
 			},
 			// Handle response from originator indicating it doesn't recognize this transaction.
 			// The most likely cause is that the transaction reached a terminal state (e.g., reverted
@@ -372,6 +388,7 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Dispatched: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_NotifyDispatched},
+			{Action: action_CleanUpAssemblyPayload},
 		},
 		Events: map[EventType]EventHandler{
 			Event_Collected: {
@@ -434,9 +451,6 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: []ActionRule{
 			{Action: action_ResetTransactionLocks},
 		},
-		// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyRevert will
-		// need to be sent to the "next" transaction from that originator as a signal that it may now assemble. The dependency
-		// can be severed at this point as we have passed first assemble.
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{{Action: action_IncrementHeartbeatIntervalsSinceStateChange}},
@@ -473,6 +487,9 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Final: {
+		// Cleanup is handled by the coordinator in response to the state transition event
+	},
+	State_Evicted: {
 		// Cleanup is handled by the coordinator in response to the state transition event
 	},
 }
@@ -541,6 +558,8 @@ func (s State) String() string {
 		return "State_Confirmed"
 	case State_Final:
 		return "State_Final"
+	case State_Evicted:
+		return "State_Evicted"
 	}
 	return fmt.Sprintf("Unknown (%d)", s)
 }

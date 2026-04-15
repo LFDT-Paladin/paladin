@@ -219,6 +219,7 @@ var (
 	MsgBlockIndexerReceiptBlockMismatch       = pde("PD011314", "Receipt integrity check failed for block %s (%d): receipt for tx %s references block %s (%d)")
 	MsgBlockIndexerReceiptIntegrityNilReceipt = pde("PD011315", "Receipt integrity check failed for block %s (%d): nil receipt entry")
 	MsgBlockIndexerReceiptMissingTxHash       = pde("PD011316", "Receipt integrity check failed for block %s (%d): missing transaction hash from receipts %s")
+	MsgBlockIndexerGetBlockByNumberNotFound   = pde("PD011317", "Block info for block number %d not found")
 
 	// EthClient module PD0115XX
 	MsgEthClientInvalidInput            = pde("PD011500", "Unable to convert to ABI function input (func=%s)")
@@ -515,7 +516,7 @@ var (
 	MsgSequencerFunctionNotProvided           = pde("PD012639", "Function abi not provided in transaction input")
 	MsgSequencerAssembleRequestInvalid        = pde("PD012640", "Assemble request is invalid for transaction %s")
 	MsgSequencerAssembleTxnNotFound           = pde("PD012641", "Transaction %s not found in local node")
-	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. Transaction will be processed when in-flight transactions complete.")
+	MsgSequencerMaxInflightTransactions       = pde("PD012642", "Max number of inflight transactions (%d) reached. %d transactions delegated from node %s, %d already being coordinated on this node, %d new transactions accepted for coordination, %d rejected")
 	MsgSequencerErrorNotifyingDependent       = pde("PD012643", "Error notifying dependent transaction %s of revert of TX %s")
 	MsgSequencerErrorRepoolingTX              = pde("PD012644", "Error repooling TX %s")
 	MsgSequencerGrapherDependencyNotFound     = pde("PD012645", "TX %s missing from transaction graph")

@@ -26,7 +26,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,26 +76,6 @@ func TestStateMachine_Observing_ToSending_OnTransactionCreated(t *testing.T) {
 	assert.True(t, mocks.SentMessageRecorder.HasSentDelegationRequest(), "Delegation request should be sent")
 }
 
-func TestStateMachine_Sending_ToObserving_OnTransactionConfirmed_IfNoTransactionsInflight(t *testing.T) {
-	ctx := context.Background()
-
-	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
-
-	o, _, cleanup := originator.NewOriginatorBuilderForTesting(originator.State_Sending).
-		TransactionBuilders(txBuilder).
-		Build(ctx)
-	defer cleanup()
-	soleTransaction := txBuilder.GetBuiltTransaction()
-	require.NotNil(t, soleTransaction)
-
-	o.QueueEvent(ctx, &transaction.ConfirmedSuccessEvent{
-		BaseEvent: transaction.BaseEvent{
-			TransactionID: soleTransaction.GetID(),
-		},
-	})
-	assert.Eventually(t, func() bool { return o.GetCurrentState() == originator.State_Observing }, 100*time.Millisecond, 1*time.Millisecond, "current state is %s", o.GetCurrentState().String())
-}
-
 func TestStateMachine_Sending_NoTransition_OnTransactionConfirmed_IfHasTransactionsInflight(t *testing.T) {
 	ctx := context.Background()
 	txn1Builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Submitted)
@@ -120,59 +99,6 @@ func TestStateMachine_Sending_NoTransition_OnTransactionConfirmed_IfHasTransacti
 	o.QueueEvent(ctx, sync)
 	<-sync.Done
 	assert.Equal(t, originator.State_Sending, o.GetCurrentState(), "current state is %s", o.GetCurrentState().String())
-}
-
-func TestStateMachine_Observing_ToIdle_OnHeartbeatInterval_IfHeartbeatThresholdExpired(t *testing.T) {
-	ctx := context.Background()
-
-	clock := common.NewMockClock(t)
-	clock.On("Now").Return(time.Now()).Once()
-	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true).Once()
-
-	builder := originator.NewOriginatorBuilderForTesting(originator.State_Observing).
-		Clock(clock)
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	heartbeatEvent := &originator.HeartbeatReceivedEvent{}
-	heartbeatEvent.From = "coordinator"
-	ca := builder.GetContractAddress()
-	heartbeatEvent.ContractAddress = &ca
-	o.QueueEvent(ctx, heartbeatEvent)
-	sync := statemachine.NewSyncEvent()
-	o.QueueEvent(ctx, sync)
-	<-sync.Done
-
-	o.QueueEvent(ctx, &originator.HeartbeatIntervalEvent{})
-	assert.Eventually(t, func() bool { return o.GetCurrentState() == originator.State_Idle }, 100*time.Millisecond, 1*time.Millisecond, "current state is %s", o.GetCurrentState().String())
-}
-
-func TestStateMachine_Observing_NoTransition_OnHeartbeatInterval_IfHeartbeatThresholdNotExpired(t *testing.T) {
-	ctx := context.Background()
-
-	clock := common.NewMockClock(t)
-	clock.On("Now").Return(time.Now()).Once()
-	clock.On("HasExpired", mock.Anything, mock.Anything).Return(false).Once()
-
-	builder := originator.NewOriginatorBuilderForTesting(originator.State_Observing).
-		Clock(clock)
-	o, _, cleanup := builder.Build(ctx)
-	defer cleanup()
-
-	heartbeatEvent := &originator.HeartbeatReceivedEvent{}
-	heartbeatEvent.From = "coordinator"
-	ca := builder.GetContractAddress()
-	heartbeatEvent.ContractAddress = &ca
-	o.QueueEvent(ctx, heartbeatEvent)
-	sync := statemachine.NewSyncEvent()
-	o.QueueEvent(ctx, sync)
-	<-sync.Done
-
-	o.QueueEvent(ctx, &originator.HeartbeatIntervalEvent{})
-	sync2 := statemachine.NewSyncEvent()
-	o.QueueEvent(ctx, sync2)
-	<-sync2.Done
-	assert.Equal(t, originator.State_Observing, o.GetCurrentState(), "current state is %s", o.GetCurrentState().String())
 }
 
 func TestStateMachine_Sending_DoDelegateTransactions_OnHeartbeatReceived_IfHasDroppedTransaction(t *testing.T) {

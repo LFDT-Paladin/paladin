@@ -522,7 +522,7 @@ func TestDomainFindAvailableStatesFail(t *testing.T) {
 	defer done()
 
 	schemaID := pldtypes.RandBytes32()
-	td.mdc.On("FindAvailableStates", mock.Anything, schemaID, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
+	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, schemaID, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
 
 	assert.Nil(t, td.d.initError.Load())
 	_, err := td.d.FindAvailableStates(td.ctx, &prototk.FindAvailableStatesRequest{
@@ -1101,7 +1101,7 @@ func TestGetStatesFailCases(t *testing.T) {
 	require.ErrorContains(t, err, "PD011641")
 
 	schemaID := pldtypes.Bytes32(pldtypes.RandBytes(32))
-	td.mdc.On("GetStatesByID", mock.Anything, schemaID, []string{"id1"}).Return(nil, nil, fmt.Errorf("pop"))
+	td.mdc.On("GetStatesByID", mock.Anything, mock.Anything, schemaID, []string{"id1"}).Return(nil, nil, fmt.Errorf("pop"))
 
 	_, err = td.d.GetStatesByID(td.ctx, &prototk.GetStatesByIDRequest{
 		StateQueryContext: td.c.id,

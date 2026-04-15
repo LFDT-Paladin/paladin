@@ -525,8 +525,7 @@ func (n *Noto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 }
 
 func (n *Noto) InitDeploy(ctx context.Context, req *prototk.InitDeployRequest) (*prototk.InitDeployResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	params, err := n.validateDeploy(req.Transaction)
+	ctx, params, err := n.validateDeployAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -565,8 +564,7 @@ func (n *Noto) InitDeploy(ctx context.Context, req *prototk.InitDeployRequest) (
 }
 
 func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequest) (*prototk.PrepareDeployResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	params, err := n.validateDeploy(req.Transaction)
+	ctx, params, err := n.validateDeployAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -663,6 +661,7 @@ func (n *Noto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 
 func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
 	ctx = log.WithComponent(ctx, "noto")
+	ctx = log.WithLogField(ctx, "contract", req.ContractAddress)
 	var notoContractConfigJSON []byte
 
 	domainConfig, decodedData, err := n.decodeConfig(ctx, req.ContractConfig)
@@ -716,8 +715,7 @@ func (n *Noto) InitContract(ctx context.Context, req *prototk.InitContractReques
 }
 
 func (n *Noto) InitTransaction(ctx context.Context, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	tx, handler, err := n.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -725,8 +723,7 @@ func (n *Noto) InitTransaction(ctx context.Context, req *prototk.InitTransaction
 }
 
 func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	tx, handler, err := n.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -734,8 +731,7 @@ func (n *Noto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 }
 
 func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	tx, handler, err := n.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -743,8 +739,7 @@ func (n *Noto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 }
 
 func (n *Noto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	tx, handler, err := n.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := n.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, err
 	}
@@ -786,11 +781,22 @@ func (n *Noto) decodeConfig(ctx context.Context, domainConfig []byte) (*types.No
 	return &config, &decodedData, err
 }
 
-func (n *Noto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*types.ConstructorParams, error) {
+func (n *Noto) validateDeployAndGetLogContext(ctx context.Context, txSpec *prototk.DeployTransactionSpecification) (context.Context, *types.ConstructorParams, error) {
+	ctx = log.WithComponent(ctx, "noto")
+	ctx = log.WithLogField(ctx, "tx", txSpec.TransactionId)
+
+	params, err := n.validateDeploy(ctx, txSpec)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return ctx, params, nil
+}
+
+func (n *Noto) validateDeploy(ctx context.Context, tx *prototk.DeployTransactionSpecification) (*types.ConstructorParams, error) {
 	var params types.ConstructorParams
 	err := json.Unmarshal([]byte(tx.ConstructorParamsJson), &params)
 	if err == nil && params.Notary == "" {
-		err = i18n.NewError(context.Background(), msgs.MsgParameterRequired, "notary")
+		err = i18n.NewError(ctx, msgs.MsgParameterRequired, "notary")
 	}
 	return &params, err
 }
@@ -874,6 +880,30 @@ func (n *Noto) validateTransaction(ctx context.Context, tx *prototk.TransactionS
 		tx,
 		n.GetHandler,
 	)
+}
+
+func (n *Noto) validateTransactionAndGetLogContext(ctx context.Context, txSpec *prototk.TransactionSpecification) (context.Context, *types.ParsedTransaction, types.DomainHandler, error) {
+	ctx = log.WithComponent(ctx, "noto")
+	tx, handler, err := n.validateTransaction(ctx, txSpec)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+
+	ctx = log.WithLogField(ctx, "tx", tx.Transaction.TransactionId)
+	ctx = log.WithLogField(ctx, "contract", tx.Transaction.ContractInfo.ContractAddress)
+	return ctx, tx, handler, nil
+}
+
+func (n *Noto) validateCallAndGetLogContext(ctx context.Context, callSpec *prototk.TransactionSpecification) (context.Context, *types.ParsedTransaction, types.DomainCallHandler, error) {
+	ctx = log.WithComponent(ctx, "noto")
+	call, handler, err := n.validateCall(ctx, callSpec)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+
+	ctx = log.WithLogField(ctx, "tx", call.Transaction.TransactionId)
+	ctx = log.WithLogField(ctx, "contract", call.Transaction.ContractInfo.ContractAddress)
+	return ctx, call, handler, nil
 }
 
 func (n *Noto) validateCall(ctx context.Context, call *prototk.TransactionSpecification) (*types.ParsedTransaction, types.DomainCallHandler, error) {
@@ -1145,8 +1175,7 @@ func (n *Noto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateSta
 }
 
 func (n *Noto) InitCall(ctx context.Context, req *prototk.InitCallRequest) (*prototk.InitCallResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	ptx, handler, err := n.validateCall(ctx, req.Transaction)
+	ctx, ptx, handler, err := n.validateCallAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateInitCallTxSpec, err)
 	}
@@ -1154,8 +1183,7 @@ func (n *Noto) InitCall(ctx context.Context, req *prototk.InitCallRequest) (*pro
 }
 
 func (n *Noto) ExecCall(ctx context.Context, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error) {
-	ctx = log.WithComponent(ctx, "noto")
-	ptx, handler, err := n.validateCall(ctx, req.Transaction)
+	ctx, ptx, handler, err := n.validateCallAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateExecCallTxSpec, err)
 	}
@@ -1345,7 +1373,7 @@ func (n *Noto) IsBaseLedgerRevertRetryable(ctx context.Context, req *prototk.IsB
 	}
 	return &prototk.IsBaseLedgerRevertRetryableResponse{
 		Retryable:     false,
-		DecodedReason: pldtypes.HexBytes(req.RevertData).String(),
+		DecodedReason: "",
 	}, nil
 }
 

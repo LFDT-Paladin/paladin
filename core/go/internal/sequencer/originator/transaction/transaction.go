@@ -39,10 +39,18 @@ type assembleRequestFromCoordinator struct {
 	preAssembly             []byte
 }
 
+type OriginatorTransaction interface {
+	HandleEvent(ctx context.Context, event common.Event) error
+	GetID() uuid.UUID
+	GetCurrentState() State
+	GetPrivateTransaction() *components.PrivateTransaction
+	GetStatus(ctx context.Context) components.PrivateTxStatus
+}
+
 // OriginatorTransaction tracks the state of a transaction that is being sent by the local node in originator state.
 // It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications must go through this package.
-type OriginatorTransaction struct {
+type originatorTransaction struct {
 	sync.RWMutex
 	stateMachine                     *StateMachine
 	pt                               *components.PrivateTransaction
@@ -68,38 +76,55 @@ func NewTransaction(
 	queueEventForOriginator func(context.Context, common.Event),
 	engineIntegration common.EngineIntegration,
 	metrics metrics.DistributedSequencerMetrics,
-) (*OriginatorTransaction, error) {
+) (OriginatorTransaction, error) {
 	if pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot create transaction without private tx")
 	}
-	txn := &OriginatorTransaction{
+
+	return newTransaction(
+		ctx,
+		pt,
+		engineIntegration,
+		transportWriter,
+		queueEventForOriginator,
+		metrics,
+	), nil
+}
+
+func newTransaction(
+	ctx context.Context,
+	pt *components.PrivateTransaction,
+	engineIntegration common.EngineIntegration,
+	transportWriter transport.TransportWriter,
+	queueEventForOriginator func(context.Context, common.Event),
+	metrics metrics.DistributedSequencerMetrics,
+) *originatorTransaction {
+	txn := &originatorTransaction{
 		pt:                      pt,
 		engineIntegration:       engineIntegration,
 		transportWriter:         transportWriter,
 		queueEventForOriginator: queueEventForOriginator,
 		metrics:                 metrics,
 	}
-
 	txn.initializeStateMachine(State_Initial)
-
-	return txn, nil
+	return txn
 }
 
-func (t *OriginatorTransaction) GetID() uuid.UUID {
+func (t *originatorTransaction) GetID() uuid.UUID {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt.ID
 }
 
 // GetPrivateTransaction returns the private transaction for code where we really cannot do without the whole struct.
-func (t *OriginatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
+func (t *originatorTransaction) GetPrivateTransaction() *components.PrivateTransaction {
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt
 }
 
 // GetStatus returns the transaction status for external use. Caller may call from any goroutine.
-func (t *OriginatorTransaction) GetStatus(ctx context.Context) components.PrivateTxStatus {
+func (t *originatorTransaction) GetStatus(ctx context.Context) components.PrivateTxStatus {
 	t.RLock()
 	defer t.RUnlock()
 	if t.pt == nil {
@@ -114,14 +139,14 @@ func (t *OriginatorTransaction) GetStatus(ctx context.Context) components.Privat
 	}
 }
 
-func (t *OriginatorTransaction) GetHash(ctx context.Context) (*pldtypes.Bytes32, error) {
+func (t *originatorTransaction) GetHash(ctx context.Context) (*pldtypes.Bytes32, error) {
 	t.RLock()
 	defer t.RUnlock()
 	return t.hashInternal(ctx)
 }
 
 // hashInternal contains the hashing logic; used internally and by the public Hash.
-func (t *OriginatorTransaction) hashInternal(ctx context.Context) (*pldtypes.Bytes32, error) {
+func (t *originatorTransaction) hashInternal(ctx context.Context) (*pldtypes.Bytes32, error) {
 	if t.pt == nil {
 		return nil, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "cannot hash transaction without PrivateTransaction")
 	}
@@ -146,7 +171,7 @@ func (t *OriginatorTransaction) hashInternal(ctx context.Context) (*pldtypes.Byt
 	return &h32, nil
 }
 
-func (t *OriginatorTransaction) getEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
+func (t *originatorTransaction) getEndorsementStatus(ctx context.Context) []components.PrivateTxEndorsementStatus {
 	if t.pt == nil || t.pt.PostAssembly == nil {
 		return nil
 	}
@@ -177,37 +202,37 @@ func ptrTo[T any](v T) *T {
 	return &v
 }
 
-func (t *OriginatorTransaction) GetCurrentState() State {
+func (t *originatorTransaction) GetCurrentState() State {
 	t.RLock()
 	defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
 
-func (t *OriginatorTransaction) GetLatestEvent() string {
+func (t *originatorTransaction) GetLatestEvent() string {
 	t.RLock()
 	defer t.RUnlock()
 	return t.stateMachine.GetLatestEvent()
 }
 
-func (t *OriginatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
+func (t *originatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
 	t.RLock()
 	defer t.RUnlock()
 	return t.signerAddress
 }
 
-func (t *OriginatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
+func (t *originatorTransaction) GetLatestSubmissionHash() *pldtypes.Bytes32 {
 	t.RLock()
 	defer t.RUnlock()
 	return t.latestSubmissionHash
 }
 
-func (t *OriginatorTransaction) GetNonce() *uint64 {
+func (t *originatorTransaction) GetNonce() *uint64 {
 	t.RLock()
 	defer t.RUnlock()
 	return t.nonce
 }
 
-func (t *OriginatorTransaction) GetLastDelegatedTime() *time.Time {
+func (t *originatorTransaction) GetLastDelegatedTime() *time.Time {
 	t.RLock()
 	defer t.RUnlock()
 	return t.lastDelegatedTime

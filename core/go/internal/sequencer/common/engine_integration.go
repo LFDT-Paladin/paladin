@@ -148,7 +148,7 @@ func (e *engineIntegration) WriteLockStatesForTransaction(ctx context.Context, t
 
 func (e *engineIntegration) GetStateLocks(ctx context.Context) ([]byte, error) {
 	log.L(ctx).Debugf("GetStateLocks: Exporting snapshot for domain context %s", e.domainContext.Info().ID)
-	return e.domainContext.ExportSnapshot()
+	return e.domainContext.ExportSnapshot(ctx)
 }
 
 func (e *engineIntegration) GetBlockHeight(ctx context.Context) (int64, error) {
@@ -172,7 +172,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 
 	// TODO - we're not actually policing anything based on block height differences?
 
-	err := e.delegateDomainContext.ImportSnapshot(stateLocksJSON)
+	err := e.delegateDomainContext.ImportSnapshot(ctx, stateLocksJSON)
 	if err != nil {
 		log.L(ctx).Errorf("error importing state locks: %s", err)
 		return nil, err
@@ -204,7 +204,6 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, e.delegateDomainContext)
 
 	if err != nil {
-		log.L(ctx).Errorf("error assembling and signing transaction: %s", err)
 		return nil, err
 	}
 

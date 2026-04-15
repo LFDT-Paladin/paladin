@@ -29,18 +29,22 @@ func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) er
 
 func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*EndorsementRequestedEvent)
-	c.activeCoordinatorNode = e.From
-	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	if c.activeCoordinatorNode != e.From {
+		c.activeCoordinatorNode = e.From
+		c.coordinatorActive(c.contractAddress, e.From)
+		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	}
 	return nil
 }
 
 func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*HeartbeatReceivedEvent)
-	c.activeCoordinatorNode = e.From
+	if c.activeCoordinatorNode != e.From {
+		c.activeCoordinatorNode = e.From
+		c.coordinatorActive(c.contractAddress, e.From)
+		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
+	}
 	c.activeCoordinatorBlockHeight = e.BlockHeight
-	c.coordinatorActive(c.contractAddress, e.From)
-	c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	for _, flushPoint := range e.FlushPoints {
 		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
@@ -52,10 +56,21 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Ev
 	return nil
 }
 
-func action_Idle(ctx context.Context, c *coordinator, _ common.Event) error {
+func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
-	if c.heartbeatCancel != nil {
-		c.heartbeatCancel()
-	}
 	return nil
+}
+
+func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+	c.heartbeatIntervalsSinceLastReceive = 0
+	return nil
+}
+
+func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
+	c.heartbeatIntervalsSinceLastReceive++
+	return nil
+}
+
+func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
+	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
 }

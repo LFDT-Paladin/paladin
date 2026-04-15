@@ -964,7 +964,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 		transport: tp.t,
 	}
 
-	sequencerActivity := &pldapi.SequencerActivity{
+	sequencerActivity := &components.SequencingActivity{
 		SubjectID:      "subjectID",
 		Timestamp:      pldtypes.TimestampNow(),
 		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
@@ -997,7 +997,7 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, RMHMessageTypeSequencingActivity, rMsg.MessageType)
 
-	var receivedSequencerActivity pldapi.SequencerActivity
+	var receivedSequencerActivity components.SequencingActivity
 	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
 	require.NoError(t, err)
 	require.Equal(t, sequencerActivity.SubjectID, receivedSequencerActivity.SubjectID)
@@ -1005,4 +1005,45 @@ func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
 	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
 	require.Equal(t, sequencerActivity.SequencingNode, receivedSequencerActivity.SequencingNode)
 	require.Equal(t, sequencerActivity.TransactionID, receivedSequencerActivity.TransactionID)
+}
+
+func TestIsInactiveNewPeerNotReapedBeforeTimeout(t *testing.T) {
+
+	_, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	// set sufficently high that it will never be exceeded by this test
+	tm.peerInactivityTimeout = 1 * time.Hour
+
+	now := pldtypes.TimestampNow()
+	p := &peer{
+		tm: tm,
+		PeerInfo: pldapi.PeerInfo{
+			Stats: pldapi.PeerStats{
+				CreatedAt: &now,
+			},
+		},
+	}
+
+	assert.False(t, p.isInactive(), "newly created peer must not be considered inactive")
+}
+
+func TestIsInactiveOldPeerReapedWithNoActivity(t *testing.T) {
+
+	_, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	tm.peerInactivityTimeout = 5 * time.Millisecond
+
+	past := pldtypes.Timestamp(time.Now().Add(-10 * time.Millisecond).UnixNano())
+	p := &peer{
+		tm: tm,
+		PeerInfo: pldapi.PeerInfo{
+			Stats: pldapi.PeerStats{
+				CreatedAt: &past,
+			},
+		},
+	}
+
+	assert.True(t, p.isInactive(), "peer older than timeout with no send/receive should be inactive")
 }

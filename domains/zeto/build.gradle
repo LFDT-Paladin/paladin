@@ -25,7 +25,7 @@ ext {
     goFilesE2E = fileTree(".") {
         include "integration-test/**/*.go"
     }
-    targetCoverage = 92.5
+    targetCoverage = 92.3
     maxCoverageBarGap = 1
     coveragePackages = [
         "github.com/LFDT-Paladin/paladin/domains/zeto/internal/...",

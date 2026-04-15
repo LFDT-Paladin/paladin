@@ -105,8 +105,7 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		return nil, i18n.NewError(ctx, msgs.MsgDomainTxnInputDefinitionInvalid)
 	}
 
-	// Query the base block height to inform the assembly step that comes later
-	confirmedBlockHeight, err := dc.dm.blockIndexer.GetConfirmedBlockHeight(ctx)
+	latestConfirmedBlock, err := dc.dm.blockIndexer.GetLatestConfirmedBlockMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +134,9 @@ func (dc *domainContract) buildTransactionSpecification(ctx context.Context, loc
 		FunctionAbiJson:    string(abiJSON),
 		FunctionParamsJson: string(paramsJSON),
 		FunctionSignature:  fnDef.SolString(), // we use the proprietary "Solidity inspired" form that is very specific, including param names and nested struct defs
-		BaseBlock:          int64(confirmedBlockHeight),
+		BaseBlock:          latestConfirmedBlock.Number,
 		Intent:             intent,
+		BaseBlockTimestamp: latestConfirmedBlock.Timestamp,
 	}, nil
 }
 
@@ -303,7 +303,6 @@ func (dc *domainContract) WritePotentialStates(dCtx components.DomainContext, re
 		log.L(dCtx.Ctx()).Debugf("WritePotentialStates: Writing %+v info potentialstates", len(postAssembly.InfoStatesPotential))
 		postAssembly.InfoStates, err = dc.upsertPotentialStates(dCtx, readTX, tx, postAssembly.InfoStatesPotential, false)
 	}
-
 	log.L(dCtx.Ctx()).Debugf("WritePotentialStates: %d post assembly output states", len(postAssembly.OutputStates))
 	log.L(dCtx.Ctx()).Debugf("WritePotentialStates: %d post assembly info states", len(postAssembly.InfoStates))
 	return err
@@ -659,7 +658,7 @@ func (dc *domainContract) loadStatesFromContext(dCtx components.DomainContext, r
 	statesByID := make(map[string]*pldapi.State)
 	for schemaID, stateIDs := range rawIDsBySchema {
 		log.L(dCtx.Ctx()).Debugf("Finding available states for state IDs %+v", stateIDs)
-		_, statesForSchema, err := dCtx.FindAvailableStates(readTX, schemaID, &query.QueryJSON{
+		_, statesForSchema, err := dCtx.FindAvailableStates(dCtx.Ctx(), readTX, schemaID, &query.QueryJSON{
 			Statements: query.Statements{
 				Ops: query.Ops{
 					In: []*query.OpMultiVal{

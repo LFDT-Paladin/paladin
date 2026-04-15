@@ -784,20 +784,22 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
+| assembleErrorRetryThreshold | Maximum number of times a transaction can error on assembly before being evicted | `int` | `3` |
 | baseLedgerRevertRetryThreshold | Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed | `int` | `3` |
 | blockHeightTolerance | Tolerance for block height differences | `uint64` | `5` |
 | blockRange | Block range size for sequencer operations | `uint64` | `100` |
 | closingGracePeriod | Grace period for closing operations | `int` | `2` |
-| confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `1` |
+| confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `2` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
-| delegateTimeout | Timeout for re-delegating transactions | `string` | `"5s"` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
-| heartbeatThreshold | Heartbeat threshold | `int` | - |
+| idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
+| inactiveToIdleGracePeriod | Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle | `int` | `10` |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |
 | originatorPriorityEventQueueSize | Queue size for originator priority events | `int` | `500` |
+| redelegateGracePeriod | Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions | `int` | `2` |
 | requestTimeout | Timeout for sequencer requests | `string` | `"3s"` |
 | stateTimeout | Timeout for request-driven transaction states before repooling | `string` | `"10s"` |
 | targetActiveCoordinators | Target number of active coordinators | `int` | `50` |

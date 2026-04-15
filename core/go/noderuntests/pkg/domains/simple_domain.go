@@ -385,9 +385,9 @@ type SimpleDomainConfig struct {
 }
 
 type SimpleDomainPairConfig struct {
-	SubmitMode              string
-	Domain1RegistryAddress  string
-	Domain2RegistryAddress  string
+	SubmitMode             string
+	Domain1RegistryAddress string
+	Domain2RegistryAddress string
 }
 
 // ABI for the config field in the PaladinRegisterSmartContract_V0 event
@@ -841,6 +841,7 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 				// If the amount is set to 1003 we will trigger a retryable base ledger error on the first attempt, then succeed on retry
 				// If the amount is set to 1004 we will trigger a retryable base ledger error every time (will exceed retry threshold)
 				// If the amount is set to 1005 we will trigger a non-retryable base ledger error (fails immediately)
+				// If the amount is set to 1006 we will return an error (not a revert - to ensure the sequencer copes gracefully with it)
 				if config.HookAddress == "" {
 					if amount.Cmp(big.NewInt(1001)) == 0 {
 						revertMessage := "simple domain revert - special transfer amount 1001 intentionally rejected"
@@ -848,6 +849,9 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 							AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
 							RevertReason:   &revertMessage,
 						}, nil
+					}
+					if amount.Cmp(big.NewInt(1006)) == 0 {
+						return nil, fmt.Errorf("simple domain assembly error")
 					}
 				}
 				toKeep := new(big.Int)
@@ -1245,6 +1249,22 @@ func SimpleTokenDomain(t *testing.T, ctx context.Context) plugintk.PluginBase {
 					}
 				}
 				return &res, nil
+			},
+			BuildReceipt: func(ctx context.Context, req *prototk.BuildReceiptRequest) (*prototk.BuildReceiptResponse, error) {
+				receiptJSON, err := json.Marshal(map[string]interface{}{
+					"transactionId":     req.TransactionId,
+					"unavailableStates": req.UnavailableStates,
+					"inputs":            req.InputStates,
+					"reads":             req.ReadStates,
+					"outputs":           req.OutputStates,
+					"info":              req.InfoStates,
+				})
+				if err != nil {
+					return nil, err
+				}
+				return &prototk.BuildReceiptResponse{
+					ReceiptJson: string(receiptJSON),
+				}, nil
 			},
 			IsBaseLedgerRevertRetryable: func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
 				if len(req.RevertData) < 4 {

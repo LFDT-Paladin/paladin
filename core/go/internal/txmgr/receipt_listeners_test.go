@@ -1024,7 +1024,13 @@ func TestNextReceiptReceiverSkipsInactive(t *testing.T) {
 	defer cancel()
 
 	l := &receiptListener{
-		ctx:          ctx,
+		ctx: ctx,
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		spec: &pldapi.TransactionReceiptListener{
+			Name: "test-next-receiver-skips-inactive",
+		},
 		newReceivers: make(chan bool, 1),
 	}
 

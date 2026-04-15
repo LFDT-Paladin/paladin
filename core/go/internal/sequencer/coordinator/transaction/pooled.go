@@ -16,53 +16,18 @@ package transaction
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 )
 
-// Function hasDependenciesNotAssembled checks if the transaction has any dependencies that have not been assembled yet
-func (t *coordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context) bool {
-	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
-		for _, dependencyID := range t.pt.PreAssembly.Dependencies.DependsOn {
-			dependency := t.grapher.TransactionByID(ctx, dependencyID)
-			if dependency == nil {
-				//assume the dependency has been confirmed and no longer in memory
-				//hasUnknownDependencies guard will be used to explicitly ensure the correct thing happens
-				continue
-			}
-			if dependency.isNotAssembled() {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// Function hasUnknownDependencies checks if the transaction has any dependencies the coordinator does not have in memory.  These might be long gone confirmed to base ledger or maybe the delegation request for them hasn't reached us yet. At this point, we don't know
-func (t *coordinatorTransaction) hasUnknownDependencies(ctx context.Context) bool {
-
-	dependencies := t.dependencies.DependsOn
-	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil {
-		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
-	}
-
-	for _, dependencyID := range dependencies {
-		dependency := t.grapher.TransactionByID(ctx, dependencyID)
-		if dependency == nil {
-
-			return true
-		}
-
-	}
-
-	//if there are are any dependencies declared, they are all known to the current in memory context ( grapher)
-	return false
+// Function hasDependenciesNotAssembled checks if the transaction has a preassembly dependency that has not been assembled yet
+func (t *coordinatorTransaction) hasDependenciesNotAssembled() bool {
+	// preAssembleDependsOn can only be set when transactions have arrived in the same delegation request.
+	// It is cleared when the dependent transaction is selected for assembly which means there is no way
+	// that this can be cleared if a dependency has not yet been assembled.
+	return t.preAssembleDependsOn != nil
 }
 
 func action_InitializeForNewAssembly(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
@@ -71,39 +36,10 @@ func action_InitializeForNewAssembly(ctx context.Context, txn *coordinatorTransa
 
 // Initializes (or re-initializes) the transaction as it arrives in the pool
 func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) error {
-	if t.pt.PreAssembly == nil {
-		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PreAssembly", t.pt.ID)
-		log.L(ctx).Error(msg)
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-	}
-
-	if t.pt.PreAssembly.Dependencies != nil {
-		for _, dependencyID := range t.pt.PreAssembly.Dependencies.DependsOn {
-			dependencyTxn := t.grapher.TransactionByID(ctx, dependencyID)
-
-			if nil == dependencyTxn {
-				//either the dependency has been confirmed and no longer in memory or there was a overtake on the network and we have not received the delegation request for the dependency yet
-				// in either case, the guards will stop this transaction from being assembled but will appear in the heartbeat messages so that the originator can take appropriate action (remove the dependency if it is confirmed, resend the dependency delegation request if it is an inflight transaction)
-
-				//This should be relatively rare so worth logging as an info
-				log.L(ctx).Infof("dependency %s not found in memory for transaction %s", dependencyID, t.pt.ID)
-				continue
-			}
-
-			//TODO this should be idempotent.
-			if dependencyTxn.pt.PreAssembly.Dependencies == nil {
-				dependencyTxn.pt.PreAssembly.Dependencies = &pldapi.TransactionDependencies{}
-			}
-			dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf = append(dependencyTxn.pt.PreAssembly.Dependencies.PrereqOf, t.pt.ID)
-		}
-	}
-
 	// Reset anything that might have been updated during an initial attempt to assembly, endorse and dispatch this TX. This is a no-op if this is the first
 	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
 	// dependencies from a previous version of the grapher.
-	t.pt.PostAssembly = nil
-	t.pt.PreparedPublicTransaction = nil
-	t.pt.PreparedPrivateTransaction = nil
+	t.pt.CleanUpPostAssemblyData()
 	t.dependencies = &pldapi.TransactionDependencies{}
 	t.pendingPreDispatchRequest = nil
 	t.grapher.ForgetMints(t.pt.ID)
@@ -123,12 +59,8 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 	return nil
 }
 
-func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.hasDependenciesNotAssembled(ctx)
-}
-
-func guard_HasUnknownDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.hasUnknownDependencies(ctx)
+func guard_HasUnassembledDependencies(_ context.Context, txn *coordinatorTransaction) bool {
+	return txn.hasDependenciesNotAssembled()
 }
 
 func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
@@ -164,5 +96,21 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 		}
 	}
 
+	return nil
+}
+
+func action_RemovePreAssembleDependency(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.preAssembleDependsOn = nil
+	return nil
+}
+
+func action_AddPreAssemblePrereqOf(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
+	e := event.(*NewPreAssembleDependencyEvent)
+	txn.preAssemblePrereqOf = &e.PrereqTransactionID
+	return nil
+}
+
+func action_RemovePreAssemblePrereqOf(_ context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.preAssemblePrereqOf = nil
 	return nil
 }

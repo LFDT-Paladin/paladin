@@ -24,7 +24,18 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
-	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/google/uuid"
+)
+
+// Enum for delegation acknowledgement errors
+type DelegationAcknowledgementError int64
+
+const (
+	DelegationAcknowledgementError_None DelegationAcknowledgementError = iota
+	DelegationAcknowledgementError_MaxInflightTransactions
+	DelegationAcknowledgementError_CoordinatorError
+	DelegationAcknowledgementError_PreviousTransactionError
 )
 
 // Originators send only the delegated transactions that they believe the coordinator needs to know/be reminded about. Which transactions are
@@ -34,61 +45,150 @@ import (
 func action_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.updateOriginatorNodePool(e.FromNode)
-	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions)
+	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
+}
+
+func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string, preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction {
+	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.metrics)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
-func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator string, transactions []*components.PrivateTransaction) error {
-	for _, txn := range transactions {
+func (c *coordinator) addToDelegatedTransactions(
+	ctx context.Context,
+	originator string,
+	transactions []*components.PrivateTransaction,
+	delegationID string,
+	createTransaction func(
+		ctx context.Context,
+		originator string,
+		originatorNode string,
+		nodeName string,
+		pt *components.PrivateTransaction,
+		coordinatorSigningIdentity string,
+		preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction) error {
 
+	var previousTransaction transaction.CoordinatorTransaction
+
+	delegateAcknowledgementIDs := make([]string, 0, len(transactions))
+	delegateAcknowledgementErrors := make([]int64, len(transactions))
+	rejectedMaxInFlight := 0
+	acceptedTransactions := 0
+	inProgressTransactions := 0
+	var txnHandlingError error
+
+	_, originatorNode, err := pldtypes.PrivateIdentityLocator(originator).Validate(ctx, "", false)
+	if err != nil {
+		log.L(ctx).Errorf("error validating originator %s: %s", originator, err)
+		// This is likely a code bug that the originator can't do anything about, and since we can't parse the node to send an acknowledgement back to,
+		// no point sending a delegation acknowledgement here.
+		return err
+	}
+
+	for i, txn := range transactions {
+		// Acknowledge every delegation
+		delegateAcknowledgementIDs = append(delegateAcknowledgementIDs, txn.ID.String())
+
+		if txnHandlingError != nil {
+			// Any previous errors, don't handle this or subsequent TXNs to maintain FIFO ordering
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_PreviousTransactionError)
+			continue
+		}
+
+		// store the transaction if it already exists, so if the next transaction is new we can establish the dependency via an event
 		if c.transactionsByID[txn.ID] != nil {
+			inProgressTransactions++
+			previousTransaction = c.transactionsByID[txn.ID]
 			log.L(ctx).Debugf("transaction %s already being coordinated", txn.ID.String())
 			continue
 		}
 
 		if len(c.transactionsByID) >= c.maxInflightTransactions {
-			// We'll rely on the fact that originators retry incomplete transactions periodically
-			return i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions)
+			rejectedMaxInFlight++
+			log.L(ctx).Tracef("transaction %s being rejected - reached max in-flight limit", txn.ID.String())
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_MaxInflightTransactions)
+			// Since all subsequent transactions will be rejected for the same reason, go through them all recording
+			// an error for the delegation acknowledgement response. The originator may choose to do nothing but log
+			// and retry later.
+			continue
 		}
 
-		newTransaction, err := transaction.NewTransaction(
-			ctx,
-			originator,
-			c.nodeName,
-			txn,
-			c.signingIdentity,
-			c.transportWriter,
-			c.clock,
-			c.queueEventInternal,
-			c.engineIntegration,
-			c.syncPoints,
-			c.components,
-			c.domainAPI,
-			c.dCtx,
-			c.requestTimeout,
-			c.stateTimeout,
-			c.closingGracePeriod,
-			c.confirmedLockRetentionGracePeriod,
-			c.baseLedgerRevertRetryThreshold,
-			c.grapher,
-			c.metrics,
-		)
-		if err != nil {
-			log.L(ctx).Errorf("error creating transaction: %v", err)
-			return err
+		// We use the order in which transaction are delegated to establish preassembly dependencies, which is what allows us to
+		// ensure FIFO ordering within an originator up until first assembly.
+		//
+		// An originator sends all of its known transactions (i.e. all that have not yet been confirmed) with every delegation request.
+		// If an originator believes a transaction has been assembled for the first time, it definitely has been, so we can
+		// trust that we have all the information we need in this request to ensure the ordering.
+		// We cannot rely on an originator to know that that a transaction has never been assembled, so we need to check our
+		// own records of transactions states, and only establish dependencies when we know a prereq transaction is definitely
+		// going to be selected for assembly again.
+
+		// Checking for prereq state here means that there is the potential for a race condition with the dispatch loop. The current
+		// code is safe because:
+		// - we check the prereq transaction state under lock
+		// - if the prereq transaction is in a preassembly state then the only goroutine that can move it out of that state is this one
+		//   so we can establish the dependency knowing that the new transaction will definitely receive the selection notitication
+
+		var previousTransactionID *uuid.UUID
+		if previousTransaction != nil {
+			switch previousTransaction.GetCurrentState() {
+			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
+				// There is an incredibly slim possibility that the transaction has actually been repooled, so we are past first assembly,
+				// but since we have no way of checking this it causes no issues to establish the dependency, since the already pooled transaction
+				// will be selected for assembly ahead of this new transaction anyway.
+				//
+				// This would only be possible if
+				// - the coordinator has been rejecting delegated transaction after reaching its max inflight limit
+				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
+				err := previousTransaction.HandleEvent(ctx, &transaction.NewPreAssembleDependencyEvent{
+					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
+						TransactionID: previousTransaction.GetID(),
+					},
+					PrereqTransactionID: transactions[i-1].ID,
+				})
+				if err != nil {
+					txnHandlingError = err
+					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+					continue
+				}
+			}
 		}
+
+		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity, previousTransactionID)
 
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()
+		acceptedTransactions++
 
 		receivedEvent := &transaction.DelegatedEvent{}
 		receivedEvent.TransactionID = txn.ID
 
-		err = c.transactionsByID[txn.ID].HandleEvent(ctx, receivedEvent)
+		err = newTransaction.HandleEvent(ctx, receivedEvent)
 		if err != nil {
-			log.L(ctx).Errorf("error handling ReceivedEvent for transaction %s: %v", txn.ID.String(), err)
-			return err
+			delete(c.transactionsByID, txn.ID)
+			c.metrics.DecCoordinatingTransactions()
+			acceptedTransactions--
+			txnHandlingError = err
+			delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
+			// All subsequent transactions will be skipped
+			continue
 		}
+		previousTransaction = newTransaction
+	}
+
+	// Acknowledge the delegate request. Optionally errors can be returned which the originator may use to base re-delegate decisions on
+	err = c.transportWriter.SendDelegationRequestAcknowledgment(ctx, originatorNode, delegationID, delegateAcknowledgementIDs, delegateAcknowledgementErrors)
+	if err != nil {
+		return err
+	}
+
+	if rejectedMaxInFlight > 0 {
+		err := i18n.NewError(ctx, msgs.MsgSequencerMaxInflightTransactions, c.maxInflightTransactions, originatorNode, len(transactions), acceptedTransactions, inProgressTransactions, rejectedMaxInFlight)
+		return err
+	}
+
+	if txnHandlingError != nil {
+		// Return the first TX creation or handling error
+		return txnHandlingError
 	}
 	return nil
 }
@@ -96,14 +196,9 @@ func (c *coordinator) addToDelegatedTransactions(ctx context.Context, originator
 func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
 	// casued us to reach the node's limit on active coordinators.
-	c.activeCoordinatorNode = c.nodeName
-	c.coordinatorActive(c.contractAddress, c.nodeName)
-
-	// For domain types that can coordinate other nodes' transactions (e.g. Noto or Pente), start heartbeating
-	// Domains such as Zeto that are always coordinated on the originating node, heartbeats aren't required
-	// because other nodes cannot take over coordination.
-	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_SENDER {
-		go c.heartbeatLoop(ctx)
+	if c.activeCoordinatorNode != c.nodeName {
+		c.activeCoordinatorNode = c.nodeName
+		c.coordinatorActive(c.contractAddress, c.nodeName)
 	}
 
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
@@ -141,6 +236,7 @@ func (c *coordinator) popNextPooledTransaction() transaction.CoordinatorTransact
 		return nil
 	}
 	nextPooledTx := c.pooledTransactions[0]
+	c.pooledTransactions[0] = nil // clear reference so the backing array doesn't pin the transaction from GC
 	c.pooledTransactions = c.pooledTransactions[1:]
 	return nextPooledTx
 }
@@ -188,6 +284,11 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	return e.To == transaction.State_Final, nil
+}
+
+func validator_TransactionStateTransitionToEvicted(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+	return e.To == transaction.State_Evicted, nil
 }
 
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {

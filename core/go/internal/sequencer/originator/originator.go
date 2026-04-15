@@ -18,7 +18,6 @@ package originator
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
@@ -56,74 +55,60 @@ type originator struct {
 	ctx context.Context
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop     *statemachine.StateMachineEventLoop[State, *originator]
-	activeCoordinatorNode     string
-	timeOfMostRecentHeartbeat *time.Time
-	transactionsByID          map[uuid.UUID]*transaction.OriginatorTransaction
-	transactionsOrdered       []*transaction.OriginatorTransaction
-	currentBlockHeight        uint64
-	latestCoordinatorSnapshot *common.CoordinatorSnapshot
+	stateMachineEventLoop              *statemachine.StateMachineEventLoop[State, *originator]
+	activeCoordinatorNode              string
+	heartbeatIntervalsSinceLastReceive int
+	transactionsByID                   map[uuid.UUID]transaction.OriginatorTransaction
+	transactionsOrdered                []transaction.OriginatorTransaction
+	currentBlockHeight                 uint64
+	latestCoordinatorSnapshot          *common.CoordinatorSnapshot
 
 	/* Config */
-	nodeName           string
-	blockRangeSize     uint64
-	contractAddress    *pldtypes.EthAddress
-	heartbeatThreshold time.Duration
-	delegateTimeout    time.Duration
+	nodeName            string
+	blockRangeSize      uint64
+	contractAddress     *pldtypes.EthAddress
+	idleThreshold       int // expressed as a multiple of heartbeat intervals
+	redelegateThreshold int // expressed as a multiple of heartbeat intervals
 
 	/* Dependencies */
 	transportWriter   transport.TransportWriter
-	clock             common.Clock
 	engineIntegration common.EngineIntegration
 	metrics           metrics.DistributedSequencerMetrics
-
-	/* Delegate loop */
-	delegateLoopStopped chan struct{}
 }
 
 func NewOriginator(
 	ctx context.Context,
 	nodeName string,
 	transportWriter transport.TransportWriter,
-	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	contractAddress *pldtypes.EthAddress,
 	configuration *pldconf.SequencerConfig,
-	heartbeatPeriodMs int,
-	heartbeatThresholdIntervals int,
 	metrics metrics.DistributedSequencerMetrics,
 ) (*originator, error) {
 	origCtx := log.WithLogField(ctx, "role", "originator")
 	o := &originator{
 		ctx:                 origCtx,
 		nodeName:            nodeName,
-		transactionsByID:    make(map[uuid.UUID]*transaction.OriginatorTransaction),
+		transactionsByID:    make(map[uuid.UUID]transaction.OriginatorTransaction),
 		transportWriter:     transportWriter,
 		blockRangeSize:      confutil.Uint64Min(configuration.BlockRange, pldconf.SequencerMinimum.BlockRange, *pldconf.SequencerDefaults.BlockRange),
 		contractAddress:     contractAddress,
-		clock:               clock,
 		engineIntegration:   engineIntegration,
-		heartbeatThreshold:  time.Duration(heartbeatPeriodMs*heartbeatThresholdIntervals) * time.Millisecond,
-		delegateTimeout:     confutil.DurationMin(configuration.DelegateTimeout, pldconf.SequencerMinimum.DelegateTimeout, *pldconf.SequencerDefaults.DelegateTimeout),
 		metrics:             metrics,
-		delegateLoopStopped: make(chan struct{}),
+		idleThreshold:       confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod),
+		redelegateThreshold: confutil.IntMin(configuration.RedelegateGracePeriod, pldconf.SequencerMinimum.RedelegateGracePeriod, *pldconf.SequencerDefaults.RedelegateGracePeriod),
 	}
+
 	originatorEventQueueSize := confutil.IntMin(configuration.OriginatorEventQueueSize, pldconf.SequencerMinimum.OriginatorEventQueueSize, *pldconf.SequencerDefaults.OriginatorEventQueueSize)
 	originatorPriorityEventQueueSize := confutil.IntMin(configuration.OriginatorPriorityEventQueueSize, pldconf.SequencerMinimum.OriginatorPriorityEventQueueSize, *pldconf.SequencerDefaults.OriginatorPriorityEventQueueSize)
 	o.initializeStateMachineEventLoop(State_Idle, originatorEventQueueSize, originatorPriorityEventQueueSize)
 
 	go o.stateMachineEventLoop.Start(origCtx)
-	go o.delegateLoop(origCtx)
 
 	return o, nil
 }
 
 func (o *originator) WaitForDone(ctx context.Context) {
-	select {
-	case <-o.delegateLoopStopped:
-	case <-ctx.Done():
-		return
-	}
 	o.stateMachineEventLoop.WaitForDone(ctx)
 }
 
@@ -143,33 +128,6 @@ func (o *originator) queueEventInternal(ctx context.Context, event common.Event)
 	log.L(ctx).Tracef("Pushing internal originator event onto priority queue: %s", event.TypeString())
 	o.stateMachineEventLoop.QueuePriorityEvent(ctx, event)
 	log.L(ctx).Tracef("Pushed internal originator event onto priority queue: %s", event.TypeString())
-}
-
-func (o *originator) delegateLoop(ctx context.Context) {
-	defer close(o.delegateLoopStopped)
-	log.L(ctx).Debugf("delegate loop started for contract %s", o.contractAddress.String())
-
-	// Check for transactions still waiting to be delegated
-	ticker := time.NewTicker(o.delegateTimeout)
-	defer func() {
-		log.L(ctx).Debugf("delegate loop stopping for contract %s", o.contractAddress.String())
-		ticker.Stop()
-	}()
-	for {
-		select {
-		case <-ticker.C:
-			log.L(ctx).Debugf("delegate loop fired for contract %s", o.contractAddress.String())
-			delegateTimeoutEvent := &DelegateTimeoutEvent{}
-			delegateTimeoutEvent.BaseEvent = common.BaseEvent{}
-			delegateTimeoutEvent.EventTime = time.Now()
-			// TryQueueEvent is acceptable here as if the event cannot be queued, it will be retried on
-			// the next tick. Not blocking on a full channel also avoids stalling shutdown.
-			o.stateMachineEventLoop.TryQueueEvent(ctx, delegateTimeoutEvent)
-		case <-ctx.Done():
-			log.L(ctx).Debugf("delegate loop stopped for contract %s", o.contractAddress.String())
-			return
-		}
-	}
 }
 
 func (o *originator) propagateEventToTransaction(ctx context.Context, event transaction.Event) error {
@@ -200,14 +158,17 @@ func (o *originator) propagateEventToTransaction(ctx context.Context, event tran
 	return o.transportWriter.SendTransactionUnknown(ctx, coordinator, event.GetTransactionID())
 }
 
-func (o *originator) getTransactionsInStates(states []transaction.State) []*transaction.OriginatorTransaction {
+// getTransactionsInStates returns transactions in any of the given states.
+//
+//nolint:unused // retaining until we decide we don't have any reasons for retrieving transactions by state
+func (o *originator) getTransactionsInStates(states []transaction.State) []transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	matchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		matchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if matchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)
@@ -216,14 +177,14 @@ func (o *originator) getTransactionsInStates(states []transaction.State) []*tran
 	return matchingTxns
 }
 
-func (o *originator) getTransactionsNotInStates(states []transaction.State) []*transaction.OriginatorTransaction {
+func (o *originator) getTransactionsNotInStates(states []transaction.State) []transaction.OriginatorTransaction {
 	//TODO this could be made more efficient by maintaining a separate index of transactions for each state but that is error prone so
 	// deferring until we have a comprehensive test suite to catch errors
 	nonMatchingStates := make(map[transaction.State]bool)
 	for _, state := range states {
 		nonMatchingStates[state] = true
 	}
-	matchingTxns := make([]*transaction.OriginatorTransaction, 0, len(o.transactionsByID))
+	matchingTxns := make([]transaction.OriginatorTransaction, 0, len(o.transactionsByID))
 	for _, txn := range o.transactionsByID {
 		if !nonMatchingStates[txn.GetCurrentState()] {
 			matchingTxns = append(matchingTxns, txn)

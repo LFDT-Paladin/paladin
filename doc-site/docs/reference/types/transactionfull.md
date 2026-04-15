@@ -36,8 +36,6 @@ title: TransactionFull
 | `public` | List of public transactions associated with this transaction | [`PublicTx[]`](publictx.md#publictx) |
 | `history` | List of values that have previously been provided for this transaction | [`TransactionHistory[]`](#transactionhistory) |
 | `sequencerActivity` | List of sequencer activities associated with this transaction | [`SequencerActivity[]`](#sequenceractivity) |
-| `dispatches` | List of dispatches for this transaction | [`Dispatch[]`](transactionreceiptfull.md#dispatch) |
-| `chainedTransactions` | Chained private transactions resulting from this transaction | [`ChainedTransaction[]`](transactionreceiptfull.md#chainedtransaction) |
 
 ## TransactionReceiptData
 
@@ -61,5 +59,12 @@ title: TransactionFull
 
 
 ## SequencerActivity
+
+| Field Name | Description | Type |
+|------------|-------------|------|
+| `subjectId` | Identifier of the resource this sequencer activity refers to | `string` |
+| `timestamp` | Timestamp when this sequencer activity occurred | [`Timestamp`](simpletypes.md#timestamp) |
+| `activityType` | Type of sequencer activity | `string` |
+| `sequencingNode` | Node that generated this sequencer activity | `string` |
 
 

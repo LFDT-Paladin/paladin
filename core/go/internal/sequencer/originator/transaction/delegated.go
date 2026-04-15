@@ -23,7 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_Delegated(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_Delegated(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*DelegatedEvent)
 	if e.Coordinator == "" {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "transaction delegate cannot be set to an empty node identity")
@@ -33,18 +33,18 @@ func action_Delegated(ctx context.Context, t *OriginatorTransaction, event commo
 	return nil
 }
 
-func (t *OriginatorTransaction) updateLastDelegatedTime() {
+func (t *originatorTransaction) updateLastDelegatedTime() {
 	t.lastDelegatedTime = ptrTo(common.RealClock().Now())
 }
 
-func action_SendPreDispatchResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+func action_SendPreDispatchResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	// MRW TODO - sending a dispatch response should be based on some sanity check that we are OK for the coordinator
 	// to proceed to dispatch. Not sure if that belongs here, or somewhere else, but at the moment we always reply OK/proceed.
 	return txn.transportWriter.SendPreDispatchResponse(ctx, txn.currentDelegate, txn.latestPreDispatchRequestID, txn.pt.PreAssembly.TransactionSpecification)
 }
 
 // Validate that the assemble request matches the current delegate
-func validator_AssembleRequestMatches(ctx context.Context, txn *OriginatorTransaction, event common.Event) (bool, error) {
+func validator_AssembleRequestMatches(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
 	assembleRequestEvent, ok := event.(*AssembleRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *AssembleRequestReceivedEvent, got %T", event)
@@ -56,7 +56,7 @@ func validator_AssembleRequestMatches(ctx context.Context, txn *OriginatorTransa
 
 }
 
-func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context, txn *OriginatorTransaction, event common.Event) (bool, error) {
+func validator_PreDispatchRequestMatchesAssembledDelegation(ctx context.Context, txn *originatorTransaction, event common.Event) (bool, error) {
 	preDispatchRequestEvent, ok := event.(*PreDispatchRequestReceivedEvent)
 	if !ok {
 		log.L(ctx).Errorf("expected event type *PreDispatchRequestReceivedEvent, got %T", event)

@@ -44,6 +44,7 @@ type TransactionsDelegatedEvent struct {
 	Originator             string // Fully qualified identity locator for the originator
 	Transactions           []*components.PrivateTransaction
 	OriginatorsBlockHeight uint64
+	DelegationID           string
 }
 
 func (*TransactionsDelegatedEvent) Type() EventType {

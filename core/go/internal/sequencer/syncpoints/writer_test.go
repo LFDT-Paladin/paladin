@@ -340,7 +340,7 @@ func TestRunBatch_DispatchOperationError(t *testing.T) {
 	dbTX := persistencemocks.NewDBTX(t)
 
 	dispatchErr := errors.New("dispatch error")
-	mockPubTxMgr.On("WriteNewTransactions", ctx, dbTX, mock.Anything).Return(nil, dispatchErr)
+	mockPubTxMgr.On("WriteNewTransactions", mock.Anything, dbTX, mock.Anything).Return(nil, dispatchErr)
 
 	contractAddr := pldtypes.RandAddress()
 	values := []*syncPointOperation{
@@ -521,6 +521,57 @@ func TestRunBatch_FinalizeOperationsWithOnChainRevert(t *testing.T) {
 					Originator:    "originator1@node1",
 					RevertData:    revertData,
 					OnChain:       &onChain,
+				},
+			},
+		},
+	}
+
+	results, err := s.runBatch(ctx, dbTX, values)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(results))
+	mockTXMgr.AssertExpectations(t)
+}
+
+func TestRunBatch_FinalizeOperations_ZeroValueOnChainPointerUsesOffChainReceiptType(t *testing.T) {
+	ctx := context.Background()
+	mockTXMgr := componentsmocks.NewTXManager(t)
+	mockTransportMgr := componentsmocks.NewTransportManager(t)
+	s := &syncPoints{
+		txMgr:        mockTXMgr,
+		pubTxMgr:     componentsmocks.NewPublicTxManager(t),
+		transportMgr: mockTransportMgr,
+	}
+	dbTX := persistencemocks.NewDBTX(t)
+
+	txID := uuid.New()
+	failureMessage := "assembly failed upstream"
+	zeroOnChain := pldtypes.OnChainLocation{Type: pldtypes.NotOnChain}
+
+	mockTXMgr.On("FinalizeTransactions", ctx, dbTX, mock.MatchedBy(func(receipts []*components.ReceiptInput) bool {
+		if len(receipts) != 1 {
+			return false
+		}
+		r := receipts[0]
+		return r.ReceiptType == components.RT_FailedWithMessage &&
+			r.TransactionID == txID &&
+			r.FailureMessage == failureMessage &&
+			len(r.RevertData) == 0 &&
+			r.OnChain.Type == pldtypes.NotOnChain
+	})).Return(nil)
+	mockTransportMgr.On("LocalNodeName").Return("node1")
+
+	contractAddr := pldtypes.RandAddress()
+	values := []*syncPointOperation{
+		{
+			contractAddress: *contractAddr,
+			finalizeOperation: &finalizeOperation{
+				TransactionFinalizeRequest: TransactionFinalizeRequest{
+					Domain:         "domain1",
+					TransactionID:  txID,
+					Originator:     "originator1@node1",
+					FailureMessage: failureMessage,
+					OnChain:        &zeroOnChain,
 				},
 			},
 		},

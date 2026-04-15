@@ -16,8 +16,8 @@
 
 package pldapi
 
-type ChainedTransaction struct {
-	ChainedTransactionID string `docstruct:"ChainedTransaction" json:"chainedTransactionID"`
-	TransactionID        string `docstruct:"ChainedTransaction" json:"transactionID"`
-	LocalID              string `docstruct:"ChainedTransaction" json:"localID"`
+type ChainedDispatch struct {
+	ID                   string `docstruct:"ChainedDispatch" json:"id"`
+	TransactionID        string `docstruct:"ChainedDispatch" json:"transactionID"`
+	ChainedTransactionID string `docstruct:"ChainedDispatch" json:"chainedTransactionID"`
 }

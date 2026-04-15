@@ -597,15 +597,6 @@ func TestDomainRegisterFail(t *testing.T) {
 				t:              t,
 				connectFactory: domainConnectFactory,
 				headerAccessor: domainHeaderAccessor,
-				preRegister: func(domainID string) *prototk.DomainMessage {
-					return &prototk.DomainMessage{
-						Header: &prototk.Header{
-							MessageType: prototk.Header_REGISTER,
-							PluginId:    domainID,
-							MessageId:   uuid.NewString(),
-						},
-					}
-				},
 			},
 		},
 	}

@@ -59,6 +59,14 @@ func (seq *sequencer) shutdown(ctx context.Context) {
 	seq.cancelCtx()
 	seq.coordinator.WaitForDone(ctx)
 	seq.originator.WaitForDone(ctx)
+	if seq.delegateDomainContext != nil {
+		seq.delegateDomainContext.Close()
+		seq.delegateDomainContext = nil
+	}
+	if seq.domainContext != nil {
+		seq.domainContext.Close()
+		seq.domainContext = nil
+	}
 }
 
 // An instance of a sequencer (one instance per domain contract)
@@ -69,9 +77,36 @@ type sequencer struct {
 	coordinator     coordinator.Coordinator
 	cancelCtx       context.CancelFunc
 
+	// Registered with StateManager; must Close after coordinator/originator stop (see statemgr.NewDomainContext).
+	domainContext         components.DomainContext
+	delegateDomainContext components.DomainContext
+
 	// Sequencer attributes
 	contractAddress string
 	lastTXTime      time.Time
+}
+
+// heartbeatLoop runs for the lifetime of the sequencer, periodically queuing
+// HeartbeatIntervalEvent to both the coordinator and originator state machines.
+func (seq *sequencer) heartbeatLoop(ctx context.Context, heartbeatInterval time.Duration) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	hbEvent := &common.HeartbeatIntervalEvent{}
+	seq.coordinator.QueueEvent(ctx, hbEvent)
+	seq.originator.QueueEvent(ctx, hbEvent)
+
+	for {
+		select {
+		case <-ticker.C:
+			hbEvent := &common.HeartbeatIntervalEvent{}
+			seq.coordinator.QueueEvent(ctx, hbEvent)
+			seq.originator.QueueEvent(ctx, hbEvent)
+		case <-ctx.Done():
+			log.L(ctx).Debugf("heartbeat loop stopped for %s", seq.contractAddress)
+			return
+		}
+	}
 }
 
 // Return the sequencer for the requested contract address, instantiating it first if this is its first use.
@@ -160,12 +195,14 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 
 			sMgr.engineIntegration = common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, delegateDomainContext, sMgr)
 			sequencer := &sequencer{
-				contractAddress: contractAddr.String(),
-				transportWriter: transportWriter,
-				cancelCtx:       cancelCtx,
+				contractAddress:       contractAddr.String(),
+				transportWriter:       transportWriter,
+				cancelCtx:             cancelCtx,
+				domainContext:         dCtx,
+				delegateDomainContext: delegateDomainContext,
 			}
 
-			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, common.RealClock(), sMgr.engineIntegration, &contractAddr, sMgr.config, 15000, 10, sMgr.metrics)
+			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
 			if err != nil {
 				cancelCtx()
 				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)
@@ -222,6 +259,8 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			sequencer.originator = seqOriginator
 			sequencer.coordinator = coordinator
 			sMgr.sequencers[contractAddr.String()] = sequencer
+
+			go sequencer.heartbeatLoop(seqCtx, sMgr.heartbeatInterval)
 
 			if tx != nil {
 				sMgr.sequencers[contractAddr.String()].lastTXTime = time.Now()
@@ -320,6 +359,41 @@ func (sMgr *sequencerManager) stopLowestPrioritySequencer(ctx context.Context) {
 		log.L(ctx).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
 		sequencers[0].shutdown(ctx)
 		delete(sMgr.sequencers, sequencers[0].contractAddress)
+	}
+}
+
+func (sMgr *sequencerManager) cleanupIdleSequencers(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sMgr.removeIdleSequencers(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (sMgr *sequencerManager) removeIdleSequencers(ctx context.Context) {
+	sMgr.sequencersLock.Lock()
+	var toShutdown []*sequencer
+	for addr, seq := range sMgr.sequencers {
+		coordState := seq.coordinator.GetCurrentState()
+		origState := seq.originator.GetCurrentState()
+		if coordState == coordinator.State_Idle && origState == originator.State_Idle {
+			log.L(ctx).Debugf("cleanup: stopping idle sequencer %s", addr)
+			toShutdown = append(toShutdown, seq)
+			delete(sMgr.sequencers, addr)
+		}
+	}
+	sMgr.metrics.SetActiveSequencers(len(sMgr.sequencers))
+	sMgr.sequencersLock.Unlock()
+
+	for _, seq := range toShutdown {
+		seq.shutdown(ctx)
 	}
 }
 

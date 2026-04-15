@@ -68,11 +68,17 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	err := t.writeLockStates(ctx)
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
-		seqRevertEvent := &AssembleRevertResponseEvent{}
+		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
+		seqRevertEvent := &AssembleRevertResponseEvent{
+			PostAssembly: &components.TransactionPostAssembly{
+				AssemblyResult: prototk.AssembleTransactionResponse_REVERT,
+				RevertReason:   &revertReason,
+			},
+		}
 		seqRevertEvent.RequestID = requestID // Must match what the state machine thinks the current assemble request ID is
 		seqRevertEvent.TransactionID = t.pt.ID
 		t.queueEventForCoordinator(ctx, seqRevertEvent)
-		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err))
+		t.revertTransactionFailedAssembly(ctx, revertReason)
 		// Return the original error
 		return err
 	}
@@ -124,41 +130,23 @@ func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func (t *coordinatorTransaction) isNotAssembled() bool {
-	//test against the list of states that we consider to be past the point of assemble as there is more chance of us noticing
-	// a failing test if we add new states in the future and forget to update this list
-
-	return t.stateMachine.GetCurrentState() != State_Endorsement_Gathering &&
-		t.stateMachine.GetCurrentState() != State_Confirming_Dispatchable &&
-		t.stateMachine.GetCurrentState() != State_Ready_For_Dispatch &&
-		t.stateMachine.GetCurrentState() != State_Dispatched &&
-		t.stateMachine.GetCurrentState() != State_Confirmed
+func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	return txn.notifyPreAssembleDependentOfSelection(ctx)
 }
 
-func (t *coordinatorTransaction) notifyDependentsOfAssembled(ctx context.Context) error {
-	//this function is called when the transaction is successfully assembled
-	// and we have a duty to inform all the transactions that depend on us
-	// TODO: when we have best effort FIFO ordering for first assemble within an originator an Event_DependencyAssembled will
-	// only need to be sent to the "next" transaction from that originator as a signal that it may now assemble.
-	// The link between the transactions may be severed at this point as we have passed first assemble.
-	for _, dependentId := range t.dependencies.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			msg := fmt.Sprintf("notifyDependentsOfReadiness: Dependent transaction %s not found in memory", dependentId)
-			log.L(ctx).Error(msg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-		}
-		err := dependent.HandleEvent(ctx, &DependencyAssembledEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: dependentId,
-			},
-		})
-		if err != nil {
-			log.L(ctx).Errorf("error notifying dependent transaction %s of assembly of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
-			return err
-		}
+func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
+	if t.preAssemblePrereqOf == nil {
+		return nil
 	}
-	return nil
+	dependent := t.grapher.TransactionByID(ctx, *t.preAssemblePrereqOf)
+	if dependent == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.preAssemblePrereqOf)
+	}
+	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: t.pt.ID,
+		},
+	})
 }
 
 func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
@@ -208,14 +196,11 @@ func (t *coordinatorTransaction) writeLockStates(ctx context.Context) error {
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
 	switch event := event.(type) {
-	// TODO: Snapshot freshness
-	// We currently accept an assemble response if the request ID matches the pending request.
-	// Add a snapshot version to assemble requests/responses and reject responses
-	// that were built from a snapshot older than the transaction's current assembly version.
-	// This is intended to guard against stale in-flight assemble responses after repool/unwind.
 	case *AssembleSuccessEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	case *AssembleRevertResponseEvent:
+		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
+	case *AssembleErrorResponseEvent:
 		return txn.pendingAssembleRequest != nil && txn.pendingAssembleRequest.IdempotencyKey() == event.RequestID, nil
 	}
 	return false, nil
@@ -236,6 +221,15 @@ func action_AssembleRevertResponse(ctx context.Context, t *coordinatorTransactio
 	return t.applyPostAssembly(ctx, e.PostAssembly, e.RequestID)
 }
 
+func guard_CanRetryErroredAssemble(ctx context.Context, txn *coordinatorTransaction) bool {
+	return txn.assembleErrorCount <= txn.assembleErrorRetryThreshhold
+}
+
+func action_AssembleError(ctx context.Context, t *coordinatorTransaction, event common.Event) error {
+	t.assembleErrorCount++
+	return nil
+}
+
 func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.sendAssembleRequest(ctx)
 }
@@ -243,8 +237,4 @@ func action_SendAssembleRequest(ctx context.Context, txn *coordinatorTransaction
 func action_NudgeAssembleRequest(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("Nudging assemble request for transaction %s", txn.pt.ID.String())
 	return txn.nudgeAssembleRequest(ctx)
-}
-
-func action_NotifyDependentsOfAssembled(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	return txn.notifyDependentsOfAssembled(ctx)
 }

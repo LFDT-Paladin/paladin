@@ -23,7 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
@@ -45,6 +45,21 @@ var transactionFilters = filters.FieldMap{
 	"from":           filters.StringField(`"from"`),
 	"to":             filters.HexBytesField(`"to"`),
 	"type":           filters.StringField(`"type"`),
+}
+
+var dispatchFilters = filters.FieldMap{
+	"id":                  filters.StringField("id"),
+	"transactionId":       filters.StringField("transaction_id"),
+	"publicTransactionId": filters.Int64Field("public_transaction_id"),
+}
+
+var chainedDispatchFilters = filters.FieldMap{
+	"id":                   filters.UUIDField("id"),
+	"chainedTransactionId": filters.UUIDField("chained_transaction"),
+	"transactionId":        filters.UUIDField(`"transaction"`),
+	"sender":               filters.StringField("sender"),
+	"domain":               filters.StringField(`"domain"`),
+	"contractAddress":      filters.StringField("contract_address"),
 }
 
 func (tm *txManager) mapPersistedTXBase(pt *persistedTransaction) *pldapi.Transaction {
@@ -104,31 +119,28 @@ func (tm *txManager) mapPersistedTXHistory(pth *persistedTransactionHistory) *pl
 	}
 }
 
-func (tm *txManager) mapPersistedTXSequencingActivity(psa *sequencer.DBSequencingActivity) *pldapi.SequencerActivity {
+func (tm *txManager) mapPersistedTXSequencingActivity(psa *seqcommon.DBSequencingActivity) *pldapi.SequencerActivity {
 	return &pldapi.SequencerActivity{
-		LocalID:        psa.LocalID,
 		SubjectID:      psa.SubjectID,
 		Timestamp:      psa.Timestamp,
 		ActivityType:   psa.ActivityType,
 		SequencingNode: psa.SequencingNode,
-		TransactionID:  psa.TransactionID,
 	}
 }
 
-func (tm *txManager) mapPersistedTXDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
+func (tm *txManager) mapPersistedDispatch(pd *syncpoints.DispatchPersisted) *pldapi.Dispatch {
 	return &pldapi.Dispatch{
-		ID:                       pd.ID,
-		PrivateTransactionID:     pd.PrivateTransactionID,
-		PublicTransactionAddress: pd.PublicTransactionAddress,
-		PublicTransactionID:      pd.PublicTransactionID,
+		ID:                  pd.ID,
+		TransactionID:       pd.TransactionID,
+		PublicTransactionID: pd.PublicTransactionID,
 	}
 }
 
-func (tm *txManager) mapPersistedChainedTransaction(pd *persistedChainedPrivateTxn) *pldapi.ChainedTransaction {
-	return &pldapi.ChainedTransaction{
+func (tm *txManager) mapPersistedChainedDispatch(pd *persistedChainedDispatch) *pldapi.ChainedDispatch {
+	return &pldapi.ChainedDispatch{
 		ChainedTransactionID: pd.ChainedTransaction.String(),
 		TransactionID:        pd.Transaction.String(),
-		LocalID:              pd.ID.String(),
+		ID:                   pd.ID.String(),
 	}
 }
 
@@ -234,16 +246,6 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		return nil, err
 	}
 
-	ptxs, err = tm.AddDispatches(ctx, dbTX, txIDs, ptxs)
-	if err != nil {
-		return nil, err
-	}
-
-	ptxs, err = tm.AddChainedTranasctions(ctx, dbTX, txIDs, ptxs)
-	if err != nil {
-		return nil, err
-	}
-
 	ptxs, err = tm.AddSequencerActivity(ctx, dbTX, txIDs, ptxs)
 	if err != nil {
 		return nil, err
@@ -281,7 +283,7 @@ func (tm *txManager) AddTransactionHistory(ctx context.Context, dbTX persistence
 }
 
 func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
-	txsas := []*sequencer.DBSequencingActivity{}
+	txsas := []*seqcommon.DBSequencingActivity{}
 	err := dbTX.DB().Table("sequencer_activities").
 		WithContext(ctx).
 		Order(`"timestamp" DESC`).
@@ -292,7 +294,7 @@ func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.
 		return nil, err
 	}
 	// group by txID
-	txsaMap := make(map[uuid.UUID][]*sequencer.DBSequencingActivity, len(txsas))
+	txsaMap := make(map[uuid.UUID][]*seqcommon.DBSequencingActivity, len(txsas))
 	for _, txsa := range txsas {
 		txsaMap[txsa.TransactionID] = append(txsaMap[txsa.TransactionID], txsa)
 	}
@@ -301,58 +303,6 @@ func (tm *txManager) AddSequencerActivity(ctx context.Context, dbTX persistence.
 			tx.SequencerActivity = make([]*pldapi.SequencerActivity, len(txsas))
 			for i, txsa := range txsas {
 				tx.SequencerActivity[i] = tm.mapPersistedTXSequencingActivity(txsa)
-			}
-		}
-	}
-	return ptxs, nil
-}
-
-func (tm *txManager) AddDispatches(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
-	txdps := []*syncpoints.DispatchPersisted{}
-	err := dbTX.DB().Table("dispatches").
-		WithContext(ctx).
-		Where(`"private_transaction_id" IN (?)`, txIDs).
-		Find(&txdps).
-		Error
-	if err != nil {
-		return nil, err
-	}
-	// group by txID
-	txdpMap := make(map[string][]*syncpoints.DispatchPersisted, len(txdps))
-	for _, txdp := range txdps {
-		txdpMap[txdp.PrivateTransactionID] = append(txdpMap[txdp.PrivateTransactionID], txdp)
-	}
-	for _, tx := range ptxs {
-		if txdps, ok := txdpMap[tx.ID.String()]; ok {
-			tx.Dispatches = make([]*pldapi.Dispatch, len(txdps))
-			for i, txdp := range txdps {
-				tx.Dispatches[i] = tm.mapPersistedTXDispatch(txdp)
-			}
-		}
-	}
-	return ptxs, nil
-}
-
-func (tm *txManager) AddChainedTranasctions(ctx context.Context, dbTX persistence.DBTX, txIDs []uuid.UUID, ptxs []*pldapi.TransactionFull) ([]*pldapi.TransactionFull, error) {
-	txdps := []*persistedChainedPrivateTxn{}
-	err := dbTX.DB().Table("chained_private_txns").
-		WithContext(ctx).
-		Where(`"transaction" IN (?)`, txIDs).
-		Find(&txdps).
-		Error
-	if err != nil {
-		return nil, err
-	}
-	// group by txID
-	txdpMap := make(map[string][]*persistedChainedPrivateTxn, len(txdps))
-	for _, txdp := range txdps {
-		txdpMap[txdp.Transaction.String()] = append(txdpMap[txdp.Transaction.String()], txdp)
-	}
-	for _, tx := range ptxs {
-		if txdps, ok := txdpMap[tx.ID.String()]; ok {
-			tx.ChainedPrivateTransactions = make([]*pldapi.ChainedTransaction, len(txdps))
-			for i, txdp := range txdps {
-				tx.ChainedPrivateTransactions[i] = tm.mapPersistedChainedTransaction(txdp)
 			}
 		}
 	}
@@ -514,7 +464,67 @@ func (tm *txManager) GetPublicTransactionByNonce(ctx context.Context, from pldty
 	return prs[0], nil
 }
 
+func (tm *txManager) GetPublicTransactionByID(ctx context.Context, id uint64) (*pldapi.PublicTxWithBinding, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	prs, err := tm.publicTxMgr.QueryPublicTxWithBindings(ctx, tm.p.NOTX(),
+		query.NewQueryBuilder().Limit(1).
+			Equal("localId", id).
+			Query())
+	if len(prs) == 0 || err != nil {
+		return nil, err
+	}
+	return prs[0], nil
+}
+
 func (tm *txManager) GetPublicTransactionByHash(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.PublicTxWithBinding, error) {
 	ctx = log.WithComponent(ctx, "txmanager")
 	return tm.publicTxMgr.GetPublicTransactionForHash(ctx, tm.p.NOTX(), hash)
+}
+
+func (tm *txManager) QueryDispatches(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.Dispatch, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	qw := &filters.QueryWrapper[syncpoints.DispatchPersisted, pldapi.Dispatch]{
+		P:           tm.p,
+		Table:       "dispatches",
+		DefaultSort: "-id",
+		Filters:     dispatchFilters,
+		Query:       jq,
+		MapResult: func(pd *syncpoints.DispatchPersisted) (*pldapi.Dispatch, error) {
+			return tm.mapPersistedDispatch(pd), nil
+		},
+	}
+	return qw.Run(ctx, nil)
+}
+
+func (tm *txManager) GetDispatchByID(ctx context.Context, id string) (*pldapi.Dispatch, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	results, err := tm.QueryDispatches(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
+	if len(results) == 0 || err != nil {
+		return nil, err
+	}
+	return results[0], nil
+}
+
+func (tm *txManager) QueryChainedDispatches(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.ChainedDispatch, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	qw := &filters.QueryWrapper[persistedChainedDispatch, pldapi.ChainedDispatch]{
+		P:           tm.p,
+		Table:       "chained_dispatches",
+		DefaultSort: "-id",
+		Filters:     chainedDispatchFilters,
+		Query:       jq,
+		MapResult: func(pd *persistedChainedDispatch) (*pldapi.ChainedDispatch, error) {
+			return tm.mapPersistedChainedDispatch(pd), nil
+		},
+	}
+	return qw.Run(ctx, nil)
+}
+
+func (tm *txManager) GetChainedDispatchByID(ctx context.Context, id string) (*pldapi.ChainedDispatch, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	results, err := tm.QueryChainedDispatches(ctx, query.NewQueryBuilder().Limit(1).Equal("id", id).Query())
+	if len(results) == 0 || err != nil {
+		return nil, err
+	}
+	return results[0], nil
 }

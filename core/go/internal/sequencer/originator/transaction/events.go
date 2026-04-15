@@ -50,8 +50,9 @@ func (*ConfirmedSuccessEvent) TypeString() string {
 
 type ConfirmedRevertedEvent struct {
 	BaseEvent
-	RevertReason pldtypes.HexBytes
-	WillRetry    bool
+	RevertReason   pldtypes.HexBytes
+	FailureMessage string
+	WillRetry      bool
 }
 
 func (*ConfirmedRevertedEvent) Type() EventType {
@@ -149,6 +150,7 @@ func (*AssembleParkEvent) TypeString() string {
 
 type AssembleErrorEvent struct {
 	BaseEvent
+	RequestID uuid.UUID
 }
 
 func (*AssembleErrorEvent) Type() EventType {

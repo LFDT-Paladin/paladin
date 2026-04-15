@@ -50,7 +50,7 @@ func (t *coordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *coordinatorTransaction) dependentsMustWait() bool {
+func (t *coordinatorTransaction) DependentsMustWait() bool {
 	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
 	log.L(context.Background()).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
 	// Safe to dispatch as soon as the dependency TX is dispatched
@@ -73,20 +73,14 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// We already calculated the dependencies when we got assembled and there is no way we could have picked up new dependencies without a re-assemble
 	// some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
-
-	dependencies := t.dependencies.DependsOn
-	if t.pt.PreAssembly != nil && t.pt.PreAssembly.Dependencies != nil && t.pt.PreAssembly.Dependencies.DependsOn != nil {
-		dependencies = append(dependencies, t.pt.PreAssembly.Dependencies.DependsOn...)
-	}
-
-	for _, dependencyID := range dependencies {
+	for _, dependencyID := range t.dependencies.DependsOn {
 		dependency := t.grapher.TransactionByID(ctx, dependencyID)
 		if dependency == nil {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependencyID))
 			return true
 		}
 
-		if dependency.dependentsMustWait() {
+		if dependency.DependentsMustWait() {
 			return true
 		}
 	}
@@ -120,12 +114,12 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 		} else {
 			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.pt.ID,
+					TransactionID: dependent.GetPrivateTransaction().ID,
 				},
 			})
 
 			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.pt.ID, t.pt.ID, err)
+				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
 				return err
 			}
 		}

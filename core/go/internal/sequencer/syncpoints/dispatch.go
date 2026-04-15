@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -29,17 +30,18 @@ import (
 )
 
 type dispatchOperation struct {
-	publicDispatches     []*PublicDispatch
-	privateDispatches    []*components.ChainedPrivateTransaction
-	localPreparedTxns    []*components.PreparedTransactionWithRefs
-	preparedReliableMsgs []*pldapi.ReliableMessage
+	transactionID           uuid.UUID
+	publicDispatches        []*PublicDispatch
+	privateDispatches       []*components.ChainedPrivateTransaction
+	localPreparedTxns       []*components.PreparedTransactionWithRefs
+	preparedReliableMsgs    []*pldapi.ReliableMessage
+	localSequencerActivites []*components.SequencingActivity
 }
 
 type DispatchPersisted struct {
-	ID                       string              `json:"id"`
-	PrivateTransactionID     string              `json:"privateTransactionID"`
-	PublicTransactionAddress pldtypes.EthAddress `json:"publicTransactionAddress"`
-	PublicTransactionID      uint64              `json:"publicTransactionID"`
+	ID                  string `json:"id"`
+	TransactionID       string `json:"transactionID"`
+	PublicTransactionID uint64 `json:"publicTransactionID"`
 }
 
 // A dispatch sequence is a collection of private transactions that are submitted together for a given signing address in order
@@ -58,7 +60,7 @@ type DispatchBatch struct {
 
 // PersistDispatches persists the dispatches to the database and coordinates with the public transaction manager
 // to submit public transactions.
-func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
+func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contractAddress pldtypes.EthAddress, transactionID uuid.UUID, dispatchBatch *DispatchBatch, stateDistributions []*components.StateDistribution, preparedTxnDistributions []*components.PreparedTransactionWithRefs) error {
 
 	preparedReliableMsgs := make([]*pldapi.ReliableMessage, 0,
 		len(dispatchBatch.PreparedTransactions)+len(stateDistributions))
@@ -93,20 +95,31 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
+	var localSequencerActivities []*components.SequencingActivity
+
 	// Sequencer activity dispatch records for public transactions
 	for _, publicDispatch := range dispatchBatch.PublicDispatches {
 		for i, privateTx := range publicDispatch.PrivateTransactionDispatches {
-			sequencingProgress := &pldapi.SequencerActivity{
+			sequencingProgress := &components.SequencingActivity{
 				SubjectID:      privateTx.ID, // This is the dispatch ID (not the TX ID)
 				Timestamp:      pldtypes.TimestampNow(),
 				ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
 				SequencingNode: s.transportMgr.LocalNodeName(), // Us
-				TransactionID:  uuid.MustParse(privateTx.PrivateTransactionID),
+				TransactionID:  uuid.MustParse(privateTx.TransactionID),
 			}
+
+			localNodePersisted := false
 
 			for _, binding := range publicDispatch.PublicTxs[i].Bindings {
 				node, _ := pldtypes.PrivateIdentityLocator(binding.TransactionSender).Node(dCtx.Ctx(), false)
-				if node != s.transportMgr.LocalNodeName() && binding.TransactionID.String() == privateTx.PrivateTransactionID {
+				if binding.TransactionID.String() != privateTx.TransactionID {
+					continue
+				}
+				if node == s.transportMgr.LocalNodeName() && !localNodePersisted {
+					localSequencerActivities = append(localSequencerActivities, sequencingProgress)
+					localNodePersisted = true
+				}
+				if node != s.transportMgr.LocalNodeName() {
 					log.L(dCtx.Ctx()).Tracef("Sending sequencer dispatch activity for TX %s to node %s", binding.TransactionID.String(), binding.TransactionSender)
 					preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 						Node:        node,
@@ -118,10 +131,10 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 	}
 
-	// Sequencer activity dispatch records for public transactions
+	// Sequencer activity dispatch records for chained private transactions
 	for _, privateDispatch := range dispatchBatch.PrivateDispatches {
 		privateDispatch.ID = uuid.New() // Allocate a local chained ID early (not the TX ID) to include in sequencer activity records
-		sequencingProgress := &pldapi.SequencerActivity{
+		sequencingProgress := &components.SequencingActivity{
 			SubjectID:      privateDispatch.ID.String(), // This is the dispatch ID (not the TX ID)
 			Timestamp:      pldtypes.TimestampNow(),
 			ActivityType:   string(pldapi.SequencerActivityType_ChainedDispatch),
@@ -130,7 +143,9 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		}
 
 		node, _ := pldtypes.PrivateIdentityLocator(privateDispatch.OriginalSenderLocator).Node(dCtx.Ctx(), false)
-		if node != s.transportMgr.LocalNodeName() {
+		if node == s.transportMgr.LocalNodeName() {
+			localSequencerActivities = append(localSequencerActivities, sequencingProgress)
+		} else {
 			log.L(dCtx.Ctx()).Tracef("Sending sequencer chained-dispatch activity for TX %s to node %s", privateDispatch.OriginalTransaction, privateDispatch.OriginalSenderLocator)
 			preparedReliableMsgs = append(preparedReliableMsgs, &pldapi.ReliableMessage{
 				Node:        node,
@@ -145,10 +160,12 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 		domainContext:   dCtx,
 		contractAddress: contractAddress,
 		dispatchOperation: &dispatchOperation{
-			publicDispatches:     dispatchBatch.PublicDispatches,
-			privateDispatches:    dispatchBatch.PrivateDispatches,
-			localPreparedTxns:    localPreparedTxns,
-			preparedReliableMsgs: preparedReliableMsgs,
+			transactionID:           transactionID,
+			publicDispatches:        dispatchBatch.PublicDispatches,
+			privateDispatches:       dispatchBatch.PrivateDispatches,
+			localPreparedTxns:       localPreparedTxns,
+			preparedReliableMsgs:    preparedReliableMsgs,
+			localSequencerActivites: localSequencerActivities,
 		},
 	})
 
@@ -157,11 +174,12 @@ func (s *syncPoints) PersistDispatchBatch(dCtx components.DomainContext, contrac
 	return err
 }
 
-func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, dispatchBatch *DispatchBatch) error {
+func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, transactionID uuid.UUID, dispatchBatch *DispatchBatch) error {
 
 	// Send the write operation with all of the batch sequence operations to the flush worker
 	op := s.writer.Queue(ctx, &syncPointOperation{
 		dispatchOperation: &dispatchOperation{
+			transactionID:    transactionID,
 			publicDispatches: dispatchBatch.PublicDispatches,
 		},
 	})
@@ -172,13 +190,15 @@ func (s *syncPoints) PersistDeployDispatchBatch(ctx context.Context, dispatchBat
 }
 
 func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persistence.DBTX, dispatchOperations []*dispatchOperation) (err error) {
-	log.L(ctx).Debugf("writeDispatchOperations dispatchOperations: %+v", dispatchOperations)
+	log.L(ctx).Debugf("writeDispatchOperations writing %d dispatchOperations", len(dispatchOperations))
 
 	// For each operation in the batch, we need to call the baseledger transaction manager to allocate its nonce
 	// which it can only guaranteed to be gapless and unique if it is done during the database transaction that inserts the dispatch record.
 
 	// Build lists of things to insert (we are insert only)
 	for _, op := range dispatchOperations {
+		opCtx := log.WithLogField(ctx, "txID", op.transactionID.String())
+		log.L(opCtx).Tracef("writeDispatchOperations op: %+v", *op)
 
 		//for each batchSequence operation, call the public transaction manager to allocate a nonce
 		//and persist the intent to send the states to the distribution list.
@@ -188,9 +208,9 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 			}
 
 			// Call the public transaction manager persist to the database under the current transaction
-			publicTxns, err := s.pubTxMgr.WriteNewTransactions(ctx, dbTX, dispatchSequenceOp.PublicTxs)
+			publicTxns, err := s.pubTxMgr.WriteNewTransactions(opCtx, dbTX, dispatchSequenceOp.PublicTxs)
 			if err != nil {
-				log.L(ctx).Errorf("Error submitting public transactions: %s", err)
+				log.L(opCtx).Errorf("Error submitting public transactions: %s", err)
 				return err
 			}
 
@@ -201,7 +221,6 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 			for dispatchIndex, dispatch := range dispatchSequenceOp.PrivateTransactionDispatches {
 
 				//fill in the foreign key before persisting in our dispatch table
-				dispatch.PublicTransactionAddress = publicTxns[dispatchIndex].From
 				dispatch.PublicTransactionID = *publicTxns[dispatchIndex].LocalID
 				if dispatch.ID == "" {
 					dispatch.ID = uuid.New().String()
@@ -209,14 +228,13 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				// Dispatch ID populated early before queueing the dispatch operations so sequencer activity records can include them
 			}
 
-			log.L(ctx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))
+			log.L(opCtx).Debugf("Writing dispatch batch %d", len(dispatchSequenceOp.PrivateTransactionDispatches))
 
 			err = dbTX.DB().
 				Table("dispatches").
 				Clauses(clause.OnConflict{
 					Columns: []clause.Column{
-						{Name: "private_transaction_id"},
-						{Name: "public_transaction_address"},
+						{Name: "transaction_id"},
 						{Name: "public_transaction_id"},
 					},
 					DoNothing: true, // immutable
@@ -225,37 +243,45 @@ func (s *syncPoints) writeDispatchOperations(ctx context.Context, dbTX persisten
 				Error
 
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting dispatches: %s", err)
+				log.L(opCtx).Errorf("Error persisting dispatches: %s", err)
 				return err
 			}
 		}
 
 		if len(op.privateDispatches) > 0 {
-			err := s.txMgr.ChainPrivateTransactions(ctx, dbTX, op.privateDispatches)
+			err := s.txMgr.ChainPrivateTransactions(opCtx, dbTX, op.privateDispatches)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting private dispatches: %s", err)
+				log.L(opCtx).Errorf("Error persisting private dispatches: %s", err)
 				return err
 			}
 		}
 
 		if len(op.localPreparedTxns) > 0 {
-			log.L(ctx).Debugf("Writing prepared transactions locally  %d", len(op.localPreparedTxns))
+			log.L(opCtx).Debugf("Writing prepared transactions locally  %d", len(op.localPreparedTxns))
 
-			err := s.txMgr.WritePreparedTransactions(ctx, dbTX, op.localPreparedTxns)
+			err := s.txMgr.WritePreparedTransactions(opCtx, dbTX, op.localPreparedTxns)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting prepared transactions: %s", err)
+				log.L(opCtx).Errorf("Error persisting prepared transactions: %s", err)
 				return err
 			}
 		}
 
 		if len(op.preparedReliableMsgs) == 0 {
-			log.L(ctx).Debug("No prepared reliable messages to persist to persist")
+			log.L(opCtx).Debug("No prepared reliable messages to persist to persist")
 		} else {
 
-			log.L(ctx).Debugf("Writing %d reliable messages", len(op.preparedReliableMsgs))
-			err := s.transportMgr.SendReliable(ctx, dbTX, op.preparedReliableMsgs...)
+			log.L(opCtx).Debugf("Writing %d reliable messages", len(op.preparedReliableMsgs))
+			err := s.transportMgr.SendReliable(opCtx, dbTX, op.preparedReliableMsgs...)
 			if err != nil {
-				log.L(ctx).Errorf("Error persisting prepared reliable messages: %s", err)
+				log.L(opCtx).Errorf("Error persisting prepared reliable messages: %s", err)
+				return err
+			}
+		}
+
+		if len(op.localSequencerActivites) > 0 {
+			log.L(ctx).Debugf("Persisting %d local sequencer activities", len(op.localSequencerActivites))
+			if err := seqcommon.WriteSequencingActivities(ctx, dbTX, op.localSequencerActivites); err != nil {
+				log.L(ctx).Errorf("Error persisting local sequencer activities: %s", err)
 				return err
 			}
 		}

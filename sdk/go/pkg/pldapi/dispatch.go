@@ -16,13 +16,8 @@
 
 package pldapi
 
-import (
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-)
-
 type Dispatch struct {
-	ID                       string              `docstruct:"Dispatch" json:"id"`
-	PrivateTransactionID     string              `docstruct:"Dispatch" json:"privateTransactionID"`
-	PublicTransactionAddress pldtypes.EthAddress `docstruct:"Dispatch" json:"publicTransactionAddress"`
-	PublicTransactionID      uint64              `docstruct:"Dispatch" json:"publicTransactionID"`
+	ID                  string `docstruct:"Dispatch" json:"id"`
+	TransactionID       string `docstruct:"Dispatch" json:"transactionID"`
+	PublicTransactionID uint64 `docstruct:"Dispatch" json:"publicTransactionID"`
 }

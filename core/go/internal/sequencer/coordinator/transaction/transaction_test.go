@@ -21,12 +21,14 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -204,32 +206,94 @@ func TestTransaction_AddsItselfToGrapher(t *testing.T) {
 	assert.NotNil(t, txn)
 }
 
-func TestNewTransaction_InvalidOriginator_ReturnsError(t *testing.T) {
+func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	ctx := context.Background()
+	pt := &components.PrivateTransaction{ID: uuid.New()}
+	allComponents := componentsmocks.NewAllComponents(t)
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	clock := common.NewMockClock(t)
 
-	_, err := newTransaction(
+	domainAPI.EXPECT().Domain().Return(domain)
+	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
+	domainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{
+		SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR,
+	})
+	clock.EXPECT().Now().Return(time.Now())
+
+	txn := newTransaction(
 		ctx,
-		"", // invalid: empty originator
+		"sender@node1",
+		"originator-node",
 		"node1",
-		&components.PrivateTransaction{ID: uuid.New()},
+		pt,
 		"coordinator-signer",
+		nil,
 		transport.NewMockTransportWriter(t),
-		common.NewMockClock(t),
+		clock,
 		func(ctx context.Context, event common.Event) {},
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
-		componentsmocks.NewAllComponents(t),
-		componentsmocks.NewDomainSmartContract(t),
+		allComponents,
+		domainAPI,
 		nil,
 		time.Duration(1000),
 		time.Duration(5000),
 		5,
 		0,
 		3,
+		3,
 		NewGrapher(ctx),
 		nil,
 	)
-	require.Error(t, err)
+	require.NotNil(t, txn)
+	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
+}
+
+func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
+	ctx := context.Background()
+	pt := &components.PrivateTransaction{ID: uuid.New()}
+	allComponents := componentsmocks.NewAllComponents(t)
+	domainAPI := componentsmocks.NewDomainSmartContract(t)
+	domain := componentsmocks.NewDomain(t)
+	clock := common.NewMockClock(t)
+
+	domainAPI.EXPECT().Domain().Return(domain)
+	domain.EXPECT().FixedSigningIdentity().Return("domain-signer")
+	domainAPI.EXPECT().ContractConfig().Return(&prototk.ContractConfig{
+		SubmitterSelection: prototk.ContractConfig_SUBMITTER_COORDINATOR,
+	})
+	clock.EXPECT().Now().Return(time.Now())
+
+	txn := NewTransaction(
+		ctx,
+		"sender@node1",
+		"originator-node",
+		"node1",
+		pt,
+		"coordinator-signer",
+		nil,
+		transport.NewMockTransportWriter(t),
+		clock,
+		func(ctx context.Context, event common.Event) {},
+		common.NewMockEngineIntegration(t),
+		&syncpoints.MockSyncPoints{},
+		allComponents,
+		domainAPI,
+		nil,
+		time.Duration(1000),
+		time.Duration(5000),
+		5,
+		0,
+		3,
+		3,
+		NewGrapher(ctx),
+		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
+	)
+	require.NotNil(t, txn)
+	assert.Equal(t, pt.ID, txn.GetID())
+	assert.Equal(t, State_Initial, txn.GetCurrentState())
 }
 
 func TestTransaction_GetID_ReturnsPrivateTransactionID(t *testing.T) {

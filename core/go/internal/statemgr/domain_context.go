@@ -65,7 +65,7 @@ type logStateSummary []*pldapi.State
 func (lr logStateSummary) String() string {
 	summary := make([]string, len(lr))
 	for i, s := range lr {
-		summary[i] = fmt.Sprintf("schema=%s/id=%s", s.Schema, s.ID)
+		summary[i] = fmt.Sprintf("schema=%s/id=%s/contract=%s", s.Schema, s.ID, s.ContractAddress)
 	}
 	return strings.Join(summary, ",")
 }
@@ -122,6 +122,16 @@ func (dc *domainContext) Ctx() context.Context {
 	return dc.Context
 }
 
+func (dc *domainContext) createLogContext(ctx context.Context, schemaID *pldtypes.Bytes32) context.Context {
+	ctx = log.WithComponent(ctx, log.Component(fmt.Sprintf("domain-ctx-%s", dc.domainName)))
+	ctx = log.WithLogField(ctx, "domain", dc.domainName)
+	ctx = log.WithLogField(ctx, "contract", dc.contractAddress.String())
+	if schemaID != nil {
+		ctx = log.WithLogField(ctx, "schema", schemaID.String())
+	}
+	return ctx
+}
+
 func (dc *domainContext) getUnFlushedSpends() (spending []pldtypes.HexBytes, nullifiers []*pldapi.StateNullifier, nullifierIDs []pldtypes.HexBytes, err error) {
 	// Take lock and check flush state
 	dc.stateLock.Lock()
@@ -146,8 +156,8 @@ func (dc *domainContext) getUnFlushedSpends() (spending []pldtypes.HexBytes, nul
 	return spending, nullifiers, nullifierIDs, nil
 }
 
-func (dc *domainContext) mergeUnFlushedApplyLocks(schema components.Schema, dbStates []*pldapi.State, query *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*pldapi.State, err error) {
-	log.L(dc).Debugf("domainContext:mergeUnFlushedApplyLocks dc.txLocks: %d creatingStates: %d", len(dc.txLocks), len(dc.creatingStates))
+func (dc *domainContext) mergeUnFlushedApplyLocks(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, query *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*pldapi.State, err error) {
+	log.L(ctx).Debugf("domainContext:mergeUnFlushedApplyLocks txLocks=%d creatingStates=%d", len(dc.txLocks), len(dc.creatingStates))
 	dc.stateLock.Lock()
 	defer dc.stateLock.Unlock()
 	if flushErr := dc.checkResetInitUnFlushed(); flushErr != nil {
@@ -155,7 +165,7 @@ func (dc *domainContext) mergeUnFlushedApplyLocks(schema components.Schema, dbSt
 	}
 
 	retStates := dbStates
-	matches, err := dc.mergeUnFlushed(schema, dbStates, query, excludeSpent, requireNullifier)
+	matches, err := dc.mergeUnFlushed(ctx, schema, dbStates, query, excludeSpent, requireNullifier)
 	if err != nil {
 		return nil, err
 	}
@@ -171,13 +181,13 @@ func (dc *domainContext) mergeUnFlushedApplyLocks(schema components.Schema, dbSt
 	return dc.applyLocks(retStates), nil
 }
 
-func (dc *domainContext) mergeUnFlushed(schema components.Schema, dbStates []*pldapi.State, query *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*components.StateWithLabels, err error) {
+func (dc *domainContext) mergeUnFlushed(ctx context.Context, schema components.Schema, dbStates []*pldapi.State, query *query.QueryJSON, excludeSpent, requireNullifier bool) (_ []*components.StateWithLabels, err error) {
 
 	// Get the list of new un-flushed states, which are not already locked for spend
 	matches := make([]*components.StateWithLabels, 0, len(dc.creatingStates))
 	schemaId := schema.Persisted().ID
 	for _, state := range dc.creatingStates {
-		log.L(dc.Context).Tracef("State %s is a creating state", state.ID)
+		log.L(ctx).Tracef("State %s is a creating state", state.ID)
 		if !state.Schema.Equals(&schemaId) {
 			continue
 		}
@@ -185,7 +195,7 @@ func (dc *domainContext) mergeUnFlushed(schema components.Schema, dbStates []*pl
 			spent := false
 			for _, lock := range dc.txLocks {
 				if lock.StateID.Equals(state.ID) && lock.Type.V() == pldapi.StateLockTypeSpend {
-					log.L(dc.Context).Tracef("State %s is spent by transaction %s - not including in the response", state.ID, lock.Transaction)
+					log.L(ctx).Tracef("State %s is spent by transaction %s - not including in the response", state.ID, lock.Transaction)
 					spent = true
 					break
 				}
@@ -215,7 +225,7 @@ func (dc *domainContext) mergeUnFlushed(schema components.Schema, dbStates []*pl
 				}
 			}
 			if !dup {
-				log.L(dc).Tracef("Matched state %s from un-flushed writes", &state.ID)
+				log.L(ctx).Tracef("Matched state %s from un-flushed writes", &state.ID)
 				// Take a shallow copy, as we'll apply the locks as they exist right now
 				shallowCopy := *state
 				matches = append(matches, &shallowCopy)
@@ -224,9 +234,9 @@ func (dc *domainContext) mergeUnFlushed(schema components.Schema, dbStates []*pl
 	}
 
 	if log.IsTraceEnabled() {
-		log.L(dc.Context).Tracef("mergeUnFlushed: found %d matches", len(matches))
+		log.L(ctx).Tracef("mergeUnFlushed: found %d matches", len(matches))
 		for _, m := range matches {
-			log.L(dc.Context).Tracef("Matched state: %s", m.ID)
+			log.L(ctx).Tracef("Matched state: %s", m.ID)
 		}
 	}
 
@@ -282,7 +292,8 @@ func (dc *domainContext) mergeInMemoryMatches(schema components.Schema, states [
 
 }
 
-func (dc *domainContext) GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (components.Schema, []*pldapi.State, error) {
+func (dc *domainContext) GetStatesByID(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, ids []string) (components.Schema, []*pldapi.State, error) {
+	ctx = dc.createLogContext(ctx, &schemaID)
 	idsAny := make([]any, len(ids))
 	for i, id := range ids {
 		idsAny[i] = id
@@ -293,7 +304,7 @@ func (dc *domainContext) GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.
 	})
 	if err == nil {
 		var memMatches []*components.StateWithLabels
-		memMatches, err = dc.mergeUnFlushed(schema, matches, query, false /* locked states are fine */, false /* nullifiers not required */)
+		memMatches, err = dc.mergeUnFlushed(ctx, schema, matches, query, false /* locked states are fine */, false /* nullifiers not required */)
 		if err == nil && len(memMatches) > 0 {
 			matches, err = dc.mergeInMemoryMatches(schema, matches, memMatches, query)
 		}
@@ -304,8 +315,9 @@ func (dc *domainContext) GetStatesByID(dbTX persistence.DBTX, schemaID pldtypes.
 	return schema, matches, err
 }
 
-func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates %s", query) // log the query at debug level
+func (dc *domainContext) FindAvailableStates(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
+	ctx = dc.createLogContext(ctx, &schemaID)
+	log.L(ctx).Debugf("FindAvailableStates query=%s", query)
 	// Build a list of spending states
 	spending, _, _, err := dc.getUnFlushedSpends()
 	if err != nil {
@@ -313,9 +325,9 @@ func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pld
 	}
 
 	if log.IsTraceEnabled() {
-		log.L(dc.Context).Tracef("Unflushed spends that are available states: %d", len(spending))
+		log.L(ctx).Tracef("Unflushed spends that are available states: %d", len(spending))
 		for _, s := range spending {
-			log.L(dc.Context).Tracef("Unflushed spend: %s", s.String())
+			log.L(ctx).Tracef("Unflushed spend: %s", s.String())
 		}
 	}
 
@@ -327,22 +339,23 @@ func (dc *domainContext) FindAvailableStates(dbTX persistence.DBTX, schemaID pld
 	if err != nil {
 		return nil, nil, err
 	}
-	// At debug log the schemas/IDs of the states
-	log.L(dc.Context).Tracef("domainContext:FindAvailableStates read %d states from DB", len(states))
+	log.L(ctx).Tracef("FindAvailableStates read %d states from DB", len(states))
 
 	// Merge in un-flushed states to results
-	states, err = dc.mergeUnFlushedApplyLocks(schema, states, query, true /* exclude spent states */, false)
+	states, err = dc.mergeUnFlushedApplyLocks(ctx, schema, states, query, true /* exclude spent states */, false)
 	if log.IsTraceEnabled() {
 		for _, s := range states {
-			log.L(dc.Context).Tracef("domainContext returning available state %s", s.ID)
+			log.L(ctx).Tracef("returning available state %s", s.ID)
 		}
 	}
-	log.L(dc.Context).Debugf("domainContext:FindAvailableStates read+merged %d states: %s", len(states), logStateSummary(states))
+	log.L(ctx).Debugf("FindAvailableStates read+merged %d states: %s", len(states), logStateSummary(states))
 
 	return schema, states, err
 }
 
-func (dc *domainContext) FindAvailableNullifiers(dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
+func (dc *domainContext) FindAvailableNullifiers(ctx context.Context, dbTX persistence.DBTX, schemaID pldtypes.Bytes32, query *query.QueryJSON) (components.Schema, []*pldapi.State, error) {
+	ctx = dc.createLogContext(ctx, &schemaID)
+	log.L(ctx).Debugf("FindAvailableNullifiers query=%s", query)
 
 	// Build a list of unflushed and spending nullifiers
 	spending, nullifiers, nullifierIDs, err := dc.getUnFlushedSpends()
@@ -361,7 +374,7 @@ func (dc *domainContext) FindAvailableNullifiers(dbTX persistence.DBTX, schemaID
 	}
 
 	// Merge in un-flushed states to results
-	states, err = dc.mergeUnFlushedApplyLocks(schema, states, query, true /* exclude spent states */, true)
+	states, err = dc.mergeUnFlushedApplyLocks(ctx, schema, states, query, true /* exclude spent states */, true)
 	return schema, states, err
 }
 
@@ -700,16 +713,17 @@ type exportableStateLock struct {
 }
 
 // Return a snapshot of all currently known state locks as serialized JSON
-func (dc *domainContext) ExportSnapshot() ([]byte, error) {
+func (dc *domainContext) ExportSnapshot(ctx context.Context) ([]byte, error) {
+	ctx = dc.createLogContext(ctx, nil)
 	dc.stateLock.Lock()
 	defer dc.stateLock.Unlock()
-	log.L(dc).Debugf("ExportSnapshot: Exporting domain context snapshot %s", dc.Info().ID)
+	log.L(ctx).Debugf("ExportSnapshot: Exporting domain context snapshot %s", dc.Info().ID)
 	if flushErr := dc.checkResetInitUnFlushed(); flushErr != nil {
 		return nil, flushErr
 	}
 	locks := make([]*exportableStateLock, 0, len(dc.txLocks))
 	for _, l := range dc.txLocks {
-		log.L(dc).Debugf("ExportSnapshot: State %s locked by transaction %s", l.StateID, l.Transaction)
+		log.L(ctx).Debugf("ExportSnapshot: State %s locked by transaction %s", l.StateID, l.Transaction)
 		locks = append(locks, &exportableStateLock{
 			State:       l.StateID,
 			Transaction: l.Transaction,
@@ -718,7 +732,7 @@ func (dc *domainContext) ExportSnapshot() ([]byte, error) {
 	}
 	states := make([]*components.StateUpsert, 0, len(dc.creatingStates))
 	for _, s := range dc.creatingStates {
-		log.L(dc).Debugf("ExportSnapshot: State %s created, data %s", s.ID, s.Data)
+		log.L(ctx).Debugf("ExportSnapshot: State %s created, data %s", s.ID, s.Data)
 		states = append(states, &components.StateUpsert{
 			ID:     s.ID,
 			Schema: s.Schema,
@@ -731,8 +745,13 @@ func (dc *domainContext) ExportSnapshot() ([]byte, error) {
 	})
 }
 
-// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks
-func (dc *domainContext) ImportSnapshot(stateLocksJSON []byte) error {
+// ImportSnapshot is used to restore the state of the domain context, by adding a set of locks.
+//
+// Note: this only populates the in-memory creatingStates and txLocks needed for assembly queries.
+// It does not stage states for DB persistence via unFlushed, because the delegate assembler's
+// context is never flushed — the coordinator's context handles DB writes.
+func (dc *domainContext) ImportSnapshot(ctx context.Context, stateLocksJSON []byte) error {
+	ctx = dc.createLogContext(ctx, nil)
 	dc.stateLock.Lock()
 	defer dc.stateLock.Unlock()
 	if flushErr := dc.checkResetInitUnFlushed(); flushErr != nil {
@@ -741,13 +760,22 @@ func (dc *domainContext) ImportSnapshot(stateLocksJSON []byte) error {
 	var snapshot exportSnapshot
 	err := json.Unmarshal(stateLocksJSON, &snapshot)
 	if err != nil {
-		return i18n.WrapError(dc, err, msgs.MsgDomainContextImportInvalidJSON)
+		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportInvalidJSON)
 	}
+
+	// Validate and process the snapshot states without appending to the unFlushed DB write buffer.
+	ss, err := dc.validateStates(dc.ss.p.NOTX(), snapshot.States...)
+	if err != nil {
+		return i18n.WrapError(ctx, err, msgs.MsgDomainContextImportBadStates)
+	}
+
+	processedStates := make(map[string]*components.StateWithLabels, len(ss.withValues))
+	for _, vs := range ss.withValues {
+		processedStates[vs.ID.String()] = vs
+	}
+
 	dc.creatingStates = make(map[string]*components.StateWithLabels)
 	dc.txLocks = make([]*pldapi.StateLock, 0, len(snapshot.Locks))
-	if _, err = dc.upsertStates(dc.ss.p.NOTX(), true /* already hold lock */, snapshot.States...); err != nil {
-		return i18n.WrapError(dc, err, msgs.MsgDomainContextImportBadStates)
-	}
 	for _, l := range snapshot.Locks {
 		dc.txLocks = append(dc.txLocks, &pldapi.StateLock{
 			DomainName:  dc.domainName,
@@ -755,24 +783,19 @@ func (dc *domainContext) ImportSnapshot(stateLocksJSON []byte) error {
 			Transaction: l.Transaction,
 			Type:        l.Type,
 		})
-		//if it transpires that any of the states we already know about are created by these transactions,
+		// if it transpires that any of the states we already know about are created by these transactions,
 		// then we need to add them to the creatingStates map otherwise they will not be returned in queries
 		if l.Type == pldapi.StateLockTypeCreate.Enum() {
-			foundInUnflushed := false
-			for _, state := range dc.unFlushed.states {
-				if state.ID.String() == l.State.String() {
-					dc.creatingStates[state.ID.String()] = state
-					foundInUnflushed = true
-				}
-			}
-			if !foundInUnflushed {
+			if state, found := processedStates[l.State.String()]; found {
+				dc.creatingStates[state.ID.String()] = state
+			} else {
 				// assuming this function is being used to copy a coordinators context to a delegate assembler's context
-				// this this if branch could mean one of two things:
-				// 1. the state distribution message hasn't' arrived yet but will arrive soon
+				// this if branch could mean one of two things:
+				// 1. the state distribution message hasn't arrived yet but will arrive soon
 				// 2. the state distribution message is never going to arrive because we are not on the distribution list
 				// We can't tell the difference between these two cases so can't really fail here
 				// It is up to the domain to ensure that they ask for the transaction to be `Park`ed temporarily if they suspect `1`
-				log.L(dc).Infof("ImportSnapshot: state %s not found in unflushed states", l.State)
+				log.L(ctx).Infof("ImportSnapshot: state %s not found in snapshot states", l.State)
 			}
 		}
 	}

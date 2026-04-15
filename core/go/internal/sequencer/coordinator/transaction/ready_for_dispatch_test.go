@@ -196,55 +196,6 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
 }
 
-func Test_hasDependenciesNotReady_PreAssemblyDependencies(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
-		Build()
-
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{}).
-		PreAssembly(&components.TransactionPreAssembly{
-			Dependencies: &pldapi.TransactionDependencies{
-				DependsOn: []uuid.UUID{txn1.pt.ID},
-			},
-		}).
-		Build()
-
-	assert.True(t, txn2.hasDependenciesNotReady(ctx))
-}
-
-func Test_hasDependenciesNotReady_BothDependenciesAndPreAssemblyDependencies(t *testing.T) {
-	ctx := context.Background()
-
-	grapher := NewGrapher(ctx)
-
-	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
-		Grapher(grapher).
-		Build()
-
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		Build()
-
-	txn3, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.pt.ID},
-		}).
-		PreAssembly(&components.TransactionPreAssembly{
-			Dependencies: &pldapi.TransactionDependencies{
-				DependsOn: []uuid.UUID{txn2.pt.ID},
-			},
-		}).
-		Build()
-
-	assert.True(t, txn3.hasDependenciesNotReady(ctx))
-}
-
 func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 	ctx := context.Background()
 

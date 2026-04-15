@@ -501,7 +501,7 @@ func Test_dispatch_Success_WithNullifiers(t *testing.T) {
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).
 		Return([]*components.NullifierUpsert{{ID: pldtypes.HexBytes(pldtypes.RandBytes(32))}}, nil)
 	mocks.DomainContext.On("UpsertNullifiers", mock.Anything).Return(nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()
@@ -526,7 +526,7 @@ func Test_dispatch_PersistDispatchBatchReturnsError(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(errors.New("persist failed"))
 
 	err := txn.dispatch(ctx)
@@ -564,9 +564,9 @@ func Test_dispatch_PersistDispatchBatch_WithRemoteStateDistributions(t *testing.
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
-			sd := args.Get(3).([]*components.StateDistribution)
+			sd := args.Get(4).([]*components.StateDistribution)
 			require.Len(t, sd, 1)
 			assert.Equal(t, "receiver@node2", sd[0].IdentityLocator)
 		}).
@@ -595,7 +595,7 @@ func Test_dispatch_HandleNewTransactionsReturnsError(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("handle new transactions failed"))
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectRollback()
@@ -621,7 +621,7 @@ func Test_dispatch_Success_PrepareTransactionBranch_DoesNotHandleNewTransactions
 		pt.PreparedPrivateTransaction = &pldapi.TransactionInput{}
 	}).Return(nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.dispatch(ctx)
 	require.NoError(t, err)
@@ -644,7 +644,7 @@ func Test_dispatch_Success_ChainedPrivate(t *testing.T) {
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{NewTransaction: &components.ValidatedTransaction{}}, nil)
 	mocks.SequenceManager.On("BuildNullifiers", mock.Anything, mock.Anything).Return(nil, nil)
-	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.SyncPoints.On("PersistDispatchBatch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.SequenceManager.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.DB.ExpectBegin()
 	mocks.DB.ExpectCommit()

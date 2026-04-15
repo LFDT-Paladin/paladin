@@ -42,7 +42,7 @@ func (e *FinalizeEvent) GetTransactionID() uuid.UUID {
 	return e.TransactionID
 }
 
-func action_NonceAssigned(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_NonceAssigned(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*NonceAssignedEvent)
 	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
 
@@ -50,7 +50,7 @@ func action_NonceAssigned(ctx context.Context, t *OriginatorTransaction, event c
 	return nil
 }
 
-func action_Submitted(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_Submitted(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*SubmittedEvent)
 	t.signerAddress = &e.SignerAddress //TODO should we throw an error if the signer address is already set to something else? Or remove these fields from this event?
 
@@ -61,7 +61,7 @@ func action_Submitted(ctx context.Context, t *OriginatorTransaction, event commo
 
 // action_QueueFinalizeEvent queues a FinalizeEvent to the originator; the originator routes it back to this transaction.
 // This is called when entering State_Confirmed or State_Reverted.
-func action_QueueFinalizeEvent(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+func action_QueueFinalizeEvent(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("action_QueueFinalizeEvent - queueing finalize event for transaction %s", txn.pt.ID.String())
 	event := &FinalizeEvent{
 		TransactionID: txn.pt.ID,
@@ -70,12 +70,12 @@ func action_QueueFinalizeEvent(ctx context.Context, txn *OriginatorTransaction, 
 	return nil
 }
 
-func action_RecordWillRetry(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_RecordWillRetry(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*ConfirmedRevertedEvent)
 	t.lastReceivedWillRetry = e.WillRetry
 	return nil
 }
 
-func guard_WillRetry(ctx context.Context, t *OriginatorTransaction) bool {
+func guard_WillRetry(ctx context.Context, t *originatorTransaction) bool {
 	return t.lastReceivedWillRetry
 }

@@ -213,12 +213,10 @@ func (sMgr *sequencerManager) handleAssembleError(ctx context.Context, message *
 		return
 	}
 
-	assembleErrorEvent := &originatorTransaction.AssembleErrorEvent{}
+	assembleErrorEvent := &coordTransaction.AssembleErrorResponseEvent{}
+	assembleErrorEvent.RequestID = uuid.MustParse(assembleError.AssembleRequestId)
 	assembleErrorEvent.TransactionID = uuid.MustParse(assembleError.TransactionId)
 	assembleErrorEvent.EventTime = time.Now()
-
-	errorString := assembleError.ErrorMessage
-	log.L(ctx).Debugf("assemble error for TX %s: %s", assembleError.TransactionId, errorString)
 
 	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
 	if seq == nil || err != nil {
@@ -423,6 +421,7 @@ func (sMgr *sequencerManager) handleDelegationRequest(ctx context.Context, messa
 	transactionDelegatedEvent.Originator = privateTransaction.PreAssembly.TransactionSpecification.From
 	transactionDelegatedEvent.Transactions = append(transactionDelegatedEvent.Transactions, privateTransaction)
 	transactionDelegatedEvent.OriginatorsBlockHeight = uint64(delegationRequest.BlockHeight)
+	transactionDelegatedEvent.DelegationID = delegationRequest.DelegationId
 	transactionDelegatedEvent.EventTime = time.Now()
 
 	seq.GetCoordinator().QueueEvent(ctx, transactionDelegatedEvent)
@@ -436,7 +435,29 @@ func (sMgr *sequencerManager) handleDelegationRequestAcknowledgment(ctx context.
 		return
 	}
 
-	log.L(ctx).Debugf("delegationRequestAcknowledgment received for transaction ID %s", delegationRequestAcknowledgment.TransactionId)
+	rejectedDelegationIDs := make([]string, 0, len(delegationRequestAcknowledgment.TransactionIds))
+	rejectedDelegationMaxInFlight := 0
+	rejectedDelegationCoordinatorError := 0
+
+	// Currently we don't act on specific errors, but we have the option in the future to treat a specific delegate rejection
+	// differently to just relying on re-delegate on the next heartbeat/timeout. For now log explicit rejections from the coordinator.
+	for i, errorCode := range delegationRequestAcknowledgment.Errors {
+		switch coordinator.DelegationAcknowledgementError(errorCode) {
+		case coordinator.DelegationAcknowledgementError_MaxInflightTransactions:
+			rejectedDelegationIDs = append(rejectedDelegationIDs, delegationRequestAcknowledgment.TransactionIds[i])
+			rejectedDelegationMaxInFlight++
+		case coordinator.DelegationAcknowledgementError_CoordinatorError, coordinator.DelegationAcknowledgementError_PreviousTransactionError:
+			rejectedDelegationCoordinatorError++
+		}
+	}
+
+	if rejectedDelegationMaxInFlight > 0 {
+		log.L(ctx).Debugf("coordinator rejected %d delegations with max in flight limit", rejectedDelegationMaxInFlight)
+		log.L(ctx).Tracef("rejected delegations: %+v", rejectedDelegationIDs)
+	}
+	if rejectedDelegationCoordinatorError > 0 {
+		log.L(ctx).Warnf("coordinator error processing %d delegations", rejectedDelegationCoordinatorError)
+	}
 }
 
 func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, message *components.ReceivedMessage) {
@@ -762,10 +783,11 @@ func (sMgr *sequencerManager) handleTransactionConfirmed(ctx context.Context, me
 		return
 	}
 
-	if transactionConfirmed.RevertReason != nil {
+	if transactionConfirmed.GetOutcome() == engineProto.TransactionConfirmed_OUTCOME_REVERTED {
 		transactionSubmittedEvent := &originatorTransaction.ConfirmedRevertedEvent{}
 		transactionSubmittedEvent.TransactionID = uuid.MustParse(transactionConfirmed.TransactionId)
 		transactionSubmittedEvent.RevertReason = transactionConfirmed.RevertReason
+		transactionSubmittedEvent.FailureMessage = transactionConfirmed.GetFailureMessage()
 		transactionSubmittedEvent.WillRetry = transactionConfirmed.WillRetry
 		transactionSubmittedEvent.EventTime = time.Now()
 		seq.GetOriginator().QueueEvent(ctx, transactionSubmittedEvent)

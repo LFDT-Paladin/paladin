@@ -24,7 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
-func action_AssembleRequestReceived(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_AssembleRequestReceived(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleRequestReceivedEvent)
 	t.currentDelegate = e.Coordinator
 	t.latestAssembleRequest = &assembleRequestFromCoordinator{
@@ -36,28 +36,34 @@ func action_AssembleRequestReceived(ctx context.Context, t *OriginatorTransactio
 	return nil
 }
 
-func action_AssembleAndSignSuccess(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_AssembleAndSignSuccess(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleAndSignSuccessEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
 }
 
-func action_AssembleRevert(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_AssembleRevert(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleRevertEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
 }
 
-func action_AssemblePark(ctx context.Context, t *OriginatorTransaction, event common.Event) error {
+func action_AssemblePark(ctx context.Context, t *originatorTransaction, event common.Event) error {
 	e := event.(*AssembleParkEvent)
 	t.pt.PostAssembly = e.PostAssembly
 	t.latestFulfilledAssembleRequestID = e.RequestID
 	return nil
 }
 
-func action_AssembleAndSign(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
+func action_AssembleError(ctx context.Context, t *originatorTransaction, event common.Event) error {
+	e := event.(*AssembleErrorEvent)
+	t.latestFulfilledAssembleRequestID = e.RequestID
+	return nil
+}
+
+func action_AssembleAndSign(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	if txn.latestAssembleRequest == nil {
 		//This should never happen unless there is a bug in the state machine logic
 		log.L(ctx).Errorf("no assemble request found")
@@ -73,7 +79,14 @@ func action_AssembleAndSign(ctx context.Context, txn *OriginatorTransaction, _ c
 	postAssembly, err := txn.engineIntegration.AssembleAndSign(ctx, txn.pt.ID, txn.pt.PreAssembly, txn.latestAssembleRequest.stateLocksJSON, txn.latestAssembleRequest.coordinatorsBlockHeight)
 	if err != nil {
 		log.L(ctx).Errorf("failed to assemble and sign transaction: %s", err)
-		//This should never happen but if it does, the most likely cause of failure is an error in the local domain code or state machine logic so best thing to abend the originator state machine
+		//This should never happen but if it does, the most likely cause of failure is an error in the local domain code. We should
+		// tell the coordinator so it can park or discard the transaction
+		txn.queueEventForOriginator(ctx, &AssembleErrorEvent{
+			BaseEvent: BaseEvent{
+				TransactionID: txn.pt.ID,
+			},
+			RequestID: requestID,
+		})
 		return err
 	}
 
@@ -109,16 +122,18 @@ func action_AssembleAndSign(ctx context.Context, txn *OriginatorTransaction, _ c
 	return nil
 }
 
-func action_SendAssembleRevertResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("sending assemble revert response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
-	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
-}
-func action_SendAssembleParkResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("sending assemble park response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
+func action_SendAssembleRevertResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
 }
 
-func action_SendAssembleSuccessResponse(ctx context.Context, txn *OriginatorTransaction, _ common.Event) error {
-	log.L(ctx).Debugf("sending assemble success response for transaction %s to %s", txn.pt.ID.String(), txn.currentDelegate)
+func action_SendAssembleParkResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
 	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
+}
+
+func action_SendAssembleSuccessResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
+	return txn.transportWriter.SendAssembleResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.pt.PostAssembly, txn.pt.PreAssembly, txn.currentDelegate)
+}
+
+func action_SendAssembleErrorResponse(ctx context.Context, txn *originatorTransaction, _ common.Event) error {
+	return txn.transportWriter.SendAssembleErrorResponse(ctx, txn.pt.ID, txn.latestFulfilledAssembleRequestID, txn.currentDelegate)
 }

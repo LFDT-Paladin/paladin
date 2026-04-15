@@ -69,11 +69,11 @@
 
      private final DynamicLoadWorldState world;
 
-     public EVMRunner(EVMVersion evmVersion, AccountLoader accountLoader, long blockNumber) {
+     public EVMRunner(EVMVersion evmVersion, AccountLoader accountLoader, long blockNumber, long blockTimestamp) {
          this.evmVersion = evmVersion;
          this.coinbase = randomAddress();
          this.world = new DynamicLoadWorldState(accountLoader, evmVersion.evmConfiguration());
-         this.virtualBlockchain = new VirtualBlockchain(blockNumber);
+         this.virtualBlockchain = new VirtualBlockchain(blockNumber, blockTimestamp);
      }
 
      @SuppressWarnings("rawtypes")

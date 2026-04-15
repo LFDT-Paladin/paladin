@@ -85,3 +85,19 @@ func Test_queueEventInternal_QueuesPriorityEvent(t *testing.T) {
 	<-syncEvent.Done
 	require.False(t, c.stateMachineEventLoop.IsStopped(), "event loop should still be running")
 }
+
+func Test_TryQueueEvent_QueuesToEventLoop(t *testing.T) {
+	ctx := context.Background()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+
+	event := &CoordinatorCreatedEvent{}
+	ok := c.TryQueueEvent(ctx, event)
+	require.True(t, ok, "TryQueueEvent should return true when event is queued")
+
+	// Drain the event so the loop can process it and we can cleanly stop
+	syncEvent := statemachine.NewSyncEvent()
+	c.QueueEvent(ctx, syncEvent)
+	<-syncEvent.Done
+}

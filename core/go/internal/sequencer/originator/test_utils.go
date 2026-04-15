@@ -62,6 +62,10 @@ func (r *SentMessageRecorder) HasDelegatedTransaction(txid uuid.UUID) bool {
 	return false
 }
 
+func (r *SentMessageRecorder) GetDelegatedTransactions() []*components.PrivateTransaction {
+	return r.delegatedTransactions
+}
+
 func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.SentMessageRecorder.Reset(ctx)
 	r.hasSentDelegationRequest = false
@@ -76,7 +80,6 @@ type OriginatorBuilderForTesting struct {
 	transactionBuilders []*transaction.TransactionBuilderForTesting
 	metrics             metrics.DistributedSequencerMetrics
 	sequencerConfig     *pldconf.SequencerConfig
-	clock               common.Clock
 }
 
 type OriginatorDependencyMocks struct {
@@ -89,7 +92,6 @@ func NewOriginatorBuilderForTesting(state State) *OriginatorBuilderForTesting {
 		state:           state,
 		metrics:         metrics.InitMetrics(context.Background(), prometheus.NewRegistry()),
 		sequencerConfig: &pldconf.SequencerDefaults,
-		clock:           common.RealClock(),
 	}
 }
 
@@ -110,11 +112,6 @@ func (b *OriginatorBuilderForTesting) CommitteeMembers(committeeMembers ...strin
 
 func (b *OriginatorBuilderForTesting) TransactionBuilders(builders ...*transaction.TransactionBuilderForTesting) *OriginatorBuilderForTesting {
 	b.transactionBuilders = builders
-	return b
-}
-
-func (b *OriginatorBuilderForTesting) Clock(clock common.Clock) *OriginatorBuilderForTesting {
-	b.clock = clock
 	return b
 }
 
@@ -160,12 +157,9 @@ func (b *OriginatorBuilderForTesting) Build(ctx context.Context) (*originator, *
 		buildCtx,
 		*b.nodeName,
 		mocks.SentMessageRecorder,
-		b.clock,
 		mocks.EngineIntegration,
 		b.contractAddress,
 		&pldconf.SequencerDefaults,
-		TestDefault_HeartbeatIntervalMs,
-		TestDefault_HeartbeatThreshold,
 		b.metrics,
 	)
 

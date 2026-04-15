@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/flushwriter"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	seqcommon "github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -91,7 +92,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 	var preparedTxnToAdd []*components.PreparedTransactionWithRefs
 	var txReceiptsToFinalize []*components.ReceiptInput
 	var txPublicTXSubmissionsToPersist []*pldapi.PublicTxWithBinding // public transaction submissions
-	var sequencingActivitiesToPersist []*pldapi.SequencerActivity
+	var sequencingActivitiesToPersist []*components.SequencingActivity
 	var msgsToReceive []*receivedPrivacyGroupMessage
 	var privacyGroupsToAdd []*receivedPrivacyGroup
 
@@ -111,12 +112,15 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 		switch v.msg.MessageType {
 		case RMHMessageTypeStateDistribution:
 			sd, stateToAdd, err := parseStateDistribution(ctx, v.msg.MessageID, v.msg.Payload)
-			if err == nil && sd.NullifierAlgorithm != nil && sd.NullifierVerifierType != nil && sd.NullifierPayloadType != nil {
-				// We need to build any nullifiers that are required, before we dispatch to persistence
-				var nullifier *components.NullifierUpsert
-				nullifier, err = tm.sequencerManager.BuildNullifier(ctx, tm.keyManager.KeyResolverForDBTX(dbTX), sd)
-				if err == nil {
-					nullifierUpserts[sd.Domain] = append(nullifierUpserts[sd.Domain], nullifier)
+			if err == nil {
+				log.L(ctx).Debugf("Received state distribution domain=%s stateId=%s contract=%s msgId=%s", sd.Domain, sd.StateID, sd.ContractAddress, v.msg.MessageID)
+				if sd.NullifierAlgorithm != nil && sd.NullifierVerifierType != nil && sd.NullifierPayloadType != nil {
+					// We need to build any nullifiers that are required, before we dispatch to persistence
+					var nullifier *components.NullifierUpsert
+					nullifier, err = tm.sequencerManager.BuildNullifier(ctx, tm.keyManager.KeyResolverForDBTX(dbTX), sd)
+					if err == nil {
+						nullifierUpserts[sd.Domain] = append(nullifierUpserts[sd.Domain], nullifier)
+					}
 				}
 			}
 			if err != nil {
@@ -194,7 +198,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			}
 		case RMHMessageTypeSequencingActivity:
 			log.L(ctx).Debugf("received sequencing activity, parseSequencingActivityMsg: %+v", v.msg)
-			var sequencingActivity pldapi.SequencerActivity
+			var sequencingActivity components.SequencingActivity
 			err := json.Unmarshal(v.msg.Payload, &sequencingActivity)
 			if err != nil {
 				acksToSend = append(acksToSend,
@@ -268,22 +272,28 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 			ackQuery[i] = a.MessageID
 		}
 		var matchedMsgs []*pldapi.ReliableMessage
-		err := dbTX.DB().WithContext(ctx).Select("id").Find(&matchedMsgs).Error
+		err := dbTX.DB().WithContext(ctx).
+			Model(&pldapi.ReliableMessage{}).
+			Select("id").
+			Where("id IN ?", ackQuery).
+			Find(&matchedMsgs).Error
 		if err != nil {
 			return nil, err
 		}
+		matchedIDs := make(map[uuid.UUID]struct{}, len(matchedMsgs))
+		for _, mm := range matchedMsgs {
+			matchedIDs[mm.ID] = struct{}{}
+		}
 		validatedAcks := make([]*pldapi.ReliableMessageAck, 0, len(acksToWrite))
 		for _, a := range acksToWrite {
-			for _, mm := range matchedMsgs {
-				if mm.ID == a.MessageID {
-					log.L(ctx).Infof("Writing ack for message %s", a.MessageID)
-					validatedAcks = append(validatedAcks, a)
-				}
+			if _, ok := matchedIDs[a.MessageID]; ok {
+				log.L(ctx).Infof("Writing ack for message %s", a.MessageID)
+				validatedAcks = append(validatedAcks, a)
 			}
 		}
 		if len(validatedAcks) > 0 {
 			// Now we're actually ready to insert them
-			if err := tm.writeAcks(ctx, dbTX, acksToWrite...); err != nil {
+			if err := tm.writeAcks(ctx, dbTX, validatedAcks...); err != nil {
 				return nil, err
 			}
 		}
@@ -367,7 +377,7 @@ func (tm *transportManager) handleReliableMsgBatch(ctx context.Context, dbTX per
 
 	// Insert any sequencing activities
 	if len(sequencingActivitiesToPersist) > 0 {
-		if err := tm.sequencerManager.WriteReceivedSequencingActivities(ctx, dbTX, sequencingActivitiesToPersist); err != nil {
+		if err := seqcommon.WriteSequencingActivities(ctx, dbTX, sequencingActivitiesToPersist); err != nil {
 			return nil, err
 		}
 	}
@@ -435,6 +445,7 @@ func (tm *transportManager) buildStateDistributionMsg(ctx context.Context, dbTX 
 	}
 	sd.StateData = states[0].Data
 
+	log.L(ctx).Debugf("sending state distribution msg for state %s", states[0].ID)
 	log.L(ctx).Tracef("sending state distribution msg for state %s, data=%s json=%s", states[0].ID, sd.StateData, pldtypes.JSONString(sd))
 
 	return &prototk.PaladinMsg{
@@ -622,7 +633,7 @@ func (tm *transportManager) buildSequencingProgressActivityMsg(ctx context.Conte
 	}, nil, nil
 }
 
-func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *pldapi.SequencerActivity, err error) {
+func parseMessageSequencingProgress(ctx context.Context, msgID uuid.UUID, data []byte) (sequencingProgress *components.SequencingActivity, err error) {
 	err = json.Unmarshal(data, &sequencingProgress)
 	if err != nil {
 		return nil, i18n.WrapError(ctx, err, msgs.MsgTransportInvalidMessageData, msgID)

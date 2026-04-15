@@ -410,10 +410,12 @@ func TestHandleAssembleError_Success(t *testing.T) {
 	contractAddr := pldtypes.RandAddress()
 
 	txID := uuid.New()
+	requestID := uuid.New()
 	assembleError := &engineProto.AssembleError{
-		TransactionId:   txID.String(),
-		ContractAddress: contractAddr.String(),
-		ErrorMessage:    "test error",
+		TransactionId:     txID.String(),
+		AssembleRequestId: requestID.String(),
+		ContractAddress:   contractAddr.String(),
+		ErrorMessage:      "test error",
 	}
 	payload, _ := proto.Marshal(assembleError)
 
@@ -434,8 +436,8 @@ func TestHandleAssembleError_Success(t *testing.T) {
 	sm.sequencers[contractAddr.String()] = seq
 
 	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*originatorTransaction.AssembleErrorEvent)
-		return ok && event.TransactionID == txID
+		event, ok := e.(*coordTransaction.AssembleErrorResponseEvent)
+		return ok && event.TransactionID == txID && event.RequestID == requestID
 	})).Once()
 
 	sm.handleAssembleError(ctx, message)
@@ -623,6 +625,7 @@ func TestHandleTransactionConfirmed_Success(t *testing.T) {
 	transactionConfirmed := &engineProto.TransactionConfirmed{
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_SUCCESS,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
 
@@ -660,10 +663,13 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	txID := uuid.New()
 	revertReason := pldtypes.HexBytes("test revert reason")
+	failureMessage := "decoded revert"
 	transactionConfirmed := &engineProto.TransactionConfirmed{
 		TransactionId:   txID.String(),
 		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
 		RevertReason:    revertReason,
+		FailureMessage:  failureMessage,
 		WillRetry:       true,
 	}
 	payload, _ := proto.Marshal(transactionConfirmed)
@@ -686,7 +692,47 @@ func TestHandleTransactionConfirmed_Reverted(t *testing.T) {
 
 	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
 		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
-		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.WillRetry
+		return ok && event.TransactionID == txID && string(event.RevertReason) == string(revertReason) && event.FailureMessage == failureMessage && event.WillRetry
+	})).Once()
+
+	sm.handleTransactionConfirmed(ctx, message)
+
+	mocks.originator.AssertExpectations(t)
+}
+
+func TestHandleTransactionConfirmed_RevertedWhenWillRetryTrueAndNoRevertReason(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+	contractAddr := pldtypes.RandAddress()
+
+	txID := uuid.New()
+	transactionConfirmed := &engineProto.TransactionConfirmed{
+		TransactionId:   txID.String(),
+		ContractAddress: contractAddr.String(),
+		Outcome:         engineProto.TransactionConfirmed_OUTCOME_REVERTED,
+		WillRetry:       true,
+	}
+	payload, _ := proto.Marshal(transactionConfirmed)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_TransactionConfirmed,
+		Payload:     payload,
+	}
+
+	setupDefaultMocks(ctx, mocks, contractAddr)
+	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
+	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
+	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
+
+	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
+	sm.sequencers[contractAddr.String()] = seq
+
+	mocks.originator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
+		event, ok := e.(*originatorTransaction.ConfirmedRevertedEvent)
+		return ok && event.TransactionID == txID && event.WillRetry && len(event.RevertReason) == 0
 	})).Once()
 
 	sm.handleTransactionConfirmed(ctx, message)
@@ -918,7 +964,7 @@ func TestHandleDelegationRequestAcknowledgment_Success(t *testing.T) {
 
 	txID := uuid.New()
 	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
-		TransactionId: txID.String(),
+		TransactionIds: []string{txID.String()},
 	}
 	payload, _ := proto.Marshal(delegationRequestAcknowledgment)
 
@@ -946,6 +992,109 @@ func TestHandleDelegationRequestAcknowledgment_UnmarshalError(t *testing.T) {
 	}
 
 	// Should not panic
+	sm.handleDelegationRequestAcknowledgment(ctx, message)
+}
+
+func TestHandleDelegationRequestAcknowledgment_MaxInFlightRejection(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	txID1 := uuid.New().String()
+	txID2 := uuid.New().String()
+	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+		TransactionIds: []string{txID1, txID2},
+		Errors: []int64{
+			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
+			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
+		},
+	}
+	payload, err := proto.Marshal(delegationRequestAcknowledgment)
+	require.NoError(t, err)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		Payload:     payload,
+	}
+
+	// Should not panic; handler logs max in flight rejections
+	sm.handleDelegationRequestAcknowledgment(ctx, message)
+}
+
+func TestHandleDelegationRequestAcknowledgment_UnknownError(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	txID := uuid.New().String()
+	unknownErrorCode := int64(99)
+	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+		TransactionIds: []string{txID},
+		Errors:         []int64{unknownErrorCode},
+	}
+	payload, err := proto.Marshal(delegationRequestAcknowledgment)
+	require.NoError(t, err)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		Payload:     payload,
+	}
+
+	sm.handleDelegationRequestAcknowledgment(ctx, message)
+}
+
+func TestHandleDelegationRequestAcknowledgment_MixedErrors(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	txIDAccepted := uuid.New().String()
+	txIDMaxInFlight := uuid.New().String()
+	txIDUnknown := uuid.New().String()
+	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+		TransactionIds: []string{txIDAccepted, txIDMaxInFlight, txIDUnknown},
+		Errors: []int64{
+			int64(coordinator.DelegationAcknowledgementError_None),
+			int64(coordinator.DelegationAcknowledgementError_MaxInflightTransactions),
+			42, // unknown error code
+		},
+	}
+	payload, err := proto.Marshal(delegationRequestAcknowledgment)
+	require.NoError(t, err)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		Payload:     payload,
+	}
+
+	sm.handleDelegationRequestAcknowledgment(ctx, message)
+}
+
+func TestHandleDelegationRequestAcknowledgment_Empty(t *testing.T) {
+	ctx := context.Background()
+	mocks := newTransportClientTestMocks(t)
+	sm := newSequencerManagerForTransportClientTesting(t, mocks)
+
+	delegationRequestAcknowledgment := &engineProto.DelegationRequestAcknowledgment{
+		TransactionIds: []string{},
+		Errors:         []int64{},
+	}
+	payload, err := proto.Marshal(delegationRequestAcknowledgment)
+	require.NoError(t, err)
+
+	message := &components.ReceivedMessage{
+		FromNode:    "test-node",
+		MessageID:   uuid.New(),
+		MessageType: transport.MessageType_DelegationRequestAcknowledgment,
+		Payload:     payload,
+	}
+
 	sm.handleDelegationRequestAcknowledgment(ctx, message)
 }
 

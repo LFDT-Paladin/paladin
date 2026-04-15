@@ -17,10 +17,8 @@ package transaction
 import (
 	"context"
 
-	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
-	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -32,8 +30,6 @@ type endorsementRequirement struct {
 }
 
 func (t *coordinatorTransaction) applyEndorsement(ctx context.Context, endorsement *prototk.AttestationResult, requestID uuid.UUID) error {
-	t.pendingEndorsementsMutex.Lock()
-	defer t.pendingEndorsementsMutex.Unlock()
 	log.L(ctx).Debugf("apply endorsement - received endorsement name '%s'", endorsement.Name)
 	pendingRequestsForAttRequest, ok := t.pendingEndorsementRequests[endorsement.Name]
 	if !ok {
@@ -139,7 +135,6 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 		err := pendingRequest.Nudge(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to nudge endorsement request for party %s: %s", endorsementRequirement.party, err)
-			t.latestError = i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerEndorsementRequestError), endorsementRequirement.party, err.Error())
 		}
 
 	}
@@ -170,7 +165,6 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 	)
 	if err != nil {
 		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)
-		t.latestError = i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerEndorsementRequestError), party, err.Error())
 	}
 	return err
 }

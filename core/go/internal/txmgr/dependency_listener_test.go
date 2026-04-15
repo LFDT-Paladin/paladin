@@ -148,7 +148,7 @@ func TestNotifyDependentTransactions_GetTransactionDependenciesWithTXError(t *te
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns`).WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches`).WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnError(depsErr)
 			mc.db.ExpectRollback()
 		})
@@ -169,7 +169,7 @@ func TestNotifyDependentTransactions_GetDependenciesError(t *testing.T) {
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns`).WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches`).WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnError(fmt.Errorf("deps query failed"))
 			mc.db.ExpectRollback()
 		})
@@ -192,7 +192,7 @@ func TestNotifyDependentTransactions_GetResolvedTransactionByIDError(t *testing.
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts.*RETURNING").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(1))
-			mc.db.ExpectQuery(`SELECT.*chained_private_txns`).WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery(`SELECT.*chained_dispatches`).WillReturnRows(sqlmock.NewRows([]string{}))
 			// Return one dependent: depID depends on prereqID, so PrereqOf = [depID]
 			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(
 				sqlmock.NewRows([]string{"transaction", "depends_on"}).AddRow(depID, prereqID),
