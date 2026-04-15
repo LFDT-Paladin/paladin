@@ -35,7 +35,7 @@ import { Keys } from "./views/Keys";
 import { Registries } from "./views/Registries";
 import { Transactions } from "./views/Transactions";
 import { TransactionDetails } from "./views/TransactionDetails";
-import { ITransactionPagingReference } from "./interfaces";
+import { IPaladinTransactionPagingReference, ITransactionPagingReference } from "./interfaces";
 import { Submissions } from "./views/Submissions";
 
 const queryClient = new QueryClient({
@@ -45,11 +45,16 @@ const queryClient = new QueryClient({
 
 function App() {
 
-  const [txRefEntries, txSetRefEntries] = useState<ITransactionPagingReference[]>([]);
+  const [txRefEntries, setTxRefEntries] = useState<ITransactionPagingReference[]>([]);
   const [txPage, txSetPage] = useState(0);
-  const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'failed'>('pending');
-  const [fromBlock, setFromBlock] = useState<number>();
   const [txRowsPerPage, txSetRowsPerPage] = useState(10);
+  const [txFromBlock, setTxFromBlock] = useState<number>();
+  const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'failed'>('pending');
+
+
+  const [submissionsRefEntries, setSubmissionsSetRefEntries] = useState<IPaladinTransactionPagingReference[]>([]);
+  const [submissionsPage, setSubmissionsPage] = useState(0);
+  const [submissionsRowsPerPage, setSubmissionsRowsPerPage] = useState(10);
 
   const [systemTheme, setSystemTheme] = useState(
     window.matchMedia &&
@@ -110,17 +115,23 @@ function App() {
               <Routes>
                 <Route path={AppRoutes.Transactions} element={<Transactions
                   refEntries={txRefEntries}
-                  setRefEntries={txSetRefEntries}
+                  setRefEntries={setTxRefEntries}
                   page={txPage}
                   setPage={txSetPage}
                   rowsPerPage={txRowsPerPage}
                   setRowsPerPage={txSetRowsPerPage}
-                  fromBlock={fromBlock}
-                  setFromBlock={setFromBlock}
+                  fromBlock={txFromBlock}
+                  setFromBlock={setTxFromBlock}
                 />} />
                 <Route path={AppRoutes.Submissions} element={<Submissions
                   section={submissionsSection}
                   setSection={setSubmissionsSection}
+                  page={submissionsPage}
+                  setPage={setSubmissionsPage}
+                  rowsPerPage={submissionsRowsPerPage}
+                  setRowsPerPage={setSubmissionsRowsPerPage}
+                  refEntries={submissionsRefEntries}
+                  setRefEntries={setSubmissionsSetRefEntries}
                 />} />
                 <Route path={AppRoutes.Transaction} element={<TransactionDetails />} />
                 <Route path={AppRoutes.Keys} element={<Keys />} />
