@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -413,6 +414,23 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 
 	done := func() {
 		cancel()
+		// With maxDispatchAhead=-1 the dispatch loop enters sync.Cond.Wait on its
+		// first read. The context.AfterFunc broadcast can race with the goroutine
+		// entering Wait (both dispatchQueue and ctx.Done are ready in the outer
+		// select; Go picks randomly). Keep broadcasting until the loop exits.
+		go func() {
+			for {
+				select {
+				case <-coordinator.dispatchLoopStopped:
+					return
+				default:
+					coordinator.inFlightMutex.L.Lock()
+					coordinator.inFlightMutex.Broadcast()
+					coordinator.inFlightMutex.L.Unlock()
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+		}()
 		coordinator.WaitForDone(context.Background())
 	}
 	return coordinator, mocks, done

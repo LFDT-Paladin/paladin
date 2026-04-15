@@ -55,7 +55,7 @@ func (tm *txManager) notifyDependentTransactions(ctx context.Context, dbTX persi
 				dependentFailureReceipts = append(dependentFailureReceipts, &components.ReceiptInput{
 					TransactionID:  dep,
 					ReceiptType:    components.RT_FailedWithMessage,
-					FailureMessage: "Transaction dependency failed",
+					FailureMessage: i18n.NewError(ctx, msgs.MsgTxMgrDependencyFailed, receipt.TransactionID).Error(),
 				})
 			}
 		}

@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -108,4 +109,214 @@ func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testi
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 	assert.Equal(t, State_Final, txn.stateMachine.GetCurrentState())
+}
+
+func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
+	ctx := context.Background()
+	depID := uuid.New()
+
+	states := []State{
+		State_PreAssembly_Blocked,
+		State_Pooled,
+		State_Assembling,
+		State_Endorsement_Gathering,
+		State_Blocked,
+		State_Confirming_Dispatchable,
+		State_Ready_For_Dispatch,
+		State_Dispatched,
+	}
+
+	for _, fromState := range states {
+		t.Run(fromState.String(), func(t *testing.T) {
+			txn, mocks := NewTransactionBuilderForTesting(t, fromState).Build()
+
+			mocks.SyncPoints.On("QueueTransactionFinalize",
+				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+			).Return()
+			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+			err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				FailedTxID:           depID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, State_Reverted, txn.GetCurrentState())
+		})
+	}
+}
+
+func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		fromState State
+		toState   State
+	}{
+		{State_Pooled, State_PreAssembly_Blocked},
+		{State_Assembling, State_PreAssembly_Blocked},
+		{State_Endorsement_Gathering, State_PreAssembly_Blocked},
+		{State_Blocked, State_PreAssembly_Blocked},
+		{State_Confirming_Dispatchable, State_PreAssembly_Blocked},
+		{State_Ready_For_Dispatch, State_PreAssembly_Blocked},
+		{State_Dispatched, State_Dispatched},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fromState.String(), func(t *testing.T) {
+			depID := uuid.New()
+			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).
+				Dependencies(&TransactionDependencies{
+					Chained: ChainedDependencies{
+						DependsOn:   []uuid.UUID{depID},
+						Unassembled: map[uuid.UUID]struct{}{},
+					},
+				}).
+				Build()
+
+			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+			err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				SourceTransactionID:  depID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.toState, txn.GetCurrentState())
+			assert.Contains(t, txn.dependencies.Chained.Unassembled, depID)
+		})
+	}
+}
+
+func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		fromState State
+		toState   State
+	}{
+		{State_Pooled, State_PreAssembly_Blocked},
+		{State_Assembling, State_PreAssembly_Blocked},
+		{State_Endorsement_Gathering, State_PreAssembly_Blocked},
+		{State_Blocked, State_PreAssembly_Blocked},
+		{State_Confirming_Dispatchable, State_PreAssembly_Blocked},
+		{State_Ready_For_Dispatch, State_PreAssembly_Blocked},
+		{State_Dispatched, State_Dispatched},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fromState.String(), func(t *testing.T) {
+			depID := uuid.New()
+			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).
+				Dependencies(&TransactionDependencies{
+					Chained: ChainedDependencies{
+						DependsOn:   []uuid.UUID{depID},
+						Unassembled: map[uuid.UUID]struct{}{},
+					},
+				}).
+				Build()
+
+			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+			err := txn.HandleEvent(ctx, &DependencyResetEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				SourceTransactionID:  depID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.toState, txn.GetCurrentState())
+			assert.Contains(t, txn.dependencies.Chained.Unassembled, depID)
+		})
+	}
+}
+
+func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		fromState State
+		toState   State
+	}{
+		{State_Pooled, State_Pooled},
+		{State_Assembling, State_PreAssembly_Blocked},
+		{State_Endorsement_Gathering, State_Pooled},
+		{State_Blocked, State_Pooled},
+		{State_Confirming_Dispatchable, State_Pooled},
+		{State_Ready_For_Dispatch, State_Pooled},
+		{State_Dispatched, State_Dispatched},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fromState.String(), func(t *testing.T) {
+			sourceID := uuid.New()
+			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).Build()
+
+			if tt.fromState != State_Pooled {
+				mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+			}
+
+			err := txn.HandleEvent(ctx, &DependencyResetEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				SourceTransactionID:  sourceID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.toState, txn.GetCurrentState())
+		})
+	}
+}
+
+func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		fromState State
+		toState   State
+	}{
+		{State_Pooled, State_Pooled},
+		{State_Assembling, State_PreAssembly_Blocked},
+		{State_Endorsement_Gathering, State_Pooled},
+		{State_Blocked, State_Pooled},
+		{State_Confirming_Dispatchable, State_Pooled},
+		{State_Ready_For_Dispatch, State_Pooled},
+		{State_Dispatched, State_Dispatched},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fromState.String(), func(t *testing.T) {
+			sourceID := uuid.New()
+			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).Build()
+
+			if tt.fromState != State_Pooled {
+				mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+			}
+
+			err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				SourceTransactionID:  sourceID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.toState, txn.GetCurrentState())
+		})
+	}
+}
+
+func Test_ChainedDependencyEvicted_AllStates_TransitionToEvicted(t *testing.T) {
+	ctx := context.Background()
+	depID := uuid.New()
+
+	states := []State{
+		State_PreAssembly_Blocked,
+		State_Pooled,
+		State_Assembling,
+	}
+
+	for _, fromState := range states {
+		t.Run(fromState.String(), func(t *testing.T) {
+			txn, _ := NewTransactionBuilderForTesting(t, fromState).Build()
+
+			err := txn.HandleEvent(ctx, &ChainedDependencyEvictedEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+				EvictedTxID:          depID,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, State_Evicted, txn.GetCurrentState())
+		})
+	}
 }
