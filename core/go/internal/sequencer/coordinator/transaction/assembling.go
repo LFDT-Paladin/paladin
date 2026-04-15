@@ -129,6 +129,13 @@ func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
+// We notify a transactions dependents at the point it is selected for assembly. If this is the last unassembled prereq,
+// the dependency can move to State_Pooled upon receviing this notification, since the outcome of assembly is irrelevant
+// to ensuring that as a minimum the first assembly attempt is performed in order.
+//
+// For dependency types where the transactions must be assembled in the correct order, regardless of how many resets have
+// occured, a dependency reset event will move the dependent transaction back to State_PreAssembly_Blocked if assembly of
+// this transaction fails.
 func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	return txn.notifyDependentsOfSelection(ctx)
 }

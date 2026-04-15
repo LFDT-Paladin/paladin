@@ -25,7 +25,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -39,7 +38,6 @@ type CoordinatorTransaction interface {
 	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
 	GetPrivateTransaction() *components.PrivateTransaction
 	DependentsMustWait(ctx context.Context) bool
-	GetDependencies() *pldapi.TransactionDependencies
 }
 
 type PreAssembleDependencies struct {
@@ -310,16 +308,4 @@ func (t *coordinatorTransaction) GetPrivateTransaction() *components.PrivateTran
 	t.RLock()
 	defer t.RUnlock()
 	return t.pt
-}
-
-func (t *coordinatorTransaction) GetDependencies() *pldapi.TransactionDependencies {
-	t.RLock()
-	defer t.RUnlock()
-	// if t.dependencies == nil {
-	// 	return nil
-	// }
-	return &pldapi.TransactionDependencies{
-		DependsOn: append([]uuid.UUID{}, t.dependencies.PostAssemble.DependsOn...),
-		PrereqOf:  append([]uuid.UUID{}, t.dependencies.PostAssemble.PrereqOf...),
-	}
 }

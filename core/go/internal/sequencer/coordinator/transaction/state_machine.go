@@ -653,7 +653,10 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{
 					{Action: action_RecordConfirmation},
 					{Action: action_NotifyOriginatorOfConfirmation},
-					{Action: action_ResetLocksOnConfirmationIfNoRetentionGracePeriod},
+					{
+						Action: action_ResetConfirmedTransactionLocksOnce,
+						If:     guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange,
+					},
 				},
 				Transitions: []Transition{{To: State_Confirmed}},
 			},

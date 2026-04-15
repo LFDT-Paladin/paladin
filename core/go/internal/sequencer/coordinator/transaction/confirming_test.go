@@ -177,30 +177,6 @@ func Test_action_RecordConfirmation_SuccessDifferentHash(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func Test_action_ResetLocksOnConfirmation_ResetsWhenNoRetentionGracePeriod(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(0).
-		Build()
-
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
-
-	err := action_ResetLocksOnConfirmationIfNoRetentionGracePeriod(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.True(t, txn.confirmedLocksReleased)
-}
-
-func Test_action_ResetLocksOnConfirmation_SkipsWhenRetentionGracePeriodConfigured(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
-		ConfirmedLockRetentionGracePeriod(2).
-		Build()
-
-	err := action_ResetLocksOnConfirmationIfNoRetentionGracePeriod(ctx, txn, nil)
-	require.NoError(t, err)
-	assert.False(t, txn.confirmedLocksReleased)
-}
-
 func Test_action_NotifyDependantsOfRevertedConfirmation_AlwaysResetsLocks(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).

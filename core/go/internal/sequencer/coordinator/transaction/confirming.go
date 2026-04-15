@@ -43,24 +43,18 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 	case *ConfirmedSuccessEvent:
 		hash = e.Hash
 	case *ConfirmedRevertedEvent:
+		t.revertCount++
 		hash = e.Hash
 		t.revertReason = e.RevertReason
-		if len(e.RevertReason) == 0 && strings.HasPrefix(e.FailureMessage, "PD012256") {
+		if len(e.RevertReason) == 0 {
+			t.decodedRevertReason = e.FailureMessage
 			// We will only see this revert reason if a chained dispatch has failed because its dependency failed.
 			// This means that we assembled this transaction on potential output states that we now
 			// know will not be confirmed on the base ledger.
-			//
-			// It is not a failure of this transaction itself, so we don't count it against the retry threshold.
-			// Instead we reassemble on new states.
-			t.decodedRevertReason = e.FailureMessage
-			t.lastCanRetryRevert = true
-		} else if len(e.RevertReason) == 0 {
-			// Off-chain revert (for example a chained assembly failure propagated from another TX).
-			// This is not a base-ledger revert, so do not route through domain retryability logic.
-			t.revertCount++
-			t.decodedRevertReason = e.FailureMessage
+			// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
+			// this is acceptable since this is an error code that can originate from within the sequencer.
+			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256")
 		} else {
-			t.revertCount++
 			t.revertOnChain = &e.OnChain
 			retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
 			if err != nil {
@@ -142,13 +136,6 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 		},
 	)
 	return nil
-}
-
-func action_ResetLocksOnConfirmationIfNoRetentionGracePeriod(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	if txn.confirmedLockRetentionGracePeriod > 0 {
-		return nil
-	}
-	return action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 }
 
 func action_NotifyDependantsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {

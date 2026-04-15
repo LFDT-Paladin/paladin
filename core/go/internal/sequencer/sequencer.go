@@ -508,14 +508,12 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
 
-	// Set chained dependencies after InitTransaction, which replaces PreAssembly
 	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
 
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {
 		return err
 	}
-
 	txCreatedEvent := &originator.TransactionCreatedEvent{
 		Transaction: tx,
 	}
