@@ -22,13 +22,13 @@ import (
 	"fmt"
 )
 
-//go:embed abis/NotoHooksFailable.json
+//go:embed abis/NotoHooksRevertable.json
 var notoHooksRevertableBuildJSON []byte
 
 func LoadNotoHooksRevertableContract() (*Contract, error) {
 	var contractData Contract
 	if err := json.Unmarshal(notoHooksRevertableBuildJSON, &contractData); err != nil {
-		return nil, fmt.Errorf("failed to parse embedded NotoHooksFailable.json: %w", err)
+		return nil, fmt.Errorf("failed to parse embedded NotoHooksRevertable.json: %w", err)
 	}
 	return &contractData, nil
 }

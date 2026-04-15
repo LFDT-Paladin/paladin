@@ -17,6 +17,19 @@ Run `gradle build` in the `test` directory to build and install the `pldtest` co
 
 ## Run
 
+### Run From VSCode Launch Config
+
+You can run the test CLI using the VSCode launch configurations in `.vscode/launch.json`.
+
+Before using those launch entries, run the Solidity artifact copy step:
+
+```bash
+cd test
+gradle copySolidity
+```
+
+This ensures the embedded ABI files under `test/internal/contracts/abis` are up to date and available for the test suites.
+
 ### Public contract
 
 This test submits transactions which call the `set` method on a [`simplestorage`](https://github.com/kaleido-io/kaleido-js/blob/master/deploy-transact/contracts/simplestorage.sol) contract.

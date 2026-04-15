@@ -22,13 +22,13 @@ import (
 	"fmt"
 )
 
-//go:embed abis/FailableTarget.json
+//go:embed abis/RevertableTarget.json
 var revertableTargetBuildJSON []byte
 
 func LoadRevertableTargetContract() (*Contract, error) {
 	var contractData Contract
 	if err := json.Unmarshal(revertableTargetBuildJSON, &contractData); err != nil {
-		return nil, fmt.Errorf("failed to parse embedded FailableTarget.json: %w", err)
+		return nil, fmt.Errorf("failed to parse embedded RevertableTarget.json: %w", err)
 	}
 	return &contractData, nil
 }
