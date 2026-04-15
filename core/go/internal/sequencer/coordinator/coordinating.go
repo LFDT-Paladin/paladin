@@ -144,7 +144,7 @@ func (c *coordinator) addToDelegatedTransactions(
 					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
 						TransactionID: txID,
 					},
-					PrereqTransactionID: transactions[i-1].ID,
+					PrereqTransactionID: txn.ID,
 				})
 				if err != nil {
 					txnHandlingError = err
