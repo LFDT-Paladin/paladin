@@ -47,7 +47,7 @@ function App() {
 
   const [txRefEntries, txSetRefEntries] = useState<ITransactionPagingReference[]>([]);
   const [txPage, txSetPage] = useState(0);
-  const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'all'>('pending');
+  const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'failed'>('pending');
   const [fromBlock, setFromBlock] = useState<number>();
   const [txRowsPerPage, txSetRowsPerPage] = useState(10);
 
