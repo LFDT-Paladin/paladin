@@ -45,6 +45,7 @@ var transactionFilters = filters.FieldMap{
 	"from":           filters.StringField(`"from"`),
 	"to":             filters.HexBytesField(`"to"`),
 	"type":           filters.StringField(`"type"`),
+	"success":        filters.BooleanField(`"TransactionReceipt"."success"`),
 }
 
 var dispatchFilters = filters.FieldMap{

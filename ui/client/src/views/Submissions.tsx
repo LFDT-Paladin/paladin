@@ -28,14 +28,14 @@ import { Filters } from "../components/Filters";
 import { constants } from "../components/config";
 
 type Props = {
-  section: 'pending' | 'all'
-  setSection: Dispatch<SetStateAction<'pending' | 'all'>>
+  section: 'pending' | 'failed'
+  setSection: Dispatch<SetStateAction<'pending' | 'failed'>>
 };
 
-export const Submissions: React.FC<Props> = ({ 
+export const Submissions: React.FC<Props> = ({
   section,
   setSection
- }) => {
+}) => {
 
   const getFiltersFromStorage = () => {
     const value = window.localStorage.getItem(constants.SUBMISSIONS_FILTERS_KEY);
@@ -84,7 +84,7 @@ export const Submissions: React.FC<Props> = ({
         <Box sx={{ marginTop: '15px', marginBottom: '25px', textAlign: 'center' }}>
           <ToggleButtonGroup exclusive onChange={(_event, value) => setSection(value)} value={section}>
             <ToggleButton color="primary" value="pending" sx={{ width: '130px', height: '45px' }}>{t('pending')}</ToggleButton>
-            <ToggleButton color="primary" value="all" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
+            <ToggleButton color="primary" value="failed" sx={{ width: '130px', height: '45px' }}>{t('failed')}</ToggleButton>
           </ToggleButtonGroup>
         </Box>
         <Box sx={{ marginBottom: '20px' }}>
@@ -149,7 +149,9 @@ export const Submissions: React.FC<Props> = ({
                 )}
               </InfiniteScroll>
               {transactions.pages.length === 1 && transactions.pages[0].length === 0 &&
-                <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>{t('noPendingTransactions')}</Typography>}
+                <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>
+                  {t(section === 'pending' ? 'noPendingTransactions' : 'noFailedTransactions')}
+                </Typography>}
             </>
           }
         </Box>
