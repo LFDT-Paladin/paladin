@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -20,11 +20,18 @@ export interface IBlock {
   timestamp: string;
 }
 
+export interface ITransactionPagingReference {
+  hash: string;
+  blockNumber: number;
+  transactionIndex: number;
+}
+
 export interface ITransaction {
   hash: string;
   blockNumber: number;
   transactionIndex: number;
   from: string;
+  to?: string;
   nonce: number;
   contractAddress?: string;
   result: string;
@@ -34,6 +41,7 @@ export interface ITransaction {
 export interface IEnrichedTransaction extends ITransaction {
   receipts: ITransactionReceipt[];
   paladinTransactions: IPaladinTransaction[];
+  events: IEvent[];
 }
 
 export interface IEvent {
@@ -67,6 +75,7 @@ export interface IPaladinTransaction {
   data: {
     [key: string]: string;
   };
+  receipt?: ITransactionReceipt;
 }
 
 export interface ITransactionReceipt {
@@ -135,7 +144,7 @@ export interface ITransportPeer {
     sentBytes: number;
     receivedBytes: number;
     lastSend: string;
-    lastReceive: string;
+    lastReceive: string | null;
     reliableHighestSent: number;
     reliableAckBase: number;
   };

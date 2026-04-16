@@ -18,14 +18,18 @@ package publictxmgr
 import (
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTXStageControllerUpdate(t *testing.T) {
-	ctx, o, _, done := newTestOrchestrator(t)
+	ctx, o, m, done := newTestOrchestrator(t)
 	defer done()
 	it, _ := newInflightTransaction(o, 1)
 	it.testOnlyNoActionMode = true
@@ -33,9 +37,11 @@ func TestTXStageControllerUpdate(t *testing.T) {
 	it.UpdateTransaction(ctx, &DBPublicTxn{
 		Gas: 1000,
 		FixedGasPricing: pldtypes.JSONString(pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Uint64ToUint256(10),
+			MaxFeePerGas:         pldtypes.Uint64ToUint256(10),
+			MaxPriorityFeePerGas: pldtypes.Uint64ToUint256(1),
 		}),
 	})
+	m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
 
 	it.ProduceLatestInFlightStageContext(ctx, &OrchestratorContext{})
 
@@ -45,5 +51,5 @@ func TestTXStageControllerUpdate(t *testing.T) {
 
 	rsc := it.stateManager.GetCurrentGeneration(ctx).GetRunningStageContext(ctx)
 	require.NotNil(t, rsc)
-	assert.Equal(t, InFlightTxStageSigning, rsc.Stage)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, rsc.Stage)
 }

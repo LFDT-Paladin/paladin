@@ -23,16 +23,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/integration-test/helpers"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -249,13 +249,13 @@ func (s *fungibleTestSuiteHelper) testZeto(t *testing.T, tokenName string, useBa
 	log.L(ctx).Info("*************************************")
 	zeto.Withdraw(ctx, 100).SignAndSend(controllerName, true).Wait()
 
+	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
+	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
+
 	if tokenName != constants.TOKEN_ANON {
 		// for now the lock and transferLocked only works properly for the ANON token
 		return
 	}
-
-	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
-	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
 
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("Lock some UTXOs and delegate the lock to recipient1")

@@ -21,13 +21,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"gorm.io/gorm/clause"
 )
 
@@ -115,7 +115,9 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 		// Check for an existing entry in the DB
 		var pathList []*DBKeyPath
 		err := db.WithContext(ctx).
+			Model(&DBKeyPath{}).
 			Where("path = ?", path).
+			Limit(1).
 			Find(&pathList).Error
 		if err != nil {
 			return nil, err
@@ -148,6 +150,7 @@ func (kr *keyResolver) resolvePathSegment(ctx context.Context, parent *resolvedD
 		if parent.nextIndex == nil {
 			// Get the highest index on the parent so far written to the DB
 			err = db.WithContext(ctx).
+				Model(&DBKeyPath{}).
 				Where("parent = ?", parent.path).
 				Order(`"index" DESC`).
 				Limit(1).
@@ -226,6 +229,7 @@ func (kr *keyResolver) getStoredVerifier(ctx context.Context, identifier, algori
 }
 
 func (kr *keyResolver) ResolveKey(ctx context.Context, identifier, algorithm, verifierType string) (_ *pldapi.KeyMappingAndVerifier, err error) {
+	ctx = log.WithComponent(ctx, log.Component("keyresolver"))
 	return kr.resolveKey(ctx, identifier, algorithm, verifierType, false /* allow creation */)
 }
 

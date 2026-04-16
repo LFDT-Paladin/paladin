@@ -6,14 +6,14 @@ import (
 	"math/big"
 	"testing"
 
-	corepb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,7 +196,7 @@ func TestCryptoRandBN254(t *testing.T) {
 func TestNewMerkleTreeSpec(t *testing.T) {
 	ctx := context.Background()
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*pb.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *pb.FindAvailableStatesRequest) (*pb.FindAvailableStatesResponse, error) {
 			return &pb.FindAvailableStatesResponse{}, nil
 		},
 	}

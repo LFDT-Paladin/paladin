@@ -16,7 +16,7 @@
 
 package pldapi
 
-import "github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+import "github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 
 type PeerInfo struct {
 	Name              string             `docstruct:"PeerInfo" json:"name"`
@@ -28,6 +28,7 @@ type PeerInfo struct {
 }
 
 type PeerStats struct {
+	CreatedAt           *pldtypes.Timestamp `docstruct:"PeerStats" json:"createdAt"`
 	SentMsgs            uint64              `docstruct:"PeerStats" json:"sentMsgs"`
 	ReceivedMsgs        uint64              `docstruct:"PeerStats" json:"receivedMsgs"`
 	SentBytes           uint64              `docstruct:"PeerStats" json:"sentBytes"`

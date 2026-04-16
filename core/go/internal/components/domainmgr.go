@@ -21,13 +21,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 )
 
 type DomainManagerToDomain interface {
@@ -54,6 +54,7 @@ type Domain interface {
 	RegistryAddress() *pldtypes.EthAddress
 	Configuration() *prototk.DomainConfig
 	CustomHashFunction() bool
+	FixedSigningIdentity() string
 
 	// Specific to domains that support privacy groups (domain should return error if it does not).
 	// Validates the input properties, and turns it into the full genesis configuration for a group
@@ -69,6 +70,9 @@ type Domain interface {
 
 	GetDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (pldtypes.RawJSON, error)
 	BuildDomainReceipt(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (pldtypes.RawJSON, error)
+
+	// Check if the transaction states are complete (all expected states are available)
+	CheckStateCompletion(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID, txStates *pldapi.TransactionStates) (nextMissingStateID pldtypes.HexBytes, err error)
 }
 
 // External interface for other components to call against a private smart contract
@@ -88,6 +92,8 @@ type DomainSmartContract interface {
 	ExecCall(dCtx DomainContext, readTX persistence.DBTX, tx *ResolvedTransaction, verifiers []*prototk.ResolvedVerifier) (*abi.ComponentValue, error)
 
 	WrapPrivacyGroupEVMTX(context.Context, *pldapi.PrivacyGroup, *pldapi.PrivacyGroupEVMTX) (*pldapi.TransactionInput, error)
+
+	IsBaseLedgerRevertRetryable(ctx context.Context, revertData []byte) (retryable bool, decodedReason string, err error)
 }
 
 type DomainPrivacyGroupConfig struct {

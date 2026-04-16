@@ -26,18 +26,18 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/rpcclientmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/rpcclientmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -698,6 +698,11 @@ func TestStartStopEventStream(t *testing.T) {
 	err = bi.StartEventStream(ctx, esID)
 	require.ErrorContains(t, err, "pop")
 
+	// Declare expected DB queries that the detector/dispatcher may run.
+	// These must be in place before StartEventStream, as startup is async.
+	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
+	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
+
 	// second StartEventStream succeeds
 	err = bi.StartEventStream(ctx, esID)
 	require.NoError(t, err)
@@ -706,10 +711,6 @@ func TestStartStopEventStream(t *testing.T) {
 	assert.NotNil(t, eventStream.dispatcherDone)
 	assert.NotNil(t, eventStream.detectorStarted)
 	assert.NotNil(t, eventStream.dispatcherStarted)
-
-	// Declare expected DB queries that the detector/dispatcher may run
-	p.Mock.ExpectQuery("SELECT.*event_stream_checkpoints").WillReturnRows(sqlmock.NewRows([]string{}))
-	p.Mock.ExpectQuery("SELECT.*indexed_blocks").WillReturnRows(sqlmock.NewRows([]string{}))
 
 	// Wait for goroutines to start
 	<-eventStream.detectorStarted

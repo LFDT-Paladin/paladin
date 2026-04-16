@@ -28,20 +28,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/inflight"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
@@ -69,6 +69,7 @@ type BlockIndexer interface {
 	WaitForTransactionAnyResult(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.IndexedTransaction, error)
 	GetBlockListenerHeight(ctx context.Context) (highest uint64, err error)
 	GetConfirmedBlockHeight(ctx context.Context) (confirmed pldtypes.HexUint64, err error)
+	GetLatestConfirmedBlockMetadata(ctx context.Context) (*ConfirmedBlockMetadata, error)
 	GetEventStreamStatus(ctx context.Context, id uuid.UUID) (*EventStreamStatus, error)
 	RPCModule() *rpcserver.RPCModule
 }
@@ -90,13 +91,14 @@ type blockIndexer struct {
 	wsConn                     rpcclient.WSClient
 	stateLock                  sync.Mutex
 	fromBlock                  *ethtypes.HexUint64
-	nextBlock                  *ethtypes.HexUint64 // nil in the special case of "latest" and no block received yet
-	highestConfirmedBlock      atomic.Int64        // set after we persist blocks
+	nextBlock                  *ethtypes.HexUint64                    // nil in the special case of "latest" and no block received yet
+	highestConfirmedBlock      atomic.Pointer[ConfirmedBlockMetadata] // set after we persist blocks
 	blocksSinceCheckpoint      []*BlockInfoJSONRPC
 	newHeadToAdd               []*BlockInfoJSONRPC // used by the notification routine when there are new blocks that add directly onto the end of the blocksSinceCheckpoint
 	requiredConfirmations      int
 	retry                      *retry.Retry
 	batchSize                  int
+	insertDBBatchSize          int
 	batchTimeout               time.Duration
 	txWaiters                  *inflight.InflightManager[pldtypes.Bytes32, *pldapi.IndexedTransaction]
 	preCommitHandlers          []PreCommitHandler
@@ -114,6 +116,7 @@ type blockIndexer struct {
 }
 
 func NewBlockIndexer(ctx context.Context, config *pldconf.BlockIndexerConfig, wsConfig *pldconf.WSClientConfig, persistence persistence.Persistence) (_ BlockIndexer, err error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 
 	blockListener, err := newBlockListener(ctx, config, wsConfig)
 	if err != nil {
@@ -132,16 +135,17 @@ func newBlockIndexer(ctx context.Context, conf *pldconf.BlockIndexerConfig, pers
 		requiredConfirmations:      confutil.IntMin(conf.RequiredConfirmations, 0, *pldconf.BlockIndexerDefaults.RequiredConfirmations),
 		retry:                      blockListener.retry,
 		batchSize:                  confutil.IntMin(conf.CommitBatchSize, 1, *pldconf.BlockIndexerDefaults.CommitBatchSize),
+		insertDBBatchSize:          confutil.IntMin(conf.InsertDBBatchSize, 1, *pldconf.BlockIndexerDefaults.InsertDBBatchSize),
 		batchTimeout:               confutil.DurationMin(conf.CommitBatchTimeout, 0, *pldconf.BlockIndexerDefaults.CommitBatchTimeout),
 		txWaiters:                  inflight.NewInflightManager[pldtypes.Bytes32, *pldapi.IndexedTransaction](pldtypes.ParseBytes32),
 		eventStreams:               make(map[uuid.UUID]*eventStream),
 		eventStreamsHeadSet:        make(map[uuid.UUID]*eventStream),
-		esBlockDispatchQueueLength: confutil.IntMin(conf.EventStreams.BlockDispatchQueueLength, 0, *pldconf.EventStreamDefaults.BlockDispatchQueueLength),
-		esCatchUpQueryPageSize:     confutil.IntMin(conf.EventStreams.CatchUpQueryPageSize, 0, *pldconf.EventStreamDefaults.CatchUpQueryPageSize),
+		esBlockDispatchQueueLength: confutil.IntMin(conf.EventStreams.BlockDispatchQueueLength, 0, *pldconf.BlockIndexerDefaults.EventStreams.BlockDispatchQueueLength),
+		esCatchUpQueryPageSize:     confutil.IntMin(conf.EventStreams.CatchUpQueryPageSize, 0, *pldconf.BlockIndexerDefaults.EventStreams.CatchUpQueryPageSize),
 		dispatcherTap:              make(chan struct{}, 1),
 		ignoredTransactionTypes:    confutil.Int64Slice(conf.IgnoredTransactionTypes, pldconf.BlockIndexerDefaults.IgnoredTransactionTypes),
 	}
-	bi.highestConfirmedBlock.Store(-1)
+	bi.highestConfirmedBlock.Store(&ConfirmedBlockMetadata{Number: -1, Timestamp: -1})
 	bi.fromBlock, err = bi.getFromBlock(ctx, conf.FromBlock, pldconf.BlockIndexerDefaults.FromBlock)
 	if err != nil {
 		return nil, err
@@ -249,19 +253,29 @@ func (bi *blockIndexer) Stop() {
 }
 
 func (bi *blockIndexer) GetConfirmedBlockHeight(ctx context.Context) (highest pldtypes.HexUint64, err error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	highestConfirmedBlock := bi.highestConfirmedBlock.Load()
-	if highestConfirmedBlock < 0 {
+	if highestConfirmedBlock.Number < 0 {
 		return 0, i18n.NewError(ctx, msgs.MsgBlockIndexerNoBlocksIndexed)
 	}
-	return pldtypes.HexUint64(highestConfirmedBlock), nil
+	return pldtypes.HexUint64(highestConfirmedBlock.Number), nil
+}
+
+func (bi *blockIndexer) GetLatestConfirmedBlockMetadata(ctx context.Context) (block *ConfirmedBlockMetadata, err error) {
+	highestConfirmedBlock := bi.highestConfirmedBlock.Load()
+	if highestConfirmedBlock.Number < 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerNoBlocksIndexed)
+	}
+	return highestConfirmedBlock, nil
 }
 
 func (bi *blockIndexer) GetBlockListenerHeight(ctx context.Context) (confirmed uint64, err error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	return bi.blockListener.getHighestBlock(ctx)
 }
 
 func (bi *blockIndexer) getFromBlock(ctx context.Context, fromBlock json.RawMessage, defaultValue json.RawMessage) (*ethtypes.HexUint64, error) {
-	var vUntyped interface{}
+	var vUntyped any
 	if fromBlock == nil {
 		fromBlock = defaultValue
 	}
@@ -313,7 +327,7 @@ func (bi *blockIndexer) restoreCheckpoint() error {
 		log.L(bi.parentCtxForReset).Infof("Block indexer restarting from checkpoint fromBlock=%s", bi.fromBlock)
 		nextBlock := ethtypes.HexUint64(blocks[0].Number + 1)
 		bi.nextBlock = &nextBlock
-		bi.highestConfirmedBlock.Store(blocks[0].Number)
+		bi.highestConfirmedBlock.Store(&ConfirmedBlockMetadata{Number: blocks[0].Number, Timestamp: blocks[0].Timestamp.Time().Unix()})
 	default:
 		bi.nextBlock = bi.fromBlock
 	}
@@ -482,7 +496,10 @@ func (bi *blockIndexer) dispatcher(ctx context.Context) {
 			for i, receiptError := range batch.receiptResults {
 				if receiptError != nil {
 					log.L(ctx).Errorf("Block indexer requires reset after failing to query receipts for block %s in batch of %d blocks: %s", batch.blocks[i].Hash, len(batch.blocks), receiptError)
-					go bi.startOrReset()
+					go func() {
+						bi.startOrReset()
+						bi.startEventStreams()
+					}()
 					return // We know we need to exit
 				}
 			}
@@ -538,6 +555,44 @@ func (bi *blockIndexer) hydrateBlock(ctx context.Context, batch *blockWriterBatc
 		return false, nil
 	})
 	batch.receiptResults[blockIndex] = err
+	if err == nil {
+		validationErr := bi.validateBlockReceipts(ctx, batch.blocks[blockIndex], batch.receipts[blockIndex])
+		if validationErr != nil {
+			log.L(ctx).Errorf(
+				"Receipt validation failed block=%+v receipts=%+v error=%s",
+				batch.blocks[blockIndex],
+				batch.receipts[blockIndex],
+				validationErr,
+			)
+			batch.receiptResults[blockIndex] = validationErr
+		}
+	}
+}
+
+func (bi *blockIndexer) validateBlockReceipts(ctx context.Context, block *BlockInfoJSONRPC, receipts []*TXReceiptJSONRPC) error {
+	if len(receipts) != len(block.Transactions) {
+		return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptCountMismatch, block.Hash, block.Number, len(block.Transactions), len(receipts))
+	}
+
+	seen := make(map[string]struct{}, len(receipts))
+	for _, receipt := range receipts {
+		if receipt == nil {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptIntegrityNilReceipt, block.Hash, block.Number)
+		}
+		if receipt.BlockHash.String() != block.Hash.String() || uint64(receipt.BlockNumber) != uint64(block.Number) {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptBlockMismatch, block.Hash, block.Number, receipt.TransactionHash, receipt.BlockHash, receipt.BlockNumber)
+		}
+		seen[receipt.TransactionHash.String()] = struct{}{}
+	}
+
+	for _, tx := range block.Transactions {
+		txHash := tx.Hash.String()
+		if _, exists := seen[txHash]; !exists {
+			return i18n.NewError(ctx, msgs.MsgBlockIndexerReceiptMissingTxHash, block.Hash, block.Number, txHash)
+		}
+	}
+
+	return nil
 }
 
 func (bi *blockIndexer) logToIndexedEvent(l *LogJSONRPC) *pldapi.IndexedEvent {
@@ -568,10 +623,14 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 	var notifyTransactions []*IndexedTransactionNotify
 	var transactions []*pldapi.IndexedTransaction
 	var events []*pldapi.IndexedEvent
-	newHighestBlock := int64(-1)
+	newHighestBlock := &ConfirmedBlockMetadata{
+		Number:    int64(-1),
+		Timestamp: int64(-1),
+	}
 
 	for i, block := range batch.blocks {
-		newHighestBlock = int64(block.Number)
+		newHighestBlock.Number = int64(block.Number)
+		newHighestBlock.Timestamp = int64(block.Timestamp)
 		blocks = append(blocks, bi.blockInfoToIndexedBlock(block))
 		log.L(ctx).Debugf("Indexing %d transactions from block %d", len(batch.receipts[i]), block.Number)
 		for txIndex, r := range batch.receipts[i] {
@@ -617,6 +676,7 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 					err = preCommitHandler(ctx, dbTX, blocks, notifyTransactions)
 				}
 			}
+
 			if err == nil && len(blocks) > 0 {
 				err = dbTX.DB().
 					WithContext(ctx).
@@ -628,7 +688,7 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 				err = dbTX.DB().
 					WithContext(ctx).
 					Table("indexed_transactions").
-					Create(transactions).
+					CreateInBatches(transactions, bi.insertDBBatchSize).
 					Error
 			}
 			if err == nil && len(events) > 0 {
@@ -637,7 +697,7 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 					Table("indexed_events").
 					Omit("Transaction").
 					Omit("Event").
-					Create(events).
+					CreateInBatches(events, bi.insertDBBatchSize).
 					Error
 			}
 			return err
@@ -648,7 +708,7 @@ func (bi *blockIndexer) writeBatch(ctx context.Context, batch *blockWriterBatch)
 		// Context was cancelled exiting retry - no notification in that case
 		bi.notifyEventStreams(ctx, batch)
 	}
-	if newHighestBlock >= 0 {
+	if newHighestBlock.Number >= 0 {
 		bi.highestConfirmedBlock.Store(newHighestBlock)
 	}
 	if err == nil {
@@ -786,6 +846,7 @@ func (bi *blockIndexer) getNextConfirmed(ctx context.Context) (toDispatch *Block
 }
 
 func (bi *blockIndexer) WaitForTransactionAnyResult(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.IndexedTransaction, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	inflight := bi.txWaiters.AddInflight(ctx, hash)
 	defer inflight.Cancel()
 
@@ -801,6 +862,7 @@ func (bi *blockIndexer) WaitForTransactionAnyResult(ctx context.Context, hash pl
 }
 
 func (bi *blockIndexer) WaitForTransactionSuccess(ctx context.Context, hash pldtypes.Bytes32, errorABI abi.ABI) (*pldapi.IndexedTransaction, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	rtx, err := bi.WaitForTransactionAnyResult(ctx, hash)
 	if err != nil {
 		return nil, err
@@ -829,6 +891,7 @@ func (bi *blockIndexer) getReceiptRevertError(ctx context.Context, hash pldtypes
 }
 
 func (bi *blockIndexer) GetIndexedBlockByNumber(ctx context.Context, number uint64) (*pldapi.IndexedBlock, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var blocks []*pldapi.IndexedBlock
 	db := bi.persistence.DB()
 	err := db.
@@ -844,6 +907,7 @@ func (bi *blockIndexer) GetIndexedBlockByNumber(ctx context.Context, number uint
 }
 
 func (bi *blockIndexer) GetIndexedTransactionByHash(ctx context.Context, hash pldtypes.Bytes32) (*pldapi.IndexedTransaction, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	return bi.getIndexedTransactionByHash(ctx, hash)
 }
 
@@ -863,6 +927,7 @@ func (bi *blockIndexer) getIndexedTransactionByHash(ctx context.Context, hashID 
 }
 
 func (bi *blockIndexer) GetIndexedTransactionByNonce(ctx context.Context, from pldtypes.EthAddress, nonce uint64) (*pldapi.IndexedTransaction, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var txns []*pldapi.IndexedTransaction
 	db := bi.persistence.DB()
 	err := db.
@@ -879,6 +944,7 @@ func (bi *blockIndexer) GetIndexedTransactionByNonce(ctx context.Context, from p
 }
 
 func (bi *blockIndexer) GetBlockTransactionsByNumber(ctx context.Context, blockNumber int64) ([]*pldapi.IndexedTransaction, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var txns []*pldapi.IndexedTransaction
 	db := bi.persistence.DB()
 	err := db.
@@ -893,6 +959,7 @@ func (bi *blockIndexer) GetBlockTransactionsByNumber(ctx context.Context, blockN
 }
 
 func (bi *blockIndexer) GetTransactionEventsByHash(ctx context.Context, hash pldtypes.Bytes32) ([]*pldapi.IndexedEvent, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var events []*pldapi.IndexedEvent
 	db := bi.persistence.DB()
 	err := db.
@@ -906,6 +973,7 @@ func (bi *blockIndexer) GetTransactionEventsByHash(ctx context.Context, hash pld
 }
 
 func (bi *blockIndexer) ListTransactionEvents(ctx context.Context, lastBlock int64, lastIndex, limit int) ([]*pldapi.IndexedEvent, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var events []*pldapi.IndexedEvent
 	db := bi.persistence.DB()
 	q := db.
@@ -923,6 +991,7 @@ func (bi *blockIndexer) ListTransactionEvents(ctx context.Context, lastBlock int
 }
 
 func (bi *blockIndexer) DecodeTransactionEvents(ctx context.Context, hash pldtypes.Bytes32, a abi.ABI, resultFormat pldtypes.JSONFormatOptions) ([]*pldapi.EventWithData, error) {
+	ctx = log.WithComponent(ctx, "blockindexer")
 	var serailizer *abi.Serializer
 	events, err := bi.GetTransactionEventsByHash(ctx, hash)
 	if err == nil {
@@ -1004,7 +1073,7 @@ func (bi *blockIndexer) matchLog(ctx context.Context, abi abi.ABI, in *LogJSONRP
 }
 
 func (bi *blockIndexer) QueryIndexedBlocks(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedBlock, error) {
-
+	ctx = log.WithComponent(ctx, "blockindexer")
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
@@ -1019,7 +1088,7 @@ func (bi *blockIndexer) QueryIndexedBlocks(ctx context.Context, jq *query.QueryJ
 }
 
 func (bi *blockIndexer) QueryIndexedTransactions(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedTransaction, error) {
-
+	ctx = log.WithComponent(ctx, "blockindexer")
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}
@@ -1034,7 +1103,7 @@ func (bi *blockIndexer) QueryIndexedTransactions(ctx context.Context, jq *query.
 }
 
 func (bi *blockIndexer) QueryIndexedEvents(ctx context.Context, jq *query.QueryJSON) ([]*pldapi.IndexedEvent, error) {
-
+	ctx = log.WithComponent(ctx, "blockindexer")
 	if jq.Limit == nil || *jq.Limit == 0 {
 		return nil, i18n.NewError(ctx, msgs.MsgBlockIndexerLimitRequired)
 	}

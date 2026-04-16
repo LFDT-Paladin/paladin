@@ -24,12 +24,14 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +54,11 @@ func newMockComponents(t *testing.T) *mockComponents {
 
 func newDBTestStateManager(t *testing.T) (context.Context, *stateManager, *mockComponents, func()) {
 	ctx := context.Background()
+
+	logConf := pldconf.LogDefaults
+	logConf.Level = confutil.P("trace")
+	log.InitConfig(&logConf)
+
 	p, pDone, err := persistence.NewUnitTestPersistence(ctx, "statemgr")
 	require.NoError(t, err)
 	ss := NewStateManager(ctx, &pldconf.StateStoreConfig{}, p)

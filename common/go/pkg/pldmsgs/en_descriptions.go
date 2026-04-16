@@ -17,7 +17,7 @@
 package pldmsgs
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"golang.org/x/text/language"
 )
 
@@ -68,6 +68,15 @@ var (
 	KeyVerifierAlgorithm               = pdm("KeyVerifier.algorithm", "The algorithm used by the verifier")
 	KeyPathSegmentName                 = pdm("KeyPathSegment.name", "The name of the path segment")
 	KeyPathSegmentIndex                = pdm("KeyPathSegment.index", "The index of the path segment")
+	KeyQueryEntryIsKey                 = pdm("KeyQueryEntry.isKey", "Whether this is a key")
+	KeyQueryEntryHasChildren           = pdm("KeyQueryEntry.hasChildren", "Whether this has children")
+	KeyQueryEntryParent                = pdm("KeyQueryEntry.parent", "The parent of this key")
+	KeyQueryEntryPath                  = pdm("KeyQueryEntry.path", "The path of this key")
+	KeyQueryEntryName                  = pdm("KeyQueryEntry.name", "The name of this key")
+	KeyQueryEntryIndex                 = pdm("KeyQueryEntry.index", "The index of this key")
+	KeyQueryEntryWallet                = pdm("KeyQueryEntry.wallet", "The wallet of this key")
+	KeyQueryEntryKeyHandle             = pdm("KeyQueryEntry.keyHandle", "The handle of this key")
+	KeyQueryEntryVerifiers             = pdm("KeyQueryEntry.verifiers", "The verifiers of this key")
 )
 
 // pldapi/public_tx.go
@@ -97,8 +106,11 @@ var (
 	PublicTxRevertData                     = pdm("PublicTx.revertData", "The revert data (optional)")
 	PublicTxSubmissions                    = pdm("PublicTx.submissions", "The submission data (optional)")
 	PublicTxActivity                       = pdm("PublicTx.activity", "The transaction activity records (optional)")
+	PublicTxDispatcher                     = pdm("PublicTx.dispatcher", "The dispatcher that submitted this public transaction")
 	PublicTxBindingTransaction             = pdm("PublicTxBinding.transaction", "The transaction ID")
 	PublicTxBindingTransactionType         = pdm("PublicTxBinding.transactionType", "The transaction type")
+	PublicTxBindingSender                  = pdm("PublicTxBinding.sender", "The sender identity associated with this binding")
+	PublicTxBindingContractAddress         = pdm("PublicTxBinding.contractAddress", "The contract address associated with this binding")
 )
 
 // pldapi/stored_abi.go
@@ -128,6 +140,11 @@ var (
 	TransactionFullReceipt                                  = pdm("TransactionFull.receipt", "Transaction receipt data - available if the transaction has reached a final state")
 	TransactionFullPublic                                   = pdm("TransactionFull.public", "List of public transactions associated with this transaction")
 	TransactionFullHistory                                  = pdm("TransactionFull.history", "List of values that have previously been provided for this transaction")
+	TransactionFullSequencerActivity                        = pdm("TransactionFull.sequencerActivity", "List of sequencer activities associated with this transaction")
+	SequencerActivitySubjectID                              = pdm("SequencerActivity.subjectId", "Identifier of the resource this sequencer activity refers to")
+	SequencerActivityTimestamp                              = pdm("SequencerActivity.timestamp", "Timestamp when this sequencer activity occurred")
+	SequencerActivityActivityType                           = pdm("SequencerActivity.activityType", "Type of sequencer activity")
+	SequencerActivitySequencingNode                         = pdm("SequencerActivity.sequencingNode", "Node that generated this sequencer activity")
 	TransactionReceiptID                                    = pdm("TransactionReceipt.id", "Transaction ID")
 	TransactionReceiptDataOnchainTransactionHash            = pdm("TransactionReceiptDataOnchain.transactionHash", "Transaction hash")
 	TransactionReceiptDataOnchainBlockNumber                = pdm("TransactionReceiptDataOnchain.blockNumber", "Block number")
@@ -144,6 +161,13 @@ var (
 	TransactionReceiptFullStates                            = pdm("TransactionReceiptFull.states", "The state receipt for the transaction (private transactions only)")
 	TransactionReceiptFullDomainReceipt                     = pdm("TransactionReceiptFull.domainReceipt", "The domain receipt for the transaction (private transaction only)")
 	TransactionReceiptFullDomainReceiptError                = pdm("TransactionReceiptFull.domainReceiptError", "Contains the error if it was not possible to obtain the domain receipt for a private transaction")
+	TransactionReceiptFullPublic                            = pdm("TransactionReceiptFull.public", "Public transactions submitted for this receipt's transaction")
+	DispatchID                                              = pdm("Dispatch.id", "Identifier for the dispatch record, correlates with sequencer activity subjectId for dispatches")
+	DispatchTransactionID                                   = pdm("Dispatch.transactionID", "The ID of the transaction that triggered this dispatch")
+	DispatchPublicTransactionID                             = pdm("Dispatch.publicTransactionID", "Local database identifier of the public transaction created for this dispatch")
+	ChainedDispatchChainedTransactionID                     = pdm("ChainedDispatch.chainedTransactionID", "The transaction ID of the chained private transaction")
+	ChainedDispatchTransactionID                            = pdm("ChainedDispatch.transactionID", "The original transaction that triggered this chained dispatch")
+	ChainedDispatchID                                       = pdm("ChainedDispatch.id", "Identifier for the chained dispatch record, correlates with sequencer activity subjectId for chained dispatches")
 	TransactionActivityRecordTime                           = pdm("TransactionActivityRecord.time", "Time the record occurred")
 	TransactionActivityRecordMessage                        = pdm("TransactionActivityRecord.message", "Activity message")
 	TransactionDependenciesDependsOn                        = pdm("TransactionDependencies.dependsOn", "Transactions that this transaction depends on")
@@ -167,7 +191,7 @@ var (
 	TransactionReceiptFiltersType                           = pdm("TransactionReceiptFilters.type", "Only deliver receipts for one transaction type (public/private)")
 	TransactionReceiptFiltersDomain                         = pdm("TransactionReceiptFilters.domain", "Only deliver receipts for an individual domain (only valid with type=private)")
 	TransactionReceiptOptionsDomainReceipts                 = pdm("TransactionReceiptOptions.domainReceipts", "When true, a full domain receipt will be generated for each event with complete state data")
-	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "When set to 'block_contract', if a transaction with incomplete state data is detected then delivery of all receipts on that individual smart contract address will pause until the missing state arrives. Receipts for other contract addresses continue to be delivered")
+	TransactionReceiptOptionsIncompleteStateReceiptBehavior = pdm("TransactionReceiptOptions.incompleteStateReceiptBehavior", "Controls delivery behavior when receipt state data is incomplete. 'block_contract' pauses delivery for each individual smart contract address when incomplete states are detected. 'process' delivers all receipts immediately, regardless of what private state data is available. 'complete_only' delivers receipts whenever the domain confirms all expected states are complete, without regard for strict ordering")
 	BlockchainEventListenerName                             = pdm("BlockchainEventListener.name", "Unique name for the blockchain event listener")
 	BlockchainEventListenerCreated                          = pdm("BlockchainEventListener.created", "Time the listener was created")
 	BlockchainEventListenerStarted                          = pdm("BlockchainEventListener.started", "If the listener is started - can be set to false to disable delivery server-side")
@@ -279,6 +303,7 @@ var (
 	PeerInfoOutboundTransport = pdm("PeerInfo.outboundTransport", "The name of the transport selected for outbound connection to the peer. Omitted if no attempt to send data has occurred for this peer")
 	PeerInfoOutboundError     = pdm("PeerInfo.outboundError", "Contains an error if attempting to send data, and the transport connection failed")
 
+	PeerStatsCreatedAt           = pdm("PeerStats.createdAt", "Timestamp when this peer was first created")
 	PeerStatsSentMsgs            = pdm("PeerStats.sentMsgs", "Count of messages sent since activation of this peer")
 	PeerStatsReceivedMsgs        = pdm("PeerStats.receivedMsgs", "Count of messages received since activation of this peer")
 	PeerStatsSentBytes           = pdm("PeerStats.sentBytes", "Count of payload bytes sent since activation of this peer (does not include header data)")
@@ -351,4 +376,488 @@ var (
 	PrivacyGroupMessageLocalGroup         = pdm("PrivacyGroupMessage.group", "Group ID of the privacy group. All members in the group will receive a copy of the message (no guarantee of order)")
 	PrivacyGroupMessageTopic              = pdm("PrivacyGroupMessage.topic", "A topic for the message, which by convention should be a dot or slash separated string instructing the receiver how the message should be processed")
 	PrivacyGroupMessageData               = pdm("PrivacyGroupMessage.data", "Application defined JSON payload for the message. Can be any JSON type including as an object, array, hex string, other string, or number")
+)
+
+// pldconf/config.go - Configuration field descriptions
+var (
+	// PaladinConfig field descriptions
+	PaladinConfigStartup          = pdm("PaladinConfig.startup", "Startup configuration")
+	PaladinConfigLog              = pdm("PaladinConfig.log", "Logging configuration")
+	PaladinConfigBlockchain       = pdm("PaladinConfig.blockchain", "Blockchain client configuration")
+	PaladinConfigDB               = pdm("PaladinConfig.db", "Database configuration")
+	PaladinConfigRPCServer        = pdm("PaladinConfig.rpcServer", "RPC server configuration")
+	PaladinConfigMetricsServer    = pdm("PaladinConfig.metricsServer", "Metrics server configuration")
+	PaladinConfigDebugServer      = pdm("PaladinConfig.debugServer", "Debug server configuration")
+	PaladinConfigStateStore       = pdm("PaladinConfig.statestore", "State store configuration")
+	PaladinConfigBlockIndexer     = pdm("PaladinConfig.blockIndexer", "Block indexer configuration")
+	PaladinConfigTempDir          = pdm("PaladinConfig.tempDir", "Temporary directory path")
+	PaladinConfigTxManager        = pdm("PaladinConfig.txManager", "Transaction manager configuration")
+	PaladinConfigSequencerManager = pdm("PaladinConfig.sequencerManager", "Sequencer manager configuration")
+	PaladinConfigPublicTxManager  = pdm("PaladinConfig.publicTxManager", "Public transaction manager configuration")
+	PaladinConfigIdentityResolver = pdm("PaladinConfig.identityResolver", "Identity resolver configuration")
+	PaladinConfigGroupManager     = pdm("PaladinConfig.groupManager", "Group manager configuration")
+
+	// LogConfig field descriptions
+	LogConfigLevel        = pdm("LogConfig.level", "Sets the logging level (debug, info, warn, error)")
+	LogConfigFormat       = pdm("LogConfig.format", "Sets the log format (simple, json)")
+	LogConfigOutput       = pdm("LogConfig.output", "Sets the output destination (stdout, stderr, file)")
+	LogConfigForceColor   = pdm("LogConfig.forceColor", "Forces color to be enabled, even if we do not detect a TTY")
+	LogConfigDisableColor = pdm("LogConfig.disableColor", "Forces color to be disabled, even if we detect a TTY")
+	LogConfigTimeFormat   = pdm("LogConfig.timeFormat", "String format for timestamps")
+	LogConfigUTC          = pdm("LogConfig.utc", "Sets log timestamps to the UTC timezone")
+	LogConfigFile         = pdm("LogConfig.file", "Configure file based logging")
+	LogConfigJSON         = pdm("LogConfig.json", "Configure json based logging")
+
+	// LogFileConfig field descriptions
+	LogFileConfigFilename   = pdm("LogFileConfig.filename", "Sets the log filename prefix")
+	LogFileConfigMaxSize    = pdm("LogFileConfig.maxSize", "Sets the size to roll logs at a given size")
+	LogFileConfigMaxBackups = pdm("LogFileConfig.maxBackups", "Sets the maximum number of old files to keep")
+	LogFileConfigMaxAge     = pdm("LogFileConfig.maxAge", "Sets the maximum age at which to roll")
+	LogFileConfigCompress   = pdm("LogFileConfig.compress", "Compress sets whether to compress backups")
+
+	// LogJSONConfig field descriptions
+	LogJSONConfigTimestampField = pdm("LogJSONConfig.timestampField", "Configures the JSON key containing the timestamp of the log")
+	LogJSONConfigLevelField     = pdm("LogJSONConfig.levelField", "Configures the JSON key containing the log level")
+	LogJSONConfigMessageField   = pdm("LogJSONConfig.messageField", "Configures the JSON key containing the log message")
+	LogJSONConfigFuncField      = pdm("LogJSONConfig.funcField", "Configures the JSON key containing the calling function")
+	LogJSONConfigFileField      = pdm("LogJSONConfig.fileField", "Configures the JSON key containing the calling file")
+
+	// DBConfig field descriptions
+	DBConfigType     = pdm("DBConfig.type", "Database type (postgres, sqlite)")
+	DBConfigPostgres = pdm("DBConfig.postgres", "PostgreSQL specific configuration")
+	DBConfigSQLite   = pdm("DBConfig.sqlite", "SQLite specific configuration")
+
+	// SQLDBConfig field descriptions
+	SQLDBConfigDSN             = pdm("SQLDBConfig.dsn", "Database connection string (can have {{.ParamName}} for replacement from params)")
+	SQLDBConfigDSNParams       = pdm("SQLDBConfig.dsnParams", "Parameters for DSN replacement")
+	SQLDBConfigMaxOpenConns    = pdm("SQLDBConfig.maxOpenConns", "Maximum number of open connections")
+	SQLDBConfigMaxIdleConns    = pdm("SQLDBConfig.maxIdleConns", "Maximum number of idle connections")
+	SQLDBConfigConnMaxIdleTime = pdm("SQLDBConfig.connMaxIdleTime", "Maximum time a connection can be idle")
+	SQLDBConfigConnMaxLifetime = pdm("SQLDBConfig.connMaxLifetime", "Maximum lifetime of a connection")
+	SQLDBConfigAutoMigrate     = pdm("SQLDBConfig.autoMigrate", "Whether to automatically run migrations")
+	SQLDBConfigMigrationsDir   = pdm("SQLDBConfig.migrationsDir", "Directory containing migration files")
+	SQLDBConfigDebugQueries    = pdm("SQLDBConfig.debugQueries", "Whether to log SQL queries for debugging")
+	SQLDBConfigStatementCache  = pdm("SQLDBConfig.statementCache", "Whether to cache prepared statements")
+
+	// DSNParamLocation field descriptions
+	DSNParamLocationFile = pdm("DSNParamLocation.file", "File containing the parameter value")
+
+	// EthClientConfig field descriptions
+	EthClientConfigWS                = pdm("EthClientConfig.ws", "WebSocket client configuration")
+	EthClientConfigHTTP              = pdm("EthClientConfig.http", "HTTP client configuration")
+	EthClientConfigEstimateGasFactor = pdm("EthClientConfig.gasEstimateFactor", "Factor to multiply gas estimates by")
+
+	// StartupConfig field descriptions
+	StartupConfigBlockchainConnectRetry = pdm("StartupConfig.blockchainConnectRetry", "Retry configuration for blockchain connection during startup")
+
+	// DomainManagerConfig field descriptions
+	DomainManagerInlineConfigDomains       = pdm("DomainManagerInlineConfig.domains", "Map of domain configurations")
+	DomainManagerInlineConfigDomainManager = pdm("DomainManagerInlineConfig.domainManager", "Domain manager configuration")
+	DomainManagerInlineConfigContractCache = pdm("DomainManagerInlineConfig.contractCache", "Contract cache configuration")
+
+	// DomainManagerConfig field descriptions
+	DomainManagerConfigContractCache = pdm("DomainManagerConfig.contractCache", "Contract cache configuration")
+
+	// DomainConfig field descriptions
+	DomainConfigInit                 = pdm("DomainConfig.init", "Domain initialization configuration")
+	DomainConfigPlugin               = pdm("DomainConfig.plugin", "Domain plugin configuration")
+	DomainConfigConfig               = pdm("DomainConfig.config", "Domain-specific configuration")
+	DomainConfigRegistryAddress      = pdm("DomainConfig.registryAddress", "Registry address for this domain")
+	DomainConfigAllowSigning         = pdm("DomainConfig.allowSigning", "Whether this domain allows signing")
+	DomainConfigDefaultGasLimit      = pdm("DomainConfig.defaultGasLimit", "Default gas limit for transactions")
+	DomainConfigFixedSigningIdentity = pdm("DomainConfig.fixedSigningIdentity", "Fixed signing identity for this domain")
+
+	// DomainInitConfig field descriptions
+	DomainInitConfigRetry = pdm("DomainInitConfig.retry", "Retry configuration for domain initialization")
+
+	// PluginManagerConfig field descriptions
+	PluginManagerInlineConfigGRPC            = pdm("PluginManagerInlineConfig.grpc", "GRPC configuration for plugin manager")
+	PluginManagerInlineConfigShutdownTimeout = pdm("PluginManagerInlineConfig.shutdownTimeout", "Timeout for GRPC shutdown")
+
+	// GRPCConfig field descriptions
+	GRPCConfigShutdownTimeout = pdm("GRPCConfig.shutdownTimeout", "Timeout for GRPC shutdown")
+
+	// PluginConfig field descriptions
+	PluginConfigType    = pdm("PluginConfig.type", "Plugin type")
+	PluginConfigLibrary = pdm("PluginConfig.library", "Plugin library path")
+	PluginConfigClass   = pdm("PluginConfig.class", "Plugin class name")
+
+	// TransportManagerInlineConfig field descriptions
+	TransportManagerInlineConfigNodeName                  = pdm("TransportManagerInlineConfig.nodeName", "Node name for transport identification")
+	TransportManagerInlineConfigSendQueueLen              = pdm("TransportManagerInlineConfig.sendQueueLen", "Maximum length of send queue")
+	TransportManagerInlineConfigPeerInactivityTimeout     = pdm("TransportManagerInlineConfig.peerInactivityTimeout", "Timeout for peer inactivity detection")
+	TransportManagerInlineConfigPeerReaperInterval        = pdm("TransportManagerInlineConfig.peerReaperInterval", "Interval for peer reaper cleanup")
+	TransportManagerInlineConfigSendFailureResetThreshold = pdm("TransportManagerInlineConfig.sendFailureResetThreshold", "Consecutive send failure threshold before resetting a peer sender loop")
+	TransportManagerInlineConfigSendRetry                 = pdm("TransportManagerInlineConfig.sendRetry", "Send retry configuration")
+	TransportManagerInlineConfigReliableScanRetry         = pdm("TransportManagerInlineConfig.reliableScanRetry", "Reliable scan retry configuration")
+	TransportManagerInlineConfigReliableMessageResend     = pdm("TransportManagerInlineConfig.reliableMessageResend", "Reliable message resend configuration")
+	TransportManagerInlineConfigReliableMessageWriter     = pdm("TransportManagerInlineConfig.reliableMessageWriter", "Reliable message writer configuration")
+	TransportManagerInlineConfigTransports                = pdm("TransportManagerInlineConfig.transports", "Map of transport configurations")
+
+	// RegistryManagerInlineConfig field descriptions
+	RegistryManagerInlineConfigRegistries      = pdm("RegistryManagerInlineConfig.registries", "Map of registry configurations")
+	RegistryManagerInlineConfigRegistryManager = pdm("RegistryManagerInlineConfig.registryManager", "Registry manager configuration")
+	RegistryManagerInlineConfigRegistryCache   = pdm("RegistryManagerInlineConfig.registryCache", "Registry cache configuration")
+
+	// RegistryManagerConfig field descriptions
+	RegistryManagerConfigRegistryCache = pdm("RegistryManagerConfig.registryCache", "Registry cache configuration")
+
+	// KeyManagerConfig field descriptions
+	// KeyManagerInlineConfig field descriptions
+	KeyManagerInlineConfigKeyManager      = pdm("KeyManagerInlineConfig.keyManager", "Key manager configuration")
+	KeyManagerInlineConfigSigningModules  = pdm("KeyManagerInlineConfig.signingModules", "Map of signing module configurations")
+	KeyManagerInlineConfigWallets         = pdm("KeyManagerInlineConfig.wallets", "List of wallet configurations")
+	KeyManagerInlineConfigIdentifierCache = pdm("KeyManagerInlineConfig.identifierCache", "Identifier cache configuration")
+	KeyManagerInlineConfigVerifierCache   = pdm("KeyManagerInlineConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerInlineConfigDisableSignRPC  = pdm("KeyManagerInlineConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
+
+	// KeyManagerConfig field descriptions
+	KeyManagerConfigIdentifierCache = pdm("KeyManagerConfig.identifierCache", "Identifier cache configuration")
+	KeyManagerConfigVerifierCache   = pdm("KeyManagerConfig.verifierCache", "Verifier cache configuration")
+	KeyManagerConfigDisableSignRPC  = pdm("KeyManagerConfig.disableSignRPC", "True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet")
+
+	// SigningModuleConfig field descriptions
+	SigningModuleConfigInit   = pdm("SigningModuleConfig.init", "Signing module initialization configuration")
+	SigningModuleConfigPlugin = pdm("SigningModuleConfig.plugin", "Signing module plugin configuration")
+	SigningModuleConfigConfig = pdm("SigningModuleConfig.config", "Signing module specific configuration")
+
+	// SigningModuleInitConfig field descriptions
+	SigningModuleInitConfigRetry = pdm("SigningModuleInitConfig.retry", "Retry configuration for signing module initialization")
+
+	// WalletConfig field descriptions
+	WalletConfigName                    = pdm("WalletConfig.name", "Name of the wallet")
+	WalletConfigKeySelector             = pdm("WalletConfig.keySelector", "Regex pattern for key selection")
+	WalletConfigKeySelectorMustNotMatch = pdm("WalletConfig.keySelectorMustNotMatch", "Whether to use non-matching regex pattern")
+	WalletConfigSigner                  = pdm("WalletConfig.signer", "Signer configuration (embedded only)")
+	WalletConfigSignerPluginName        = pdm("WalletConfig.signerPluginName", "Name of the signer plugin")
+	WalletConfigSignerType              = pdm("WalletConfig.signerType", "Type of signer (embedded or plugin)")
+
+	// TransportInitConfig field descriptions
+	TransportInitConfigRetry = pdm("TransportInitConfig.retry", "Retry configuration for transport initialization")
+
+	// TransportConfig field descriptions
+	TransportConfigInit   = pdm("TransportConfig.init", "Transport initialization configuration")
+	TransportConfigPlugin = pdm("TransportConfig.plugin", "Transport plugin configuration")
+	TransportConfigConfig = pdm("TransportConfig.config", "Transport specific configuration")
+
+	// RegistryTransportsConfig field descriptions
+	RegistryTransportsConfigEnabled           = pdm("RegistryTransportsConfig.enabled", "Whether this registry is enabled for transport lookup")
+	RegistryTransportsConfigRequiredPrefix    = pdm("RegistryTransportsConfig.requiredPrefix", "Required prefix for node name matching")
+	RegistryTransportsConfigHierarchySplitter = pdm("RegistryTransportsConfig.hierarchySplitter", "Character to split node names into hierarchy")
+	RegistryTransportsConfigPropertyRegexp    = pdm("RegistryTransportsConfig.propertyRegexp", "Regular expression to match transport properties")
+	RegistryTransportsConfigTransportMap      = pdm("RegistryTransportsConfig.transportMap", "Map from registry transport names to local transport names")
+
+	// RegistryInitConfig field descriptions
+	RegistryInitConfigRetry = pdm("RegistryInitConfig.retry", "Retry configuration for registry initialization")
+
+	// RegistryConfig field descriptions
+	RegistryConfigInit       = pdm("RegistryConfig.init", "Registry initialization configuration")
+	RegistryConfigTransports = pdm("RegistryConfig.transports", "Registry transports configuration")
+	RegistryConfigPlugin     = pdm("RegistryConfig.plugin", "Registry plugin configuration")
+	RegistryConfigConfig     = pdm("RegistryConfig.config", "Registry specific configuration")
+
+	// CacheConfig field descriptions
+	CacheConfigCapacity = pdm("CacheConfig.capacity", "Cache capacity")
+
+	// RetryConfig field descriptions
+	RetryConfigInitialDelay = pdm("RetryConfig.initialDelay", "Initial delay before retry")
+	RetryConfigMaxDelay     = pdm("RetryConfig.maxDelay", "Maximum delay between retries")
+	RetryConfigFactor       = pdm("RetryConfig.factor", "Exponential backoff factor")
+
+	// RetryConfigWithMax field descriptions
+	RetryConfigWithMaxMaxAttempts = pdm("RetryConfigWithMax.maxAttempts", "Maximum number of retry attempts")
+
+	// FlushWriterConfig field descriptions
+	FlushWriterConfigWorkerCount  = pdm("FlushWriterConfig.workerCount", "Number of worker threads")
+	FlushWriterConfigBatchTimeout = pdm("FlushWriterConfig.batchTimeout", "Timeout for batch operations")
+	FlushWriterConfigBatchMaxSize = pdm("FlushWriterConfig.batchMaxSize", "Maximum batch size")
+
+	// RPCServerConfigHTTP field descriptions
+	RPCServerConfigHTTPDisabled      = pdm("RPCServerConfigHTTP.disabled", "Whether HTTP server is disabled")
+	RPCServerConfigHTTPStaticServers = pdm("RPCServerConfigHTTP.staticServers", "Static file server configurations")
+
+	// RPCServerConfigWS field descriptions
+	RPCServerConfigWSDisabled        = pdm("RPCServerConfigWS.disabled", "Whether WebSocket server is disabled")
+	RPCServerConfigWSReadBufferSize  = pdm("RPCServerConfigWS.readBufferSize", "Read buffer size for WebSocket connections")
+	RPCServerConfigWSWriteBufferSize = pdm("RPCServerConfigWS.writeBufferSize", "Write buffer size for WebSocket connections")
+
+	// RPCServerConfig field descriptions
+	RPCServerConfigHTTPField   = pdm("RPCServerConfig.http", "HTTP server configuration")
+	RPCServerConfigWSField     = pdm("RPCServerConfig.ws", "WebSocket server configuration")
+	RPCServerConfigAuthorizers = pdm("RPCServerConfig.authorizers", "Ordered array of authorizer plugin names to use")
+
+	// RPCAuthManagerConfig field descriptions
+	RPCAuthManagerConfigRPCAuthorizers = pdm("RPCAuthManagerConfig.rpcAuthorizers", "Map of RPC authorizer configurations")
+
+	// RPCAuthorizerConfig field descriptions
+	RPCAuthorizerConfigPlugin = pdm("RPCAuthorizerConfig.plugin", "Plugin configuration (library, type, etc.)")
+	RPCAuthorizerConfigConfig = pdm("RPCAuthorizerConfig.config", "Plugin-specific config (JSON string)")
+
+	// HTTPServerConfig field descriptions
+	HTTPServerConfigTLS                   = pdm("HTTPServerConfig.tls", "TLS configuration")
+	HTTPServerConfigCORS                  = pdm("HTTPServerConfig.cors", "CORS configuration")
+	HTTPServerConfigAddress               = pdm("HTTPServerConfig.address", "Server address")
+	HTTPServerConfigPort                  = pdm("HTTPServerConfig.port", "Server port")
+	HTTPServerConfigDefaultRequestTimeout = pdm("HTTPServerConfig.defaultRequestTimeout", "Default request timeout")
+	HTTPServerConfigMaxRequestTimeout     = pdm("HTTPServerConfig.maxRequestTimeout", "Maximum request timeout")
+	HTTPServerConfigReadTimeout           = pdm("HTTPServerConfig.readTimeout", "Read timeout")
+	HTTPServerConfigWriteTimeout          = pdm("HTTPServerConfig.writeTimeout", "Write timeout")
+	HTTPServerConfigShutdownTimeout       = pdm("HTTPServerConfig.shutdownTimeout", "Shutdown timeout")
+
+	// CORSConfig field descriptions
+	CORSConfigEnabled          = pdm("CORSConfig.enabled", "Whether CORS is enabled")
+	CORSConfigDebug            = pdm("CORSConfig.debug", "Whether CORS debug mode is enabled")
+	CORSConfigAllowCredentials = pdm("CORSConfig.allowCredentials", "Whether credentials are allowed")
+	CORSConfigAllowedHeaders   = pdm("CORSConfig.allowedHeaders", "List of allowed headers")
+	CORSConfigAllowedMethods   = pdm("CORSConfig.allowedMethods", "List of allowed methods")
+	CORSConfigAllowedOrigins   = pdm("CORSConfig.allowedOrigins", "List of allowed origins")
+	CORSConfigMaxAge           = pdm("CORSConfig.maxAge", "Maximum age for preflight requests")
+
+	// StaticServerConfig field descriptions
+	StaticServerConfigEnabled      = pdm("StaticServerConfig.enabled", "Whether static server is enabled")
+	StaticServerConfigStaticPath   = pdm("StaticServerConfig.staticPath", "Path to static files in server filesystem")
+	StaticServerConfigURLPath      = pdm("StaticServerConfig.urlPath", "URL path to serve static files")
+	StaticServerConfigBaseRedirect = pdm("StaticServerConfig.baseRedirect", "Redirect URL when hitting base path")
+
+	// DebugServerConfig field descriptions
+	DebugServerConfigEnabled = pdm("DebugServerConfig.enabled", "Whether debug server is enabled")
+
+	// MetricsServerConfig field descriptions
+	MetricsServerConfigEnabled = pdm("MetricsServerConfig.enabled", "Whether metrics server is enabled")
+
+	// HTTPBasicAuthConfig field descriptions
+	HTTPBasicAuthConfigUsername = pdm("HTTPBasicAuthConfig.username", "Basic auth username")
+	HTTPBasicAuthConfigPassword = pdm("HTTPBasicAuthConfig.password", "Basic auth password")
+
+	// HTTPRetryConfig field descriptions
+	HTTPRetryConfigEnabled          = pdm("HTTPRetryConfig.enabled", "Whether HTTP retry is enabled")
+	HTTPRetryConfigCount            = pdm("HTTPRetryConfig.count", "Number of retry attempts")
+	HTTPRetryConfigInitialDelay     = pdm("HTTPRetryConfig.initialDelay", "Initial delay before retry")
+	HTTPRetryConfigMaximumDelay     = pdm("HTTPRetryConfig.maximumDelay", "Maximum delay between retries")
+	HTTPRetryConfigErrorStatusCodes = pdm("HTTPRetryConfig.errorStatusCodes", "Regex pattern for status codes to retry")
+
+	// HTTPClientConfig field descriptions
+	HTTPClientConfigURL               = pdm("HTTPClientConfig.url", "HTTP client URL")
+	HTTPClientConfigHTTPHeaders       = pdm("HTTPClientConfig.httpHeaders", "HTTP headers to include in requests")
+	HTTPClientConfigAuth              = pdm("HTTPClientConfig.auth", "HTTP authentication configuration")
+	HTTPClientConfigTLS               = pdm("HTTPClientConfig.tls", "TLS configuration")
+	HTTPClientConfigRetry             = pdm("HTTPClientConfig.retry", "HTTP retry configuration")
+	HTTPClientConfigRequestTimeout    = pdm("HTTPClientConfig.requestTimeout", "Request timeout")
+	HTTPClientConfigConnectionTimeout = pdm("HTTPClientConfig.connectionTimeout", "Connection timeout")
+
+	// TLSConfig field descriptions
+	TLSConfigEnabled                = pdm("TLSConfig.enabled", "Whether TLS is enabled")
+	TLSConfigClientAuth             = pdm("TLSConfig.clientAuth", "Whether client authentication is required")
+	TLSConfigCAFile                 = pdm("TLSConfig.caFile", "Path to CA certificate file")
+	TLSConfigCA                     = pdm("TLSConfig.ca", "CA certificate content")
+	TLSConfigCertFile               = pdm("TLSConfig.certFile", "Path to certificate file")
+	TLSConfigCert                   = pdm("TLSConfig.cert", "Certificate content")
+	TLSConfigKeyFile                = pdm("TLSConfig.keyFile", "Path to private key file")
+	TLSConfigKey                    = pdm("TLSConfig.key", "Private key content")
+	TLSConfigInsecureSkipHostVerify = pdm("TLSConfig.insecureSkipHostVerify", "Whether to skip host verification")
+	TLSConfigRequiredDNAttributes   = pdm("TLSConfig.requiredDNAttributes", "Required DN attributes for client certificates")
+
+	// WSClientConfig field descriptions
+	WSClientConfigInitialConnectAttempts = pdm("WSClientConfig.initialConnectAttempts", "Number of initial connection attempts")
+	WSClientConfigConnectionTimeout      = pdm("WSClientConfig.connectionTimeout", "WebSocket connection timeout")
+	WSClientConfigConnectRetry           = pdm("WSClientConfig.connectRetry", "Retry configuration for WebSocket connections")
+	WSClientConfigReadBufferSize         = pdm("WSClientConfig.readBufferSize", "WebSocket read buffer size")
+	WSClientConfigWriteBufferSize        = pdm("WSClientConfig.writeBufferSize", "WebSocket write buffer size")
+	WSClientConfigHeartbeatInterval      = pdm("WSClientConfig.heartbeatInterval", "WebSocket heartbeat interval")
+	WSClientConfigWSRequestTimeout       = pdm("WSClientConfig.wsRequestTimeout", "WebSocket request timeout")
+
+	// StateStoreConfig field descriptions
+	StateStoreConfigSchemaCache = pdm("StateStoreConfig.schemaCache", "Schema cache configuration")
+
+	// BlockIndexerConfig field descriptions
+	BlockIndexerConfigFromBlock               = pdm("BlockIndexerConfig.fromBlock", "Starting block number for indexing")
+	BlockIndexerConfigCommitBatchSize         = pdm("BlockIndexerConfig.commitBatchSize", "Number of blocks to commit in a batch")
+	BlockIndexerConfigCommitBatchTimeout      = pdm("BlockIndexerConfig.commitBatchTimeout", "Timeout for batch commits")
+	BlockIndexerConfigRequiredConfirmations   = pdm("BlockIndexerConfig.requiredConfirmations", "Number of confirmations required")
+	BlockIndexerConfigChainHeadCacheLen       = pdm("BlockIndexerConfig.chainHeadCacheLen", "Length of chain head cache")
+	BlockIndexerConfigBlockPollingInterval    = pdm("BlockIndexerConfig.blockPollingInterval", "Interval for polling new blocks")
+	BlockIndexerConfigEventStreams            = pdm("BlockIndexerConfig.eventStreams", "Event streams configuration")
+	BlockIndexerConfigRetry                   = pdm("BlockIndexerConfig.retry", "Retry configuration")
+	BlockIndexerConfigIgnoredTransactionTypes = pdm("BlockIndexerConfig.ignoredTransactionTypes", "Transaction types to ignore")
+	BlockIndexerConfigInsertDBBatchSize       = pdm("BlockIndexerConfig.insertDBBatchSize", "Batch size for database inserts")
+
+	// EventStreamsConfig field descriptions
+	EventStreamsConfigBlockDispatchQueueLength = pdm("EventStreamsConfig.blockDispatchQueueLength", "Length of block dispatch queue")
+	EventStreamsConfigCatchUpQueryPageSize     = pdm("EventStreamsConfig.catchupQueryPageSize", "Page size for catch-up queries")
+
+	// TxManagerConfig field descriptions
+	TxManagerConfigABI              = pdm("TxManagerConfig.abi", "ABI configuration")
+	TxManagerConfigTransactions     = pdm("TxManagerConfig.transactions", "Transactions configuration")
+	TxManagerConfigReceiptListeners = pdm("TxManagerConfig.receiptListeners", "Receipt listeners configuration")
+
+	// ABIConfig field descriptions
+	ABIConfigCache = pdm("ABIConfig.cache", "ABI cache configuration")
+
+	// TransactionsConfig field descriptions
+	TransactionsConfigCache = pdm("TransactionsConfig.cache", "Transactions cache configuration")
+
+	// ReceiptListeners field descriptions
+	ReceiptListenersRetry                 = pdm("ReceiptListeners.retry", "Retry configuration")
+	ReceiptListenersReadPageSize          = pdm("ReceiptListeners.readPageSize", "Page size for reading receipts")
+	ReceiptListenersStateGapCheckInterval = pdm("ReceiptListeners.stateGapCheckInterval", "Interval for state gap checks")
+
+	// GroupManagerConfig field descriptions
+	GroupManagerConfigCache            = pdm("GroupManagerConfig.cache", "Group manager cache configuration")
+	GroupManagerConfigMessageListeners = pdm("GroupManagerConfig.messageListeners", "Message listeners configuration")
+
+	// MessageListeners field descriptions
+	MessageListenersRetry        = pdm("MessageListeners.retry", "Retry configuration")
+	MessageListenersReadPageSize = pdm("MessageListeners.readPageSize", "Page size for reading messages")
+
+	// IdentityResolverConfig field descriptions
+	IdentityResolverConfigVerifierCache = pdm("IdentityResolverConfig.verifierCache", "Verifier cache configuration")
+
+	// PrivateTxManagerConfig field descriptions
+	PrivateTxManagerConfigWriter                         = pdm("PrivateTxManagerConfig.writer", "Writer configuration")
+	PrivateTxManagerConfigSequencer                      = pdm("PrivateTxManagerConfig.sequencer", "Sequencer configuration")
+	PrivateTxManagerConfigStateDistributer               = pdm("PrivateTxManagerConfig.stateDistributer", "State distributer configuration")
+	PrivateTxManagerConfigPreparedTransactionDistributer = pdm("PrivateTxManagerConfig.preparedTransactionDistributer", "Prepared transaction distributer configuration")
+	PrivateTxManagerConfigRequestTimeout                 = pdm("PrivateTxManagerConfig.requestTimeout", "Request timeout")
+
+	// DistributerConfig field descriptions
+	DistributerConfigAcknowledgementWriter = pdm("DistributerConfig.acknowledgementWriter", "Acknowledgement writer configuration")
+	DistributerConfigReceivedObjectWriter  = pdm("DistributerConfig.receivedStateWriter", "Received state writer configuration")
+
+	// SequencerConfig field descriptions
+	SequencerConfigStateTimeout                      = pdm("SequencerConfig.stateTimeout", "Timeout for request-driven transaction states before repooling")
+	SequencerConfigRequestTimeout                    = pdm("SequencerConfig.requestTimeout", "Timeout for sequencer requests")
+	SequencerConfigAssembleErrorRetryThreshold       = pdm("SequencerConfig.assembleErrorRetryThreshold", "Maximum number of times a transaction can error on assembly before being evicted")
+	SequencerConfigBlockHeightTolerance              = pdm("SequencerConfig.blockHeightTolerance", "Tolerance for block height differences")
+	SequencerConfigBlockRange                        = pdm("SequencerConfig.blockRange", "Block range size for sequencer operations")
+	SequencerConfigCoordinatorEventQueueSize         = pdm("SequencerConfig.coordinatorEventQueueSize", "Queue size for coordinator state machine events")
+	SequencerConfigCoordinatorPriorityEventQueueSize = pdm("SequencerConfig.coordinatorPriorityEventQueueSize", "Queue size for coordinator priority events")
+	SequencerConfigOriginatorEventQueueSize          = pdm("SequencerConfig.originatorEventQueueSize", "Queue size for originator state machine events")
+	SequencerConfigOriginatorPriorityEventQueueSize  = pdm("SequencerConfig.originatorPriorityEventQueueSize", "Queue size for originator priority events")
+	SequencerConfigClosingGracePeriod                = pdm("SequencerConfig.closingGracePeriod", "Grace period for closing operations")
+	SequencerConfigConfirmedLockRetentionGracePeriod = pdm("SequencerConfig.confirmedLockRetentionGracePeriod", "Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots")
+	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
+	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
+	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
+	SequencerConfigMaxInflightTransactions           = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
+	SequencerConfigMaxDispatchAhead                  = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
+	SequencerConfigRedelegateGracePeriod             = pdm("SequencerConfig.redelegateGracePeriod", "Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions")
+	SequencerConfigTargetActiveCoordinators          = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
+	SequencerConfigTargetActiveSequencers            = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
+	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
+	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")
+	SequencerConfigTransactionResumeMaxTransactions  = pdm("SequencerConfig.transactionResumeMaxTransactions", "Maximum number of pending transactions to resume")
+	SequencerConfigInactiveToIdleGracePeriod         = pdm("SequencerConfig.inactiveToIdleGracePeriod", "Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle")
+	SequencerConfigIdleSequencerCleanupInterval      = pdm("SequencerConfig.idleSequencerCleanupInterval", "Interval for proactively removing sequencers where both the coordinator and originator are in idle state")
+	SequencerConfigWriter                            = pdm("SequencerConfig.writer", "Writer configuration")
+
+	// PublicTxManagerConfig field descriptions
+	PublicTxManagerConfigManager        = pdm("PublicTxManagerConfig.manager", "Manager configuration")
+	PublicTxManagerConfigOrchestrator   = pdm("PublicTxManagerConfig.orchestrator", "Orchestrator configuration")
+	PublicTxManagerConfigGasPrice       = pdm("PublicTxManagerConfig.gasPrice", "Gas price configuration")
+	PublicTxManagerConfigBalanceManager = pdm("PublicTxManagerConfig.balanceManager", "Balance manager configuration")
+	PublicTxManagerConfigGasLimit       = pdm("PublicTxManagerConfig.gasLimit", "Gas limit configuration")
+
+	// PublicTxManagerManagerConfig field descriptions
+	PublicTxManagerManagerConfigMaxInFlightOrchestrators = pdm("PublicTxManagerManagerConfig.maxInFlightOrchestrators", "Maximum inflight orchestrators")
+	PublicTxManagerManagerConfigInterval                 = pdm("PublicTxManagerManagerConfig.interval", "Manager interval")
+	PublicTxManagerManagerConfigOrchestratorIdleTimeout  = pdm("PublicTxManagerManagerConfig.orchestratorIdleTimeout", "Orchestrator idle timeout")
+	PublicTxManagerManagerConfigOrchestratorStaleTimeout = pdm("PublicTxManagerManagerConfig.orchestratorStaleTimeout", "Orchestrator stale timeout")
+	PublicTxManagerManagerConfigOrchestratorSwapTimeout  = pdm("PublicTxManagerManagerConfig.orchestratorSwapTimeout", "Orchestrator swap timeout")
+	PublicTxManagerManagerConfigNonceCacheTimeout        = pdm("PublicTxManagerManagerConfig.nonceCacheTimeout", "Nonce cache timeout")
+	PublicTxManagerManagerConfigActivityRecords          = pdm("PublicTxManagerManagerConfig.activityRecords", "Activity records configuration")
+	PublicTxManagerManagerConfigSubmissionWriter         = pdm("PublicTxManagerManagerConfig.submissionWriter", "Submission writer configuration")
+	PublicTxManagerManagerConfigRetry                    = pdm("PublicTxManagerManagerConfig.retry", "Retry configuration")
+
+	// PublicTxManagerActivityRecordsConfig field descriptions
+	PublicTxManagerActivityRecordsConfigRecordsPerTransaction = pdm("PublicTxManagerActivityRecordsConfig.entriesPerTransaction", "Records per transaction")
+
+	// BalanceManagerConfig field descriptions
+	BalanceManagerConfigCache = pdm("BalanceManagerConfig.cache", "Balance manager cache configuration")
+
+	// FixedGasPricing field descriptions
+	FixedGasPricingMaxFeePerGas         = pdm("FixedGasPricing.maxFeePerGas", "Maximum fee per gas")
+	FixedGasPricingMaxPriorityFeePerGas = pdm("FixedGasPricing.maxPriorityFeePerGas", "Maximum priority fee per gas")
+
+	// EthFeeHistoryConfig field descriptions
+	EthFeeHistoryConfigPriorityFeePercentile = pdm("EthFeeHistoryConfig.priorityFeePercentile", "Priority fee percentile")
+	EthFeeHistoryConfigHistoryBlockCount     = pdm("EthFeeHistoryConfig.historyBlockCount", "History block count")
+	EthFeeHistoryConfigBaseFeeBufferFactor   = pdm("EthFeeHistoryConfig.baseFeeBufferFactor", "Base fee buffer factor")
+	EthFeeHistoryConfigCache                 = pdm("EthFeeHistoryConfig.cache", "Gas price cache configuration")
+
+	// GasPriceConfig field descriptions
+	GasPriceConfigIncreasePercentage      = pdm("GasPriceConfig.increasePercentage", "Gas price increase percentage")
+	GasPriceConfigMaxPriorityFeePerGasCap = pdm("GasPriceConfig.maxPriorityFeePerGasCap", "Maximum priority fee per gas cap")
+	GasPriceConfigMaxFeePerGasCap         = pdm("GasPriceConfig.maxFeePerGasCap", "Maximum fee per gas cap")
+	GasPriceConfigFixedGasPrice           = pdm("GasPriceConfig.fixedGasPrice", "Fixed gas price configuration")
+	GasPriceConfigEthFeeHistory           = pdm("GasPriceConfig.ethFeeHistory", "ETH fee history configuration")
+	GasPriceConfigGasOracleAPI            = pdm("GasPriceConfig.gasOracleAPI", "Gas oracle API configuration")
+
+	// GasLimitConfig field descriptions
+	GasLimitConfigGasEstimateFactor = pdm("GasLimitConfig.gasEstimateFactor", "Gas estimate factor")
+
+	// GasOracleAPIConfig field descriptions
+	GasOracleAPIConfigMethod           = pdm("GasOracleAPIConfig.method", "HTTP method")
+	GasOracleAPIConfigBody             = pdm("GasOracleAPIConfig.body", "Request body")
+	GasOracleAPIConfigResponseTemplate = pdm("GasOracleAPIConfig.responseTemplate", "Response template")
+	GasOracleAPIConfigCache            = pdm("GasOracleAPIConfig.cache", "Gas price cache configuration")
+
+	// PublicTxManagerOrchestratorConfig field descriptions
+	PublicTxManagerOrchestratorConfigMaxInFlight               = pdm("PublicTxManagerOrchestratorConfig.maxInFlight", "Maximum inflight transactions")
+	PublicTxManagerOrchestratorConfigInterval                  = pdm("PublicTxManagerOrchestratorConfig.interval", "Orchestrator interval")
+	PublicTxManagerOrchestratorConfigResubmitInterval          = pdm("PublicTxManagerOrchestratorConfig.resubmitInterval", "Resubmit interval")
+	PublicTxManagerOrchestratorConfigStaleTimeout              = pdm("PublicTxManagerOrchestratorConfig.staleTimeout", "Stale timeout")
+	PublicTxManagerOrchestratorConfigStageRetryTime            = pdm("PublicTxManagerOrchestratorConfig.stageRetryTime", "Stage retry time")
+	PublicTxManagerOrchestratorConfigPersistenceRetryTime      = pdm("PublicTxManagerOrchestratorConfig.persistenceRetryTime", "Persistence retry time")
+	PublicTxManagerOrchestratorConfigUnavailableBalanceHandler = pdm("PublicTxManagerOrchestratorConfig.unavailableBalanceHandler", "Unavailable balance handler")
+	PublicTxManagerOrchestratorConfigSubmissionRetry           = pdm("PublicTxManagerOrchestratorConfig.submissionRetry", "Submission retry configuration")
+	PublicTxManagerOrchestratorConfigTimeLineLoggingMaxEntries = pdm("PublicTxManagerOrchestratorConfig.timelineMaxEntries", "Timeline logging maximum entries")
+
+	// GasPriceCacheConfig field descriptions
+	GasPriceCacheConfigEnabled     = pdm("GasPriceCacheConfig.enabled", "Whether caching is enabled")
+	GasPriceCacheConfigRefreshTime = pdm("GasPriceCacheConfig.refreshTime", "Cache refresh time")
+
+	// SignerConfig field descriptions
+	SignerConfigKeyStore      = pdm("SignerConfig.keyStore", "Key store configuration")
+	SignerConfigKeyDerivation = pdm("SignerConfig.keyDerivation", "Key derivation configuration")
+
+	// KeyStoreConfig field descriptions
+	KeyStoreConfigType              = pdm("KeyStoreConfig.type", "Key store type")
+	KeyStoreConfigDisableKeyListing = pdm("KeyStoreConfig.disableKeyListing", "Whether to disable key listing")
+	KeyStoreConfigKeyStoreSigning   = pdm("KeyStoreConfig.keyStoreSigning", "Whether key store signing is enabled")
+	KeyStoreConfigFileSystem        = pdm("KeyStoreConfig.filesystem", "File system key store configuration")
+	KeyStoreConfigStatic            = pdm("KeyStoreConfig.static", "Static key store configuration")
+
+	// ConfigKeyPathEntry field descriptions
+	ConfigKeyPathEntryName  = pdm("ConfigKeyPathEntry.name", "Key path entry name")
+	ConfigKeyPathEntryIndex = pdm("ConfigKeyPathEntry.index", "Key path entry index")
+
+	// StaticKeyReference field descriptions
+	StaticKeyReferenceKeyHandle  = pdm("StaticKeyReference.keyHandle", "Key handle")
+	StaticKeyReferenceName       = pdm("StaticKeyReference.name", "Key name")
+	StaticKeyReferenceIndex      = pdm("StaticKeyReference.index", "Key index")
+	StaticKeyReferenceAttributes = pdm("StaticKeyReference.attributes", "Key attributes")
+	StaticKeyReferencePath       = pdm("StaticKeyReference.path", "Key path")
+
+	// KeyDerivationConfig field descriptions
+	KeyDerivationConfigType                  = pdm("KeyDerivationConfig.type", "Key derivation type")
+	KeyDerivationConfigSeedKeyPath           = pdm("KeyDerivationConfig.seedKey", "Seed key path")
+	KeyDerivationConfigBIP44DirectResolution = pdm("KeyDerivationConfig.bip44DirectResolution", "BIP44 direct resolution")
+	KeyDerivationConfigBIP44Prefix           = pdm("KeyDerivationConfig.bip44Prefix", "BIP44 prefix")
+	KeyDerivationConfigBIP44HardenedSegments = pdm("KeyDerivationConfig.bip44HardenedSegments", "BIP44 hardened segments")
+
+	// StaticKeyEntryConfig field descriptions
+	StaticKeyEntryConfigEncoding = pdm("StaticKeyEntryConfig.encoding", "Key entry encoding")
+	StaticKeyEntryConfigFilename = pdm("StaticKeyEntryConfig.filename", "Key entry filename")
+	StaticKeyEntryConfigTrim     = pdm("StaticKeyEntryConfig.trim", "Whether to trim key entry")
+	StaticKeyEntryConfigInline   = pdm("StaticKeyEntryConfig.inline", "Inline key entry content")
+
+	// StaticKeyStoreConfig field descriptions
+	StaticKeyStoreConfigFile = pdm("StaticKeyStoreConfig.file", "Static key store file")
+	StaticKeyStoreConfigKeys = pdm("StaticKeyStoreConfig.keys", "Static key store keys")
+
+	// FileSystemKeyStoreConfig field descriptions
+	FileSystemKeyStoreConfigPath     = pdm("FileSystemKeyStoreConfig.path", "File system key store path")
+	FileSystemKeyStoreConfigCache    = pdm("FileSystemKeyStoreConfig.cache", "File system key store cache")
+	FileSystemKeyStoreConfigFileMode = pdm("FileSystemKeyStoreConfig.fileMode", "File system key store file mode")
+	FileSystemKeyStoreConfigDirMode  = pdm("FileSystemKeyStoreConfig.dirMode", "File system key store directory mode")
 )

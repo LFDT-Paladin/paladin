@@ -20,20 +20,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/keymanager"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signpayloads"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/keymanager"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
@@ -78,14 +80,15 @@ func goodPSC(t *testing.T, td *testDomainContext) *domainContract {
 		return &prototk.InitContractResponse{
 			Valid: true,
 			ContractConfig: &prototk.ContractConfig{
-				ContractConfigJson:   `{}`,
-				CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
-				SubmitterSelection:   prototk.ContractConfig_SUBMITTER_SENDER,
+				ContractConfigJson:            `{}`,
+				CoordinatorSelection:          prototk.ContractConfig_COORDINATOR_ENDORSER,
+				CoordinatorEndorserCandidates: []string{"endorser1@node1"},
+				SubmitterSelection:            prototk.ContractConfig_SUBMITTER_SENDER,
 			},
 		}, nil
 	}
 
-	loadResult, psc, err := d.initSmartContract(d.ctx, &PrivateSmartContract{
+	loadResult, psc, err := d.initSmartContract(d.ctx, d.dm.persistence.NOTX(), &PrivateSmartContract{
 		DeployTX:        uuid.New(),
 		RegistryAddress: *d.RegistryAddress(),
 		Address:         pldtypes.EthAddress(pldtypes.RandBytes(20)),
@@ -211,12 +214,12 @@ func doDomainInitAssembleTransactionOK(t *testing.T, td *testDomainContext) (*do
 	return psc, tx
 }
 
-func mockBlockHeight(mc *mockComponents) {
-	mc.blockIndexer.On("GetConfirmedBlockHeight", mock.Anything).Return(pldtypes.HexUint64(12345), nil)
+func mockHighestBlock(mc *mockComponents) {
+	mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return(&blockindexer.ConfirmedBlockMetadata{Number: 12345, Timestamp: time.Now().Unix()}, nil).Maybe()
 }
 
 func TestDomainInitTransactionOK(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -361,7 +364,7 @@ func TestEncodeDecodeABIData(t *testing.T) {
 }
 
 func initRealKeyManagerForTest(t *testing.T) (components.KeyManager, func(mc *mockComponents)) {
-	keymgr := keymanager.NewKeyManager(context.Background(), &pldconf.KeyManagerConfig{
+	keymgr := keymanager.NewKeyManager(context.Background(), &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{
 			{
 				Name: "wallet1",
@@ -591,7 +594,7 @@ func TestDomainInitTransactionMissingInput(t *testing.T) {
 
 func TestDomainInitTransactionConfirmedBlockFail(t *testing.T) {
 	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), func(mc *mockComponents) {
-		mc.blockIndexer.On("GetConfirmedBlockHeight", mock.Anything).Return(pldtypes.HexUint64(0), fmt.Errorf("pop"))
+		mc.blockIndexer.On("GetLatestConfirmedBlockMetadata", mock.Anything).Return((*blockindexer.ConfirmedBlockMetadata)(nil), fmt.Errorf("pop"))
 	})
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
@@ -607,7 +610,7 @@ func TestDomainInitTransactionConfirmedBlockFail(t *testing.T) {
 }
 
 func TestDomainInitTransactionError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -628,7 +631,7 @@ func TestDomainInitTransactionError(t *testing.T) {
 }
 
 func TestDomainInitTransactionBadInputs(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -646,7 +649,7 @@ func TestDomainInitTransactionBadInputs(t *testing.T) {
 }
 
 func TestFullTransactionRealDBOK(t *testing.T) {
-	td, done := newTestDomain(t, true /* real DB */, goodDomainConf(), mockBlockHeight)
+	td, done := newTestDomain(t, true /* real DB */, goodDomainConf(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -891,7 +894,7 @@ func TestFullTransactionRealDBOK(t *testing.T) {
 }
 
 func TestDomainAssembleTransactionInvalidTxn(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -906,7 +909,7 @@ func TestDomainAssembleTransactionInvalidTxn(t *testing.T) {
 }
 
 func TestDomainAssembleTransactionError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -920,7 +923,7 @@ func TestDomainAssembleTransactionError(t *testing.T) {
 }
 
 func TestDomainAssembleTransactionLoadInputError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -949,7 +952,7 @@ func TestDomainAssembleTransactionLoadInputError(t *testing.T) {
 }
 
 func TestDomainAssembleTransactionRevert(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -968,7 +971,7 @@ func TestDomainAssembleTransactionRevert(t *testing.T) {
 }
 
 func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, ptx, localTx := doDomainInitTransactionOK(t, td)
@@ -997,7 +1000,7 @@ func TestDomainAssembleTransactionLoadReadError(t *testing.T) {
 }
 
 func TestDomainWritePotentialStatesBadSchema(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1013,7 +1016,7 @@ func TestDomainWritePotentialStatesFail(t *testing.T) {
 	schemaID := pldtypes.RandBytes32()
 	schema.On("ID").Return(schemaID)
 	schema.On("Signature").Return("schema1_signature")
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
 	defer done()
 
 	td.mdc.On("UpsertStates", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("pop"))
@@ -1031,7 +1034,7 @@ func TestDomainWritePotentialStatesBadID(t *testing.T) {
 	schemaID := pldtypes.RandBytes32()
 	schema.On("ID").Return(schemaID)
 	schema.On("Signature").Return("schema1_signature")
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(schema), mockHighestBlock)
 	defer done()
 	badBytes := "0xnothex"
 
@@ -1044,7 +1047,7 @@ func TestDomainWritePotentialStatesBadID(t *testing.T) {
 }
 
 func TestEndorseTransactionFail(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1069,7 +1072,7 @@ func TestEndorseTransactionFail(t *testing.T) {
 }
 
 func TestPrepareTransactionFail(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1084,7 +1087,7 @@ func TestPrepareTransactionFail(t *testing.T) {
 }
 
 func TestPrepareTransactionABIInvalid(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1103,7 +1106,7 @@ func TestPrepareTransactionABIInvalid(t *testing.T) {
 }
 
 func TestPrepareTransactionPrivateResult(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1137,7 +1140,7 @@ func TestPrepareTransactionPrivateResult(t *testing.T) {
 }
 
 func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1159,7 +1162,7 @@ func TestPrepareTransactionPrivateBadAddr(t *testing.T) {
 }
 
 func TestPrepareTransactionUnknownContract(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight, func(mc *mockComponents) {
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock, func(mc *mockComponents) {
 		mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(sqlmock.NewRows([]string{}))
 	})
 	defer done()
@@ -1185,7 +1188,7 @@ func TestPrepareTransactionUnknownContract(t *testing.T) {
 }
 
 func TestLoadStatesBadSchema(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
@@ -1201,10 +1204,10 @@ func TestLoadStatesBadSchema(t *testing.T) {
 }
 
 func TestLoadStatesError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
-	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
+	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil, fmt.Errorf("pop"))
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.Signer = "signer1"
@@ -1219,10 +1222,10 @@ func TestLoadStatesError(t *testing.T) {
 }
 
 func TestLoadStatesNotFound(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 
-	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, mock.Anything).Return(nil, []*pldapi.State{}, nil)
+	td.mdc.On("FindAvailableStates", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, []*pldapi.State{}, nil)
 
 	psc, tx := doDomainInitAssembleTransactionOK(t, td)
 	tx.Signer = "signer1"
@@ -1291,7 +1294,7 @@ func goodPrivateCallWithInputsAndOutputs(psc *domainContract) *components.Resolv
 }
 
 func TestInitCallOk(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1322,7 +1325,7 @@ func TestInitCallOk(t *testing.T) {
 }
 
 func TestInitCallBadInput(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1352,7 +1355,7 @@ func TestInitCallBadInput(t *testing.T) {
 }
 
 func TestInitCallError(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1369,7 +1372,7 @@ func TestInitCallError(t *testing.T) {
 }
 
 func TestExecCall(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1405,7 +1408,7 @@ func TestExecCall(t *testing.T) {
 }
 
 func TestExecCallBadInput(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1434,7 +1437,7 @@ func TestExecCallBadInput(t *testing.T) {
 }
 
 func TestExecCallBadOutput(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1455,7 +1458,7 @@ func TestExecCallBadOutput(t *testing.T) {
 }
 
 func TestExecCallNilOutputOk(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 
@@ -1475,7 +1478,7 @@ func TestExecCallNilOutputOk(t *testing.T) {
 }
 
 func TestExecCallFail(t *testing.T) {
-	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockBlockHeight)
+	td, done := newTestDomain(t, false, goodDomainConf(), mockSchemas(), mockHighestBlock)
 	defer done()
 	assert.Nil(t, td.d.initError.Load())
 

@@ -23,15 +23,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 )
 
 // General builder pattern approaches:
@@ -78,6 +78,9 @@ type TxBuilder interface {
 
 	Bytecode(bytecode []byte) TxBuilder // for public transaction constructors this is required (not applicable to private transactions directly - Pente is a special case handled separately)
 	GetBytecode() pldtypes.HexBytes
+
+	DependsOn(dependencies []uuid.UUID) TxBuilder
+	GetDependsOn() []uuid.UUID
 
 	Domain(domain string) TxBuilder // for private transaction constructors the domain must be specified. It is optional for private transactions as it will be inferred from the to address
 	GetDomain() string
@@ -297,6 +300,11 @@ func (t *txBuilder) Bytecode(b []byte) TxBuilder {
 	return t
 }
 
+func (t *txBuilder) DependsOn(dependencies []uuid.UUID) TxBuilder {
+	t.tx.DependsOn = dependencies
+	return t
+}
+
 func (t *txBuilder) Domain(domain string) TxBuilder {
 	t.tx.Domain = domain
 	return t
@@ -326,6 +334,10 @@ func (t *txBuilder) GetABIReference() *pldtypes.Bytes32 {
 
 func (t *txBuilder) GetBytecode() pldtypes.HexBytes {
 	return t.tx.Bytecode
+}
+
+func (t *txBuilder) GetDependsOn() []uuid.UUID {
+	return t.tx.DependsOn
 }
 
 func (t *txBuilder) GetDomain() string {

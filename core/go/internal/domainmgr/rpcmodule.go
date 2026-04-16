@@ -18,24 +18,26 @@ package domainmgr
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 func (dm *domainManager) buildRPCModule() {
 	dm.rpcModule = rpcserver.NewRPCModule("domain").
-		Add("domain_listDomains", dm.rpcQueryTransactions()).
+		Add("domain_listDomains", dm.rpcListDomains()).
 		Add("domain_getDomain", dm.rpcGetDomain()).
 		Add("domain_getDomainByAddress", dm.rpcGetDomainByAddress()).
 		Add("domain_querySmartContracts", dm.rpcQuerySmartContracts()).
 		Add("domain_getSmartContractByAddress", dm.rpcGetSmartContractByAddress())
 }
 
-func (dm *domainManager) rpcQueryTransactions() rpcserver.RPCHandler {
+func (dm *domainManager) rpcListDomains() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod0(func(ctx context.Context) ([]string, error) {
 		res := []string{}
 		for name := range dm.ConfiguredDomains() {
@@ -47,50 +49,78 @@ func (dm *domainManager) rpcQueryTransactions() rpcserver.RPCHandler {
 
 func (dm *domainManager) rpcGetDomain() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context, name string) (*pldapi.Domain, error) {
+		ctx = log.WithComponent(ctx, "domainmanager")
 		domain, err := dm.getDomainByName(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		return &pldapi.Domain{
+		result := &pldapi.Domain{
 			Name:            domain.name,
 			RegistryAddress: domain.registryAddress,
-		}, nil
+		}
+		dm.populateDomainConfig(result, domain.Configuration())
+		return result, nil
 	})
 }
 
 func (dm *domainManager) rpcGetDomainByAddress() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context, address pldtypes.EthAddress) (*pldapi.Domain, error) {
+		ctx = log.WithComponent(ctx, "domainmanager")
 		domain, err := dm.getDomainByAddress(ctx, &address)
 		if err != nil {
 			return nil, err
 		}
-		return &pldapi.Domain{
+		result := &pldapi.Domain{
 			Name:            domain.name,
 			RegistryAddress: domain.registryAddress,
-		}, nil
+		}
+		dm.populateDomainConfig(result, domain.Configuration())
+		return result, nil
 	})
+}
+
+func (dm *domainManager) populateDomainConfig(result *pldapi.Domain, config *prototk.DomainConfig) {
+	if config != nil {
+		result.Config = &pldapi.DomainConfig{}
+		if len(config.SigningAlgorithms) > 0 {
+			result.Config.SigningAlgorithms = config.SigningAlgorithms
+		}
+	}
 }
 
 func (dm *domainManager) rpcQuerySmartContracts() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		query query.QueryJSON,
 	) ([]*pldapi.DomainSmartContract, error) {
-		return dm.querySmartContracts(ctx, &query)
+		ctx = log.WithComponent(ctx, "domainmanager")
+		var results []*pldapi.DomainSmartContract
+		err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+			var err error
+			results, err = dm.querySmartContracts(ctx, dbTX, &query)
+			return err
+		})
+		return results, err
 	})
 }
 
 func (dm *domainManager) rpcGetSmartContractByAddress() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context, address pldtypes.EthAddress) (*pldapi.DomainSmartContract, error) {
+		ctx = log.WithComponent(ctx, "domainmanager")
 		var sc components.DomainSmartContract
 		var err error
 		err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 			sc, err = dm.GetSmartContractByAddress(ctx, dbTX, address)
 			return err
 		})
-		return &pldapi.DomainSmartContract{
+		if err != nil {
+			return nil, err
+		}
+		result := &pldapi.DomainSmartContract{
 			DomainName:    sc.Domain().Name(),
 			DomainAddress: sc.Domain().RegistryAddress(),
 			Address:       sc.Address(),
-		}, nil
+		}
+		dm.populateContractConfig(result, sc.ContractConfig())
+		return result, nil
 	})
 }

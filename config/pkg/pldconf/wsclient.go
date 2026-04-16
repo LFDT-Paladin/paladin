@@ -17,7 +17,7 @@
 package pldconf
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 )
 
 type WSClientConfig struct {
@@ -28,13 +28,16 @@ type WSClientConfig struct {
 	ReadBufferSize         *string     `json:"readBufferSize"`
 	WriteBufferSize        *string     `json:"writeBufferSize"`
 	HeartbeatInterval      *string     `json:"heartbeatInterval"`
+	WSRequestTimeout       *string     `json:"wsRequestTimeout"`
 }
 
-var DefaultWSConfig = &WSClientConfig{
+var DefaultWSConfig = WSClientConfig{
+	HTTPClientConfig:       DefaultHTTPConfig,
 	ReadBufferSize:         confutil.P("16Kb"),
 	WriteBufferSize:        confutil.P("16Kb"),
 	InitialConnectAttempts: confutil.P(0),
 	ConnectionTimeout:      confutil.P("30s"),
 	HeartbeatInterval:      confutil.P("15s"),
 	ConnectRetry:           GenericRetryDefaults.RetryConfig,
+	WSRequestTimeout:       confutil.P("2m"),
 }

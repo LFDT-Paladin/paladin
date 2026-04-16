@@ -20,34 +20,28 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptRequest) (res *prototk.BuildReceiptResponse, err error) {
 	receipt := &types.NotoDomainReceipt{}
 
-	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchema.Id})
-	if len(infoStates) == 1 {
-		info, err := n.unmarshalInfo(infoStates[0].StateDataJson)
+	infoStates := n.filterSchema(req.InfoStates, []string{n.dataSchemaV0.Id, n.dataSchemaV1.Id})
+	var variant pldtypes.HexUint64
+	if len(infoStates) > 0 {
+		// For prepareUnlock we have two data states - one for the unlockData, and one for the prepareUnlock data.
+		// So we take the last one in the list
+		info, err := n.unmarshalInfo(infoStates[len(infoStates)-1].StateDataJson)
 		if err != nil {
 			return nil, err
 		}
 		receipt.Data = info.Data
-	}
-
-	lockInfoStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchema.Id})
-	if len(lockInfoStates) == 1 {
-		lock, err := n.unmarshalLock(lockInfoStates[0].StateDataJson)
-		if err != nil {
-			return nil, err
-		}
-		receipt.LockInfo = &types.ReceiptLockInfo{LockID: lock.LockID}
-		if !lock.Delegate.IsZero() {
-			receipt.LockInfo.Delegate = lock.Delegate
-		}
+		variant = info.Variant
 	}
 
 	receipt.States.Inputs, err = n.receiptStates(ctx, n.filterSchema(req.InputStates, []string{n.coinSchema.Id}))
@@ -56,6 +50,9 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 	}
 	if err == nil {
 		receipt.States.Outputs, err = n.receiptStates(ctx, n.filterSchema(req.OutputStates, []string{n.coinSchema.Id}))
+	}
+	if err == nil {
+		receipt.States.UpdatedLockInfo, err = n.receiptStates(ctx, n.filterSchema(req.OutputStates, []string{n.lockInfoSchemaV1.Id}))
 	}
 	if err == nil {
 		receipt.States.LockedOutputs, err = n.receiptStates(ctx, n.filterSchema(req.OutputStates, []string{n.lockedCoinSchema.Id}))
@@ -76,34 +73,20 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		return nil, err
 	}
 
-	if receipt.LockInfo != nil && len(receipt.States.ReadLockedInputs) > 0 && len(receipt.States.PreparedOutputs) > 0 {
-		// For prepareUnlock transactions, include the encoded "unlock" call that can be used to unlock the coins
-		unlock := interfaceBuild.ABI.Functions()["unlock"]
-		receipt.LockInfo.UnlockParams = &types.UnlockPublicParams{
-			TxId:          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(),
-			LockedInputs:  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
-			LockedOutputs: endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
-			Outputs:       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
-			Signature:     pldtypes.HexBytes{},
-			Data:          pldtypes.HexBytes{},
-		}
-		paramsJSON, err := json.Marshal(receipt.LockInfo.UnlockParams)
-		if err != nil {
-			return nil, err
-		}
-		encodedCall, err := unlock.EncodeCallDataJSONCtx(ctx, paramsJSON)
-		if err != nil {
-			return nil, err
-		}
-		receipt.LockInfo.UnlockCall = encodedCall
+	// For prepareUnlock, createMintLock, and prepareBurnUnlock transactions, include the encoded "unlock"
+	// call that can be used to unlock the coins.
+	if variant == types.NotoVariantDefault && len(receipt.States.UpdatedLockInfo) > 0 {
+		receipt.LockInfo, err = n.receiptLockInfoV1(ctx, req)
+	} else if variant == types.NotoVariantLegacy {
+		receipt.LockInfo, err = n.receiptLockInfoV0(ctx, req, &receipt.States, receipt.Data)
 	}
-
-	receipt.Transfers, err = n.receiptTransfers(ctx, req)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		receipt.Transfers, err = n.receiptTransfers(ctx, req)
 	}
-
-	receiptJSON, err := json.Marshal(receipt)
+	var receiptJSON []byte
+	if err == nil {
+		receiptJSON, err = json.Marshal(receipt)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -168,25 +151,22 @@ func (n *Noto) receiptTransfers(ctx context.Context, req *prototk.BuildReceiptRe
 		return true
 	}
 
+	parsedOK := true
 	for _, coin := range inputCoins.coins {
-		if !parseInput(coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseInput(coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range inputCoins.lockedCoins {
-		if !parseInput(coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseInput(coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range outputCoins.coins {
-		if !parseOutput(*coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseOutput(*coin.Owner, coin.Amount.Int())
 	}
 	for _, coin := range outputCoins.lockedCoins {
-		if !parseOutput(*coin.Owner, coin.Amount.Int()) {
-			return nil, nil
-		}
+		parsedOK = parsedOK && parseOutput(*coin.Owner, coin.Amount.Int())
+	}
+	if !parsedOK {
+		log.L(ctx).Warnf("Failed to parse transfer coins")
+		return nil, nil
 	}
 
 	if len(to) == 0 && from != nil && fromAmount.BitLen() > 0 {
@@ -208,4 +188,143 @@ func (n *Noto) receiptTransfers(ctx context.Context, req *prototk.BuildReceiptRe
 		}
 	}
 	return transfers, nil
+}
+
+func (n *Noto) receiptLockInfoV0(ctx context.Context, req *prototk.BuildReceiptRequest, receiptStates *types.ReceiptStates, receiptData pldtypes.HexBytes) (lockInfo *types.ReceiptLockInfo, err error) {
+
+	var unlockInterfaceABI abi.ABI
+	var paramsJSON []byte
+	lockInfoStates := n.filterSchema(req.InfoStates, []string{n.lockInfoSchemaV0.Id})
+	if len(lockInfoStates) == 1 {
+		var lock *types.NotoLockInfo_V0
+		lock, err = n.unmarshalLockV0(lockInfoStates[0].StateDataJson)
+		if err == nil {
+			lockInfo = &types.ReceiptLockInfo{LockID: lock.LockID}
+			if !lock.Delegate.IsZero() {
+				lockInfo.Delegate = lock.Delegate
+			}
+		}
+	}
+
+	if lockInfo != nil && len(receiptStates.ReadLockedInputs) > 0 && len(receiptStates.PreparedOutputs) > 0 {
+		// Old info-based decoding scheme
+		var lockID *pldtypes.Bytes32
+		var delegate *pldtypes.EthAddress
+		lockID, delegate, err = n.extractLockInfoV0(ctx, req.InfoStates, false)
+		if err != nil {
+			return nil, err
+		}
+		if lockID != nil {
+			lockInfo = &types.ReceiptLockInfo{
+				LockID:   *lockID,
+				Delegate: delegate, // delegate came directly from the info state in for V0
+			}
+
+			unlockInterfaceABI = n.getInterfaceABI(types.NotoVariantLegacy)
+			lockInfo.UnlockFunction = "unlock"
+			lockInfo.UnlockParams = map[string]any{
+				"txId":          pldtypes.Bytes32UUIDFirst16(uuid.New()).String(), // In V0 we generated a new UUID each time you request a receipt
+				"lockedInputs":  endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id})),
+				"lockedOutputs": endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.lockedCoinSchema.Id})),
+				"outputs":       endorsableStateIDs(n.filterSchema(req.InfoStates, []string{n.coinSchema.Id})),
+				"signature":     pldtypes.HexBytes{},
+				"data":          receiptData, // for V0 we chose to pass the original "data" sent to "prepareUnlock", and decoded here from the info states
+			}
+			paramsJSON, err = json.Marshal(lockInfo.UnlockParams)
+		}
+	}
+	if err == nil && unlockInterfaceABI != nil {
+		unlockFunctionABI := unlockInterfaceABI.Functions()[lockInfo.UnlockFunction]
+		lockInfo.UnlockCall, err = unlockFunctionABI.EncodeCallDataJSONCtx(ctx, paramsJSON)
+	}
+	return lockInfo, err
+
+}
+
+func (n *Noto) receiptLockInfoV1(ctx context.Context, req *prototk.BuildReceiptRequest) (lockInfo *types.ReceiptLockInfo, err error) {
+	unlockInterfaceABI := n.getInterfaceABI(types.NotoVariantDefault)
+
+	// Decode the lock transition
+	lt, err := n.validateV1LockTransition(ctx, LOCK_DECODE_ANY, nil, nil, req.InputStates, req.OutputStates)
+	if err == nil && lt.newLockState != nil {
+		lockInfo = &types.ReceiptLockInfo{
+			LockID: lt.newLockInfo.LockID,
+		}
+	}
+
+	// Prepared locks have a spendTxId, and we add in extra info
+	if err == nil && !lt.newLockInfo.SpendTxId.IsZero() {
+		lockInfo.SpendTxId = &lt.newLockInfo.SpendTxId
+		if lt.newLockInfo.Spender != lt.newLockInfo.Owner {
+			lockInfo.Delegate = lt.newLockInfo.Spender
+		}
+
+		var lockedInputIDs []string
+		if lt.prevLockState == nil {
+			// create lock: locked coins are in OutputStates (they were just created)
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.OutputStates, []string{n.lockedCoinSchema.Id}))
+		} else {
+			// prepare unlock: locked coins are in ReadStates (they were created by a prior lock transaction)
+			lockedInputIDs = endorsableStateIDs(n.filterSchema(req.ReadStates, []string{n.lockedCoinSchema.Id}))
+		}
+
+		// Encode the operation to spend the lock
+		var notoUnlockOpEncoded []byte
+		var unlockParamsJSON []byte
+		notoUnlockOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
+			TxId:    lt.newLockInfo.SpendTxId.String(),
+			Inputs:  lockedInputIDs,
+			Outputs: stringIDs(lt.newLockInfo.SpendOutputs),
+			Data:    lt.newLockInfo.SpendData,
+			Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
+		})
+		if err == nil {
+			lockInfo.UnlockFunction = "spendLock"
+			lockInfo.UnlockParams = map[string]any{
+				"lockId":      lockInfo.LockID,
+				"spendInputs": pldtypes.HexBytes(notoUnlockOpEncoded),
+				"data":        lt.newLockInfo.SpendData,
+			}
+		}
+		if err == nil {
+			unlockParamsJSON, err = json.Marshal(lockInfo.UnlockParams)
+		}
+		if err == nil {
+			unlockFunctionABI := unlockInterfaceABI.Functions()[lockInfo.UnlockFunction]
+			lockInfo.UnlockCall, err = unlockFunctionABI.EncodeCallDataJSONCtx(ctx, unlockParamsJSON)
+		}
+
+		// Encode the operation to cancel the lock
+		var notoCancelOpEncoded []byte
+		var cancelParamsJSON []byte
+		if err == nil {
+			notoCancelOpEncoded, err = n.encodeNotoUnlockOperation(ctx, lockInfo.LockID, &types.NotoUnlockOperation{
+				TxId:    lt.newLockInfo.SpendTxId.String(),
+				Inputs:  lockedInputIDs,
+				Outputs: stringIDs(lt.newLockInfo.CancelOutputs),
+				Data:    lt.newLockInfo.CancelData,
+				Proof:   pldtypes.HexBytes{}, // have to look back to the createLock/updateLock for the proof
+			})
+		}
+		if err == nil {
+			lockInfo.CancelFunction = "cancelLock"
+			lockInfo.CancelParams = map[string]any{
+				"lockId":       lockInfo.LockID,
+				"cancelInputs": pldtypes.HexBytes(notoCancelOpEncoded),
+				"data":         lt.newLockInfo.CancelData,
+			}
+		}
+		if err == nil {
+			cancelParamsJSON, err = json.Marshal(lockInfo.CancelParams)
+		}
+		if err == nil {
+			cancelFunctionABI := unlockInterfaceABI.Functions()[lockInfo.CancelFunction]
+			lockInfo.CancelCall, err = cancelFunctionABI.EncodeCallDataJSONCtx(ctx, cancelParamsJSON)
+		}
+
+	}
+	if err != nil {
+		return nil, err
+	}
+	return lockInfo, nil
 }

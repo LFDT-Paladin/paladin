@@ -19,12 +19,12 @@ import (
 	"context"
 	_ "embed"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/testbed"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/integration-test/helpers"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zeto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	"github.com/LFDT-Paladin/paladin/domains/integration-test/helpers"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zeto"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -60,7 +60,7 @@ func (s *zetoDomainTestSuite) SetupSuite() {
 	log.L(ctx).Infof("Domain name = %s", domainName)
 	config := helpers.PrepareZetoConfig(s.T(), s.deployedContracts, "../zeto/zkp")
 	waitForZeto, zetoTestbed := newZetoDomain(s.T(), config, domainContracts.FactoryAddress)
-	done, _, tb, rpc := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
+	done, _, tb, rpc, _ := newTestbed(s.T(), s.hdWalletSeed, map[string]*testbed.TestbedDomain{
 		domainName: zetoTestbed,
 	})
 	s.domainName = domainName

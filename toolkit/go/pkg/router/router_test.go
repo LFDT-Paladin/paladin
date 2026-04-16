@@ -23,9 +23,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -136,4 +136,14 @@ func TestRouterAddr(t *testing.T) {
 
 	assert.Equal(t, expectedAddr, addr)
 	mockServer.AssertCalled(t, "Addr")
+}
+
+func TestRouterRouter(t *testing.T) {
+	expectedRouter := mux.NewRouter()
+	r := &router{router: expectedRouter}
+
+	actualRouter := r.Router()
+
+	assert.Equal(t, expectedRouter, actualRouter)
+	assert.NotNil(t, actualRouter)
 }

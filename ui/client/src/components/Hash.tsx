@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,8 +17,7 @@
 import { Button } from "@mui/material";
 import { useState } from "react";
 import { HashDialog } from "../dialogs/Hash";
-
-const MAX_LENGTH_WITHOUT_COLLAPSE = 16;
+import { getShortHash } from "../utils";
 
 type Props = {
   Icon?: JSX.Element
@@ -32,14 +31,7 @@ export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary 
 
   const [hashDialogOpen, setHashDialogOpen] = useState(false);
 
-  const getHash = (value: string) => {
-    if (value.length < MAX_LENGTH_WITHOUT_COLLAPSE) {
-      return hash;
-    }
-    return `${value.substring(0, 6)}...${value.substring(value.length - 4)}`
-  };
-
-  const content = hideTitle ? getHash(hash) : `${title} | ${getHash(hash)}`
+  const content = hideTitle ? getShortHash(hash) : `${title} | ${getShortHash(hash)}`
 
   return (
     <>
@@ -49,7 +41,7 @@ export const Hash: React.FC<Props> = ({ Icon, title, hideTitle, hash, secondary 
         onClick={() => setHashDialogOpen(true)}
         fullWidth
         variant="contained"
-        color={ secondary? 'secondary' : 'primary' }
+        color={secondary ? 'secondary' : 'primary'}
         sx={{ paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap' }}
         size="small">
         {content}

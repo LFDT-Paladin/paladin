@@ -21,12 +21,12 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
 	"github.com/hyperledger/firefly-signer/pkg/ethsigner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +42,7 @@ type mockEth struct {
 	eth_sendRawTransaction  func(context.Context, pldtypes.HexBytes) (pldtypes.HexBytes, error)
 	eth_call                func(context.Context, ethsigner.Transaction, string) (pldtypes.HexBytes, error)
 	eth_callErr             func(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse
+	eth_feeHistory          func(context.Context, int, string, []float64) (*FeeHistoryResult, error)
 }
 
 func newTestServer(t *testing.T, ctx context.Context, isWS bool, mEth *mockEth) (rpcServer rpcserver.RPCServer, done func()) {
@@ -87,7 +88,8 @@ func newTestServer(t *testing.T, ctx context.Context, isWS bool, mEth *mockEth) 
 		Add("eth_call", primarySecondary(mEth.eth_callErr, checkNil(mEth.eth_call, rpcserver.RPCMethod2))).
 		Add("eth_getBalance", checkNil(mEth.eth_getBalance, rpcserver.RPCMethod2)).
 		Add("eth_gasPrice", checkNil(mEth.eth_gasPrice, rpcserver.RPCMethod0)).
-		Add("eth_gasLimit", checkNil(mEth.eth_gasLimit, rpcserver.RPCMethod1)),
+		Add("eth_gasLimit", checkNil(mEth.eth_gasLimit, rpcserver.RPCMethod1)).
+		Add("eth_feeHistory", checkNilFeeHistory(mEth.eth_feeHistory)),
 	)
 
 	err = rpcServer.Start()
@@ -118,6 +120,12 @@ func checkNil[T any](v T, fn func(T) rpcserver.RPCHandler) rpcserver.RPCHandler 
 				Message: "not implemented by test",
 			},
 		}
+	})
+}
+
+func checkNilFeeHistory(v func(context.Context, int, string, []float64) (*FeeHistoryResult, error)) rpcserver.RPCHandler {
+	return checkNil(v, func(fn func(context.Context, int, string, []float64) (*FeeHistoryResult, error)) rpcserver.RPCHandler {
+		return rpcserver.RPCMethod3[*FeeHistoryResult, int, string, []float64](fn)
 	})
 }
 

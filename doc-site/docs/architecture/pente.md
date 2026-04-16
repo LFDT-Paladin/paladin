@@ -10,7 +10,7 @@ Pente is a privacy preserving smart contract for Paladin, which provides a diffe
 
 Each smart contract is its own world state.
 
-![Private Smart Contracts backed by C-UTXO](../images/private_smart_contract_overview.png)
+![Private Smart Contracts backed by C-UTXO](../images/private_smart_contract_overview.png){.zoomable-image}
 
 - Private smart contracts exists uniquely within a privacy group
 - The transactions are confirmed by spending UTXO states on the base EVM ledger
@@ -64,7 +64,7 @@ The Pente domain uses the state management engine of Paladin to improve upon the
 
 Pre-submission endorsement of the full transaction execution is performed, combined with on-chain signature verification of the commitments to the input and output states, and double-spend protection on the account states enforced on-chain.
 
-![Pente EVM Privacy Groups - on-chain verification model](../images/paladin_evm_privacy_groups_verification_model.svg)
+![Pente EVM Privacy Groups - on-chain verification model](../images/paladin_evm_privacy_groups_verification_model.svg){.zoomable-image}
 
 ### On-chain state verification
 
@@ -101,7 +101,7 @@ The guiding principals are:
 
 ## Implementation
 
-The Pente private domain is implemented [in Java](https://github.com/LF-Decentralized-Trust-labs/paladin/tree/main/domains/pente/src)
+The Pente private domain is implemented [in Java](https://github.com/LFDT-Paladin/paladin/tree/main/domains/pente/src)
 using the [Besu EVM](https://github.com/hyperledger/besu) as a code module to start and run ephemeral in-memory EVMs.
 
 ## Submitting transactions
@@ -182,7 +182,7 @@ Other fields:
 
 ## Public ABI
 
-The public ABI of Pente is implemented in Solidity by [PentePrivacyGroup.sol](https://github.com/LF-Decentralized-Trust-labs/paladin/blob/main/solidity/contracts/domains/pente/PentePrivacyGroup.sol),
+The public ABI of Pente is implemented in Solidity by [PentePrivacyGroup.sol](https://github.com/LFDT-Paladin/paladin/blob/main/solidity/contracts/domains/pente/PentePrivacyGroup.sol),
 and can be accessed by calling `ptx_sendTransaction` with `"type": "public"`. However, it is not often required
 to invoke the public ABI directly.
 

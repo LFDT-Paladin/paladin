@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,26 +22,24 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { IPaladinTransaction, ITransactionReceipt } from '../interfaces';
+import { IPaladinTransaction } from '../interfaces';
 import { fetchDomainReceipt } from '../queries/domains';
 import { fetchStateReceipt } from '../queries/states';
 import { EVMPrivateDetails } from './EVMPrivateDetails';
 import { JSONBox } from './JSONBox';
 
 type Props = {
-  transactionReceipt?: ITransactionReceipt
   paladinTransaction?: IPaladinTransaction
 }
 
 export const PaladinTransactionsDetails: React.FC<Props> = ({
-  transactionReceipt,
   paladinTransaction
 }) => {
 
   const { t } = useTranslation();
 
-  const transactionId = transactionReceipt?.id || paladinTransaction?.id || '';
-  const domain = transactionReceipt?.domain || paladinTransaction?.domain || '';
+  const transactionId = paladinTransaction?.id || '';
+  const domain = paladinTransaction?.domain || '';
 
   const { data: stateReceipt } = useQuery({
     enabled: !!transactionId,
@@ -60,7 +58,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
   return (
     <>
       {paladinTransaction ?
-      <Accordion elevation={0} disableGutters>
+      <Accordion elevation={0} disableGutters defaultExpanded>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('details')}
         </AccordionSummary>
@@ -74,7 +72,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
           {t('receipt')}
         </AccordionSummary>
         <AccordionDetails >
-          <JSONBox data={transactionReceipt} />
+          <JSONBox data={paladinTransaction?.receipt} />
         </AccordionDetails>
       </Accordion>
       {domainReceipt !== undefined && <>

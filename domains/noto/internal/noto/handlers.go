@@ -21,14 +21,14 @@ import (
 
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/noto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
@@ -44,14 +44,22 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 		return &burnHandler{burnCommon: burnCommon{noto: n}}
 	case "burnFrom":
 		return &burnFromHandler{burnCommon: burnCommon{noto: n}}
-	case "approveTransfer":
-		return &approveHandler{noto: n}
-	case "lock":
+	case "lock", "createLock":
 		return &lockHandler{noto: n}
 	case "unlock":
 		return &unlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createTransferLock":
+		return &createTransferLockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createMintLock":
+		return &createMintLockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "createBurnLock":
+		return &createBurnLockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "prepareUnlock":
 		return &prepareUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "prepareMintUnlock":
+		return &prepareMintUnlockHandler{unlockCommon: unlockCommon{noto: n}}
+	case "prepareBurnUnlock":
+		return &prepareBurnUnlockHandler{unlockCommon: unlockCommon{noto: n}}
 	case "delegateLock":
 		return &delegateLockHandler{noto: n}
 	default:
@@ -61,6 +69,12 @@ func (n *Noto) GetHandler(method string) types.DomainHandler {
 
 func (n *Noto) GetCallHandler(method string) types.DomainCallHandler {
 	switch method {
+	case "name":
+		return &nameHandler{noto: n}
+	case "symbol":
+		return &symbolHandler{noto: n}
+	case "decimals":
+		return &decimalsHandler{noto: n}
 	case "balanceOf":
 		return &balanceOfHandler{noto: n}
 	default:
@@ -103,8 +117,9 @@ func (n *Noto) validateBurnAmounts(ctx context.Context, params *types.BurnParams
 }
 
 // Check that a lock produces locked coins matching the difference between the inputs and outputs
-func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.coins) == 0 {
+func (n *Noto) validateLockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.coins) == 0 {
+		// V0 did not support empty locks
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "lock", inputs.coins)
 	}
 	amount := big.NewInt(0).Sub(inputs.total, outputs.total)
@@ -115,8 +130,10 @@ func (n *Noto) validateLockAmounts(ctx context.Context, inputs, outputs *parsedC
 }
 
 // Check that an unlock produces unlocked coins matching the difference between the locked inputs and outputs
-func (n *Noto) validateUnlockAmounts(ctx context.Context, inputs, outputs *parsedCoins) error {
-	if len(inputs.lockedCoins) == 0 {
+// Note that mint & burn uses a different function (this is only used for transfers)
+func (n *Noto) validateUnlockAmounts(ctx context.Context, tx *types.ParsedTransaction, inputs, outputs *parsedCoins) error {
+	if tx.DomainConfig.IsV0() && len(inputs.lockedCoins) == 0 {
+		// In V0 there was no lock object to check
 		return i18n.NewError(ctx, msgs.MsgInvalidInputs, "unlock", inputs.lockedCoins)
 	}
 	amount := big.NewInt(0).Sub(inputs.lockedTotal, outputs.lockedTotal)
@@ -143,14 +160,14 @@ func (n *Noto) validateSignature(ctx context.Context, name string, attestations 
 }
 
 // Check that all coins are owned by the transaction sender
-func (n *Noto) validateOwners(ctx context.Context, owner string, req *prototk.EndorseTransactionRequest, coins []*types.NotoCoin, states []*prototk.StateRef) error {
-	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, req.ResolvedVerifiers)
+func (n *Noto) validateOwners(ctx context.Context, owner string, verifiers []*prototk.ResolvedVerifier, coins []*types.NotoCoin, states []*prototk.StateRef) error {
+	fromAddress, err := n.findEthAddressVerifier(ctx, "from", owner, verifiers)
 	if err != nil {
 		return err
 	}
 
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -164,7 +181,7 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 		return err
 	}
 	for i, coin := range coins {
-		if !coin.Owner.Equals(fromAddress) {
+		if !coin.Owner.Equals(fromAddress.address) {
 			return i18n.NewError(ctx, msgs.MsgStateWrongOwner, states[i].Id, owner)
 		}
 	}
@@ -172,12 +189,16 @@ func (n *Noto) validateLockOwners(ctx context.Context, owner string, verifiers [
 }
 
 // Parse a resolved verifier as an eth address
-func (n *Noto) findEthAddressVerifier(ctx context.Context, label, lookup string, verifierList []*prototk.ResolvedVerifier) (*pldtypes.EthAddress, error) {
+func (n *Noto) findEthAddressVerifier(ctx context.Context, errorDescription, lookup string, verifierList []*prototk.ResolvedVerifier) (*identityPair, error) {
 	verifier := domain.FindVerifier(lookup, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifierList)
 	if verifier == nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, label)
+		return nil, i18n.NewError(ctx, msgs.MsgErrorVerifyingAddress, errorDescription)
 	}
-	return pldtypes.ParseEthAddress(verifier.Verifier)
+	address, err := pldtypes.ParseEthAddress(verifier.Verifier)
+	if err != nil {
+		return nil, err
+	}
+	return &identityPair{identifier: lookup, address: address}, nil
 }
 
 type TransactionWrapper struct {
@@ -187,7 +208,7 @@ type TransactionWrapper struct {
 	contractAddress *pldtypes.EthAddress
 }
 
-func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransactionResponse, error) {
+func (tw *TransactionWrapper) prepare() (*prototk.PrepareTransactionResponse, error) {
 	functionJSON, err := json.Marshal(tw.functionABI)
 	if err != nil {
 		return nil, err
@@ -204,10 +225,6 @@ func (tw *TransactionWrapper) prepare(metadata []byte) (*prototk.PrepareTransact
 			ParamsJson:      string(tw.paramsJSON),
 			ContractAddress: contractAddress,
 		},
-	}
-	if metadata != nil {
-		metadataString := string(metadata)
-		res.Metadata = &metadataString
 	}
 	return res, nil
 }

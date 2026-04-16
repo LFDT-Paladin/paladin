@@ -10,6 +10,7 @@ title: PublicTx
     "from": "0x0000000000000000000000000000000000000000",
     "nonce": null,
     "created": 0,
+    "dispatcher": "",
     "transactionHash": null
 }
 ```
@@ -24,6 +25,7 @@ title: PublicTx
 | `from` | The sender's Ethereum address | [`EthAddress`](simpletypes.md#ethaddress) |
 | `nonce` | The transaction nonce | [`HexUint64`](simpletypes.md#hexuint64) |
 | `created` | The creation time | [`Timestamp`](simpletypes.md#timestamp) |
+| `dispatcher` | The dispatcher that submitted this public transaction | `string` |
 | `completedAt` | The completion time (optional) | [`Timestamp`](simpletypes.md#timestamp) |
 | `transactionHash` | The transaction hash (optional) | [`Bytes32`](simpletypes.md#bytes32) |
 | `success` | The transaction success status (optional) | `bool` |
@@ -34,7 +36,6 @@ title: PublicTx
 | `value` | The value transferred in the transaction (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `maxPriorityFeePerGas` | The maximum priority fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `maxFeePerGas` | The maximum fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
-| `gasPrice` | The gas price (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 
 ## PublicTxSubmissionData
 
@@ -44,7 +45,6 @@ title: PublicTx
 | `transactionHash` | The transaction hash | [`Bytes32`](simpletypes.md#bytes32) |
 | `maxPriorityFeePerGas` | The maximum priority fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `maxFeePerGas` | The maximum fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
-| `gasPrice` | The gas price (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 
 
 ## TransactionActivityRecord

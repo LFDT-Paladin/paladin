@@ -20,12 +20,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
 type FireAndForgetMessageSend struct {
@@ -48,6 +48,10 @@ type ReceivedMessage struct {
 type TransportManagerToTransport interface {
 	plugintk.TransportAPI
 	Initialized()
+}
+
+type TransportSendOptions struct {
+	ErrorHandler func(ctx context.Context, err error)
 }
 
 // TransportClient is the interface for a component that can receive messages from the transport manager
@@ -98,7 +102,7 @@ type TransportManager interface {
 	// situation to recover from (although not critical path).
 	//
 	// at-most-once delivery semantics
-	Send(ctx context.Context, send *FireAndForgetMessageSend) error
+	Send(ctx context.Context, send *FireAndForgetMessageSend, options ...*TransportSendOptions) error
 
 	// Sends a message with at-least-once delivery semantics
 	//

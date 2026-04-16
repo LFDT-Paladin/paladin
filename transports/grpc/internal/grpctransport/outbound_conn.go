@@ -20,10 +20,10 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/transports/grpc/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/transports/grpc/pkg/proto"
 	"google.golang.org/grpc"
 )
 
@@ -104,9 +104,15 @@ func (oc *outboundConn) send(message *proto.Message) error {
 	}
 
 	if err != nil {
+		log.L(oc.t.bgCtx).Warnf("send failed, err %s", err)
 		// Clean up the stream - we'll create a new one on next send
-		_ = oc.stream.CloseSend()
-		oc.stream = nil
+		if oc.stream != nil {
+			log.L(oc.t.bgCtx).Warnf("closing stream")
+			_ = oc.stream.CloseSend()
+			oc.stream = nil
+		} else {
+			log.L(oc.t.bgCtx).Tracef("no stream to close")
+		}
 	}
 	return err
 }

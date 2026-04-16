@@ -7,11 +7,11 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -249,7 +249,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 
 	// Mock callbacks that will simulate generateMerkleProofs returning fewer proofs than inputSize
 	mockCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			// Return error to simulate generateMerkleProofs failure, which allows us to test error handling
 			return nil, errors.New("simulated merkle tree error")
 		},
@@ -279,7 +279,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 	})
 	count := 0
 	mockCallbacksNullifier := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			switch count {
 			case 0:
 				count++
@@ -327,7 +327,7 @@ func TestFormatTransferProvingRequestMerkleProofPadding(t *testing.T) {
 
 	kycCount := 0
 	mockCallbacksNullifierKyc := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			switch kycCount {
 			case 0, 5: // root node for utxo tree and kyc tree
 				kycCount++

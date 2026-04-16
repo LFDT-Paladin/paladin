@@ -26,17 +26,17 @@ import (
 
 	_ "embed"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signpayloads"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/go-resty/resty/v2"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
@@ -718,7 +718,7 @@ func TestDemoNotarizedCoinSelection(t *testing.T) {
 	confFile := writeTestConfig(t)
 	factoryContractAddress := deploySmartContract(t, confFile)
 	tb := NewTestBed()
-	url, _, done, err := tb.StartForTest(confFile, map[string]*TestbedDomain{
+	httpURL, _, _, done, err := tb.StartForTest(confFile, map[string]*TestbedDomain{
 		"domain1": {
 			Plugin:          fakeCoinDomain,
 			Config:          map[string]any{"some": "config"},
@@ -728,7 +728,7 @@ func TestDemoNotarizedCoinSelection(t *testing.T) {
 	require.NoError(t, err)
 	defer done()
 
-	tbRPC := rpcclient.WrapRestyClient(resty.New().SetBaseURL(url))
+	tbRPC := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	var contractAddr pldtypes.EthAddress
 	rpcErr := tbRPC.CallRPC(ctx, &contractAddr, "testbed_deploy", "domain1", "me", pldtypes.RawJSON(`{
@@ -795,7 +795,7 @@ func TestDemoNotarizedCoinSelection(t *testing.T) {
 func deploySmartContract(t *testing.T, confFile string) *pldtypes.EthAddress {
 	ctx := context.Background()
 	tb := NewTestBed()
-	_, _, done, err := tb.StartForTest(confFile, nil)
+	_, _, _, done, err := tb.StartForTest(confFile, nil)
 	require.NoError(t, err)
 	defer done()
 

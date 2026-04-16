@@ -21,24 +21,25 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/txmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/txmgr/metrics"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/cache"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 func NewTXManager(ctx context.Context, conf *pldconf.TxManagerConfig) components.TXManager {
 	tm := &txManager{
-		bgCtx:    ctx,
+		bgCtx:    log.WithComponent(ctx, "txmanager"),
 		conf:     conf,
 		abiCache: cache.NewCache[pldtypes.Bytes32, *pldapi.StoredABI](&conf.ABI.Cache, &pldconf.TxManagerDefaults.ABI.Cache),
 		txCache:  cache.NewCache[uuid.UUID, *components.ResolvedTransaction](&conf.Transactions.Cache, &pldconf.TxManagerDefaults.Transactions.Cache),
@@ -57,7 +58,7 @@ type txManager struct {
 	ethClientFactory    ethclient.EthClientFactory
 	keyManager          components.KeyManager
 	publicTxMgr         components.PublicTxManager
-	privateTxMgr        components.PrivateTxManager
+	sequencerMgr        components.SequencerManager
 	domainMgr           components.DomainManager
 	stateMgr            components.StateManager
 	identityResolver    components.IdentityResolver
@@ -96,7 +97,7 @@ func (tm *txManager) PostInit(c components.AllComponents) error {
 	tm.ethClientFactory = c.EthClientFactory()
 	tm.keyManager = c.KeyManager()
 	tm.publicTxMgr = c.PublicTxManager()
-	tm.privateTxMgr = c.PrivateTxManager()
+	tm.sequencerMgr = c.SequencerManager()
 	tm.domainMgr = c.DomainManager()
 	tm.stateMgr = c.StateManager()
 	tm.identityResolver = c.IdentityResolver()

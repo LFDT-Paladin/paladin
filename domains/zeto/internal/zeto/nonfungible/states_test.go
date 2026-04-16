@@ -7,12 +7,12 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,6 +56,14 @@ func (dc *testDomainCallbacks) LocalNodeName(context.Context, *pb.LocalNodeNameR
 }
 
 func (dc *testDomainCallbacks) SendTransaction(ctx context.Context, tx *pb.SendTransactionRequest) (*pb.SendTransactionResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ReverseKeyLookup(ctx context.Context, req *pb.ReverseKeyLookupRequest) (*pb.ReverseKeyLookupResponse, error) {
+	return nil, nil
+}
+
+func (dc *testDomainCallbacks) ValidateStates(ctx context.Context, req *pb.ValidateStatesRequest) (*pb.ValidateStatesResponse, error) {
 	return nil, nil
 }
 

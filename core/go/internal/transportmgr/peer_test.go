@@ -21,31 +21,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func mockGetStateRetryThenOk(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+func mockGetStateRetryThenOk(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 	mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
 		Return(nil, fmt.Errorf("pop")).Once()
 	mockGetStateOk(mc, conf)
 }
 
-func mockGetStateOk(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+func mockGetStateOk(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 	mGS := mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false)
 	mGS.Run(func(args mock.Arguments) {
 		id := (args[4].([]pldtypes.HexBytes))[0]
@@ -67,7 +69,7 @@ func TestReliableMessageResendRealDB(t *testing.T) {
 	ctx, tm, tp, done := newTestTransport(t, true,
 		mockGoodTransport,
 		mockGetStateRetryThenOk,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.registryManager.On("GetNodeTransports", mock.Anything, "node3").Return([]*components.RegistryNodeTransportEntry{
 				{
 					Node:      "node3",
@@ -172,8 +174,8 @@ func TestReliableMessageResendRealDB(t *testing.T) {
 func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, true,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
-			conf.PeerReaperInterval = confutil.P("50ms")
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			conf.PeerReaperInterval = confutil.P("500ms")
 		},
 		mockGoodTransport,
 		mockGetStateOk,
@@ -187,7 +189,7 @@ func TestReliableMessageSendSendQuiesceRealDB(t *testing.T) {
 	})
 	tm.quiesceTimeout = 10 * time.Millisecond
 	tm.reliableMessageResend = 1 * time.Second
-	tm.peerInactivityTimeout = 10 * time.Millisecond
+	tm.peerInactivityTimeout = 100 * time.Millisecond
 
 	mockActivateDeactivateOk(tp)
 
@@ -250,7 +252,7 @@ func TestSendBadReliableMessageMarkedFailRealDB(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, true,
 		mockGoodTransport,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			// missing state
 			mc.stateManager.On("GetStatesByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, false, false).
 				Return(nil, nil).Once()
@@ -304,10 +306,15 @@ func TestSendBadReliableMessageMarkedFailRealDB(t *testing.T) {
 	require.Regexp(t, "PD012016", rmWithAck.Ack.Error)
 
 	// Second nack
-	rmWithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+	var rm2WithAck *pldapi.ReliableMessage
+	for (rm2WithAck == nil || rm2WithAck.Ack == nil) && !t.Failed() {
+		time.Sleep(10 * time.Millisecond)
+		rm2WithAck, err = tm.getReliableMessageByID(ctx, tm.persistence.NOTX(), rm2.ID)
+		require.NoError(t, err)
+	}
 	require.NoError(t, err)
-	require.NotNil(t, rmWithAck.Ack)
-	require.Regexp(t, "PD012014", rmWithAck.Ack.Error)
+	require.NotNil(t, rm2WithAck.Ack)
+	require.Regexp(t, "PD012014", rm2WithAck.Ack.Error)
 
 }
 
@@ -337,7 +344,7 @@ func TestConnectionRace(t *testing.T) {
 	connRelease := make(chan struct{})
 
 	ctx, tm, tp, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mGNT := mc.registryManager.On("GetNodeTransports", mock.Anything, "node2").Return([]*components.RegistryNodeTransportEntry{
 				{
 					Node:      "node2",
@@ -425,7 +432,7 @@ func TestDeactivateFail(t *testing.T) {
 
 func TestGetReliableMessageByIDFail(t *testing.T) {
 
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnError(fmt.Errorf("pop"))
 	})
 	defer done()
@@ -476,7 +483,7 @@ func TestProcessReliableMsgPageIgnoreBeforeHWM(t *testing.T) {
 
 func TestProcessReliableMsgPageIgnoreUnsupported(t *testing.T) {
 
-	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+	ctx, tm, _, done := newTestTransport(t, false, func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 		mc.db.Mock.ExpectExec("INSERT.*reliable_msg_acks").WillReturnError(fmt.Errorf("pop"))
 	})
 	defer done()
@@ -502,7 +509,7 @@ func TestProcessReliableMsgPageInsertFail(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGetStateOk,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
 		})
 	defer done()
@@ -539,7 +546,7 @@ func TestProcessReliableMsgPagePrivacyGroup(t *testing.T) {
 	schemaID := pldtypes.RandBytes32()
 	ctx, tm, tp, done := newTestTransport(t, false,
 		mockGetStateOk,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
 		})
 	defer done()
@@ -608,7 +615,7 @@ func TestProcessReliableMsgPagePrivacyGroupMessage(t *testing.T) {
 		},
 	}
 	ctx, tm, tp, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.groupManager.On("GetMessageByID", mock.Anything, mock.Anything, origMsg.ID, false).
 				Return(origMsg, nil)
 
@@ -663,7 +670,7 @@ func TestProcessReliableMsgPagePrivacyGroupMessage(t *testing.T) {
 func TestProcessReliableMsgPageReceipt(t *testing.T) {
 
 	ctx, tm, tp, done := newTestTransport(t, false,
-		func(mc *mockComponents, conf *pldconf.TransportManagerConfig) {
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
 			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
 		})
 	defer done()
@@ -710,4 +717,333 @@ func TestProcessReliableMsgPageReceipt(t *testing.T) {
 	require.Equal(t, "domain1", receivedReceipt.Domain)
 	require.Equal(t, components.RT_Success, receivedReceipt.ReceiptType)
 	require.Equal(t, receipt.TransactionID, receivedReceipt.TransactionID)
+}
+
+func TestSendMessageErrorHandlerCalled(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		mockEmptyReliableMsgs,
+		mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+
+	mockActivateDeactivateOk(tp)
+
+	// Configure SendMessage to return an error
+	sendError := fmt.Errorf("send failed")
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		return nil, sendError
+	}
+
+	// Set up error handler that captures the context and error
+	var capturedCtx context.Context
+	var capturedErr error
+	errorHandlerCalled := make(chan struct{})
+	errorHandler := func(ctx context.Context, err error) {
+		capturedCtx = ctx
+		capturedErr = err
+		close(errorHandlerCalled)
+	}
+
+	// Send message with error handler
+	message := testMessage()
+	err := tm.Send(ctx, message, &components.TransportSendOptions{
+		ErrorHandler: errorHandler,
+	})
+	require.NoError(t, err) // Send itself should succeed (queuing)
+
+	// Wait for error handler to be called
+	select {
+	case <-errorHandlerCalled:
+		// Error handler was called
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("error handler was not called within timeout")
+	}
+
+	// Verify error handler was called with correct context and error
+	require.NotNil(t, capturedCtx)
+	require.Equal(t, sendError, capturedErr)
+
+	// Clean up
+	p := tm.peers["node2"]
+	if p != nil {
+		p.close()
+	}
+}
+
+func TestSendConsecutiveFailureThresholdRestartsSenderAndReconnects(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			// One full reliable-message scan happens at sender startup.
+			// This test intentionally restarts sender once after one send failure.
+			for range 4 {
+				mc.db.Mock.ExpectQuery("SELECT.*reliable_msgs").WillReturnRows(sqlmock.NewRows([]string{}))
+			}
+			mc.db.Mock.MatchExpectationsInOrder(false)
+		},
+		mockGoodTransport)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+	tm.sendFailureResetThreshold = 1
+
+	var activateCalls atomic.Int32
+	tp.Functions.ActivatePeer = func(ctx context.Context, anr *prototk.ActivatePeerRequest) (*prototk.ActivatePeerResponse, error) {
+		activateCalls.Add(1)
+		return &prototk.ActivatePeerResponse{PeerInfoJson: `{"endpoint":"some.url"}`}, nil
+	}
+	tp.Functions.DeactivatePeer = func(ctx context.Context, dnr *prototk.DeactivatePeerRequest) (*prototk.DeactivatePeerResponse, error) {
+		return &prototk.DeactivatePeerResponse{}, nil
+	}
+
+	var sendCalls atomic.Int32
+	secondSendSucceeded := make(chan struct{}, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		call := sendCalls.Add(1)
+		if call == 1 {
+			return nil, fmt.Errorf("PD030016: Send for node that is not active '%s'", req.Node)
+		}
+		select {
+		case secondSendSucceeded <- struct{}{}:
+		default:
+		}
+		return &prototk.SendMessageResponse{}, nil
+	}
+
+	// First send fails and should stop the current sender loop at threshold=1.
+	err := tm.Send(ctx, testMessage())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Second send should trigger re-activation and succeed.
+	err = tm.Send(ctx, testMessage())
+	require.NoError(t, err)
+
+	<-secondSendSucceeded
+	require.GreaterOrEqual(t, activateCalls.Load(), int32(2))
+}
+
+func TestReliableScanConsecutiveFailureThresholdStopsSender(t *testing.T) {
+	ctx, tm, tp, done := newTestTransport(t, true,
+		mockGoodTransport,
+		mockGetStateOk,
+	)
+	defer done()
+
+	tm.sendShortRetry = retry.NewRetryLimited(&pldconf.RetryConfigWithMax{
+		MaxAttempts: confutil.P(1),
+	})
+	tm.sendFailureResetThreshold = 1
+	tm.reliableMessageResend = 1 * time.Second
+	tm.peerInactivityTimeout = 1 * time.Second
+
+	mockActivateDeactivateOk(tp)
+
+	sendAttempted := make(chan struct{}, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		select {
+		case sendAttempted <- struct{}{}:
+		default:
+		}
+		return nil, fmt.Errorf("send failed")
+	}
+
+	sd := &components.StateDistribution{
+		Domain:          "domain1",
+		ContractAddress: pldtypes.RandAddress().String(),
+		SchemaID:        pldtypes.RandHex(32),
+		StateID:         pldtypes.RandHex(32),
+	}
+
+	err := tm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
+		return tm.SendReliable(ctx, dbTX, &pldapi.ReliableMessage{
+			MessageType: pldapi.RMTState.Enum(),
+			Node:        "node2",
+			Metadata:    pldtypes.JSONString(sd),
+		})
+	})
+	require.NoError(t, err)
+
+	<-sendAttempted
+	require.Eventually(t, func() bool {
+		p := tm.peers["node2"]
+		return p != nil && !p.senderStarted.Load()
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestProcessReliableMsgPagePublicTransactionSubmission(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	publicTxSubmission := &pldapi.PublicTxWithBinding{
+		PublicTx: &pldapi.PublicTx{
+			From:  *pldtypes.RandAddress(),
+			To:    pldtypes.RandAddress(),
+			Data:  pldtypes.HexBytes(pldtypes.RandBytes(100)),
+			Nonce: confutil.P(pldtypes.HexUint64(2)),
+		},
+		PublicTxBinding: pldapi.PublicTxBinding{
+			Transaction:                uuid.New(),
+			TransactionType:            pldapi.TransactionTypePublic.Enum(),
+			TransactionSender:          "node2",
+			TransactionContractAddress: "contractAddress",
+		},
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTPublicTransactionSubmission.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(publicTxSubmission),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypePublicTransactionSubmission, rMsg.MessageType)
+
+	var receivedPublicTxSubmission pldapi.PublicTxWithBinding
+	err = json.Unmarshal(rMsg.Payload, &receivedPublicTxSubmission)
+	require.NoError(t, err)
+	require.Equal(t, publicTxSubmission.From, receivedPublicTxSubmission.From)
+	require.Equal(t, publicTxSubmission.To, receivedPublicTxSubmission.To)
+	require.Equal(t, publicTxSubmission.Data, receivedPublicTxSubmission.Data)
+	require.Equal(t, publicTxSubmission.Nonce, receivedPublicTxSubmission.Nonce)
+	require.Equal(t, publicTxSubmission.Transaction, receivedPublicTxSubmission.Transaction)
+	require.Equal(t, publicTxSubmission.TransactionType, receivedPublicTxSubmission.TransactionType)
+	require.Equal(t, publicTxSubmission.TransactionSender, receivedPublicTxSubmission.TransactionSender)
+	require.Equal(t, publicTxSubmission.TransactionContractAddress, receivedPublicTxSubmission.TransactionContractAddress)
+}
+
+func TestProcessReliableMsgPageSequencingActivity(t *testing.T) {
+
+	ctx, tm, tp, done := newTestTransport(t, false,
+		func(mc *mockComponents, conf *pldconf.TransportManagerInlineConfig) {
+			mc.db.Mock.ExpectExec("INSERT.*reliable_msgs").WillReturnResult(driver.ResultNoRows)
+		})
+	defer done()
+
+	p := &peer{
+		ctx:       ctx,
+		tm:        tm,
+		transport: tp.t,
+	}
+
+	sequencerActivity := &components.SequencingActivity{
+		SubjectID:      "subjectID",
+		Timestamp:      pldtypes.TimestampNow(),
+		ActivityType:   string(pldapi.SequencerActivityType_Dispatch),
+		SequencingNode: "node2",
+		TransactionID:  uuid.New(),
+	}
+
+	rm := &pldapi.ReliableMessage{
+		ID:          uuid.New(),
+		Sequence:    50,
+		MessageType: pldapi.RMTSequencingActivity.Enum(),
+		Node:        "node2",
+		Metadata:    pldtypes.JSONString(sequencerActivity),
+		Created:     pldtypes.TimestampNow(),
+	}
+
+	sentMessages := make(chan *prototk.PaladinMsg, 1)
+	tp.Functions.SendMessage = func(ctx context.Context, req *prototk.SendMessageRequest) (*prototk.SendMessageResponse, error) {
+		sent := req.Message
+		sentMessages <- sent
+		return nil, nil
+	}
+
+	err := p.processReliableMsgPage(tm.persistence.NOTX(), []*pldapi.ReliableMessage{rm})
+	require.NoError(t, err)
+
+	sentMsg := <-sentMessages
+
+	rMsg, err := parseReceivedMessage(ctx, "node2", sentMsg)
+	require.NoError(t, err)
+	require.Equal(t, RMHMessageTypeSequencingActivity, rMsg.MessageType)
+
+	var receivedSequencerActivity components.SequencingActivity
+	err = json.Unmarshal(rMsg.Payload, &receivedSequencerActivity)
+	require.NoError(t, err)
+	require.Equal(t, sequencerActivity.SubjectID, receivedSequencerActivity.SubjectID)
+	require.Equal(t, sequencerActivity.Timestamp, receivedSequencerActivity.Timestamp)
+	require.Equal(t, sequencerActivity.ActivityType, receivedSequencerActivity.ActivityType)
+	require.Equal(t, sequencerActivity.SequencingNode, receivedSequencerActivity.SequencingNode)
+	require.Equal(t, sequencerActivity.TransactionID, receivedSequencerActivity.TransactionID)
+}
+
+func TestIsInactiveNewPeerNotReapedBeforeTimeout(t *testing.T) {
+
+	_, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	// set sufficently high that it will never be exceeded by this test
+	tm.peerInactivityTimeout = 1 * time.Hour
+
+	now := pldtypes.TimestampNow()
+	p := &peer{
+		tm: tm,
+		PeerInfo: pldapi.PeerInfo{
+			Stats: pldapi.PeerStats{
+				CreatedAt: &now,
+			},
+		},
+	}
+
+	assert.False(t, p.isInactive(), "newly created peer must not be considered inactive")
+}
+
+func TestIsInactiveOldPeerReapedWithNoActivity(t *testing.T) {
+
+	_, tm, _, done := newTestTransport(t, false)
+	defer done()
+
+	tm.peerInactivityTimeout = 5 * time.Millisecond
+
+	past := pldtypes.Timestamp(time.Now().Add(-10 * time.Millisecond).UnixNano())
+	p := &peer{
+		tm: tm,
+		PeerInfo: pldapi.PeerInfo{
+			Stats: pldapi.PeerStats{
+				CreatedAt: &past,
+			},
+		},
+	}
+
+	assert.True(t, p.isInactive(), "peer older than timeout with no send/receive should be inactive")
 }

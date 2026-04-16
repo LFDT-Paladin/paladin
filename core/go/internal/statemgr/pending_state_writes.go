@@ -19,13 +19,13 @@ package statemgr
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"gorm.io/gorm/clause"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 )
 
 // Each domain context can have up to two of these
@@ -74,6 +74,12 @@ func (op *pendingStateWrites) exec(ctx context.Context, dbTX persistence.DBTX) e
 		len(states), len(stateLocks), len(stateNullifiers))
 
 	var err error
+
+	if log.IsTraceEnabled() {
+		for _, s := range states {
+			log.L(ctx).Tracef("Writing state for contract %s, data=%s, domain=%s, created=%s", s.ContractAddress, s.Data, s.DomainName, s.Created)
+		}
+	}
 
 	if len(states) > 0 {
 		err = op.dc.ss.writeStates(ctx, dbTX, states)

@@ -28,13 +28,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/tlsconf"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/tlsconf"
 	"github.com/go-resty/resty/v2"
 	"github.com/sirupsen/logrus"
 )
@@ -46,6 +46,15 @@ type retryCtx struct {
 	id       string
 	start    time.Time
 	attempts uint
+}
+
+type PLDClient struct {
+	*resty.Client
+	httpTransport *http.Transport
+}
+
+func (pld *PLDClient) Close() {
+	pld.httpTransport.CloseIdleConnections()
 }
 
 // OnAfterResponse when using SetDoNotParseResponse(true) for streaming binary replies,
@@ -67,46 +76,8 @@ func OnAfterResponse(c *resty.Client, resp *resty.Response) {
 	// TODO use req.TraceInfo() for richer metrics at the DNS and transport layer
 }
 
-// New creates a new Resty client, using configuration that is passed in
-//
-// You can use the normal Resty builder pattern, to set per-instance configuration
-// as required.
-func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Client, err error) { //nolint:gocyclo
-	httpTransport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   time.Duration(confutil.DurationMin(conf.ConnectionTimeout, 0, *pldconf.DefaultHTTPConfig.ConnectionTimeout)),
-			KeepAlive: time.Duration(confutil.DurationMin(conf.ConnectionTimeout, 0, *pldconf.DefaultHTTPConfig.ConnectionTimeout)),
-		}).DialContext,
-		ForceAttemptHTTP2: true,
-	}
-
-	u, err := url.Parse(conf.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, i18n.WrapError(ctx, err, pldmsgs.MsgRPCClientInvalidHTTPURL, u)
-	}
-	if u.Scheme == "https" {
-		conf.TLS.Enabled = true
-	}
-	httpTransport.TLSClientConfig, err = tlsconf.BuildTLSConfig(ctx, &conf.TLS, tlsconf.ClientType)
-	if err != nil {
-		return nil, err
-	}
-
-	httpClient := &http.Client{
-		Transport: httpTransport,
-	}
-	client = resty.NewWithClient(httpClient)
-
-	_url := strings.TrimSuffix(conf.URL, "/")
-	if _url != "" {
-		client.SetBaseURL(_url)
-		log.L(ctx).Debugf("Created REST client to %s", _url)
-	}
-
-	client.SetTimeout(confutil.DurationMin(conf.RequestTimeout, 0, *pldconf.DefaultHTTPConfig.RequestTimeout))
-
-	client.OnBeforeRequest(func(c *resty.Client, req *resty.Request) error {
+func newTraceRequestHandler(_url string) func(c *resty.Client, req *resty.Request) error {
+	return func(c *resty.Client, req *resty.Request) error {
 		rCtx := req.Context()
 		// Record host in context to avoid redundant parses in hooks
 		var u *url.URL
@@ -141,7 +112,54 @@ func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *resty.Cli
 		log.L(rCtx).Tracef("==> (body) %+v", req.Body)
 
 		return nil
-	})
+	}
+}
+
+// New creates a new Resty client, using configuration that is passed in.
+// The returned closeFn should be called when the client is no longer needed to close
+// idle HTTP connections and avoid connection leaks (e.g. from ethClient.Close()).
+//
+// You can use the normal Resty builder pattern, to set per-instance configuration
+// as required.
+func New(ctx context.Context, conf *pldconf.HTTPClientConfig) (client *PLDClient, err error) {
+	httpTransport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   time.Duration(confutil.DurationMin(conf.ConnectionTimeout, 0, *pldconf.DefaultHTTPConfig.ConnectionTimeout)),
+			KeepAlive: time.Duration(confutil.DurationMin(conf.ConnectionTimeout, 0, *pldconf.DefaultHTTPConfig.ConnectionTimeout)),
+		}).DialContext,
+		ForceAttemptHTTP2: true,
+	}
+
+	u, err := url.Parse(conf.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return nil, i18n.WrapError(ctx, err, pldmsgs.MsgRPCClientInvalidHTTPURL, u)
+	}
+	if u.Scheme == "https" {
+		conf.TLS.Enabled = true
+	}
+	httpTransport.TLSClientConfig, err = tlsconf.BuildTLSConfig(ctx, &conf.TLS, tlsconf.ClientType)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := &http.Client{
+		Transport: httpTransport,
+	}
+	client = &PLDClient{
+		httpTransport: httpTransport,
+	}
+	client.Client = resty.NewWithClient(httpClient)
+
+	_url := strings.TrimSuffix(conf.URL, "/")
+	if _url != "" {
+		client.SetBaseURL(_url)
+		log.L(ctx).Debugf("Created REST client to %s", _url)
+	}
+
+	client.SetTimeout(confutil.DurationMin(conf.RequestTimeout, 0, *pldconf.DefaultHTTPConfig.RequestTimeout))
+
+	client.OnBeforeRequest(newTraceRequestHandler(_url))
 
 	// Note that callers using SetNotParseResponse will need to invoke this themselves
 	client.OnAfterResponse(func(c *resty.Client, r *resty.Response) error { OnAfterResponse(c, r); return nil })

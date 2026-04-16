@@ -1,12 +1,26 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import PaladinClient, {
   PenteFactory,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
-import { checkDeploy } from "paladin-example-common";
+} from "@lfdecentralizedtrust/paladin-sdk";
+import { checkDeploy, DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
 import storageJson from "./abis/Storage.json";
 import { PrivateStorage } from "./helpers/storage";
 import * as fs from 'fs';
 import * as path from 'path';
-import { nodeConnections } from "../../common/src/config";
+import { nodeConnections, getCachePath } from "paladin-example-common";
 
 const logger = console;
 
@@ -32,7 +46,7 @@ async function main(): Promise<boolean> {
     members: [verifierNode1, verifierNode2],
     evmVersion: "shanghai",
     externalCallsEnabled: true,
-  }).waitForDeploy();
+  }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(memberPrivacyGroup)) return false;
 
   logger.log(`Privacy group created, ID: ${memberPrivacyGroup?.group.id}`);
@@ -43,7 +57,7 @@ async function main(): Promise<boolean> {
     abi: storageJson.abi,
     bytecode: storageJson.bytecode,
     from: verifierNode1.lookup,
-  }).waitForDeploy();
+  }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!contractAddress) {
     logger.error("Failed to deploy the contract. No address returned.");
     return false;
@@ -64,7 +78,14 @@ async function main(): Promise<boolean> {
     from: verifierNode1.lookup,
     function: "store",
     data: { num: valueToStore },
-  }).waitForReceipt(10000);
+  }).waitForReceipt(DEFAULT_POLL_TIMEOUT);
+  
+  // Validate store transaction was successful
+  if (!storeReceipt?.success) {
+    logger.error("Store transaction failed!");
+    return false;
+  }
+  
   logger.log(
     "Value stored successfully! Transaction hash:",
     storeReceipt?.transactionHash
@@ -76,6 +97,13 @@ async function main(): Promise<boolean> {
     from: verifierNode1.lookup,
     function: "retrieve",
   });
+  
+  // Validate the retrieved value
+  if (retrievedValueNode1["value"] !== valueToStore.toString()) {
+    logger.error(`Value retrieval validation failed for Node1! Expected: "${valueToStore}", Retrieved: "${retrievedValueNode1["value"]}"`);
+    return false;
+  }
+  
   logger.log(
     "Node1 retrieved the value successfully:",
     retrievedValueNode1["value"]
@@ -89,6 +117,13 @@ async function main(): Promise<boolean> {
       from: verifierNode2.lookup,
       function: "retrieve",
     });
+    
+  // Validate the retrieved value
+  if (retrievedValueNode2["value"] !== valueToStore.toString()) {
+    logger.error(`Value retrieval validation failed for Node2! Expected: "${valueToStore}", Retrieved: "${retrievedValueNode2["value"]}"`);
+    return false;
+  }
+  
   logger.log(
     "Node2 retrieved the value successfully:",
     retrievedValueNode2["value"]
@@ -125,7 +160,8 @@ async function main(): Promise<boolean> {
     timestamp: new Date().toISOString()
   };
 
-  const dataDir = path.join(__dirname, '..', 'data');
+  // Use command-line argument for data directory if provided, otherwise use default
+  const dataDir = getCachePath();
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

@@ -20,16 +20,16 @@ import (
 	"encoding/json"
 	"sync/atomic"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -198,7 +198,7 @@ func (t *transport) deliverMessage(ctx context.Context, p *peer, component proto
 			msg: msg,
 		})
 	case prototk.PaladinMsg_TRANSACTION_ENGINE:
-		t.tm.privateTxManager.HandlePaladinMsg(ctx, msg)
+		t.tm.sequencerManager.HandlePaladinMsg(ctx, msg)
 	case prototk.PaladinMsg_IDENTITY_RESOLVER:
 		t.tm.identityResolver.HandlePaladinMsg(ctx, msg)
 	default:
@@ -241,6 +241,12 @@ func (t *transport) getLocalDetails(ctx context.Context) (string, error) {
 }
 
 func (t *transport) close() {
+	// log.L(t.ctx).Infof("Stopping transport %s", t.name)
+	// go func() {
+	// 	t.api.StopTransport(t.ctx, &prototk.StopTransportRequest{})
+	// }()
+	// // Allow 2 seconds for message to be received, then cancel the context
+	// log.L(t.ctx).Infof("Closing the context for transport %s", t.name)
 	t.cancelCtx()
 	<-t.initDone
 }

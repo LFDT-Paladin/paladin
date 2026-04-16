@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/wsclient"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/wsclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -266,6 +266,30 @@ func TestWaitResponseClosedContext(t *testing.T) {
 	done()
 	rpcErr := rc.waitResponse(ctx, nil, "000000001", &RPCRequest{}, time.Now(), make(chan *RPCResponse))
 	assert.Regexp(t, "PD020000", rpcErr)
+}
+
+func TestWaitResponseRequestTimeout(t *testing.T) {
+	ctx, rc, _, _, done := newTestWSRPC(t)
+	defer done()
+	// RequestTimeout is clamped to at least 1s in the client via config so set after creation
+	rc.requestTimeout = 1 * time.Millisecond
+	resChannel := make(chan *RPCResponse) // nobody sends; waitResponse will hit request timeout
+
+	start := time.Now()
+	rpcErr := rc.waitResponse(ctx, nil, "000000001", &RPCRequest{}, time.Now(), resChannel)
+	elapsed := time.Since(start)
+
+	require.Error(t, rpcErr)
+	assert.Regexp(t, "PD020507", rpcErr.Error())
+	assert.GreaterOrEqual(t, elapsed, time.Millisecond, "should have waited at least the timeout")
+}
+
+func TestWrapWSConfigRequestTimeoutFromConfig(t *testing.T) {
+	conf := &pldconf.WSClientConfig{
+		WSRequestTimeout: confutil.P("2s"),
+	}
+	rc := WrapWSConfig(conf).(*wsRPCClient)
+	assert.Equal(t, 2*time.Second, rc.requestTimeout)
 }
 
 func TestWaitResponseErrorCode(t *testing.T) {

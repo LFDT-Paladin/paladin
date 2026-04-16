@@ -1,10 +1,24 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import PaladinClient, {
   TransactionType,
-} from "@lfdecentralizedtrust-labs/paladin-sdk";
+} from "@lfdecentralizedtrust/paladin-sdk";
 import helloWorldJson from "./abis/HelloWorld.json";
 import * as fs from 'fs';
 import * as path from 'path';
-import { nodeConnections } from "../../common/src/config";
+import { nodeConnections, getCachePath, DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
 
 const logger = console;
 
@@ -32,7 +46,7 @@ async function main(): Promise<boolean> {
   });
 
   // Wait for the deployment receipt
-  const deploymentReceipt = await paladin.pollForReceipt(deploymentTxID, 10000, true);
+  const deploymentReceipt = await paladin.pollForReceipt(deploymentTxID, DEFAULT_POLL_TIMEOUT, true);
   if (!deploymentReceipt?.contractAddress) {
     logger.error("STEP 1: Deployment failed!");
     return false;
@@ -60,9 +74,15 @@ async function main(): Promise<boolean> {
   }
 
   // Wait for the function call receipt
-  const functionReceipt = await paladin.pollForReceipt(sayHelloTxID, 10000, true);
+  const functionReceipt = await paladin.pollForReceipt(sayHelloTxID, DEFAULT_POLL_TIMEOUT, true);
   if (!functionReceipt?.transactionHash) {
     logger.error("STEP 2: Receipt retrieval failed!");
+    return false;
+  }
+  
+  // Validate the transaction was successful
+  if (!functionReceipt.success) {
+    logger.error("STEP 2: Transaction failed!");
     return false;
   }
   logger.log("STEP 2: sayHello function executed successfully!");
@@ -92,7 +112,8 @@ async function main(): Promise<boolean> {
     timestamp: new Date().toISOString()
   };
 
-  const dataDir = path.join(__dirname, '..', 'data');
+  // Use command-line argument for data directory if provided, otherwise use default
+  const dataDir = getCachePath();
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }

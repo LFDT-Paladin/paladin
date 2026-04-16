@@ -1,6 +1,8 @@
 # Key Management
 
-![Key Management](../images/key_management.jpg)
+> TODO: Well established architecture already being brought across to Paladin here (Lead: Matt Clarke)
+
+![Key Management](../images/key_management.jpg){.zoomable-image}
 
 Key management in Paladin is designed to meet a complex set of requirements for enterprise
 key management, spanning both the secure storage of key materials in advanced locations (HMS/SSM),
@@ -68,7 +70,7 @@ with a set of options on remote connectivity:
 
 Alternatively you can choose to leverage the plugin ecosystem of Paladin and _bring-your-own_ signing
 module implementation that gives you the freedom to achieve all of the above. (Refer to the paladin
-[example signing module](https://github.com/LF-Decentralized-Trust-labs/paladin/tree/main/signingmodules/example)
+[example signing module](https://github.com/LFDT-Paladin/paladin/tree/main/signingmodules/example)
 plugin as a starting point).
 
 ### Direct key mapping vs. key derivation

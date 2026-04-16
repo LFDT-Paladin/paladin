@@ -22,23 +22,23 @@ import (
 	"math/big"
 	"reflect"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/fungible"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/nonfungible"
-	signercommon "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/signer/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/smt"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/fungible"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/nonfungible"
+	signercommon "github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/iden3/go-iden3-crypto/babyjub"
@@ -149,6 +149,7 @@ func (z *Zeto) getAlgoZetoSnarkBJJ() string {
 }
 
 func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomainRequest) (*prototk.ConfigureDomainResponse, error) {
+	ctx = log.WithComponent(ctx, "zeto")
 	var config types.DomainFactoryConfig
 	err := json.Unmarshal([]byte(req.ConfigJson), &config)
 	if err != nil {
@@ -209,7 +210,7 @@ func (z *Zeto) InitDomain(ctx context.Context, req *prototk.InitDomainRequest) (
 }
 
 func (z *Zeto) InitDeploy(ctx context.Context, req *prototk.InitDeployRequest) (*prototk.InitDeployResponse, error) {
-	_, err := z.validateDeploy(req.Transaction)
+	ctx, _, err := z.validateDeployAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateInitDeployParams, err)
 	}
@@ -225,7 +226,7 @@ func (z *Zeto) InitDeploy(ctx context.Context, req *prototk.InitDeployRequest) (
 }
 
 func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequest) (*prototk.PrepareDeployResponse, error) {
-	initParams, err := z.validateDeploy(req.Transaction)
+	ctx, initParams, err := z.validateDeployAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err)
 	}
@@ -275,6 +276,7 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 }
 
 func (z *Zeto) InitContract(ctx context.Context, req *prototk.InitContractRequest) (*prototk.InitContractResponse, error) {
+	ctx = log.WithComponent(ctx, "zeto")
 	var zetoContractConfigJSON []byte
 	domainConfig, err := z.decodeDomainConfig(ctx, req.ContractConfig)
 	if err == nil {
@@ -296,7 +298,7 @@ func (z *Zeto) InitContract(ctx context.Context, req *prototk.InitContractReques
 }
 
 func (z *Zeto) InitTransaction(ctx context.Context, req *prototk.InitTransactionRequest) (*prototk.InitTransactionResponse, error) {
-	tx, handler, err := z.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := z.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateInitTxSpec, err)
 	}
@@ -304,7 +306,7 @@ func (z *Zeto) InitTransaction(ctx context.Context, req *prototk.InitTransaction
 }
 
 func (z *Zeto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTransactionRequest) (*prototk.AssembleTransactionResponse, error) {
-	tx, handler, err := z.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := z.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateAssembleTxSpec, err)
 	}
@@ -312,7 +314,7 @@ func (z *Zeto) AssembleTransaction(ctx context.Context, req *prototk.AssembleTra
 }
 
 func (z *Zeto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTransactionRequest) (*prototk.EndorseTransactionResponse, error) {
-	tx, handler, err := z.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := z.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateEndorseTxParams, err)
 	}
@@ -320,7 +322,7 @@ func (z *Zeto) EndorseTransaction(ctx context.Context, req *prototk.EndorseTrans
 }
 
 func (z *Zeto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTransactionRequest) (*prototk.PrepareTransactionResponse, error) {
-	tx, handler, err := z.validateTransaction(ctx, req.Transaction)
+	ctx, tx, handler, err := z.validateTransactionAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepTxSpec, err)
 	}
@@ -383,6 +385,17 @@ func (z *Zeto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*type
 	var params types.InitializerParams
 	err := json.Unmarshal([]byte(tx.ConstructorParamsJson), &params)
 	return &params, err
+}
+
+func (z *Zeto) validateDeployAndGetLogContext(ctx context.Context, txSpec *prototk.DeployTransactionSpecification) (context.Context, *types.InitializerParams, error) {
+	ctx = log.WithComponent(ctx, "zeto")
+	ctx = log.WithLogField(ctx, "tx", txSpec.TransactionId)
+
+	params, err := z.validateDeploy(txSpec)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return ctx, params, nil
 }
 
 func validateTransactionCommon[T any](
@@ -461,6 +474,30 @@ func (z *Zeto) validateTransaction(ctx context.Context, tx *prototk.TransactionS
 	)
 }
 
+func (z *Zeto) validateTransactionAndGetLogContext(ctx context.Context, txSpec *prototk.TransactionSpecification) (context.Context, *types.ParsedTransaction, types.DomainHandler, error) {
+	ctx = log.WithComponent(ctx, "zeto")
+	tx, handler, err := z.validateTransaction(ctx, txSpec)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+
+	ctx = log.WithLogField(ctx, "tx", tx.Transaction.TransactionId)
+	ctx = log.WithLogField(ctx, "contract", tx.Transaction.ContractInfo.ContractAddress)
+	return ctx, tx, handler, nil
+}
+
+func (z *Zeto) validateCallAndGetLogContext(ctx context.Context, callSpec *prototk.TransactionSpecification) (context.Context, *types.ParsedTransaction, types.DomainCallHandler, error) {
+	ctx = log.WithComponent(ctx, "zeto")
+	call, handler, err := z.validateCall(ctx, callSpec)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+
+	ctx = log.WithLogField(ctx, "tx", call.Transaction.TransactionId)
+	ctx = log.WithLogField(ctx, "contract", call.Transaction.ContractInfo.ContractAddress)
+	return ctx, call, handler, nil
+}
+
 func (z *Zeto) validateCall(ctx context.Context, call *prototk.TransactionSpecification) (*types.ParsedTransaction, types.DomainCallHandler, error) {
 	return validateTransactionCommon(
 		ctx,
@@ -489,6 +526,9 @@ func (z *Zeto) registerEventSignatures(eventAbis abi.ABI) {
 }
 
 func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBatchRequest) (*prototk.HandleEventBatchResponse, error) {
+	ctx = log.WithComponent(ctx, "zeto")
+	ctx = log.WithLogField(ctx, "contract", req.ContractInfo.ContractAddress)
+
 	var domainConfig *types.DomainInstanceConfig
 	err := json.Unmarshal([]byte(req.ContractInfo.ContractConfigJson), &domainConfig)
 	if err != nil {
@@ -576,6 +616,7 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 }
 
 func (z *Zeto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest) (*prototk.GetVerifierResponse, error) {
+	ctx = log.WithComponent(ctx, "zeto")
 	verifier, err := z.snarkProver.GetVerifier(ctx, req.Algorithm, req.VerifierType, req.PrivateKey)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorGetVerifier, err)
@@ -586,6 +627,7 @@ func (z *Zeto) GetVerifier(ctx context.Context, req *prototk.GetVerifierRequest)
 }
 
 func (z *Zeto) Sign(ctx context.Context, req *prototk.SignRequest) (*prototk.SignResponse, error) {
+	ctx = log.WithComponent(ctx, "zeto")
 	switch req.PayloadType {
 	case zetosignerapi.PAYLOAD_DOMAIN_ZETO_NULLIFIER:
 		var coin *types.ZetoCoin
@@ -664,6 +706,7 @@ func (z *Zeto) validateStateHash(ctx context.Context, hash *pldtypes.HexUint256,
 }
 
 func (z *Zeto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateStateHashesRequest) (_ *prototk.ValidateStateHashesResponse, err error) {
+	ctx = log.WithComponent(ctx, "zeto")
 	var res prototk.ValidateStateHashesResponse
 	for _, state := range req.States {
 		var id string
@@ -684,7 +727,7 @@ func (z *Zeto) ValidateStateHashes(ctx context.Context, req *prototk.ValidateSta
 }
 
 func (z *Zeto) InitCall(ctx context.Context, req *prototk.InitCallRequest) (*prototk.InitCallResponse, error) {
-	ptx, handler, err := z.validateCall(ctx, req.Transaction)
+	ctx, ptx, handler, err := z.validateCallAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateInitCallTxSpec, err)
 	}
@@ -692,7 +735,7 @@ func (z *Zeto) InitCall(ctx context.Context, req *prototk.InitCallRequest) (*pro
 }
 
 func (z *Zeto) ExecCall(ctx context.Context, req *prototk.ExecCallRequest) (*prototk.ExecCallResponse, error) {
-	ptx, handler, err := z.validateCall(ctx, req.Transaction)
+	ctx, ptx, handler, err := z.validateCallAndGetLogContext(ctx, req.Transaction)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateExecCallTxSpec, err)
 	}
@@ -714,4 +757,16 @@ func (z *Zeto) InitPrivacyGroup(ctx context.Context, req *prototk.InitPrivacyGro
 
 func (z *Zeto) WrapPrivacyGroupEVMTX(ctx context.Context, req *prototk.WrapPrivacyGroupEVMTXRequest) (*prototk.WrapPrivacyGroupEVMTXResponse, error) {
 	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}
+
+func (z *Zeto) CheckStateCompletion(ctx context.Context, req *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+	return &prototk.CheckStateCompletionResponse{
+		// TODO: Implement manifests similar to noto, to allow receipts to be delivered to listeners reliably with partial state avaialability.
+		NextMissingStateId: req.UnavailableStates.FirstUnavailableId,
+	}, nil
+}
+
+func (z *Zeto) IsBaseLedgerRevertRetryable(_ context.Context, _ *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+	// TODO: this is just defaulting to the sequencer retry threshold and could be customized by the domain
+	return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true}, nil
 }

@@ -21,12 +21,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/inflight"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/inflight"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -234,7 +234,7 @@ func (ph *pluginHandler[M]) sender() {
 		select {
 		case msg = <-ph.sendChl:
 		case <-ph.ctx.Done():
-			log.L(ph.ctx).Debugf("domain handler ending")
+			log.L(ph.ctx).Debugf("plugin handler ending")
 			return
 		}
 		if err := ph.stream.Send(msg.Message()); err != nil {
@@ -311,8 +311,8 @@ func (ph *pluginHandler[M]) RequestReply(ctx context.Context, reqFn func(plugint
 	inflight := ph.inflight.AddInflight(ctx, reqID)
 	defer inflight.Cancel()
 	l.Infof("[%s] ==> %T", reqID, req.RequestToPlugin())
-	if log.IsDebugEnabled() {
-		l.Debugf("[%s] ==> %s", reqID, plugintk.PluginMessageToJSON(req))
+	if log.IsTraceEnabled() {
+		l.Tracef("[%s] ==> %s", reqID, plugintk.PluginMessageToJSON(req))
 	}
 
 	// Send the request
@@ -342,8 +342,8 @@ func (ph *pluginHandler[M]) RequestReply(ctx context.Context, reqFn func(plugint
 	}
 
 	l.Infof("[%s] <== [%s] %T [%s]", reqID, res.Header().MessageId, req.ResponseFromPlugin(), inflight.Age())
-	if log.IsDebugEnabled() {
-		l.Debugf("[%s] <== %s", reqID, plugintk.PluginMessageToJSON(res))
+	if log.IsTraceEnabled() {
+		l.Tracef("[%s] <== %s", reqID, plugintk.PluginMessageToJSON(res))
 	}
 	return nil
 }

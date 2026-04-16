@@ -21,9 +21,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
@@ -110,13 +110,13 @@ type StateEncoded struct {
 
 type State struct {
 	StateBase
-	Labels      []*StateLabel       `docstruct:"State" json:"-"                   gorm:"foreignKey:state;references:id;"`
-	Int64Labels []*StateInt64Label  `docstruct:"State" json:"-"                   gorm:"foreignKey:state;references:id;"`
-	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:state;references:id;"`
-	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:state;references:id;"`
-	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:state;references:id;"`
+	Labels      []*StateLabel       `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Int64Labels []*StateInt64Label  `docstruct:"State" json:"-"                   gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Confirmed   *StateConfirmRecord `docstruct:"State" json:"confirmed,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Read        *StateReadRecord    `docstruct:"State" json:"read,omitempty"      gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
+	Spent       *StateSpendRecord   `docstruct:"State" json:"spent,omitempty"     gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 	Locks       []*StateLock        `docstruct:"State" json:"locks,omitempty"     gorm:"-"` // in memory only processing here
-	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:state;references:id;"`
+	Nullifier   *StateNullifier     `docstruct:"State" json:"nullifier,omitempty" gorm:"foreignKey:DomainName,State;references:DomainName,ID"`
 }
 
 // TODO: Separate the GORM DTO from the external pldapi external type definition for States

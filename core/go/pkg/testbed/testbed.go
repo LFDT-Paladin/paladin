@@ -20,18 +20,18 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/componentmgr"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/plugins"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/config"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/componentmgr"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/plugins"
+	"github.com/LFDT-Paladin/paladin/core/pkg/config"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
 	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 )
 
 func HDWalletSeedScopedToTest() *UTInitFunction {
@@ -51,7 +51,7 @@ type KeyMapping = pldapi.KeyMappingAndVerifier
 type Testbed interface {
 	components.AdditionalManager
 	// Use GenerateSeed to get a valid seed
-	StartForTest(configFile string, domains map[string]*TestbedDomain, initFunctions ...*UTInitFunction) (url string, conf *pldconf.PaladinConfig, done func(), err error)
+	StartForTest(configFile string, domains map[string]*TestbedDomain, initFunctions ...*UTInitFunction) (httpURL string, wsURL string, conf *pldconf.PaladinConfig, done func(), err error)
 	ResolveKey(ctx context.Context, fqLookup, algorithm, verifierType string) (resolvedKey *KeyMapping, err error)
 	ExecTransactionSync(ctx context.Context, tx *pldapi.TransactionInput) (receipt *pldapi.TransactionReceipt, err error)
 	EthClientKeyManagerShim() ethclient.KeyManager // CAREFUL - this will give you "nonce too low" if you clash with anything in-flight in Paladin managed TXs
@@ -165,11 +165,11 @@ func (tb *testbed) HandlePaladinMsg(context.Context, *components.ReceivedMessage
 	// no-op
 }
 
-func (tb *testbed) StartForTest(configFile string, domains map[string]*TestbedDomain, initFunctions ...*UTInitFunction) (url string, conf *pldconf.PaladinConfig, done func(), err error) {
+func (tb *testbed) StartForTest(configFile string, domains map[string]*TestbedDomain, initFunctions ...*UTInitFunction) (httpURL string, wsURL string, conf *pldconf.PaladinConfig, done func(), err error) {
 	ctx := context.Background()
 
 	if err = config.ReadAndParseYAMLFile(ctx, configFile, &conf); err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 
 	for _, init := range initFunctions {
@@ -213,10 +213,18 @@ func (tb *testbed) StartForTest(configFile string, domains map[string]*TestbedDo
 
 	cm, err := unitTestComponentManagerStart(ctx, conf, tb, initFunctions...)
 	if err != nil {
-		return "", nil, nil, err
+		return "", "", nil, nil, err
 	}
 
-	return fmt.Sprintf("http://%s", tb.c.RPCServer().HTTPAddr()), conf, func() {
+	if tb.c.RPCServer().HTTPAddr() != nil {
+		httpURL = fmt.Sprintf("http://%s", tb.c.RPCServer().HTTPAddr())
+	}
+
+	if tb.c.RPCServer().WSAddr() != nil {
+		wsURL = fmt.Sprintf("ws://%s", tb.c.RPCServer().WSAddr())
+	}
+
+	return httpURL, wsURL, conf, func() {
 		cm.Stop()
 		if pl != nil {
 			pl.Stop()

@@ -20,15 +20,16 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/blockindexermocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
@@ -425,17 +426,20 @@ func TestAddRemoveBlockchainEventReceiver(t *testing.T) {
 
 	// success
 	txm.blockchainEventListeners["bel1"] = &blockchainEventListener{
+		tm: txm,
 		definition: &blockindexer.EventStream{
 			Name: "bel1",
 		},
 		newReceivers: make(chan bool, 1),
 	}
-	_, err = txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
-	assert.NoError(t, err)
-	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 1)
-
 	receiver, err := txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
 	assert.NoError(t, err)
+	receiver.SetActive()
+	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 1)
+
+	receiver, err = txm.AddBlockchainEventReceiver(ctx, "bel1", &testBlockchainEventReceiver{})
+	assert.NoError(t, err)
+	receiver.SetActive()
 	assert.Len(t, txm.blockchainEventListeners["bel1"].receivers, 2)
 
 	receiver.Close()
@@ -443,18 +447,24 @@ func TestAddRemoveBlockchainEventReceiver(t *testing.T) {
 }
 
 func TestNextReceiver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	readyToReceive := make(chan struct{}) // used to signal when goroutine
 
 	// waiting for a receiver to be added
 	nextReceiver := make(chan components.BlockchainEventReceiver, 1)
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		definition: &blockindexer.EventStream{
+			Name: "test-next-receiver",
+		},
 		newReceivers: make(chan bool, 1),
 	}
-	el.ctx, el.cancelCtx = context.WithCancel(context.Background())
 
 	go func() {
 		close(readyToReceive) // signal that we're about to call nextReceiver
-		r, err := el.nextReceiver()
+		r, err := el.nextReceiver(ctx)
 		require.NoError(t, err)
 		nextReceiver <- r
 	}()
@@ -463,7 +473,7 @@ func TestNextReceiver(t *testing.T) {
 
 	el.addReceiver(&testBlockchainEventReceiver{
 		index: 0,
-	})
+	}).SetActive()
 
 	r1 := <-nextReceiver
 	require.NotNil(t, r1)
@@ -472,13 +482,13 @@ func TestNextReceiver(t *testing.T) {
 	// add another receiver
 	el.addReceiver(&testBlockchainEventReceiver{
 		index: 1,
-	})
-	r2, err := el.nextReceiver()
+	}).SetActive()
+	r2, err := el.nextReceiver(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, r2.(*registeredBlockchainEventReceiver).BlockchainEventReceiver.(*testBlockchainEventReceiver).index)
 
 	// getting the next receiver should go back to the first receiver
-	r1, err = el.nextReceiver()
+	r1, err = el.nextReceiver(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 0, r1.(*registeredBlockchainEventReceiver).BlockchainEventReceiver.(*testBlockchainEventReceiver).index)
 
@@ -488,20 +498,61 @@ func TestNextReceiver(t *testing.T) {
 	// closing the context should make nextReceiver return an error
 	gotError := make(chan bool, 1)
 	go func() {
-		_, err := el.nextReceiver()
+		_, err := el.nextReceiver(ctx)
 		require.Error(t, err)
 		gotError <- true
 	}()
 
-	el.cancelCtx()
+	cancel()
 	<-gotError
 }
 
-func TestHandleEventBatch(t *testing.T) {
+func TestNextReceiverSkipsInactive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		definition: &blockindexer.EventStream{
+			Name: "test-next-receiver-skips-inactive",
+		},
 		newReceivers: make(chan bool, 1),
 	}
-	el.ctx, el.cancelCtx = context.WithCancel(context.Background())
+
+	inactive := el.addReceiver(&testBlockchainEventReceiver{index: 0})
+	assert.NotNil(t, inactive)
+
+	nextReceiver := make(chan components.BlockchainEventReceiver, 1)
+	go func() {
+		receiver, nextErr := el.nextReceiver(ctx)
+		require.NoError(t, nextErr)
+		nextReceiver <- receiver
+	}()
+
+	active := el.addReceiver(&testBlockchainEventReceiver{index: 1})
+	active.SetActive()
+
+	select {
+	case receiver := <-nextReceiver:
+		assert.Same(t, active, receiver)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for receiver activation")
+	}
+}
+
+func TestHandleEventBatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	el := &blockchainEventListener{
+		tm: &txManager{
+			bgCtx: context.Background(),
+		},
+		newReceivers: make(chan bool, 1),
+		definition: &blockindexer.EventStream{
+			Name: "bel1",
+		},
+	}
 
 	testBatchID := uuid.New()
 	testEvents := []*pldapi.EventWithData{{
@@ -518,8 +569,9 @@ func TestHandleEventBatch(t *testing.T) {
 			assert.Equal(t, testEvents, receipts)
 		},
 	})
+	r.SetActive()
 
-	err := el.handleEventBatch(context.Background(), &blockindexer.EventDeliveryBatch{
+	err := el.handleEventBatch(ctx, &blockindexer.EventDeliveryBatch{
 		BatchID: testBatchID,
 		Events:  testEvents,
 	})
@@ -530,11 +582,11 @@ func TestHandleEventBatch(t *testing.T) {
 	// call again in a goroutine with no listeners and cancel
 	gotError := make(chan bool, 1)
 	go func() {
-		err := el.handleEventBatch(context.Background(), nil)
+		err := el.handleEventBatch(ctx, nil)
 		require.Error(t, err)
 		gotError <- true
 	}()
-	el.cancelCtx()
+	cancel()
 	<-gotError
 
 }

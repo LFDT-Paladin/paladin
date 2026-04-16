@@ -17,9 +17,9 @@ package plugintk
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/grpc"
 	pb "google.golang.org/protobuf/proto"
 )
@@ -140,6 +140,11 @@ func (smh *signingModuleHandler) RequestToPlugin(ctx context.Context, iReq Plugi
 		err = i18n.NewError(ctx, pldmsgs.MsgPluginUnsupportedRequest, input)
 	}
 	return smh.Wrap(res), err
+}
+
+func (smh *signingModuleHandler) ClosePlugin(ctx context.Context) (PluginMessage[prototk.SigningModuleMessage], error) {
+	// Not implemented
+	return nil, nil
 }
 
 type SigningModuleAPIFunctions struct {

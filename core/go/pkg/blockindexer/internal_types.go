@@ -1,4 +1,4 @@
-// Copyright © 2024 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -17,9 +17,9 @@
 package blockindexer
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
 
 var IndexedBlockFilters filters.FieldSet = filters.FieldMap{
@@ -41,6 +41,7 @@ var IndexedTransactionFilters filters.FieldSet = filters.FieldMap{
 var IndexedEventFilters filters.FieldSet = filters.FieldMap{
 	"blockNumber":      filters.Int64Field("block_number"),
 	"transactionIndex": filters.Int64Field("transaction_index"),
+	"transactionHash":  filters.HexBytesField("transaction_hash"),
 	"logIndex":         filters.Int64Field("log_index"),
 	"signature":        filters.HexBytesField("signature"),
 }

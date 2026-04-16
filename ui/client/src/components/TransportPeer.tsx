@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -21,7 +21,6 @@ import UploadIcon from '@mui/icons-material/Upload';
 import DownloadIcon from '@mui/icons-material/Download';
 import { EllapsedTime } from "./EllapsedTime";
 import { useTranslation } from "react-i18next";
-
 
 type Props = {
   transportPeer: ITransportPeer
@@ -47,7 +46,6 @@ export const TransportPeer: React.FC<Props> = ({ transportPeer }) => {
       </Box>
       <Box sx={{ padding: '10px', paddingLeft: '20px', paddingRight: '20px', borderBottom: theme => `solid 1px ${theme.palette.divider}` }}>
         <Grid2 container justifyContent="space-evenly" spacing={5}>
-
           <Grid2>
             <Typography align="center" variant="h6" color="textPrimary">{transportPeer.stats.sentMsgs.toLocaleString()}</Typography>
             <Typography align="center" variant="body2" color="textSecondary">{t('messagesSent')}</Typography>
@@ -63,24 +61,20 @@ export const TransportPeer: React.FC<Props> = ({ transportPeer }) => {
             <Typography align="center" variant="body2" color="textSecondary">{t('dataSent')}</Typography>
           </Grid2>
 
-
           <Grid2>
             <Typography align="center" variant="h6" color="textPrimary">{byteSize(transportPeer.stats.receivedBytes)}</Typography>
             <Typography align="center" variant="body2" color="textSecondary">{t('dataReceived')}</Typography>
           </Grid2>
-
 
           <Grid2>
             <Typography align="center" variant="h6" color="textPrimary">{transportPeer.stats.reliableHighestSent.toLocaleString()}</Typography>
             <Typography align="center" variant="body2" color="textSecondary">{t('reliableHighestSent')}</Typography>
           </Grid2>
 
-
           <Grid2>
             <Typography align="center" variant="h6" color="textPrimary">{transportPeer.stats.reliableAckBase.toLocaleString()}</Typography>
             <Typography align="center" variant="body2" color="textSecondary">{t('reliableHighestAck')}</Typography>
           </Grid2>
-
         </Grid2>
       </Box>
       <Box sx={{ padding: '10px' }}>
@@ -89,28 +83,19 @@ export const TransportPeer: React.FC<Props> = ({ transportPeer }) => {
             timestamp={transportPeer.activated}
             prefix={t('activated')}
           />
-
           <EllapsedTime
             timestamp={transportPeer.stats.lastSend}
             icon={<UploadIcon />}
             prefix={t('lastSend')}
           />
-
-
+          {transportPeer.stats.lastReceive !== null &&
           <EllapsedTime
             timestamp={transportPeer.stats.lastReceive}
             icon={<DownloadIcon />}
-
             prefix={t('lastReceive')}
-          />
-
+          />}
         </Box>
-
-
-
       </Box>
-
-
     </Box>
   );
 

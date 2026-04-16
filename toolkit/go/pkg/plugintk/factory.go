@@ -18,8 +18,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"google.golang.org/grpc"
 )
 
@@ -64,7 +64,7 @@ func (pf *pluginFactory[M]) instanceStarted(inst *pluginInstance[M]) {
 }
 
 func (pf *pluginFactory[M]) instanceStopped(inst *pluginInstance[M]) {
-	log.L(context.Background()).Infof("%s plugin instance starting %s", pf.pluginType, inst.id)
+	log.L(context.Background()).Infof("%s plugin instance stopped %s", pf.pluginType, inst.id)
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
 	delete(pf.instances, inst.id)

@@ -18,8 +18,8 @@ import (
 	"C"
 )
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/kaleido-io/key-manager/signingmodules/example/internal/examplesigningmodule"
+	"github.com/LFDT-Paladin/key-manager/signingmodules/example/internal/examplesigningmodule"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 )
 
 var ple = plugintk.NewPluginLibraryEntrypoint(func() plugintk.PluginBase {

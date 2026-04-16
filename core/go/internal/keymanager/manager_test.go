@@ -22,20 +22,21 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence/mockpersistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/signpayloads"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signer"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signerapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
 	"github.com/sirupsen/logrus"
@@ -73,7 +74,7 @@ func newTestSigner(t *testing.T) (context.Context, signer.SigningModule) {
 	return ctx, sm
 }
 
-func newTestKeyManager(t *testing.T, realDB bool, conf *pldconf.KeyManagerConfig, tps []*testPlugin) (context.Context, *keyManager, *mockComponents, func()) {
+func newTestKeyManager(t *testing.T, realDB bool, conf *pldconf.KeyManagerInlineConfig, tps []*testPlugin) (context.Context, *keyManager, *mockComponents, func()) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	oldLevel := logrus.GetLevel()
 	logrus.SetLevel(logrus.TraceLevel)
@@ -170,13 +171,13 @@ func staticKeyConfig(name, keyPrefix string, keys ...string) *pldconf.WalletConf
 }
 
 func newTestDBKeyManagerWithWallets(t *testing.T, wallets ...*pldconf.WalletConfig) (context.Context, *keyManager, *mockComponents, func()) {
-	return newTestKeyManager(t, true, &pldconf.KeyManagerConfig{
+	return newTestKeyManager(t, true, &pldconf.KeyManagerInlineConfig{
 		Wallets: append([]*pldconf.WalletConfig{}, wallets...),
 	}, nil)
 }
 
 func TestConfiguredSigningModules(t *testing.T) {
-	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{
 			"test1": {
 				Plugin: pldconf.PluginConfig{
@@ -204,7 +205,7 @@ func TestGetSigningModule(t *testing.T) {
 		},
 	}
 
-	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -239,7 +240,7 @@ func TestGetSigningModule(t *testing.T) {
 }
 
 func TestSigningModuleRegisteredNotFound(t *testing.T) {
-	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{},
 	}, nil)
 	defer done()
@@ -249,7 +250,7 @@ func TestSigningModuleRegisteredNotFound(t *testing.T) {
 }
 
 func TestConfigureSigningModuleFail(t *testing.T) {
-	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -270,7 +271,7 @@ func TestConfigureSigningModuleFail(t *testing.T) {
 }
 
 func TestGetSigningModuleNotFound(t *testing.T) {
-	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{},
 	}, nil)
 	defer done()
@@ -287,7 +288,7 @@ func TestConfiguredSigningModulesNoWallet(t *testing.T) {
 		},
 	}
 
-	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	_, km, _, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -503,7 +504,7 @@ func TestE2ESigningModulePluginRealDB(t *testing.T) {
 		},
 	}
 
-	ctx, km, _, done := newTestKeyManager(t, true, &pldconf.KeyManagerConfig{
+	ctx, km, _, done := newTestKeyManager(t, true, &pldconf.KeyManagerInlineConfig{
 		SigningModules: map[string]*pldconf.SigningModuleConfig{
 			"test1": {
 				Config: map[string]any{"some": "conf"},
@@ -783,7 +784,7 @@ func TestStartFailures(t *testing.T) {
 	require.NoError(t, err)
 	mc.c.On("Persistence").Return(db.P)
 
-	km := NewKeyManager(context.Background(), &pldconf.KeyManagerConfig{
+	km := NewKeyManager(context.Background(), &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{
 			{ /* no name */ },
 		},
@@ -795,7 +796,7 @@ func TestStartFailures(t *testing.T) {
 	err = km.Start()
 	assert.Regexp(t, "PD010508", err) // no name
 
-	km = NewKeyManager(context.Background(), &pldconf.KeyManagerConfig{
+	km = NewKeyManager(context.Background(), &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{
 			hdWalletConfig("duplicated", ""),
 			hdWalletConfig("duplicated", ""),
@@ -864,7 +865,7 @@ func TestAddInMemorySignerAndSign(t *testing.T) {
 }
 
 func TestResolveKeyNewDatabaseTXFail(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -877,7 +878,7 @@ func TestResolveKeyNewDatabaseTXFail(t *testing.T) {
 }
 
 func TestResolveEthAddressNewDatabaseTXFail(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -890,7 +891,7 @@ func TestResolveEthAddressNewDatabaseTXFail(t *testing.T) {
 }
 
 func TestResolveBatchNewDatabaseTXFail(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -903,7 +904,7 @@ func TestResolveBatchNewDatabaseTXFail(t *testing.T) {
 }
 
 func TestReverseKeyLookupFail(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -915,7 +916,7 @@ func TestReverseKeyLookupFail(t *testing.T) {
 }
 
 func TestReverseKeyLookupNotFound(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, true, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, true, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -925,7 +926,7 @@ func TestReverseKeyLookupNotFound(t *testing.T) {
 }
 
 func TestReverseKeyLookupFailMapping(t *testing.T) {
-	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerConfig{
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
 		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
 	}, nil)
 	defer done()
@@ -938,4 +939,38 @@ func TestReverseKeyLookupFailMapping(t *testing.T) {
 
 	_, err := km.ReverseKeyLookup(ctx, mc.c.Persistence().NOTX(), algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS, verifier)
 	assert.Regexp(t, "PD010500", err)
+}
+
+func TestQueryKeysFindError(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Mock the query to fail on Find
+	mc.db.ExpectQuery("SELECT.*key_paths.*").WillReturnError(fmt.Errorf("database error"))
+
+	jq := query.NewQueryBuilder().Query()
+	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	assert.Regexp(t, "database error", err)
+}
+
+func TestQueryKeysScanVerifiersError(t *testing.T) {
+	ctx, km, mc, done := newTestKeyManager(t, false, &pldconf.KeyManagerInlineConfig{
+		Wallets: []*pldconf.WalletConfig{hdWalletConfig("hdwallet1", "")},
+	}, nil)
+	defer done()
+
+	// Mock the first query (Find) to succeed with some results
+	mc.db.ExpectQuery("SELECT.*key_paths.*").WillReturnRows(
+		sqlmock.NewRows([]string{"is_key", "has_children", "parent", "index", "path", "wallet", "key_handle"}).
+			AddRow(false, true, "", int64(1), "test.path", nil, nil),
+	)
+
+	// Mock the second query (Scan verifiers) to fail
+	mc.db.ExpectQuery("SELECT.*key_verifiers.*").WillReturnError(fmt.Errorf("verifier scan error"))
+
+	jq := query.NewQueryBuilder().Query()
+	_, err := km.QueryKeys(ctx, km.p.DB(), jq)
+	assert.Regexp(t, "verifier scan error", err)
 }

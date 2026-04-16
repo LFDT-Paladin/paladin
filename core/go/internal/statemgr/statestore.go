@@ -18,15 +18,17 @@ package statemgr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/cache"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/rpcserver"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/cache"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver"
 	"github.com/google/uuid"
 	"gorm.io/gorm/clause"
 )
@@ -44,18 +46,54 @@ type stateManager struct {
 	domainContexts    map[uuid.UUID]*domainContext
 }
 
-var SchemaCacheDefaults = &pldconf.CacheConfig{
-	Capacity: confutil.P(1000),
+type logStateSpendRecords []*pldapi.StateSpendRecord
+
+func (lr logStateSpendRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateReadRecords []*pldapi.StateReadRecord
+
+func (lr logStateReadRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateConfirmRecords []*pldapi.StateConfirmRecord
+
+func (lr logStateConfirmRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
+}
+
+type logStateInfoRecords []*pldapi.StateInfoRecord
+
+func (lr logStateInfoRecords) String() string {
+	summary := make([]string, len(lr))
+	for i, ssr := range lr {
+		summary[i] = fmt.Sprintf("state=%s/tx=%s", ssr.State, ssr.Transaction)
+	}
+	return strings.Join(summary, ",")
 }
 
 func NewStateManager(ctx context.Context, conf *pldconf.StateStoreConfig, p persistence.Persistence) components.StateManager {
 	ss := &stateManager{
 		p:              p,
 		conf:           conf,
-		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, SchemaCacheDefaults),
+		abiSchemaCache: cache.NewCache[string, components.Schema](&conf.SchemaCache, &pldconf.StateStoreConfigDefaults.SchemaCache),
 		domainContexts: make(map[uuid.UUID]*domainContext),
 	}
-	ss.bgCtx, ss.cancelCtx = context.WithCancel(ctx)
+	ss.bgCtx, ss.cancelCtx = context.WithCancel(log.WithComponent(ctx, "statemanager"))
 	return ss
 }
 
@@ -94,7 +132,9 @@ func (ss *stateManager) Stop() {
 // might find new states become available and/or states marked locked for spending
 // become fully unavailable.
 func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persistence.DBTX, spends []*pldapi.StateSpendRecord, reads []*pldapi.StateReadRecord, confirms []*pldapi.StateConfirmRecord, infoRecords []*pldapi.StateInfoRecord) (err error) {
+	ctx = log.WithComponent(ctx, "statemanager")
 	if len(spends) > 0 {
+		log.L(ctx).Debugf("Finalizing spends: %s", logStateSpendRecords(spends))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_spend_records").
@@ -103,6 +143,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(reads) > 0 {
+		log.L(ctx).Debugf("Finalizing reads: %s", logStateReadRecords(reads))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_read_records").
@@ -111,6 +152,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(confirms) > 0 {
+		log.L(ctx).Debugf("Finalizing confirms: %s", logStateConfirmRecords(confirms))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_confirm_records").
@@ -119,6 +161,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 			Error
 	}
 	if err == nil && len(infoRecords) > 0 {
+		log.L(ctx).Debugf("Finalizing info: %s", logStateInfoRecords(infoRecords))
 		err = dbTX.DB().
 			WithContext(ctx).
 			Table("state_info_records").
@@ -130,6 +173,7 @@ func (ss *stateManager) WriteStateFinalizations(ctx context.Context, dbTX persis
 }
 
 func (ss *stateManager) GetTransactionStates(ctx context.Context, dbTX persistence.DBTX, txID uuid.UUID) (*pldapi.TransactionStates, error) {
+	ctx = log.WithComponent(ctx, "statemanager")
 
 	// We query from the records table, joining in the other fields
 	var records []*transactionStateRecord

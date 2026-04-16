@@ -20,8 +20,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/publictxmgr/metrics"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/publictxmgrmocks"
+	"github.com/LFDT-Paladin/paladin/core/internal/publictxmgr/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/publictxmgrmocks"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,21 +76,72 @@ func TestStateManagerStageManagementCanSubmit(t *testing.T) {
 		PreviousNonceCostUnknown: false,
 		// no availableToSpend provided, this means we don't need to check balance
 	})
-	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(0)))
+	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(0), ""))
 	stateManager.SetOrchestratorContext(ctx, &OrchestratorContext{
 		PreviousNonceCostUnknown: false,
 		AvailableToSpend:         big.NewInt(30),
 	})
-	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(29)))
-	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(30)))
-	assert.False(t, stateManager.CanSubmit(context.Background(), big.NewInt(31)))
-	assert.False(t, stateManager.CanSubmit(context.Background(), nil)) //unknown cost for the current transaction
+	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(29), ""))
+	assert.True(t, stateManager.CanSubmit(context.Background(), big.NewInt(30), ""))
+	assert.False(t, stateManager.CanSubmit(context.Background(), big.NewInt(31), ""))
+	assert.False(t, stateManager.CanSubmit(context.Background(), nil, "")) //unknown cost for the current transaction
 
 	stateManager.SetOrchestratorContext(ctx, &OrchestratorContext{
 		PreviousNonceCostUnknown: true,
 		AvailableToSpend:         big.NewInt(30),
 	})
 
-	assert.False(t, stateManager.CanSubmit(context.Background(), big.NewInt(29)))
+	assert.False(t, stateManager.CanSubmit(context.Background(), big.NewInt(29), ""))
 
+}
+
+func TestStateManagerGetPreviousGenerations(t *testing.T) {
+	ctx := context.Background()
+	stateManager, done := newTestInFlightTransactionStateManager(t)
+	defer done()
+
+	// Test with only 1 generation - should return empty slice
+	previousGenerations := stateManager.GetPreviousGenerations(ctx)
+	assert.Empty(t, previousGenerations)
+
+	// Test with 2 generations - should return first generation only
+	stateManager.NewGeneration(ctx)
+	previousGenerations = stateManager.GetPreviousGenerations(ctx)
+	require.Len(t, previousGenerations, 1)
+	assert.Equal(t, stateManager.GetGeneration(ctx, 0), previousGenerations[0])
+
+	// Test with 3 generations - should return first two generations
+	stateManager.NewGeneration(ctx)
+	previousGenerations = stateManager.GetPreviousGenerations(ctx)
+	require.Len(t, previousGenerations, 2)
+	assert.Equal(t, stateManager.GetGeneration(ctx, 0), previousGenerations[0])
+	assert.Equal(t, stateManager.GetGeneration(ctx, 1), previousGenerations[1])
+}
+
+func TestStateManagerGetStage(t *testing.T) {
+	ctx := context.Background()
+	stateManager, done := newTestInFlightTransactionStateManager(t)
+	defer done()
+
+	// Initially, stage should be empty (default value)
+	stage := stateManager.GetStage(ctx)
+	assert.Empty(t, stage)
+
+	// Set a stage on the current generation and verify GetStage returns it
+	currentGeneration := stateManager.GetCurrentGeneration(ctx).(*inFlightTransactionStateGeneration)
+	currentGeneration.stage = InFlightTxStageRetrieveGasPrice
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageRetrieveGasPrice, stage)
+
+	// Change to a different stage
+	currentGeneration.stage = InFlightTxStageSigning
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageSigning, stage)
+
+	// Create a new generation and set its stage
+	stateManager.NewGeneration(ctx)
+	currentGeneration = stateManager.GetCurrentGeneration(ctx).(*inFlightTransactionStateGeneration)
+	currentGeneration.stage = InFlightTxStageSubmitting
+	stage = stateManager.GetStage(ctx)
+	assert.Equal(t, InFlightTxStageSubmitting, stage)
 }

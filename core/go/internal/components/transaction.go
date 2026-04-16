@@ -16,9 +16,9 @@
 package components
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
@@ -40,6 +40,10 @@ type TransactionPreAssembly struct {
 	RequiredVerifiers        []*prototk.ResolveVerifierRequest `json:"required_verifiers"`
 	Verifiers                []*prototk.ResolvedVerifier       `json:"verifiers"`
 	PublicTxOptions          pldapi.PublicTxOptions            `json:"public_tx_options"`
+	// Chained dependencies: ordering constraints from the parent coordinator's grapher.
+	// These are persisted on chained transaction creation so they are preserved by any receiving
+	// coordinator for in-memory ordering without blocking like application level dependencies.
+	ChainedDependsOn []uuid.UUID `json:"chainedDependsOn,omitempty"`
 }
 
 type FullState struct {
@@ -100,6 +104,16 @@ type PrivateTransaction struct {
 	PreparedPublicTransaction  *pldapi.TransactionInput `json:"-"`
 	PreparedPrivateTransaction *pldapi.TransactionInput `json:"-"`
 	PreparedMetadata           pldtypes.RawJSON         `json:"-"`
+}
+
+// CleanUpPostAssemblyData releases the heavy post-assembly and prepared-dispatch
+// payload data. Shared by re-assembly cleanup (which retains PreAssembly for reuse)
+// and post-dispatch cleanup (which additionally releases PreAssembly).
+func (pt *PrivateTransaction) CleanUpPostAssemblyData() {
+	pt.PostAssembly = nil
+	pt.PreparedPublicTransaction = nil
+	pt.PreparedPrivateTransaction = nil
+	pt.PreparedMetadata = nil
 }
 
 // PrivateContractDeploy is a simpler transaction type that constructs new private smart contract instances

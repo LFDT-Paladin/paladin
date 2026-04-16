@@ -26,11 +26,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
+	"strings"
 	"text/template"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/Masterminds/sprig/v3"
 	"github.com/tyler-smith/go-bip39"
 	appsv1 "k8s.io/api/apps/v1"
@@ -52,14 +54,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
-	corev1alpha1 "github.com/LF-Decentralized-Trust-labs/paladin/operator/api/v1alpha1"
-	"github.com/LF-Decentralized-Trust-labs/paladin/operator/pkg/config"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
+	"github.com/LFDT-Paladin/paladin/operator/pkg/config"
 
 	_ "embed"
 )
 
 //go:embed check-psql.sh
 var checkPsqlScript string
+
+const (
+	defaultPaladinLogPath = "/app/logs/paladin.log"
+	logsPVCNameSuffix     = "logs"
+)
 
 // PaladinReconciler reconciles a Paladin object
 type PaladinReconciler struct {
@@ -246,6 +253,12 @@ func (r *PaladinReconciler) createStatefulSet(ctx context.Context, node *corev1a
 			return nil, err
 		}
 	}
+	if node.Spec.LogPersistence != nil && node.Spec.LogPersistence.Enabled {
+		if err := r.createLogsPVC(ctx, node, name); err != nil {
+			setCondition(&node.Status.Conditions, corev1alpha1.ConditionPVC, metav1.ConditionTrue, corev1alpha1.ReasonPVCCreationFailed, err.Error())
+			return nil, err
+		}
+	}
 
 	paladinContainer := r.getPaladinContainer(statefulSet)
 	// Used by Postgres sidecar, but also custom DB creation - a DB secret needs wiring up to env vars for DSNParams
@@ -258,6 +271,14 @@ func (r *PaladinReconciler) createStatefulSet(ctx context.Context, node *corev1a
 	r.addKeystoreSecretMounts(statefulSet, paladinContainer, node.Spec.SecretBackedSigners)
 
 	r.addTLSSecretMounts(statefulSet, paladinContainer, tlsSecrets)
+	r.addLogPersistenceMounts(statefulSet, paladinContainer, name, node.Spec.LogPersistence)
+
+	// Mount RPC auth secret if configured
+	if node.Spec.RPCAuth != nil && node.Spec.RPCAuth.SecretName != "" {
+		if err := r.addRPCAuthSecretMount(ctx, statefulSet, paladinContainer, node); err != nil {
+			return nil, err
+		}
+	}
 
 	// Check if the StatefulSet already exists, create if not
 	var foundStatefulSet appsv1.StatefulSet
@@ -403,6 +424,11 @@ func (r *PaladinReconciler) generateStatefulSetTemplate(node *corev1alpha1.Palad
 									ContainerPort: 8549,
 									Protocol:      corev1.ProtocolTCP,
 								},
+								{
+									Name:          "metrics",
+									ContainerPort: 9090,
+									Protocol:      corev1.ProtocolTCP,
+								},
 							},
 							Env: buildEnv(r.config.Paladin.Envs),
 							LivenessProbe: &corev1.Probe{
@@ -497,6 +523,10 @@ func (r *PaladinReconciler) addPostgresSidecar(ss *appsv1.StatefulSet, passwordS
 					},
 				},
 			},
+			Args: []string{
+				"postgres",
+				"-c", "shared_preload_libraries=pg_stat_statements",
+			},
 			LivenessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					TCPSocket: &corev1.TCPSocketAction{
@@ -569,6 +599,41 @@ func (r *PaladinReconciler) createPostgresPVC(ctx context.Context, node *corev1a
 	return nil
 }
 
+func (r *PaladinReconciler) createLogsPVC(ctx context.Context, node *corev1alpha1.Paladin, name string) error {
+	pvc := corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", name, logsPVCNameSuffix),
+			Namespace: node.Namespace,
+			Labels:    r.getLabels(node),
+		},
+		Spec: node.Spec.LogPersistence.PVCTemplate,
+	}
+	pvc.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{
+		corev1.ReadWriteOnce,
+	}
+	if pvc.Spec.Resources.Requests == nil {
+		pvc.Spec.Resources.Requests = corev1.ResourceList{}
+	}
+	if _, resourceSet := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; !resourceSet {
+		pvc.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("1Gi")
+	}
+	if err := controllerutil.SetControllerReference(node, &pvc, r.Scheme); err != nil {
+		return err
+	}
+
+	var foundPVC corev1.PersistentVolumeClaim
+	if err := r.Get(ctx, types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}, &foundPVC); err != nil && errors.IsNotFound(err) {
+		err = r.Create(ctx, &pvc)
+		if err != nil {
+			return err
+		}
+		setCondition(&node.Status.Conditions, corev1alpha1.ConditionPVC, metav1.ConditionTrue, corev1alpha1.ReasonPVCCreated, fmt.Sprintf("Name: %s", pvc.Name))
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *PaladinReconciler) getPaladinContainer(sts *appsv1.StatefulSet) *corev1.Container {
 	var paladinContainer *corev1.Container
 	for i, c := range sts.Spec.Template.Spec.Containers {
@@ -578,6 +643,31 @@ func (r *PaladinReconciler) getPaladinContainer(sts *appsv1.StatefulSet) *corev1
 		}
 	}
 	return paladinContainer
+}
+
+func (r *PaladinReconciler) addLogPersistenceMounts(ss *appsv1.StatefulSet, ct *corev1.Container, name string, config *corev1alpha1.LogPersistence) {
+	if config == nil || !config.Enabled {
+		return
+	}
+	logPath := normalizeLogPath(config)
+	logDir := path.Dir(logPath)
+	if logDir == "." {
+		logDir = "/app/logs"
+	}
+	volumeName := logsPVCNameSuffix
+	claimName := fmt.Sprintf("%s-%s", name, logsPVCNameSuffix)
+	ct.VolumeMounts = append(ct.VolumeMounts, corev1.VolumeMount{
+		Name:      volumeName,
+		MountPath: logDir,
+	})
+	ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: volumeName,
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: claimName,
+			},
+		},
+	})
 }
 
 func (r *PaladinReconciler) addKeystoreSecretMounts(ss *appsv1.StatefulSet, ct *corev1.Container, signers []corev1alpha1.SecretBackedSigner) {
@@ -629,6 +719,46 @@ func (r *PaladinReconciler) addPaladinDBSecret(ctx context.Context, ss *appsv1.S
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
 				SecretName: secretName,
+			},
+		},
+	})
+
+	return nil
+}
+
+func (r *PaladinReconciler) addRPCAuthSecretMount(ctx context.Context, ss *appsv1.StatefulSet, ct *corev1.Container, node *corev1alpha1.Paladin) error {
+	secretName := node.Spec.RPCAuth.SecretName
+
+	// Verify secret exists
+	var secret corev1.Secret
+	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: node.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return fmt.Errorf("secret '%s' does not exist for RPC auth", secretName)
+		}
+		return fmt.Errorf("failed to get RPC auth secret '%s': %s", secretName, err)
+	}
+
+	// Verify the credentials.htpasswd key exists
+	if secret.Data["credentials.htpasswd"] == nil {
+		return fmt.Errorf("secret '%s' does not contain required key 'credentials.htpasswd'", secretName)
+	}
+
+	ct.VolumeMounts = append(ct.VolumeMounts, corev1.VolumeMount{
+		Name:      "rpc-auth-creds",
+		MountPath: "/rpcauth",
+	})
+	ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: "rpc-auth-creds",
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretName,
+				Items: []corev1.KeyToPath{
+					{
+						Key:  "credentials.htpasswd",
+						Path: "credentials.htpasswd",
+					},
+				},
 			},
 		},
 	})
@@ -771,13 +901,52 @@ func (r *PaladinReconciler) generatePaladinConfig(ctx context.Context, node *cor
 	// Add any provided signing modules into the supplied config
 	r.generatePaladinSigningModules(ctx, node, &pldConf)
 
-	tlsSecrets, err := r.generatePaladinTransports(ctx, node, &pldConf)
+	// Generate RPC auth configuration if specified
+	_, err := r.generatePaladinRPCAuth(ctx, node, &pldConf)
 	if err != nil {
 		return "", nil, err
 	}
 
+	tlsSecrets, err := r.generatePaladinTransports(ctx, node, &pldConf)
+	if err != nil {
+		return "", nil, err
+	}
+	r.applyLogPersistenceConfig(&pldConf, node.Spec.LogPersistence)
+
 	b, err := yaml.Marshal(&pldConf)
 	return string(b), tlsSecrets, err
+}
+
+func normalizeLogPath(config *corev1alpha1.LogPersistence) string {
+	if config == nil || config.Path == "" {
+		return defaultPaladinLogPath
+	}
+	if strings.HasPrefix(config.Path, "/") {
+		return config.Path
+	}
+	return path.Join("/app/logs", config.Path)
+}
+
+func (r *PaladinReconciler) applyLogPersistenceConfig(pldConf *pldconf.PaladinConfig, config *corev1alpha1.LogPersistence) {
+	if config == nil || !config.Enabled {
+		return
+	}
+	logOutput := "file"
+	logPath := normalizeLogPath(config)
+	pldConf.Log.Output = &logOutput
+	pldConf.Log.File.Filename = &logPath
+	if config.File.MaxSize != nil {
+		pldConf.Log.File.MaxSize = config.File.MaxSize
+	}
+	if config.File.MaxBackups != nil {
+		pldConf.Log.File.MaxBackups = config.File.MaxBackups
+	}
+	if config.File.MaxAge != nil {
+		pldConf.Log.File.MaxAge = config.File.MaxAge
+	}
+	if config.File.Compress != nil {
+		pldConf.Log.File.Compress = config.File.Compress
+	}
 }
 func (r *PaladinReconciler) generatePaladinBlockchainConfig(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) error {
 	if node.Spec.BaseLedgerEndpoint == nil {
@@ -959,12 +1128,14 @@ func (r *PaladinReconciler) generatePaladinSigners(ctx context.Context, node *co
 			Signer:                  &pldconf.SignerConfig{},
 		}
 
-		// Upsert a secret if we've been asked to. We use a mnemonic in this case (rather than directly generating a 32byte seed)
-		if s.Type == corev1alpha1.SignerType_AutoHDWallet {
+		if s.DerivationType == corev1alpha1.DerivationType_BIP32 {
 			wallet.Signer.KeyDerivation.Type = pldconf.KeyDerivationTypeBIP32
 			wallet.Signer.KeyDerivation.SeedKeyPath = pldconf.StaticKeyReference{Name: "seed"}
-			if err := r.generateBIP39SeedSecretIfNotExist(ctx, node, s.Secret); err != nil {
-				return err
+			if s.Type == corev1alpha1.SignerType_AutoHDWallet {
+				// Upsert a secret if we've been asked to. We use a mnemonic in this case (rather than directly generating a 32byte seed)
+				if err := r.generateBIP39SeedSecretIfNotExist(ctx, node, s.Secret); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -1018,10 +1189,11 @@ func (r *PaladinReconciler) generatePaladinDomains(ctx context.Context, node *co
 		// or wholely defined by reference to the CR attached.
 		// We do not attempt to merge
 		pldConf.Domains[domain.Name] = &pldconf.DomainConfig{
-			Plugin:          r.mapPluginConfig(domain.Spec.Plugin),
-			Config:          domainConf,
-			RegistryAddress: domain.Status.RegistryAddress,
-			AllowSigning:    domain.Spec.AllowSigning,
+			Plugin:               r.mapPluginConfig(domain.Spec.Plugin),
+			Config:               domainConf,
+			RegistryAddress:      domain.Status.RegistryAddress,
+			AllowSigning:         domain.Spec.AllowSigning,
+			FixedSigningIdentity: domain.Spec.FixedSigningIdentity,
 		}
 	}
 
@@ -1091,6 +1263,52 @@ func (r *PaladinReconciler) generatePaladinRegistries(ctx context.Context, node 
 	return nil
 }
 
+func (r *PaladinReconciler) generatePaladinRPCAuth(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) (string, error) {
+	if node.Spec.RPCAuth == nil || node.Spec.RPCAuth.SecretName == "" {
+		return "", nil
+	}
+
+	secretName := node.Spec.RPCAuth.SecretName
+
+	// Validate secret exists and contains the required key
+	var secret corev1.Secret
+	err := r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: node.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return "", fmt.Errorf("waiting for secret '%s' to be available for RPC auth", secretName)
+		}
+		return "", fmt.Errorf("failed to lookup secret for RPC auth: %s", err)
+	}
+
+	// Verify the credentials.htpasswd key exists
+	if secret.Data["credentials.htpasswd"] == nil {
+		return "", fmt.Errorf("secret '%s' does not contain required key 'credentials.htpasswd'", secretName)
+	}
+
+	// Build the config JSON for basicauth plugin
+	credentialsPath := "/rpcauth/credentials.htpasswd"
+	configJSON := fmt.Sprintf(`{"credentialsFile": "%s"}`, credentialsPath)
+
+	// Initialize rpcAuthorizers map if needed
+	if pldConf.RPCAuthorizers == nil {
+		pldConf.RPCAuthorizers = make(map[string]*pldconf.RPCAuthorizerConfig)
+	}
+
+	// Add basicauth authorizer configuration
+	pldConf.RPCAuthorizers["basicauth"] = &pldconf.RPCAuthorizerConfig{
+		Plugin: pldconf.PluginConfig{
+			Type:    "c-shared",
+			Library: "/app/rpcauth/libbasicauth.so",
+		},
+		Config: configJSON,
+	}
+
+	// Set rpcServer.authorizers to use basicauth
+	pldConf.RPCServer.Authorizers = []string{"basicauth"}
+
+	return secretName, nil
+}
+
 func (r *PaladinReconciler) generatePaladinSigningModules(ctx context.Context, node *corev1alpha1.Paladin, pldConf *pldconf.PaladinConfig) {
 	for _, signingModule := range node.Spec.SigningModules {
 		var signingModuleConf map[string]any
@@ -1146,12 +1364,16 @@ func (r *PaladinReconciler) generatePaladinTransports(ctx context.Context, node 
 
 		tlsIdx := len(availableTLSSecrets)
 		availableTLSSecrets = append(availableTLSSecrets, secret.Name)
-		transportConf["tls"] = &pldconf.TLSConfig{
+		tlsConf := &pldconf.TLSConfig{
 			Enabled:    true,
 			ClientAuth: true,
 			CertFile:   fmt.Sprintf("/cert%.3d/tls.crt", tlsIdx),
 			KeyFile:    fmt.Sprintf("/cert%.3d/tls.key", tlsIdx),
 		}
+		if secret.Data["ca.crt"] != nil {
+			tlsConf.CAFile = fmt.Sprintf("/cert%.3d/ca.crt", tlsIdx)
+		}
+		transportConf["tls"] = tlsConf
 		if transportConf["externalHostname"] == nil {
 			transportConf["externalHostname"] = generatePaladinServiceHostname(node.Name, node.Namespace)
 		}

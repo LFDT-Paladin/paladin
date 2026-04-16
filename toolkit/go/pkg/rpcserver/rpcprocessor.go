@@ -18,20 +18,74 @@ package rpcserver
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
-func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest, wsc *webSocketConnection) (*rpcclient.RPCResponse, bool) {
+// getAuthenticationResults retrieves authentication results from either HTTP context or WebSocket connection
+func getAuthenticationResults(ctx context.Context, wsc *webSocketConnection) []string {
+	if wsc == nil {
+		// HTTP request: get from context
+		if results, ok := ctx.Value(authResultKey).([]string); ok {
+			return results
+		}
+		return nil
+	}
+	// WebSocket request: get from connection (which was populated from context during upgrade)
+	return wsc.getAuthenticationResults()
+}
+
+func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest, wsc *webSocketConnection) (*rpcclient.RPCResponse, bool, func()) {
 	if rpcReq.ID == nil {
 		// While the JSON/RPC standard does not strictly require an ID (it strongly discourages use of a null ID),
 		// we choose to make an ID mandatory. We do not enforce the type - it can be a number, string, or even boolean.
 		// However, it cannot be null.
 		err := i18n.NewError(ctx, pldmsgs.MsgJSONRPCMissingRequestID)
-		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
+	}
+
+	// Check authorizers if configured
+	if len(s.authorizers) > 0 {
+		// Get authentication results (from context for HTTP, from connection for WebSocket)
+		authenticationResults := getAuthenticationResults(ctx, wsc)
+		if len(authenticationResults) == 0 {
+			// This shouldn't happen if auth is required and authentication succeeded
+			// But handle gracefully
+			log.L(ctx).Errorf("Request without stored authentication results")
+			return rpcclient.NewRPCErrorResponse(
+				i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
+				rpcReq.ID,
+				rpcclient.RPCCodeUnauthorized,
+			), false, nil
+		}
+
+		// Authorize through chain - stop on first failure
+		payload, _ := json.Marshal(rpcReq)
+		for i, auth := range s.authorizers {
+			if i >= len(authenticationResults) {
+				log.L(ctx).Errorf("Mismatch: authorizer index %d exceeds authentication results count %d", i, len(authenticationResults))
+				return rpcclient.NewRPCErrorResponse(
+					i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
+					rpcReq.ID,
+					rpcclient.RPCCodeUnauthorized,
+				), false, nil
+			}
+
+			authorized := auth.Authorize(ctx, authenticationResults[i], rpcReq.Method, payload)
+			if !authorized {
+				log.L(ctx).Errorf("Unauthorized request to %s at authorizer %d", rpcReq.Method, i)
+				return rpcclient.NewRPCErrorResponse(
+					i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
+					rpcReq.ID,
+					rpcclient.RPCCodeUnauthorized,
+				), false, nil
+			}
+		}
 	}
 
 	var mh *rpcMethodEntry
@@ -42,18 +96,19 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 	}
 	if mh == nil {
 		err := i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnsupportedMethod, rpcReq.Method)
-		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+		return rpcclient.NewRPCErrorResponse(err, rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
 	}
 
 	var rpcRes *rpcclient.RPCResponse
+	var afterSend func()
 	if mh.methodType == rpcMethodTypeMethod {
 		rpcRes = mh.handler.Handle(ctx, rpcReq)
 	} else {
 		if wsc == nil {
-			return rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, pldmsgs.MsgJSONRPCAysncNonWSConn, rpcReq.Method), rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false
+			return rpcclient.NewRPCErrorResponse(i18n.NewError(ctx, pldmsgs.MsgJSONRPCAysncNonWSConn, rpcReq.Method), rpcReq.ID, rpcclient.RPCCodeInvalidRequest), false, nil
 		}
 		if mh.methodType == rpcMethodTypeAsyncStart {
-			rpcRes = wsc.handleNewAsync(ctx, rpcReq, mh.async)
+			rpcRes, afterSend = wsc.handleNewAsync(ctx, rpcReq, mh.async)
 		} else {
 			rpcRes = wsc.handleLifecycle(ctx, rpcReq, mh.async)
 		}
@@ -62,5 +117,5 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 	if rpcRes != nil {
 		isOK = rpcRes.Error == nil
 	}
-	return rpcRes, isOK
+	return rpcRes, isOK, afterSend
 }

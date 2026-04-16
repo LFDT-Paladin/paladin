@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,6 +150,32 @@ func TestDomainCallback_GetStates(t *testing.T) {
 		}
 	}
 	_, err := callbacks.GetStatesByID(ctx, &prototk.GetStatesByIDRequest{})
+	require.NoError(t, err)
+}
+
+func TestDomainCallback_ReverseKeyLookup(t *testing.T) {
+	ctx, _, _, callbacks, inOutMap, done := setupDomainTests(t)
+	defer done()
+
+	inOutMap[fmt.Sprintf("%T", &prototk.DomainMessage_ReverseKeyLookup{})] = func(dm *prototk.DomainMessage) {
+		dm.ResponseToDomain = &prototk.DomainMessage_ReverseKeyLookupRes{
+			ReverseKeyLookupRes: &prototk.ReverseKeyLookupResponse{},
+		}
+	}
+	_, err := callbacks.ReverseKeyLookup(ctx, &prototk.ReverseKeyLookupRequest{})
+	require.NoError(t, err)
+}
+
+func TestDomainCallback_ValidateStates(t *testing.T) {
+	ctx, _, _, callbacks, inOutMap, done := setupDomainTests(t)
+	defer done()
+
+	inOutMap[fmt.Sprintf("%T", &prototk.DomainMessage_ValidateStates{})] = func(dm *prototk.DomainMessage) {
+		dm.ResponseToDomain = &prototk.DomainMessage_ValidateStatesRes{
+			ValidateStatesRes: &prototk.ValidateStatesResponse{},
+		}
+	}
+	_, err := callbacks.ValidateStates(ctx, &prototk.ValidateStatesRequest{})
 	require.NoError(t, err)
 }
 
@@ -483,5 +509,38 @@ func TestDomainRequestError(t *testing.T) {
 	// Check responseToPluginAs handles nil
 	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {}, func(res *prototk.DomainMessage) {
 		assert.Regexp(t, "PD020300", *res.Header.ErrorMessage)
+	})
+}
+
+func TestDomainFunction_CheckStateCompletion(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	// CheckStateCompletion - paladin to domain
+	funcs.CheckStateCompletion = func(ctx context.Context, cdr *prototk.CheckStateCompletionRequest) (*prototk.CheckStateCompletionResponse, error) {
+		return &prototk.CheckStateCompletionResponse{}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_CheckStateCompletion{
+			CheckStateCompletion: &prototk.CheckStateCompletionRequest{},
+		}
+	}, func(res *prototk.DomainMessage) {
+		assert.IsType(t, &prototk.DomainMessage_CheckStateCompletionRes{}, res.ResponseFromDomain)
+	})
+}
+
+func TestDomainFunction_IsBaseLedgerRevertRetryable(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	funcs.IsBaseLedgerRevertRetryable = func(ctx context.Context, req *prototk.IsBaseLedgerRevertRetryableRequest) (*prototk.IsBaseLedgerRevertRetryableResponse, error) {
+		return &prototk.IsBaseLedgerRevertRetryableResponse{}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_IsBaseLedgerRevertRetryable{
+			IsBaseLedgerRevertRetryable: &prototk.IsBaseLedgerRevertRetryableRequest{},
+		}
+	}, func(res *prototk.DomainMessage) {
+		assert.IsType(t, &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}, res.ResponseFromDomain)
 	})
 }

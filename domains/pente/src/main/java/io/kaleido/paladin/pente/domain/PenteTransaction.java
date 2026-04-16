@@ -84,7 +84,7 @@
      }
 
      private enum ABIEntryType {INVOKE, DEPLOY, CUSTOM_FUNCTION}
- 
+
      private final ABIEntryType abiEntryType;
  
      static class ABIDefinitions {
@@ -107,6 +107,7 @@
      private final String from;
      private final String jsonParams;
      private final long baseBlock;
+     private final long baseBlockTimestamp;
      private Values values;
  
      PenteTransaction(PenteDomain domain, TransactionSpecification tx) throws IOException, IllegalArgumentException {
@@ -115,6 +116,7 @@
          contractConfig = new ObjectMapper().readValue(tx.getContractInfo().getContractConfigJson(), PenteConfiguration.ContractConfig.class);
          from = tx.getFrom();
          baseBlock = tx.getBaseBlock();
+         baseBlockTimestamp = tx.getBaseBlockTimestamp();
          // Check the ABI params we expect at the top level (we don't mind the order)
          functionDef = new ObjectMapper().readValue(tx.getFunctionAbiJson(), JsonABI.Entry.class);
          for (JsonABI.Parameter param : functionDef.inputs()) {
@@ -293,6 +295,8 @@
              @JsonProperty
              JsonHexNum.Uint256 baseBlock,
              @JsonProperty
+             JsonHexNum.Uint256 baseBlockTimestamp,
+             @JsonProperty
              JsonHexNum.Uint256 bytecodeLength,
              @JsonProperty
              JsonHex.Bytes rawTransaction
@@ -325,7 +329,7 @@
                              build());
                  }
                  if (lastOp == DynamicLoadWorldState.LastOpType.UPDATED) {
-                     LOGGER.info("Writing new state for account {} (existing={})", loadedAccount, inputState);
+                     LOGGER.debug("Writing new state for account {}", loadedAccount);
                      var updatedAccount = evm.getWorld().get(loadedAccount);
                      outputStates.add(NewState.newBuilder().
                              setSchemaId(latestAccountSchemaId).
@@ -335,11 +339,11 @@
                              addAllDistributionList(lookups).
                              build());
                  } else {
-                     LOGGER.info("Deleting account {} (existing={})", loadedAccount, inputState);
+                     LOGGER.info("Deleting account {}", loadedAccount);
                  }
              } else if (loadedAccount != null) {
                  // Note a read of an account with no state at this block is not tracked on-chain
-                 LOGGER.info("Read of state for account {} (existing={})", loadedAccount, inputState);
+                 LOGGER.info("Read of state for account {}", loadedAccount);
                  readStates.add(StateRef.newBuilder().
                          setSchemaId(inputState.getSchemaId()).
                          setId(inputState.getId()).
@@ -350,6 +354,7 @@
              JsonHex.randomBytes32(),
              evmTxn.getEVMVersion(),
              new JsonHexNum.Uint256(evmTxn.getBaseBlock()),
+             new JsonHexNum.Uint256(evmTxn.getBaseBlockTimestamp()),
              new JsonHexNum.Uint256(evmTxn.getBytecodeLen()),
              new JsonHex.Bytes(encodedTxn)
          );
@@ -374,6 +379,10 @@
  
      long getBaseBlock() {
          return baseBlock;
+     }
+
+     long getBaseBlockTimestamp() {
+         return baseBlockTimestamp;
      }
  
      static List<String> buildGroupScopeIdentityLookups(JsonHex.Bytes32 salt, String[] members) throws IllegalArgumentException {

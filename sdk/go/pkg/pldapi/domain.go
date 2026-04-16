@@ -17,16 +17,26 @@
 package pldapi
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 )
+
+type DomainConfig struct {
+	SigningAlgorithms map[string]int32 `docstruct:"DomainConfig" json:"signingAlgorithms,omitempty"`
+}
 
 type Domain struct {
 	Name            string               `docstruct:"Domain" json:"name"`
 	RegistryAddress *pldtypes.EthAddress `docstruct:"Domain" json:"registryAddress"`
+	Config          *DomainConfig        `docstruct:"Domain" json:"config,omitempty"`
+}
+
+type ContractConfig struct {
+	ContractConfig pldtypes.RawJSON `docstruct:"ContractConfig" json:"contractConfig,omitempty"`
 }
 
 type DomainSmartContract struct {
 	DomainName    string               `docstruct:"SmartContract" json:"domainName"`
 	DomainAddress *pldtypes.EthAddress `docstruct:"SmartContract" json:"domainAddress"`
 	Address       pldtypes.EthAddress  `docstruct:"SmartContract" json:"address"`
+	Config        *ContractConfig      `docstruct:"SmartContract" json:"config,omitempty"`
 }

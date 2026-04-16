@@ -21,12 +21,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/smt"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/smt"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -414,7 +414,7 @@ func TestHandleIdentityRegisteredEvent(t *testing.T) {
 	count := 0
 	data, _ := json.Marshal(map[string]string{"rootIndex": "0x1234567890123456789012345678901234567890123456789012345678901234"})
 	errCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			if count == 0 {
 				count++
 				return &prototk.FindAvailableStatesResponse{

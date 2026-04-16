@@ -17,18 +17,20 @@
 package pldapi
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
 
 type ReliableMessageType string
 
 const (
-	RMTState               ReliableMessageType = "state"
-	RMTReceipt             ReliableMessageType = "receipt"
-	RMTPreparedTransaction ReliableMessageType = "prepared_txn"
-	RMTPrivacyGroup        ReliableMessageType = "privacy_group"
-	RMTPrivacyGroupMessage ReliableMessageType = "privacy_group_message"
+	RMTState                       ReliableMessageType = "state"
+	RMTReceipt                     ReliableMessageType = "receipt"
+	RMTPublicTransactionSubmission ReliableMessageType = "public_transaction_submission"
+	RMTSequencingActivity          ReliableMessageType = "sequencing_activity"
+	RMTPreparedTransaction         ReliableMessageType = "prepared_txn"
+	RMTPrivacyGroup                ReliableMessageType = "privacy_group"
+	RMTPrivacyGroupMessage         ReliableMessageType = "privacy_group_message"
 )
 
 func (t ReliableMessageType) Enum() pldtypes.Enum[ReliableMessageType] {
@@ -39,6 +41,8 @@ func (t ReliableMessageType) Options() []string {
 	return []string{
 		string(RMTState),
 		string(RMTReceipt),
+		string(RMTPublicTransactionSubmission),
+		string(RMTSequencingActivity),
 		string(RMTPreparedTransaction),
 		string(RMTPrivacyGroup),
 		string(RMTPrivacyGroupMessage),

@@ -20,20 +20,24 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/metrics"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/blockindexermocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
+	"github.com/LFDT-Paladin/paladin/core/mocks/blockindexermocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/mocks/ethclientmocks"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence/mockpersistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/stretchr/testify/require"
 )
 
 type mockComponents struct {
+	t                *testing.T
 	c                *componentsmocks.AllComponents
 	db               sqlmock.Sqlmock
 	ethClientFactory *ethclientmocks.EthClientFactory
@@ -41,7 +45,7 @@ type mockComponents struct {
 	blockIndexer     *blockindexermocks.BlockIndexer
 	keyManager       *componentsmocks.KeyManager
 	publicTxMgr      *componentsmocks.PublicTxManager
-	privateTxMgr     *componentsmocks.PrivateTxManager
+	sequencerMgr     *componentsmocks.SequencerManager
 	stateMgr         *componentsmocks.StateManager
 	identityResolver *componentsmocks.IdentityResolver
 	transportManager *componentsmocks.TransportManager
@@ -58,13 +62,14 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 		},
 	}
 	mc := &mockComponents{
+		t:                t,
 		c:                componentsmocks.NewAllComponents(t),
 		blockIndexer:     blockindexermocks.NewBlockIndexer(t),
 		ethClientFactory: ethclientmocks.NewEthClientFactory(t),
 		keyManager:       componentsmocks.NewKeyManager(t),
 		domainManager:    componentsmocks.NewDomainManager(t),
 		publicTxMgr:      componentsmocks.NewPublicTxManager(t),
-		privateTxMgr:     componentsmocks.NewPrivateTxManager(t),
+		sequencerMgr:     componentsmocks.NewSequencerManager(t),
 		stateMgr:         componentsmocks.NewStateManager(t),
 		identityResolver: componentsmocks.NewIdentityResolver(t),
 		transportManager: componentsmocks.NewTransportManager(t),
@@ -79,7 +84,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	componentsmocks.On("DomainManager").Return(mc.domainManager).Maybe()
 	componentsmocks.On("KeyManager").Return(mc.keyManager).Maybe()
 	componentsmocks.On("PublicTxManager").Return(mc.publicTxMgr).Maybe()
-	componentsmocks.On("PrivateTxManager").Return(mc.privateTxMgr).Maybe()
+	componentsmocks.On("SequencerManager").Return(mc.sequencerMgr).Maybe()
 	componentsmocks.On("StateManager").Return(mc.stateMgr).Maybe()
 	componentsmocks.On("IdentityResolver").Return(mc.identityResolver).Maybe()
 	componentsmocks.On("EthClientFactory").Return(mc.ethClientFactory).Maybe()
@@ -106,6 +111,7 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	for _, fn := range init {
 		fn(conf, mc)
 	}
+	mc.publicTxMgr.On("QueryPublicTxForTransactions", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(make(map[uuid.UUID][]*pldapi.PublicTx), nil).Maybe()
 
 	ic, err := txm.PreInit(componentsmocks)
 	require.NoError(t, err)
@@ -118,8 +124,10 @@ func newTestTransactionManager(t *testing.T, realDB bool, init ...func(conf *pld
 	require.NoError(t, err)
 
 	return ctx, txm, func() {
-		pDone()
-		txm.Stop()
+		if !t.Failed() {
+			pDone()
+			txm.Stop()
+		}
 	}
 
 }

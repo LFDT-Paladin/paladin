@@ -14,7 +14,7 @@
  */
 package pldconf
 
-import "github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
+import "github.com/LFDT-Paladin/paladin/config/pkg/confutil"
 
 type PrivateTxManagerConfig struct {
 	Writer                         FlushWriterConfig               `json:"writer"`
@@ -29,13 +29,12 @@ type DistributerConfig struct {
 	ReceivedObjectWriter  FlushWriterConfig `json:"receivedStateWriter"`
 }
 
-var DistributerWriterConfigDefaults = FlushWriterConfig{
-	WorkerCount:  confutil.P(10),
-	BatchTimeout: confutil.P("25ms"),
-	BatchMaxSize: confutil.P(100),
-}
-
-var PrivateTxManagerDefaults = &PrivateTxManagerConfig{
+var PrivateTxManagerDefaults = PrivateTxManagerConfig{
+	Writer: FlushWriterConfig{
+		WorkerCount:  confutil.P(10),
+		BatchTimeout: confutil.P("25ms"),
+		BatchMaxSize: confutil.P(100),
+	},
 	Sequencer: PrivateTxManagerSequencerConfig{
 		MaxConcurrentProcess:                confutil.P(500),
 		MaxInflightTransactions:             confutil.P(500),
@@ -44,7 +43,7 @@ var PrivateTxManagerDefaults = &PrivateTxManagerConfig{
 		StaleTimeout:                        confutil.P("10m"),
 		MaxPendingEvents:                    confutil.P(500),
 		RoundRobinCoordinatorBlockRangeSize: confutil.P(100),
-		AssembleRequestTimeout:              confutil.P("1s"),
+		AssembleRequestTimeout:              confutil.P("30s"),
 	},
 	RequestTimeout: confutil.P("1s"),
 }

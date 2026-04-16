@@ -31,11 +31,11 @@ title: TransactionFull
 | `value` | The value transferred in the transaction (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `maxPriorityFeePerGas` | The maximum priority fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `maxFeePerGas` | The maximum fee per gas (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
-| `gasPrice` | The gas price (optional) | [`HexUint256`](simpletypes.md#hexuint256) |
 | `dependsOn` | Transactions registered as dependencies when the transaction was created | [`UUID[]`](simpletypes.md#uuid) |
 | `receipt` | Transaction receipt data - available if the transaction has reached a final state | [`TransactionReceiptData`](#transactionreceiptdata) |
 | `public` | List of public transactions associated with this transaction | [`PublicTx[]`](publictx.md#publictx) |
 | `history` | List of values that have previously been provided for this transaction | [`TransactionHistory[]`](#transactionhistory) |
+| `sequencerActivity` | List of sequencer activities associated with this transaction | [`SequencerActivity[]`](#sequenceractivity) |
 
 ## TransactionReceiptData
 
@@ -56,5 +56,15 @@ title: TransactionFull
 
 
 ## TransactionHistory
+
+
+## SequencerActivity
+
+| Field Name | Description | Type |
+|------------|-------------|------|
+| `subjectId` | Identifier of the resource this sequencer activity refers to | `string` |
+| `timestamp` | Timestamp when this sequencer activity occurred | [`Timestamp`](simpletypes.md#timestamp) |
+| `activityType` | Type of sequencer activity | `string` |
+| `sequencingNode` | Node that generated this sequencer activity | `string` |
 
 

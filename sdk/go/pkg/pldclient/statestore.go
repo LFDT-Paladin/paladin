@@ -18,9 +18,9 @@ package pldclient
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 )
 
 type StateStore interface {
@@ -89,13 +89,13 @@ func (r *stateStore) QueryStates(ctx context.Context, domain string, schemaRef p
 	return
 }
 
-func (r *stateStore) QueryContractStates(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
-	err = r.c.CallRPC(ctx, &states, "pstate_queryContractStates", domain, contractAddress, schemaRef, query)
+func (r *stateStore) QueryContractStates(ctx context.Context, domain string, contractAddress pldtypes.EthAddress, schemaRef pldtypes.Bytes32, query *query.QueryJSON, qualifier pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
+	err = r.c.CallRPC(ctx, &states, "pstate_queryContractStates", domain, contractAddress, schemaRef, query, qualifier)
 	return
 }
 
-func (r *stateStore) QueryNullifiers(ctx context.Context, domain string, schemaRef pldtypes.Bytes32, query *query.QueryJSON, status pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
-	err = r.c.CallRPC(ctx, &states, "pstate_queryNullifiers", domain, schemaRef, query)
+func (r *stateStore) QueryNullifiers(ctx context.Context, domain string, schemaRef pldtypes.Bytes32, query *query.QueryJSON, qualifier pldapi.StateStatusQualifier) (states []*pldapi.State, err error) {
+	err = r.c.CallRPC(ctx, &states, "pstate_queryNullifiers", domain, schemaRef, query, qualifier)
 	return
 }
 

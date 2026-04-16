@@ -24,15 +24,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"gorm.io/gorm/clause"
 )
+
+type msgWithErrChan struct {
+	*prototk.PaladinMsg
+	errorHandler func(ctx context.Context, err error)
+}
 
 type peer struct {
 	ctx       context.Context
@@ -45,12 +50,13 @@ type peer struct {
 	statsLock sync.Mutex
 
 	persistedMsgsAvailable chan struct{}
-	sendQueue              chan *prototk.PaladinMsg
+	sendQueue              chan *msgWithErrChan
 
 	// Send loop state (no lock as only used on the loop)
 	lastFullScan          time.Time
 	lastDrainHWM          *uint64
 	persistentMsgsDrained bool
+	consecutiveSendErrors int
 
 	senderStarted atomic.Bool
 	senderDone    chan struct{}
@@ -175,14 +181,18 @@ func (tm *transportManager) connectPeer(ctx context.Context, nodeName string, se
 	if p == nil {
 		// We need to resolve the node transport, and build a new connection
 		log.L(ctx).Debugf("activating new peer '%s'", nodeName)
+		now := pldtypes.TimestampNow()
 		p = &peer{
 			tm: tm,
 			PeerInfo: pldapi.PeerInfo{
 				Name:      nodeName,
-				Activated: pldtypes.TimestampNow(),
+				Activated: now,
+				Stats: pldapi.PeerStats{
+					CreatedAt: &now,
+				},
 			},
 			persistedMsgsAvailable: make(chan struct{}, 1),
-			sendQueue:              make(chan *prototk.PaladinMsg, tm.senderBufferLen),
+			sendQueue:              make(chan *msgWithErrChan, tm.senderBufferLen),
 			senderDone:             make(chan struct{}),
 		}
 		p.ctx, p.cancelCtx = context.WithCancel(
@@ -243,6 +253,9 @@ func (p *peer) startSender() (string, error) {
 	}
 
 	log.L(p.ctx).Debugf("connected to peer '%s'", p.Name)
+
+	// Reset the completion channel before each sender start.
+	p.senderDone = make(chan struct{})
 	p.senderStarted.Store(true)
 	go p.sender()
 	return p.transport.name, nil
@@ -259,22 +272,29 @@ func (p *peer) send(msg *prototk.PaladinMsg, reliableSeq *uint64) error {
 	err := p.tm.sendShortRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
 		return true, p.transport.send(p.ctx, p.Name, msg)
 	})
-	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
-	if err == nil {
-		now := pldtypes.TimestampNow()
-		p.statsLock.Lock()
-		defer p.statsLock.Unlock()
-		p.Stats.LastSend = &now
-		p.Stats.SentMsgs++
-		p.Stats.SentBytes += uint64(len(msg.Payload))
-		if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
-			p.Stats.ReliableHighestSent = *reliableSeq
-		}
-		if p.lastDrainHWM != nil {
-			p.Stats.ReliableAckBase = *p.lastDrainHWM
-		}
+	if err != nil {
+		p.consecutiveSendErrors++
+		return err
 	}
-	return err
+	p.consecutiveSendErrors = 0
+	log.L(p.ctx).Infof("Sent %s/%s message %s to %s (cid=%s)", msg.Component.String(), msg.MessageType, msg.MessageId, p.Name, pldtypes.StrOrEmpty(msg.CorrelationId))
+	now := pldtypes.TimestampNow()
+	p.statsLock.Lock()
+	defer p.statsLock.Unlock()
+	p.Stats.LastSend = &now
+	p.Stats.SentMsgs++
+	p.Stats.SentBytes += uint64(len(msg.Payload))
+	if reliableSeq != nil && *reliableSeq > p.Stats.ReliableHighestSent {
+		p.Stats.ReliableHighestSent = *reliableSeq
+	}
+	if p.lastDrainHWM != nil {
+		p.Stats.ReliableAckBase = *p.lastDrainHWM
+	}
+	return nil
+}
+
+func (p *peer) sendFailureThresholdExceeded() bool {
+	return p.consecutiveSendErrors >= p.tm.sendFailureResetThreshold
 }
 
 func (p *peer) updateReceivedStats(msg *prototk.PaladinMsg) {
@@ -294,11 +314,27 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 	if !fullScan && !checkNew {
 		return nil // Nothing to do
 	}
+	log.L(p.ctx).Debugf(
+		"reliableMessageScan starting node=%s checkNew=%t fullScan=%t pageSize=%d lastDrainHWM=%v",
+		p.Name,
+		checkNew,
+		fullScan,
+		p.tm.reliableMessagePageSize,
+		p.lastDrainHWM,
+	)
 
 	pageSize := p.tm.reliableMessagePageSize
 	var total = 0
 	var lastPageEnd *uint64
 	for {
+		log.L(p.ctx).Tracef(
+			"reliableMessageScan querying DB node=%s pageSize=%d fullScan=%t lastPageEnd=%v lastDrainHWM=%v",
+			p.Name,
+			pageSize,
+			fullScan,
+			lastPageEnd,
+			p.lastDrainHWM,
+		)
 		query := p.tm.persistence.DB().
 			WithContext(p.ctx).
 			Order("sequence ASC").
@@ -316,6 +352,17 @@ func (p *peer) reliableMessageScan(checkNew bool) error {
 		err := query.Find(&page).Error
 		if err != nil {
 			return err
+		}
+		if len(page) > 0 {
+			log.L(p.ctx).Debugf(
+				"reliableMessageScan fetched page node=%s count=%d firstSeq=%d lastSeq=%d",
+				p.Name,
+				len(page),
+				page[0].Sequence,
+				page[len(page)-1].Sequence,
+			)
+		} else {
+			log.L(p.ctx).Debugf("reliableMessageScan fetched page node=%s count=0", p.Name)
 		}
 
 		// Process the page - building and sending the proto messages
@@ -375,6 +422,13 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			log.L(p.ctx).Infof("Unacknowledged message %s not yet eligible for re-send", rm.ID)
 			continue
 		}
+		log.L(p.ctx).Debugf(
+			"reliableMessageScan selected message from DB id=%s seq=%d type=%s node=%s",
+			rm.ID,
+			rm.Sequence,
+			rm.MessageType,
+			rm.Node,
+		)
 
 		// Process it
 		var msg *prototk.PaladinMsg
@@ -388,6 +442,10 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 			msg, errorAck, err = p.tm.buildPrivacyGroupMessageMsg(p.ctx, dbTX, rm)
 		case pldapi.RMTReceipt:
 			msg, errorAck, err = p.tm.buildReceiptDistributionMsg(p.ctx, dbTX, rm)
+		case pldapi.RMTSequencingActivity:
+			msg, errorAck, err = p.tm.buildSequencingProgressActivityMsg(p.ctx, dbTX, rm)
+		case pldapi.RMTPublicTransactionSubmission:
+			msg, errorAck, err = p.tm.buildPublicTransactionSubmissionMsg(p.ctx, dbTX, rm)
 		default:
 			errorAck = i18n.NewError(p.ctx, msgs.MsgTransportUnsupportedReliableMsg, rm.MessageType)
 		}
@@ -435,6 +493,7 @@ func (p *peer) processReliableMsgPage(dbTX persistence.DBTX, page []*pldapi.Reli
 }
 
 func (p *peer) sender() {
+	defer p.senderStarted.Store(false)
 	defer close(p.senderDone)
 
 	log.L(p.ctx).Infof("peer %s active", p.Name)
@@ -444,9 +503,20 @@ func (p *peer) sender() {
 
 		// We send/resend any reliable messages queued up first
 		err := p.tm.reliableScanRetry.Do(p.ctx, func(attempt int) (retryable bool, err error) {
-			return true, p.reliableMessageScan(checkNew)
+			err = p.reliableMessageScan(checkNew)
+			if err != nil && p.sendFailureThresholdExceeded() {
+				return false, err
+			}
+			return true, err
 		})
 		if err != nil {
+			if p.sendFailureThresholdExceeded() {
+				log.L(p.ctx).Warnf(
+					"peer '%s' send loop restarting after %d consecutive send errors",
+					p.Name,
+					p.consecutiveSendErrors,
+				)
+			}
 			return // context closed
 		}
 		checkNew = false
@@ -468,10 +538,22 @@ func (p *peer) sender() {
 				resendTimer.Stop()
 				return // we're done
 			case msg := <-p.sendQueue:
-				resendTimer.Stop()
 				// send and spin straight round
-				if err := p.send(msg, nil); err != nil {
+				if err := p.send(msg.PaladinMsg, nil); err != nil {
 					log.L(p.ctx).Errorf("failed to send message '%s' after short retry (discarding): %s", msg.MessageId, err)
+					if msg.errorHandler != nil {
+						msg.errorHandler(p.ctx, err)
+					}
+					// Reset this sender loop after repeated send errors so
+					// the next send path re-runs peer activation.
+					if p.sendFailureThresholdExceeded() {
+						log.L(p.ctx).Warnf(
+							"peer '%s' send loop restarting after %d consecutive send errors",
+							p.Name,
+							p.consecutiveSendErrors,
+						)
+						return
+					}
 				}
 			}
 		}
@@ -483,7 +565,8 @@ func (p *peer) isInactive() bool {
 	defer p.statsLock.Unlock()
 
 	now := time.Now()
-	return (p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
+	return (p.Stats.CreatedAt == nil || now.Sub(p.Stats.CreatedAt.Time()) > p.tm.peerInactivityTimeout) &&
+		(p.Stats.LastSend == nil || now.Sub(p.Stats.LastSend.Time()) > p.tm.peerInactivityTimeout) &&
 		(p.Stats.LastReceive == nil || now.Sub(p.Stats.LastReceive.Time()) > p.tm.peerInactivityTimeout)
 }
 

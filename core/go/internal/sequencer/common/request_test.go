@@ -1,0 +1,149 @@
+/*
+ * Copyright © 2025 Kaleido, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package common
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+func Test_IdempotentRequestOK(t *testing.T) {
+	ctx := context.Background()
+	clock := RealClock()
+	requested := false
+	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		requested = true
+		return nil
+	})
+	err := request.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.True(t, requested)
+}
+
+func Test_IdempotentRequestErrorFromSend(t *testing.T) {
+	ctx := context.Background()
+	clock := RealClock()
+	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return assert.AnError
+	})
+	err := request.Nudge(ctx)
+	assert.Error(t, err)
+
+}
+
+func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
+	ctx := context.Background()
+	clock := NewMockClock(t)
+	clock.On("Now").Return(time.Now())
+
+	requested := 0
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		requested++
+		return nil
+	})
+	// always sends the request for the first time
+	err := request.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, requested)
+
+	// the second nudge only sends if the request has expired
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true)
+	err = request.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, requested)
+
+}
+
+func Test_IdempotentRequest_NoRetryOnNudgeIfNotExpired(t *testing.T) {
+	ctx := context.Background()
+	clock := NewMockClock(t)
+	clock.On("Now").Return(time.Now())
+
+	requested := 0
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		requested++
+		return nil
+	})
+
+	// always sends the request for the first time
+	err := request.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, requested)
+
+	// the second nudge only sends if the request has expired
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(false)
+	err = request.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, requested)
+
+}
+
+func Test_IdempotentRequest_FirstRequestTime(t *testing.T) {
+	ctx := context.Background()
+	start := time.Now()
+	end := start.Add(time.Duration(1))
+	clock := NewMockClock(t)
+	clock.On("Now").Return(start).Once()
+	clock.On("Now").Return(end).Once()
+	clock.On("HasExpired", mock.Anything, mock.Anything).Return(true)
+
+	request := NewIdempotentRequest(ctx, clock, time.Duration(1), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+	// send the request twice
+	err := request.Nudge(ctx)
+	assert.NoError(t, err)
+	err = request.Nudge(ctx)
+	assert.NoError(t, err)
+
+	require.NotNil(t, request.FirstRequestTime())
+	require.NotNil(t, request.requestTime)
+	assert.Equal(t, start, *request.FirstRequestTime())
+	assert.Equal(t, end, *request.requestTime)
+	assert.NotEqual(t, request.FirstRequestTime(), request.requestTime)
+}
+
+func Test_IdempotentRequest_IdempotencyKey(t *testing.T) {
+	ctx := context.Background()
+	clock := RealClock()
+	request := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		return nil
+	})
+
+	// Verify the idempotency key is a valid UUID
+	key := request.IdempotencyKey()
+	assert.NotEqual(t, uuid.Nil, key)
+
+	// Verify the key remains the same across multiple calls
+	key2 := request.IdempotencyKey()
+	assert.Equal(t, key, key2)
+
+	// Verify the key is passed to the send function
+	var receivedKey uuid.UUID
+	requestWithKeyCapture := NewIdempotentRequest(ctx, clock, clock.Duration(1000), func(ctx context.Context, idempotencyKey uuid.UUID) error {
+		receivedKey = idempotencyKey
+		return nil
+	})
+	expectedKey := requestWithKeyCapture.IdempotencyKey()
+	err := requestWithKeyCapture.Nudge(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedKey, receivedKey)
+}

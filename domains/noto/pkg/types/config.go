@@ -16,23 +16,45 @@
 package types
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type DomainConfig struct {
-	FactoryAddress string `json:"factoryAddress"`
+	FactoryVersion int64 `json:"factoryVersion"`
 }
 
 var NotoConfigID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoConfigID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the config we expect to receive from the contract registration event
-type NotoConfig_V0 struct {
-	NotaryAddress pldtypes.EthAddress `json:"notaryAddress"`
+type NotoConfig_V1 struct {
+	Name          string              `json:"name,omitempty"`
+	Symbol        string              `json:"symbol,omitempty"`
+	Decimals      pldtypes.HexUint64  `json:"decimals,omitempty"`
+	NotaryAddress pldtypes.EthAddress `json:"notary"`
 	Variant       pldtypes.HexUint64  `json:"variant"`
 	Data          pldtypes.HexBytes   `json:"data"`
 }
+
+var NotoConfigABI_V0 = &abi.ParameterArray{
+	{Name: "notary", Type: "address"},
+	{Name: "variant", Type: "bytes32"},
+	{Name: "data", Type: "bytes"},
+}
+
+var NotoConfigABI_V1 = &abi.ParameterArray{
+	{Name: "name", Type: "string"},
+	{Name: "symbol", Type: "string"},
+	{Name: "decimals", Type: "uint8"},
+	{Name: "notary", Type: "address"},
+	{Name: "variant", Type: "bytes32"},
+	{Name: "data", Type: "bytes"},
+}
+
+var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
+var NotoTransactionDataID_V1 = pldtypes.MustParseHexBytes("0x00020000")
 
 // This is the structure we expect to unpack from the config data
 type NotoConfigData_V0 struct {
@@ -45,8 +67,25 @@ type NotoConfigData_V0 struct {
 	AllowLock      bool                 `json:"allowLock"`
 }
 
+// Note that while the V0 NotoTransactionData is used by Noto V0 and the V1 NotoTransactionData
+// is used by Noto V1, NotoTransactionData is versioned independently of Noto itself.
+// It is not a requirement that a future version of Noto comes with a new version of NotoTransactionData.
+// E.g. Noto V2 may continue to use the V1 NotoTransactionData.
+
+type NotoTransactionData_V0 struct {
+	TransactionID pldtypes.Bytes32   `json:"transactionId"` // in V0 the data was the primary place for the transaction ID, but there was some duplication with parameters. Moved to parameter consistently in V1.
+	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`
+}
+
+type NotoTransactionData_V1 struct {
+	InfoStates []pldtypes.Bytes32 `json:"infoStates"`
+}
+
 // This is the structure we parse the config into in InitConfig and gets passed back to us on every call
 type NotoParsedConfig struct {
+	Name         string                    `json:"name"`
+	Symbol       string                    `json:"symbol"`
+	Decimals     pldtypes.HexUint64        `json:"decimals"`
 	NotaryLookup string                    `json:"notaryLookup"`
 	NotaryMode   pldtypes.Enum[NotaryMode] `json:"notaryMode"`
 	Variant      pldtypes.HexUint64        `json:"variant"`
@@ -77,21 +116,12 @@ type PentePrivateGroup struct {
 	Members []string         `json:"members"`
 }
 
-var NotoConfigABI_V0 = &abi.ParameterArray{
-	{Name: "notaryAddress", Type: "address"},
-	{Name: "variant", Type: "bytes32"},
-	{Name: "data", Type: "bytes"},
-}
-
-var NotoTransactionDataID_V0 = pldtypes.MustParseHexBytes("0x00010000")
-
-type NotoTransactionData_V0 struct {
-	TransactionID pldtypes.Bytes32   `json:"transactionId"`
-	InfoStates    []pldtypes.Bytes32 `json:"infoStates"`
-}
-
 var NotoTransactionDataABI_V0 = &abi.ParameterArray{
 	{Name: "transactionId", Type: "bytes32"},
+	{Name: "infoStates", Type: "bytes32[]"},
+}
+
+var NotoTransactionDataABI_V1 = &abi.ParameterArray{
 	{Name: "infoStates", Type: "bytes32[]"},
 }
 
@@ -104,4 +134,13 @@ const (
 	NotaryModeIntHooks pldtypes.HexUint64 = 0x0001
 )
 
-var NotoVariantDefault pldtypes.HexUint64 = 0x0000
+var NotoVariantDefault pldtypes.HexUint64 = 0x0001 // V1 variant
+var NotoVariantLegacy pldtypes.HexUint64 = 0x0000  // V0 variant
+
+func (c *NotoParsedConfig) IsV1() bool {
+	return c.Variant == NotoVariantDefault
+}
+
+func (c *NotoParsedConfig) IsV0() bool {
+	return c.Variant == NotoVariantLegacy
+}

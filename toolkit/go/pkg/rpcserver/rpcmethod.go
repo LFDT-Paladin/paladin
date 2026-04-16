@@ -20,10 +20,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/pldmsgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/pldmsgs"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
 )
 
 // RPCHandler should not be implemented directly - use RPCMethod0 ... RPCMethod5 to implement your function
@@ -45,7 +45,7 @@ type RPCAsyncInstance interface {
 type RPCAsyncHandler interface {
 	StartMethod() string
 	LifecycleMethods() []string
-	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (RPCAsyncInstance, *rpcclient.RPCResponse)
+	HandleStart(ctx context.Context, req *rpcclient.RPCRequest, ctrl RPCAsyncControl) (sub RPCAsyncInstance, res *rpcclient.RPCResponse, afterSend func())
 	HandleLifecycle(ctx context.Context, req *rpcclient.RPCRequest) *rpcclient.RPCResponse
 }
 

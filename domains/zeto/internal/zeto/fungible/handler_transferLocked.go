@@ -21,20 +21,20 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	corepb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	pb "github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	pb "github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"google.golang.org/protobuf/proto"
 )
@@ -311,7 +311,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 	inputIDs := make([]any, 0, len(ids))
 	for _, input := range ids {
 		if !input.NilOrZero() {
-			inputIDs = append(inputIDs, input.String())
+			inputIDs = append(inputIDs, common.HexUint256To32ByteHexString(input))
 		}
 	}
 
@@ -347,7 +347,7 @@ func (h *transferLockedHandler) loadCoins(ctx context.Context, ids []*pldtypes.H
 }
 
 func validateTransferLockedParams(ctx context.Context, params types.FungibleTransferLockedParams) error {
-	if params.LockedInputs == nil || len(params.LockedInputs) == 0 {
+	if len(params.LockedInputs) == 0 {
 		return i18n.NewError(ctx, msgs.MsgErrorMissingLockInputs)
 	}
 	if params.Delegate == "" {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInit(t *testing.T) {
@@ -30,4 +31,21 @@ func TestInit(t *testing.T) {
 		Name: "test_counter",
 	}))
 	assert.NoError(t, err, "should register a counter successfully")
+}
+
+func TestNewMetricsManager_RuntimeCollectors(t *testing.T) {
+	mgr := NewMetricsManager(context.Background())
+	mfs, err := mgr.Registry().Gather()
+	require.NoError(t, err)
+
+	names := make(map[string]struct{}, len(mfs))
+	for _, mf := range mfs {
+		if mf.Name != nil {
+			names[*mf.Name] = struct{}{}
+		}
+	}
+
+	assert.Contains(t, names, "go_goroutines", "Go collector should expose goroutine count")
+	assert.Contains(t, names, "go_memstats_alloc_bytes", "Go collector should expose memory stats")
+	assert.Contains(t, names, "process_cpu_seconds_total", "process collector should expose CPU time")
 }

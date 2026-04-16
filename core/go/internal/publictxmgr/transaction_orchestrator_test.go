@@ -22,11 +22,13 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
+	"github.com/google/uuid"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,11 +55,12 @@ func newInflightTransaction(o *orchestrator, nonce uint64, txMods ...func(tx *DB
 		Nonce:   &nonce,
 		Gas:     2000,
 		Created: pldtypes.TimestampNow(),
+		To:      pldtypes.EthAddressBytes(pldtypes.RandBytes(20)),
 	}
 	for _, txMod := range txMods {
 		txMod(tx)
 	}
-	mockIT := NewInFlightTransactionStageController(o.pubTxManager, o, tx)
+	mockIT := NewInFlightTransactionStageController(o.pubTxManager, o, tx, uuid.New())
 	return mockIT, mockIT.stateManager.(*inFlightTransactionState)
 }
 
@@ -65,7 +68,12 @@ func TestNewOrchestratorLoadsSecondTxAndQueuesBalanceCheck(t *testing.T) {
 
 	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Orchestrator.MaxInFlight = confutil.P(2) // only poll once then we're full
-		conf.GasPrice.FixedGasPrice = 1
+		maxFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		maxPriorityFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		conf.GasPrice.FixedGasPrice = &pldconf.FixedGasPricing{
+			MaxFeePerGas:         &maxFeePerGasStr,
+			MaxPriorityFeePerGas: &maxPriorityFeePerGasStr,
+		}
 	})
 	defer done()
 
@@ -75,18 +83,24 @@ func TestNewOrchestratorLoadsSecondTxAndQueuesBalanceCheck(t *testing.T) {
 	o.inFlightTxs = []*inFlightTransactionStageController{mockIT}
 
 	// Return a single transaction - note there's a highest nonce query on startup before the first poll, so we query twice
-	for i := 0; i < 2; i++ {
-		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{"from", "nonce"}).AddRow(
-			o.signingAddress, 2,
+	for range 2 {
+		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{"pub_txn_id", "from", "nonce", "Binding__pub_txn_id", "Binding__transaction"}).AddRow(
+			0, o.signingAddress, 2, 0, uuid.New().String(),
 		))
 	}
+
 	// Do not return any submissions for it
 	m.db.ExpectQuery("SELECT.*public_submissions").WillReturnRows(sqlmock.NewRows([]string{}))
 
 	addressBalanceChecked := make(chan bool)
 	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(pldtypes.Uint64ToUint256(100), nil).Run(func(args mock.Arguments) {
-		close(addressBalanceChecked)
-	}).Once()
+		select {
+		case <-addressBalanceChecked:
+			// the channel only needs to be closed the first time
+		default:
+			close(addressBalanceChecked)
+		}
+	})
 	oDone, _ := o.Start(ctx)
 	<-addressBalanceChecked
 	o.Stop()
@@ -103,11 +117,9 @@ func TestNewOrchestratorPollingLoopContextCancelled(t *testing.T) {
 
 	o.orchestratorLoopDone = make(chan struct{})
 	o.orchestratorLoop()
-
 }
 
 func TestNewOrchestratorPollingContextCancelledWhileRetrying(t *testing.T) {
-
 	ctx, o, m, done := newTestOrchestrator(t, func(mocks *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Orchestrator.MaxInFlight = confutil.P(10)
 	})
@@ -119,7 +131,6 @@ func TestNewOrchestratorPollingContextCancelledWhileRetrying(t *testing.T) {
 	o.ctxCancel()
 	polled, _ := o.pollAndProcess(ctx)
 	assert.Equal(t, -1, polled)
-
 }
 
 func TestNewOrchestratorPollingRemoveCompleted(t *testing.T) {
@@ -137,11 +148,10 @@ func TestNewOrchestratorPollingRemoveCompleted(t *testing.T) {
 	o.inFlightTxs = []*inFlightTransactionStageController{mockIT}
 	o.state = OrchestratorStateRunning
 
-	for i := 0; i < 2; i++ {
-		// return empty rows - once for max nonce calculation, and then again for the actual query
-		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{}))
+	for range 2 {
+		m.db.ExpectQuery("SELECT.*public_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+		m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
 	}
-
 	ocDone, _ := o.Start(ctx)
 
 	// It should go idle
@@ -162,7 +172,12 @@ func TestNewOrchestratorPollingRemoveCompleted(t *testing.T) {
 func TestOrchestratorWaitingForBalance(t *testing.T) {
 	ctx, o, m, done := newTestOrchestrator(t, func(m *mocksAndTestControl, conf *pldconf.PublicTxManagerConfig) {
 		conf.Orchestrator.MaxInFlight = confutil.P(1) // just one inflight - which we inject in
-		conf.GasPrice.FixedGasPrice = 1
+		maxFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		maxPriorityFeePerGasStr := pldtypes.Uint64ToUint256(1).HexString0xPrefix()
+		conf.GasPrice.FixedGasPrice = &pldconf.FixedGasPricing{
+			MaxFeePerGas:         &maxFeePerGasStr,
+			MaxPriorityFeePerGas: &maxPriorityFeePerGasStr,
+		}
 	})
 	defer done()
 
@@ -170,8 +185,11 @@ func TestOrchestratorWaitingForBalance(t *testing.T) {
 		tx.Gas = 100
 	})
 	txState.ApplyInMemoryUpdates(ctx, &BaseTXUpdates{
-		GasPricing: &pldapi.PublicTxGasPricing{
-			GasPrice: pldtypes.Int64ToInt256(1000),
+		NewValues: BaseTXUpdateNewValues{
+			GasPricing: &pldapi.PublicTxGasPricing{
+				MaxFeePerGas:         pldtypes.Int64ToInt256(1000),
+				MaxPriorityFeePerGas: pldtypes.Int64ToInt256(100),
+			},
 		},
 	})
 
@@ -180,10 +198,8 @@ func TestOrchestratorWaitingForBalance(t *testing.T) {
 	o.state = OrchestratorStateRunning
 	o.lastQueueUpdate = time.Now()
 
-	for range 2 {
-		// return empty rows - once for max nonce calculation, and then again for the actual query
-		m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{}))
-	}
+	m.db.ExpectQuery("SELECT.*public_txn").WillReturnRows(sqlmock.NewRows([]string{}))
+	m.db.ExpectQuery("SELECT.*public_txn_bindings").WillReturnRows(sqlmock.NewRows([]string{"transaction"}).AddRow(uuid.New().String()))
 
 	// Mock the insufficient balance on the account that's submitting
 	m.ethClient.On("GetBalance", mock.Anything, o.signingAddress, "latest").Return(pldtypes.Uint64ToUint256(0), nil)

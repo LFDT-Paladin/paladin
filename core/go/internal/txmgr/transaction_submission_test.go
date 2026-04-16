@@ -24,21 +24,21 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/mocks/componentsmocks"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -383,7 +383,7 @@ func TestSendTransactionPrivateDeploy(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -408,7 +408,7 @@ func TestSendTransactionPrivateInvoke(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(true), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		})
 	defer done()
 
@@ -435,7 +435,7 @@ func TestSendTransactionPrivateInvokeFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIAndTransactionOK(false), mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -960,7 +960,7 @@ func TestCallTransactionPrivOk(t *testing.T) {
 			res, err := fnDef.Outputs.ParseJSON([]byte(`{"spins": 42}`))
 			require.NoError(t, err)
 
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(res, nil)
 		})
 	defer done()
@@ -989,7 +989,7 @@ func TestCallTransactionPrivFail(t *testing.T) {
 		mockEmptyReceiptListeners,
 		mockInsertABIBeginCommit,
 		mockDomainContractResolve(t, "domain1"), func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
-			mc.privateTxMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
+			mc.sequencerMgr.On("CallPrivateSmartContract", mock.Anything, mock.Anything).
 				Return(nil, fmt.Errorf("snap"))
 		})
 	defer done()
@@ -1066,7 +1066,7 @@ func TestChainedPrivateTXInsertWithIdempotencyKeys(t *testing.T) {
 		mockDomainContractResolve(t, "domain1"),
 		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
 			// Only the parent Txn we create will get a callback
-			mc.privateTxMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+			mc.sequencerMgr.On("HandleNewTx", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		},
 	)
 	defer done()
@@ -1608,3 +1608,4 @@ func TestResolveUpdatedTransactionSuccess(t *testing.T) {
 	assert.Equal(t, `{"value":"46"}`, validatedTransaction.Transaction.Data.String())
 	assert.Equal(t, "60fe47b1000000000000000000000000000000000000000000000000000000000000002e", hex.EncodeToString(validatedTransaction.PublicTxData))
 }
+

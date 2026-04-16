@@ -21,15 +21,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/retry"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/retry"
 )
 
 const (
@@ -172,7 +172,7 @@ func NewOrchestrator(
 		persistenceRetryTimeout: confutil.DurationMin(conf.Orchestrator.PersistenceRetryTime, veryShortMinimum, *pldconf.PublicTxManagerDefaults.Orchestrator.PersistenceRetryTime),
 
 		// submission retry
-		transactionSubmissionRetry: retry.NewRetryLimited(&conf.Orchestrator.SubmissionRetry),
+		transactionSubmissionRetry: retry.NewRetryLimited(&conf.Orchestrator.SubmissionRetry, &pldconf.PublicTxManagerDefaults.Orchestrator.SubmissionRetry),
 		staleTimeout:               confutil.DurationMin(conf.Orchestrator.StaleTimeout, 0, *pldconf.PublicTxManagerDefaults.Orchestrator.StaleTimeout),
 		hasZeroGasPrice:            ptm.gasPriceClient.HasZeroGasPrice(ctx),
 		InFlightTxsStale:           make(chan bool, 1),
@@ -266,6 +266,7 @@ func (oc *orchestrator) initNextNonceFromDB(ctx context.Context) error {
 		WithContext(ctx).
 		Where(`"from" = ?`, oc.signingAddress).
 		Where("nonce IS NOT NULL").
+		Where("dispatcher = ? OR dispatcher = ''", oc.nodeName).
 		Order("nonce DESC").
 		Limit(1).
 		Find(&txns).
@@ -405,6 +406,7 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 				Where(`"Completed"."tx_hash" IS NULL`).
 				Where("suspended IS FALSE").
 				Where(`"from" = ?`, oc.signingAddress).
+				Where(`"dispatcher" = ? OR "dispatcher" = ''`, oc.nodeName). // Make sure this isn't a transaction another node dispatched and gave us a read-only copy of
 				Order(`"public_txns"."pub_txn_id"`).
 				Limit(spaces)
 			if len(oc.inFlightTxs) > 0 {
@@ -418,12 +420,21 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			// as we are the only thread that writes to the submissions table, for
 			// inflight transactions we have in memory that would not be overwritten
 			// by this query.
-			additional, err = oc.runTransactionQuery(ctx, oc.p.NOTX(), false /* just the individual transactions - no duplication for bindings */, nil, q)
+			additional, err = oc.runTransactionQuery(ctx, oc.p.NOTX(), true /* retrieve the private TX bindings as well */, nil, q)
 			return true, err
 		})
 		if err != nil {
 			log.L(ctx).Infof("Orchestrator poll and process: context cancelled while retrying")
 			return -1, len(oc.inFlightTxs)
+		}
+
+		for _, tx := range additional {
+			if tx.Binding != nil && tx.Binding.ContractAddress != "" {
+				err = oc.sequencerManager.HandleTransactionCollected(ctx, oc.signingAddress.String(), tx.Binding.ContractAddress, tx.Binding.Transaction)
+				if err != nil {
+					log.L(ctx).Warnf("Orchestrator poll and process: error while handing TX collected to sequencer for %d: %s", tx.PublicTxnID, err)
+				}
+			}
 		}
 
 		// Synchronously we ensure that we have a nonce for all of these.
@@ -437,10 +448,23 @@ func (oc *orchestrator) pollAndProcess(ctx context.Context) (polled int, total i
 			return
 		}
 
+		for _, tx := range additional {
+			if tx.Binding != nil && tx.Binding.ContractAddress != "" {
+				err = oc.sequencerManager.HandleNonceAssigned(ctx, *tx.Nonce, tx.Binding.ContractAddress, tx.Binding.Transaction)
+				if err != nil {
+					log.L(ctx).Warnf("Orchestrator poll and process: error while handing nonce assignment to sequencer for %d: %s", tx.PublicTxnID, err)
+				}
+			}
+		}
+
 		log.L(ctx).Debugf("Orchestrator poll and process: polled %d items, space: %d", len(additional), spaces)
 		for _, ptx := range additional {
+			if ptx.Binding == nil {
+				log.L(ctx).Warnf("Orchestrator poll and process: transaction %d has no binding", ptx.PublicTxnID)
+				continue
+			}
 			queueUpdated = true
-			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx)
+			it := NewInFlightTransactionStageController(oc.pubTxManager, oc, ptx, ptx.Binding.Transaction)
 			oc.inFlightTxs = append(oc.inFlightTxs, it)
 			txStage := it.stateManager.GetStage(ctx)
 			if string(txStage) == "" {

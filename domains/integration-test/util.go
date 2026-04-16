@@ -21,19 +21,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zeto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zeto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/testbed"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/noto"
-	nototypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	zetotypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/rpcclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/plugintk"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
+	"github.com/LFDT-Paladin/paladin/domains/noto/pkg/noto"
+	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	zetotypes "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/go-resty/resty/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,21 +103,49 @@ func mapConfig(t *testing.T, config any) (m map[string]any) {
 	return m
 }
 
-func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[string]*testbed.TestbedDomain) (context.CancelFunc, *pldconf.PaladinConfig, testbed.Testbed, rpcclient.Client) {
+func newTestbed(t *testing.T, hdWalletSeed *testbed.UTInitFunction, domains map[string]*testbed.TestbedDomain) (context.CancelFunc, *pldconf.PaladinConfig, testbed.Testbed, rpcclient.Client, pldclient.PaladinWSClient) {
 	tb := testbed.NewTestBed()
-	url, conf, done, err := tb.StartForTest("./testbed.config.yaml", domains, hdWalletSeed)
+	enableWebSocket := &testbed.UTInitFunction{
+		ModifyConfig: func(conf *pldconf.PaladinConfig) {
+			conf.RPCServer.WS.Disabled = false
+			if conf.RPCServer.WS.Port == nil {
+				conf.RPCServer.WS.Port = confutil.P(0) // Use port 0 for auto-assignment
+			}
+		},
+	}
+	httpURL, wsURL, conf, done, err := tb.StartForTest("./testbed.config.yaml", domains, hdWalletSeed, enableWebSocket)
 	assert.NoError(t, err)
-	rc := resty.New().SetBaseURL(url)
+	rc := resty.New().SetBaseURL(httpURL)
 	rpc := rpcclient.WrapRestyClient(rc)
-	return done, conf, tb, rpc
+
+	var wsClient pldclient.PaladinWSClient
+	if wsURL != "" {
+		ctx := context.Background()
+		wsClient, err = pldclient.New().WebSocket(ctx, &pldconf.WSClientConfig{
+			HTTPClientConfig: pldconf.HTTPClientConfig{
+				URL: wsURL,
+			},
+		})
+		require.NoError(t, err)
+		// Update done function to also close the WebSocket client
+		originalDone := done
+		done = func() {
+			if wsClient != nil {
+				wsClient.Close()
+			}
+			originalDone()
+		}
+	}
+
+	return done, conf, tb, rpc, wsClient
 }
 
-func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte) map[string]string {
+func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UTInitFunction, deployer string, contracts map[string][]byte, postDeploy ...func(deployed map[string]string, rpc rpcclient.Client)) map[string]string {
 	tb := testbed.NewTestBed()
-	url, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
+	httpURL, _, _, done, err := tb.StartForTest("./testbed.config.yaml", map[string]*testbed.TestbedDomain{}, hdWalletSeed)
 	assert.NoError(t, err)
 	defer done()
-	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(url))
+	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
 	deployed := make(map[string]string, len(contracts))
 	for name, contract := range contracts {
@@ -128,19 +158,24 @@ func deployContracts(ctx context.Context, t *testing.T, hdWalletSeed *testbed.UT
 		}
 		deployed[name] = addr
 	}
+	for _, fn := range postDeploy {
+		fn(deployed, rpc)
+	}
 	return deployed
 }
 
-func newNotoDomain(t *testing.T, config *nototypes.DomainConfig) (chan noto.Noto, *testbed.TestbedDomain) {
+func newNotoDomain(t *testing.T, registryAddress *pldtypes.EthAddress) (chan noto.Noto, *testbed.TestbedDomain) {
 	waitForDomain := make(chan noto.Noto, 1)
 	tbd := &testbed.TestbedDomain{
-		Config: mapConfig(t, config),
+		Config: mapConfig(t, nototypes.DomainConfig{
+			FactoryVersion: 1,
+		}),
 		Plugin: plugintk.NewDomain(func(callbacks plugintk.DomainCallbacks) plugintk.DomainAPI {
 			domain := noto.New(callbacks)
 			waitForDomain <- domain
 			return domain
 		}),
-		RegistryAddress: pldtypes.MustEthAddress(config.FactoryAddress),
+		RegistryAddress: registryAddress,
 	}
 	return waitForDomain, tbd
 }

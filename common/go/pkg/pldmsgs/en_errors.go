@@ -17,7 +17,7 @@
 package pldmsgs
 
 import (
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"golang.org/x/text/language"
 )
 
@@ -101,6 +101,7 @@ var (
 	MsgRPCClientResultParseFailed        = pde("PD020504", "Failed to parse result (expected=%T): %s")
 	MsgRPCClientInvalidParam             = pde("PD020505", "Invalid parameter at position %d for method %s: %s")
 	MsgRPCClientSubscribeResponseInvalid = pde("PD020506", "Subscription response invalid")
+	MsgRPCClientRequestTimeout           = pde("PD020507", "RPC request timed out waiting for response")
 
 	// HTTPServer PD0108XX
 	MsgHTTPServerStartFailed        = pde("PD020600", "Failed to start server on '%s'")
@@ -116,6 +117,7 @@ var (
 	MsgJSONRPCInvalidParam        = pde("PD020704", "method %s parameter %d invalid: %s")
 	MsgJSONRPCResultSerialization = pde("PD020705", "method %s result serialization failed: %s")
 	MsgJSONRPCAysncNonWSConn      = pde("PD020706", "method %s only available on WebSocket connections")
+	MsgJSONRPCUnauthorized        = pde("PD020707", "Unauthorized")
 
 	// Signing module PD0208XX
 	MsgSigningModuleBadPathError                = pde("PD020800", "Path '%s' does not exist, or it is not a directory")

@@ -29,6 +29,7 @@ export interface IStateEncoded {
 
 export interface IState extends IStateBase {
   confirmed?: IStateConfirm;
+  read?: IStateRead;
   spent?: IStateSpend;
   locks?: IStateLock[];
   nullifier?: IStateNullifier;
@@ -49,6 +50,10 @@ export interface IStateInt64Label {
 }
 
 export interface IStateConfirm {
+  transaction: string;
+}
+
+export interface IStateRead {
   transaction: string;
 }
 

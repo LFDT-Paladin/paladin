@@ -22,17 +22,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/i18n"
-	"github.com/LF-Decentralized-Trust-labs/paladin/common/go/pkg/log"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/msgs"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/ethclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/pkg/ethclient"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"gorm.io/gorm/clause"
@@ -53,13 +53,23 @@ type persistedTransaction struct {
 	From               string                                `gorm:"column:from"`
 	To                 *pldtypes.EthAddress                  `gorm:"column:to"`
 	Data               pldtypes.RawJSON                      `gorm:"column:data"` // we always store in JSON object format
-	TransactionDeps    []*transactionDep                     `gorm:"foreignKey:transaction;references:id"`
-	TransactionReceipt *transactionReceipt                   `gorm:"foreignKey:transaction;references:id"`
+	TransactionDeps        []*transactionDep        `gorm:"foreignKey:transaction;references:id"`
+	TransactionChainedDeps []*transactionChainedDep `gorm:"foreignKey:transaction;references:id"`
+	TransactionReceipt     *transactionReceipt      `gorm:"foreignKey:transaction;references:id"`
 }
 
 type transactionDep struct {
 	Transaction uuid.UUID `gorm:"column:transaction;primaryKey"`
 	DependsOn   uuid.UUID `gorm:"column:depends_on"`
+}
+
+type transactionChainedDep struct {
+	Transaction uuid.UUID `gorm:"column:transaction;primaryKey"`
+	DependsOn   uuid.UUID `gorm:"column:depends_on"`
+}
+
+func (transactionChainedDep) TableName() string {
+	return "transaction_chained_deps"
 }
 
 func (persistedTransaction) TableName() string {
@@ -80,7 +90,7 @@ type persistedTransactionHistory struct {
 	Data                 pldtypes.RawJSON                      `gorm:"column:data"` // we always store in JSON object format
 	Gas                  *pldtypes.HexUint64                   `gorm:"column:gas"`
 	Value                *pldtypes.HexUint256                  `gorm:"column:value"`
-	GasPrice             *pldtypes.HexUint256                  `gorm:"column:gas_price"`
+	GasPrice             *pldtypes.HexUint256                  `gorm:"column:gas_price"` // deprecated- this has never worked with EIP-1559
 	MaxFeePerGas         *pldtypes.HexUint256                  `gorm:"column:max_fee_per_gas"`
 	MaxPriorityFeePerGas *pldtypes.HexUint256                  `gorm:"column:max_priority_fee_per_gas"`
 }
@@ -89,16 +99,17 @@ func (persistedTransactionHistory) TableName() string {
 	return "transaction_history"
 }
 
-type persistedChainedPrivateTxn struct {
+type persistedChainedDispatch struct {
 	ChainedTransaction uuid.UUID `gorm:"column:chained_transaction;primaryKey"`
 	Transaction        uuid.UUID `gorm:"column:transaction;primaryKey"`
 	Sender             string    `gorm:"column:sender;primaryKey"`
 	Domain             string    `gorm:"column:domain;primaryKey"`
 	ContractAddress    string    `gorm:"column:contract_address;primaryKey"`
+	ID                 uuid.UUID `gorm:"column:id"`
 }
 
-func (persistedChainedPrivateTxn) TableName() string {
-	return "chained_private_txns"
+func (persistedChainedDispatch) TableName() string {
+	return "chained_dispatches"
 }
 
 var defaultConstructor = &abi.Entry{Type: abi.Constructor, Inputs: abi.ParameterArray{}}
@@ -284,6 +295,7 @@ func (tm *txManager) prepareTransactionNewDBTX(ctx context.Context, tx *pldapi.T
 }
 
 func (tm *txManager) CallTransaction(ctx context.Context, dbTX persistence.DBTX, result any, call *pldapi.TransactionCall) (err error) {
+	ctx = log.WithComponent(ctx, "txmanager")
 
 	txi, err := tm.resolveNewTransaction(ctx, dbTX, &call.TransactionInput, pldapi.SubmitModeCall)
 	if err != nil {
@@ -305,7 +317,7 @@ func (tm *txManager) CallTransaction(ctx context.Context, dbTX persistence.DBTX,
 	}
 
 	// Do the call
-	cv, err := tm.privateTxMgr.CallPrivateSmartContract(ctx, &txi.ResolvedTransaction)
+	cv, err := tm.sequencerMgr.CallPrivateSmartContract(ctx, &txi.ResolvedTransaction)
 	if err != nil {
 		return err
 	}
@@ -348,7 +360,8 @@ func (tm *txManager) callTransactionPublic(ctx context.Context, result any, call
 	return err
 }
 
-func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, origSender string, origTxID uuid.UUID, origDomain string, origDomainAddress *pldtypes.EthAddress, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (chained *components.ChainedPrivateTransaction, err error) {
+func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX persistence.DBTX, originalSender string, originalTxID uuid.UUID, originalDomain string, originalDomainAddress *pldtypes.EthAddress, tx *pldapi.TransactionInput, submitMode pldapi.SubmitMode) (chained *components.ChainedPrivateTransaction, err error) {
+	ctx = log.WithComponent(ctx, "txmanager")
 	tx.Type = pldapi.TransactionTypePrivate.Enum()
 	if tx.IdempotencyKey == "" {
 		return nil, i18n.NewError(ctx, msgs.MsgTxMgrPrivateChainedTXIdemKey)
@@ -356,13 +369,13 @@ func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX 
 	newTX, err := tm.resolveNewTransaction(ctx, dbTX, tx, submitMode)
 	if err == nil {
 		chained = &components.ChainedPrivateTransaction{
-			OriginalSenderLocator: origSender,
-			OriginalTransaction:   origTxID,
-			OriginalDomain:        origDomain,
+			OriginalSenderLocator: originalSender,
+			OriginalTransaction:   originalTxID,
+			OriginalDomain:        originalDomain,
 			NewTransaction:        newTX,
 		}
-		if origDomainAddress != nil {
-			chained.OriginalContractAddress = origDomainAddress.String()
+		if originalDomainAddress != nil {
+			chained.OriginalContractAddress = originalDomainAddress.String()
 		}
 	}
 	return chained, err
@@ -371,16 +384,23 @@ func (tm *txManager) PrepareChainedPrivateTransaction(ctx context.Context, dbTX 
 func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persistence.DBTX, chainedTxns []*components.ChainedPrivateTransaction) error {
 
 	txis := make([]*components.ValidatedTransaction, len(chainedTxns))
-	chainingRecords := make([]*persistedChainedPrivateTxn, len(chainedTxns))
+	chainingRecords := make([]*persistedChainedDispatch, len(chainedTxns))
 	for i, chainedTxn := range chainedTxns {
 		txis[i] = chainedTxn.NewTransaction
-		chainingRecords[i] = &persistedChainedPrivateTxn{
+		chainingRecords[i] = &persistedChainedDispatch{
 			Sender:             chainedTxn.OriginalSenderLocator,
 			Transaction:        chainedTxn.OriginalTransaction,
 			Domain:             chainedTxn.OriginalDomain,
 			ContractAddress:    chainedTxn.OriginalContractAddress,
 			ChainedTransaction: *chainedTxn.NewTransaction.Transaction.ID,
+			ID:                 chainedTxn.ID,
 		}
+		log.L(ctx).Infof(
+			"Creating chained dispatch id=%s originalTransaction=%s chainedTransaction=%s",
+			chainingRecords[i].ID,
+			chainingRecords[i].Transaction,
+			chainingRecords[i].ChainedTransaction,
+		)
 	}
 
 	// On this path we handle the idempotency key matching - noting that we validate the existence of an idempotency key in PrepareChainedPrivateTransaction
@@ -431,7 +451,7 @@ func (tm *txManager) ChainPrivateTransactions(ctx context.Context, dbTX persiste
 	// So when it's flushed its internal transaction, it notifies itself.
 }
 
-func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedPrivateTxn) error {
+func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.DBTX, chainingRecords []*persistedChainedDispatch) error {
 	return dbTX.DB().
 		Clauses(clause.OnConflict{DoNothing: true}).
 		WithContext(ctx).
@@ -439,6 +459,7 @@ func (tm *txManager) writeChainingRecords(ctx context.Context, dbTX persistence.
 }
 
 func (tm *txManager) SendTransactions(ctx context.Context, dbTX persistence.DBTX, txs ...*pldapi.TransactionInput) (txIDs []uuid.UUID, err error) {
+	ctx = log.WithComponent(ctx, "txmanager")
 	return tm.processNewTransactions(ctx, dbTX, txs, pldapi.SubmitModeAuto)
 }
 
@@ -460,10 +481,13 @@ func (tm *txManager) prepareTransactionsNewDBTX(ctx context.Context, txs []*plda
 }
 
 func (tm *txManager) PrepareTransactions(ctx context.Context, dbTX persistence.DBTX, txs ...*pldapi.TransactionInput) (txIDs []uuid.UUID, err error) {
+	ctx = log.WithComponent(ctx, "txmanager")
+	log.L(ctx).Debugf("PrepareTransactions %+v", txs)
 	return tm.processNewTransactions(ctx, dbTX, txs, pldapi.SubmitModeExternal)
 }
 
 func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistence.DBTX, txs []*pldapi.TransactionInput, submitMode pldapi.SubmitMode) (txIDs []uuid.UUID, err error) {
+	log.L(ctx).Debugf("processNewTransactions %+v, submit mode %+v", txs, submitMode)
 
 	// Public transactions need a signing address resolution and nonce allocation trackers
 	// before we open the database transaction
@@ -512,6 +536,7 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 	}
 
 	// Now we're ready to insert into the database
+	log.L(ctx).Debugf("insertTransactions into DB")
 	_, err = tm.insertTransactions(ctx, dbTX, txis, false /* all must succeed on this path - we map idempotency errors below */)
 	if err != nil {
 		dbTX.AddPostRollback(func(txCtx context.Context, err error) error {
@@ -528,11 +553,14 @@ func (tm *txManager) processNewTransactions(ctx context.Context, dbTX persistenc
 		}
 	}
 
-	// TODO: Integrate with private TX manager persistence when available, as it will follow the
-	// same pattern as public transactions above
 	for _, txi := range txis {
 		if txi.Transaction.Type.V() == pldapi.TransactionTypePrivate {
-			if err := tm.privateTxMgr.HandleNewTx(ctx, dbTX, txi); err != nil {
+			// Note: dependency checking for explicit (app-defined) dependencies will be checked in the sequencer manager
+			// so we just give the TX to the sequencer manager. The sequencer manager has to enforce dependency checks for
+			// resumed transactions (e.g. after a restart), so even though dependencies are not scoped to a specific domain
+			// contract, the sequencer manager enforces them. The txmgr's dependency listener has responsibility for tapping
+			// the sequencer manager if a receipt is processed that might unblock one of its tranasactions.
+			if err := tm.sequencerMgr.HandleNewTx(ctx, dbTX, txi); err != nil {
 				return nil, err
 			}
 		}
@@ -658,6 +686,7 @@ func (tm *txManager) resolveNewTransaction(ctx context.Context, dbTX persistence
 }
 
 func (tm *txManager) ResolveTransactionInputs(ctx context.Context, dbTX persistence.DBTX, tx *pldapi.TransactionInput) (*components.ResolvedFunction, *abi.ComponentValue, pldtypes.RawJSON, error) {
+	ctx = log.WithComponent(ctx, "txmanager")
 	fn, err := tm.resolveFunction(ctx, dbTX, tx.ABI, tx.ABIReference, tx.Function, tx.To)
 	if err != nil {
 		return nil, nil, nil, err
@@ -700,6 +729,7 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 	ptxs := make([]*persistedTransaction, len(txis))
 	txhs := make([]*persistedTransactionHistory, len(txis))
 	var transactionDeps []*transactionDep
+	var transactionChainedDeps []*transactionChainedDep
 	for i, txi := range txis {
 		// Resolve the finalized fields on the input object for return
 		tx := txi.Transaction
@@ -726,6 +756,12 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 				DependsOn:   d,
 			})
 		}
+		for _, d := range txi.ChainedDependsOn {
+			transactionChainedDeps = append(transactionChainedDeps, &transactionChainedDep{
+				Transaction: *tx.ID,
+				DependsOn:   d,
+			})
+		}
 		txhs[i] = &persistedTransactionHistory{
 			ID:                   uuid.New(),
 			TXID:                 ptxs[i].ID,
@@ -740,32 +776,42 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 			Data:                 ptxs[i].Data,
 			Gas:                  tx.Gas,
 			Value:                tx.Value,
-			GasPrice:             tx.GasPrice,
 			MaxFeePerGas:         tx.MaxFeePerGas,
 			MaxPriorityFeePerGas: tx.MaxPriorityFeePerGas,
 		}
 	}
 
+	log.L(ctx).Debugf("insertTransactions to table 'transactions'")
 	insert := dbTX.DB().
 		WithContext(ctx).
 		Table("transactions").
-		Omit("TransactionDeps")
+		Omit("TransactionDeps", "TransactionChainedDeps")
 	if ignoreConflicts {
 		insert = insert.Clauses(clause.OnConflict{DoNothing: true})
 	}
 	txInsertResult := insert.Create(ptxs)
 	err := txInsertResult.Error
 	if err == nil {
+		log.L(ctx).Debugf("insertTransactions to table 'transaction_history'")
 		err = dbTX.DB().
 			Table("transaction_history").
 			Create(txhs).
 			Error
 	}
 	if err == nil && len(transactionDeps) > 0 {
+		log.L(ctx).Debugf("insertTransactions to table 'transaction_deps'")
 		err = dbTX.DB().
 			Table("transaction_deps").
 			Clauses(clause.OnConflict{DoNothing: true}). // for idempotency retry
 			Create(transactionDeps).
+			Error
+	}
+	if err == nil && len(transactionChainedDeps) > 0 {
+		log.L(ctx).Debugf("insertTransactions to table 'transaction_chained_deps'")
+		err = dbTX.DB().
+			Table("transaction_chained_deps").
+			Clauses(clause.OnConflict{DoNothing: true}).
+			Create(transactionChainedDeps).
 			Error
 	}
 	if err != nil {
@@ -778,9 +824,10 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 		if rowsAffected == int64(len(txis)) {
 			for _, tx := range txis {
 				tm.txCache.Set(*tx.Transaction.ID, &components.ResolvedTransaction{
-					Transaction: tx.Transaction,
-					DependsOn:   tx.DependsOn,
-					Function:    tx.Function,
+					Transaction:      tx.Transaction,
+					DependsOn:        tx.DependsOn,
+					ChainedDependsOn: tx.ChainedDependsOn,
+					Function:         tx.Function,
 				})
 			}
 		}
@@ -789,12 +836,14 @@ func (tm *txManager) insertTransactions(ctx context.Context, dbTX persistence.DB
 }
 
 func (tm *txManager) UpdateTransaction(ctx context.Context, id uuid.UUID, tx *pldapi.TransactionInput) (uuid.UUID, error) {
+	fmt.Println("Updating the public TX in the tx manager")
 	oldTX, err := tm.GetTransactionByID(ctx, id)
 	if err != nil {
 		return id, err
 	}
 
 	if oldTX == nil {
+		log.L(ctx).Errorf("Transaction not found locally in UpdateTransaction: %s", id)
 		return id, i18n.NewError(ctx, msgs.MsgTxMgrTransactionNotFound, id)
 	}
 
@@ -883,7 +932,6 @@ func (tm *txManager) processUpdatedTransaction(ctx context.Context, dbTX persist
 			Data:                 tx.Data,
 			Gas:                  tx.Gas,
 			Value:                tx.Value,
-			GasPrice:             tx.GasPrice,
 			MaxFeePerGas:         tx.MaxFeePerGas,
 			MaxPriorityFeePerGas: tx.MaxPriorityFeePerGas,
 		}

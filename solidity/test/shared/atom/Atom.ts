@@ -1,11 +1,19 @@
 import { expect } from "chai";
-import { ContractTransactionReceipt, ZeroAddress } from "ethers";
+import { ZeroAddress, ZeroHash } from "ethers";
 import { ethers } from "hardhat";
-import { Atom, Noto } from "../../../typechain-types";
+import { Atom, ILockableCapability, Noto } from "../../../typechain-types";
 import {
+  createLockOptions,
   deployNotoInstance,
+  doLock,
+  encodeCreateLockParams,
+  encodeDelegateLockParams,
+  encodeUpdateLockParams,
+  encodeUnlockParams,
   fakeTXO,
-  newTransferHash,
+  newUnlockHash,
+  NotoCreateLockOperation,
+  NotoUpdateLockOperation,
   randomBytes32,
 } from "../../domains/noto/util";
 
@@ -21,6 +29,15 @@ describe("Atom", function () {
     const Atom = await ethers.getContractFactory("Atom");
     const ERC20Simple = await ethers.getContractFactory("ERC20Simple");
 
+    // "un-prepared" lock params, without the spend/cancel hash or the spendTxnId in the options
+    const lockStateId1 = randomBytes32();
+    const options1 = createLockOptions(ZeroHash);
+    const unpreparedLockParams = {
+      spendHash: ZeroHash,
+      cancelHash: ZeroHash,
+      options: options1,
+    } as ILockableCapability.LockInfoStruct;
+
     // Deploy two contracts
     const noto = Noto.attach(
       await deployNotoInstance(notoFactory, notary1.address)
@@ -28,28 +45,52 @@ describe("Atom", function () {
     const erc20 = await ERC20Simple.connect(notary2).deploy("Token", "TOK");
 
     // Bring TXOs and tokens into being
+    const txId1 = randomBytes32();
     const [f1txo1, f1txo2] = [fakeTXO(), fakeTXO()];
-    await noto
-      .connect(notary1)
-      .transfer(randomBytes32(), [], [f1txo1, f1txo2], "0x", randomBytes32());
-
+    // Compute lockId before creating lock
+    const params = {
+      txId: txId1,
+      inputs: [],
+      outputs: [],
+      contents: [f1txo1, f1txo2],
+      newLockState: lockStateId1,
+      proof: "0x",
+    } as NotoCreateLockOperation;
+    // Create lock with no inputs/outputs, just locked outputs (minting locked states)
+    const lockId = await doLock(notary1, noto, params, unpreparedLockParams, "0x");
     await erc20.mint(notary2, 1000);
 
     // Encode two function calls
     const [f1txo3, f1txo4] = [fakeTXO(), fakeTXO()];
     const f1TxData = randomBytes32();
-    const multiTXF1Part = await newTransferHash(
+    // Encode UnlockParams for spendLock
+    const unlockTxId = randomBytes32();
+    const unlockParams = {
+      txId: unlockTxId,
+      inputs: [f1txo1, f1txo2],
+      outputs: [f1txo3, f1txo4],
+      data: f1TxData,
+      proof: '0x',
+    };
+    const encodedParams = encodeUnlockParams(unlockParams);
+    const spendHash = await newUnlockHash(
       noto,
+      unlockTxId,
       [f1txo1, f1txo2],
       [f1txo3, f1txo4],
       f1TxData
     );
-    const encoded1 = noto.interface.encodeFunctionData("transferWithApproval", [
-      randomBytes32(),
+    const cancelHash = await newUnlockHash(
+      noto,
+      unlockTxId,
       [f1txo1, f1txo2],
-      [f1txo3, f1txo4],
-      randomBytes32(),
-      f1TxData,
+      [],
+      f1TxData
+    );
+    const encoded1 = noto.interface.encodeFunctionData("spendLock", [
+      lockId,
+      encodedParams,
+      '0x',
     ]);
     const encoded2 = erc20.interface.encodeFunctionData("transferFrom", [
       notary2.address,
@@ -59,7 +100,7 @@ describe("Atom", function () {
 
     // Deploy the delegation contract
     const atomFactory = await AtomFactory.connect(anybody1).deploy();
-    const mcFactoryInvoke = await atomFactory.connect(anybody1).create([
+    const atomFactoryInvoke = await atomFactory.connect(anybody1).create([
       {
         contractAddress: noto,
         callData: encoded1,
@@ -69,27 +110,49 @@ describe("Atom", function () {
         callData: encoded2,
       },
     ]);
-    const createMF = await mcFactoryInvoke.wait();
-    const createMFEvent = createMF?.logs
+    const createAtom = await atomFactoryInvoke.wait();
+    const createAtomEvent = createAtom?.logs
       .map((l) => AtomFactory.interface.parseLog(l))
       .find((l) => l?.name === "AtomDeployed");
-    const mcAddr = createMFEvent?.args.addr;
+    const atomAddr = createAtomEvent?.args.addr;
 
     // Do the delegation/approval transactions
-    const f1tx = await noto
-      .connect(notary1)
-      .approveTransfer(randomBytes32(), mcAddr, multiTXF1Part, "0x", "0x");
-    const delegateResult1: ContractTransactionReceipt | null =
-      await f1tx.wait();
-    const delegateEvent1 = noto.interface.parseLog(
-      delegateResult1?.logs[0] as any
-    )!.args;
-    expect(delegateEvent1.delegate).to.equal(mcAddr);
-    expect(delegateEvent1.txhash).to.equal(multiTXF1Part);
-    await erc20.approve(mcAddr, 1000);
+    const lockStateId2 = randomBytes32();
+    const options2 = createLockOptions(unlockTxId);
+    const txId2 = randomBytes32();
+    const lockUpdate = {
+      spendHash,
+      cancelHash,
+      options: options2,
+    } as ILockableCapability.LockParamsStruct;
+    const updateParams = {
+      txId: txId2,
+      inputs: [],
+      outputs: [],
+      contents: [],
+      oldLockState: lockStateId1,
+      newLockState: lockStateId2,
+      proof: "0x",
+      options: "0x",
+    } as NotoUpdateLockOperation;
+    await noto.connect(notary1).updateLock(lockId, encodeUpdateLockParams(updateParams), lockUpdate, "0x");
+    // Encode DelegateLockParams with txId and data
+    const delegateTxId = randomBytes32();
+    const lockStateId3 = randomBytes32();
+    const delegateLockParams = {
+      txId: delegateTxId,
+      oldLockState: lockStateId2,
+      newLockState: lockStateId3,
+      inputs: [],
+      outputs: [lockStateId3],
+      proof: "0x",
+    };
+    const encodedDelegateParams = encodeDelegateLockParams(delegateLockParams);
+    await noto.connect(notary1).delegateLock(lockId, encodedDelegateParams, atomAddr, '0x');
+    await erc20.approve(atomAddr, 1000);
 
     // Run the atomic op (anyone can initiate)
-    const atom = Atom.connect(anybody2).attach(mcAddr) as Atom;
+    const atom = Atom.connect(anybody2).attach(atomAddr) as Atom;
     await atom.execute();
 
     // Now we should find the final TXOs/tokens in both contracts in the right states
@@ -117,22 +180,36 @@ describe("Atom", function () {
     ) as Noto;
 
     // Fake up a delegation
+    const lockId = randomBytes32();
     const [f1txo1, f1txo2] = [fakeTXO(), fakeTXO()];
     const [f1txo3, f1txo4] = [fakeTXO(), fakeTXO()];
     const f1TxData = randomBytes32();
-    const multiTXF1Part = await newTransferHash(
-      noto,
-      [f1txo1, f1txo2],
-      [f1txo3, f1txo4],
-      f1TxData
+    // Encode UnlockParams for spendLock
+    const unlockTxId = randomBytes32();
+    const unlockParams = {
+      txId: unlockTxId,
+      inputs: [f1txo1, f1txo2],
+      outputs: [f1txo3, f1txo4],
+      contents: [],
+      data: f1TxData,
+    };
+    const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["tuple(bytes32,bytes32[],bytes32[],bytes32[],bytes)"],
+      [
+        [
+          unlockParams.txId,
+          unlockParams.inputs,
+          unlockParams.outputs,
+          unlockParams.contents,
+          unlockParams.data,
+        ],
+      ]
     );
 
-    const encoded1 = noto.interface.encodeFunctionData("transferWithApproval", [
-      randomBytes32(),
-      [f1txo1, f1txo2],
-      [f1txo3, f1txo4],
-      randomBytes32(),
-      f1TxData,
+    const encoded1 = noto.interface.encodeFunctionData("spendLock", [
+      lockId,
+      encodedParams,
+      '0x',
     ]);
 
     // Deploy the delegation contract
@@ -149,10 +226,10 @@ describe("Atom", function () {
       .find((l) => l?.name === "AtomDeployed");
     const mcAddr = createMFEvent?.args.addr;
 
-    // Run the atomic op (will revert because delegation was never actually created)
+    // Run the atomic op (will revert because lock doesn't exist/is not active)
     const atom = Atom.connect(anybody2).attach(mcAddr) as Atom;
     await expect(atom.execute())
-      .to.be.revertedWithCustomError(Noto, "NotoInvalidDelegate")
-      .withArgs(multiTXF1Part, ZeroAddress, mcAddr);
+      .to.be.revertedWithCustomError(Noto, "LockNotActive")
+      .withArgs(lockId);
   });
 });

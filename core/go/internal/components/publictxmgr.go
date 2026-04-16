@@ -18,12 +18,12 @@ package components
 import (
 	"context"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/filters"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/query"
+	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/query"
 	"github.com/google/uuid"
 )
 
@@ -67,6 +67,8 @@ type PublicTxManager interface {
 	ValidateTransaction(ctx context.Context, dbTX persistence.DBTX, transaction *PublicTxSubmission) error
 	// Write a set of validated transactions to the public TX mgr database, notifying the relevant orchestrator(s) to wake, assign nonces, and start the submission process
 	WriteNewTransactions(ctx context.Context, dbTX persistence.DBTX, transactions []*PublicTxSubmission) ([]*pldapi.PublicTx, error)
+	// Write a set of received public transaction submissions to the public TX mgr database. These are informational submissions, not for us to act on
+	WriteReceivedPublicTransactionSubmissions(ctx context.Context, dbTX persistence.DBTX, submissions []*pldapi.PublicTxWithBinding) error
 	// Convenience function that does ValidateTransaction+WriteNewTransactions for a single Tx
 	SingleTransactionSubmit(ctx context.Context, transaction *PublicTxSubmission) (*pldapi.PublicTx, error)
 

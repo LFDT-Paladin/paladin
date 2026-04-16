@@ -5,14 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/internal/zeto/common"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/constants"
-	corepb "github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/proto"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/domain"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/prototk"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/common"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/constants"
+	corepb "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/proto"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -111,7 +111,7 @@ func TestWithdrawAssemble(t *testing.T) {
 		VerifierType: zetosignerapi.IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
 	})
 	testCallbacks := &domain.MockDomainCallbacks{
-		MockFindAvailableStates: func() (*prototk.FindAvailableStatesResponse, error) {
+		MockFindAvailableStates: func(ctx context.Context, req *prototk.FindAvailableStatesRequest) (*prototk.FindAvailableStatesResponse, error) {
 			return nil, errors.New("test error")
 		},
 	}

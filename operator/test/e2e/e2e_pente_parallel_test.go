@@ -31,13 +31,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	nototypes "github.com/LF-Decentralized-Trust-labs/paladin/domains/noto/pkg/types"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldclient"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/solutils"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/algorithms"
-	"github.com/LF-Decentralized-Trust-labs/paladin/toolkit/pkg/verifiers"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	nototypes "github.com/LFDT-Paladin/paladin/domains/noto/pkg/types"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldclient"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
 )
 
 var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
@@ -329,7 +329,11 @@ var _ = Describe("pente - parallelism on a single contract", Ordered, func() {
 				transfers := <-results
 				for _, transfer := range transfers {
 					testLog("SimpleERC20 wait for completion of transfer %s", transfer.ID())
-					Expect(transfer.Wait(10 * time.Second).Error()).To(BeNil())
+					// TODO this is temporarily set to a very large time allowance while the new sequencer is pinned (at least for devnet) to 1 transaction per block.
+					// See maxDispatchAhead config parameter. The old sequencer used a fixed signing address for Pente transactions. The new sequencer users a new
+					// address per transaction (by default) so this timeout can be reduced when a) we change the test to configure the new sequenecer with fixed
+					// Pente signing addresses or b) we add efficient re-assembly logic for reverted transactions when base ledger transactions are mined out of assembly sequence.
+					Expect(transfer.Wait(90 * time.Second).Error()).To(BeNil())
 				}
 			}
 		})

@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	corev1alpha1 "github.com/LF-Decentralized-Trust-labs/paladin/operator/api/v1alpha1"
+	corev1alpha1 "github.com/LFDT-Paladin/paladin/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -112,30 +112,27 @@ type MockRateLimitingQueue struct {
 	items []reconcile.Request
 }
 
-func (q *MockRateLimitingQueue) Add(item interface{}) {
-	req, ok := item.(reconcile.Request)
-	if ok {
-		q.items = append(q.items, req)
-	}
+func (q *MockRateLimitingQueue) Add(item reconcile.Request) {
+	q.items = append(q.items, item)
 }
 func (q *MockRateLimitingQueue) Len() int {
 	return len(q.items)
 }
-func (q *MockRateLimitingQueue) Get() (item interface{}, shutdown bool) {
+func (q *MockRateLimitingQueue) Get() (item reconcile.Request, shutdown bool) {
 	if len(q.items) == 0 {
-		return nil, true
+		return reconcile.Request{}, true
 	}
 	item, q.items = q.items[0], q.items[1:]
 	return item, false
 }
-func (q *MockRateLimitingQueue) Done(item interface{})                             {}
-func (q *MockRateLimitingQueue) ShutDown()                                         {}
-func (q *MockRateLimitingQueue) ShuttingDown() bool                                { return false }
-func (q *MockRateLimitingQueue) ShutDownWithDrain()                                {}
-func (q *MockRateLimitingQueue) AddRateLimited(item interface{})                   {}
-func (q *MockRateLimitingQueue) Forget(item interface{})                           {}
-func (q *MockRateLimitingQueue) NumRequeues(item interface{}) int                  { return 0 }
-func (q *MockRateLimitingQueue) AddAfter(item interface{}, duration time.Duration) {}
+func (q *MockRateLimitingQueue) Done(item reconcile.Request)                             {}
+func (q *MockRateLimitingQueue) ShutDown()                                               {}
+func (q *MockRateLimitingQueue) ShuttingDown() bool                                      { return false }
+func (q *MockRateLimitingQueue) ShutDownWithDrain()                                      {}
+func (q *MockRateLimitingQueue) AddRateLimited(item reconcile.Request)                   {}
+func (q *MockRateLimitingQueue) Forget(item reconcile.Request)                           {}
+func (q *MockRateLimitingQueue) NumRequeues(item reconcile.Request) int                  { return 0 }
+func (q *MockRateLimitingQueue) AddAfter(item reconcile.Request, duration time.Duration) {}
 
 func TestReconcileAll(t *testing.T) {
 	// Define CRMap

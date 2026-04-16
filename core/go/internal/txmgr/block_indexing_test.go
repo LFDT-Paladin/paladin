@@ -21,16 +21,16 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/confutil"
-	"github.com/LF-Decentralized-Trust-labs/paladin/config/pkg/pldconf"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/internal/components"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/blockindexer"
-	"github.com/LF-Decentralized-Trust-labs/paladin/core/pkg/persistence"
+	"github.com/LFDT-Paladin/paladin/config/pkg/confutil"
+	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
+	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/pkg/blockindexer"
+	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldapi"
-	"github.com/LF-Decentralized-Trust-labs/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -157,7 +157,9 @@ func TestPublicConfirmMatch(t *testing.T) {
 
 			mc.db.ExpectBegin()
 			mc.db.ExpectQuery("INSERT.*transaction_receipts").WillReturnRows(sqlmock.NewRows([]string{"sequence"}).AddRow(12345))
-			mc.db.ExpectQuery("SELECT.*chained_private_txns").WillReturnRows(sqlmock.NewRows([]string{}))
+			mc.db.ExpectQuery("SELECT.*chained_dispatches").WillReturnRows(sqlmock.NewRows([]string{}))
+			// Pre-commit: notifyDependentTransactions queries transaction_deps (one call per receipt; no dependents)
+			mc.db.ExpectQuery("SELECT.*transaction_deps").WillReturnRows(sqlmock.NewRows([]string{}))
 			mc.db.ExpectCommit()
 
 			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
@@ -211,7 +213,65 @@ func TestPrivateConfirmMatchPrivateFailures(t *testing.T) {
 
 			mc.db.ExpectBegin()
 			mc.db.ExpectCommit()
-			mc.privateTxMgr.On("NotifyFailedPublicTx", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+				return len(matches) == 1 &&
+					matches[0].TransactionID == txID2
+			})).Return(nil)
+
+			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+				return len(matches) == 2 &&
+					matches[0].TransactionID == txID1 &&
+					matches[1].TransactionID == txID2
+			}))
+		})
+	defer done()
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		return txm.blockIndexerPreCommit(ctx, dbTX, []*pldapi.IndexedBlock{},
+			[]*blockindexer.IndexedTransactionNotify{txiOk1, txiFail2})
+	})
+	require.NoError(t, err)
+}
+
+func TestPrivateConfirmMatchPrivateSuccessOverridesFailure(t *testing.T) {
+
+	testABI := abi.ABI{
+		{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{}},
+		{Type: abi.Error, Name: "ErrorNum", Inputs: abi.ParameterArray{{Type: "uint256"}}},
+	}
+	revertData, err := testABI.Errors()["ErrorNum"].EncodeCallDataJSON([]byte(`[12345]`))
+	require.NoError(t, err)
+
+	txiOk1 := newTestConfirm() // one succeeded
+	txID1 := uuid.New()
+	txiFail2 := newTestConfirm(revertData) // one failed
+	txID2 := uuid.New()
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.publicTxMgr.On("MatchUpdateConfirmedTransactions", mock.Anything, mock.Anything,
+				[]*blockindexer.IndexedTransactionNotify{txiOk1, txiFail2}).
+				Return([]*components.PublicTxMatch{
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID1,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiOk1,
+					},
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID2,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiFail2,
+					},
+				}, nil)
+
+			mc.db.ExpectBegin()
+			mc.db.ExpectCommit()
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
 				return len(matches) == 1 &&
 					matches[0].TransactionID == txID2
 			})).Return(nil)
@@ -291,7 +351,7 @@ func TestPrivateConfirmError(t *testing.T) {
 						IndexedTransactionNotify: txi,
 					},
 				}, nil)
-			mc.privateTxMgr.On("NotifyFailedPublicTx", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
+			mc.sequencerMgr.On("HandleDirectTransactionRevert", mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("pop"))
 		})
 	defer done()
 
@@ -331,4 +391,74 @@ func TestConfirmInsertError(t *testing.T) {
 			[]*blockindexer.IndexedTransactionNotify{txi})
 	})
 	assert.Regexp(t, "pop", err)
+}
+
+func TestPrivateConfirmSuccessOverridesFailure(t *testing.T) {
+	// Test that when a private transaction has both a failed and successful public submission,
+	// the successful one overrides the failure and HandleDirectTransactionRevert is not called.
+
+	testABI := abi.ABI{
+		{Type: abi.Function, Name: "doIt", Inputs: abi.ParameterArray{}},
+		{Type: abi.Error, Name: "ErrorNum", Inputs: abi.ParameterArray{{Type: "uint256"}}},
+	}
+	revertData, err := testABI.Errors()["ErrorNum"].EncodeCallDataJSON([]byte(`[12345]`))
+	require.NoError(t, err)
+
+	// Same TransactionID for both failed and successful transactions
+	txID := uuid.New()
+
+	// Failed private transaction
+	txiFailed := newTestConfirm(revertData)
+	txiFailed.Hash = pldtypes.RandBytes32()
+	txiFailed.BlockNumber = 12345
+
+	// Successful private transaction with same TransactionID
+	txiSuccess := newTestConfirm()
+	txiSuccess.Hash = pldtypes.RandBytes32()
+	txiSuccess.BlockNumber = 12346
+
+	ctx, txm, done := newTestTransactionManager(t, false,
+		mockEmptyReceiptListeners,
+		func(conf *pldconf.TxManagerConfig, mc *mockComponents) {
+			mc.publicTxMgr.On("MatchUpdateConfirmedTransactions", mock.Anything, mock.Anything,
+				[]*blockindexer.IndexedTransactionNotify{txiFailed, txiSuccess}).
+				Return([]*components.PublicTxMatch{
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiFailed,
+					},
+					{
+						PaladinTXReference: components.PaladinTXReference{
+							TransactionID:   txID,
+							TransactionType: pldapi.TransactionTypePrivate.Enum(),
+						},
+						IndexedTransactionNotify: txiSuccess,
+					},
+				}, nil)
+
+			mc.db.ExpectBegin()
+			mc.db.ExpectCommit()
+
+			// HandleDirectTransactionRevert should NOT be called because the success overrides the failure
+			// The failed transaction should be removed from failedForPrivateTx list
+
+			mc.publicTxMgr.On("NotifyConfirmPersisted", mock.Anything, mock.MatchedBy(func(matches []*components.PublicTxMatch) bool {
+				return len(matches) == 2 &&
+					matches[0].TransactionID == txID &&
+					matches[1].TransactionID == txID
+			}))
+		})
+	defer done()
+
+	err = txm.p.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) (err error) {
+		return txm.blockIndexerPreCommit(ctx, dbTX, []*pldapi.IndexedBlock{},
+			[]*blockindexer.IndexedTransactionNotify{txiFailed, txiSuccess})
+	})
+	require.NoError(t, err)
+
+	// Verify that HandleDirectTransactionRevert was never called
+	// This is implicit - if it were called, the mock would have failed expectations
 }

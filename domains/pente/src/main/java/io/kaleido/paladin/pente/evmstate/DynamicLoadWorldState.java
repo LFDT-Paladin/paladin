@@ -70,6 +70,7 @@
  
      @Override
      public PersistedAccount get(Address address) {
+         logger.debug("WorldState querying account address={}", address);
          queriedAccounts.add(address);
          PersistedAccount account = accounts.get(address);
          if (account == null) {

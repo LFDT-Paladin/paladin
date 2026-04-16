@@ -3,13 +3,15 @@ name: TypeScript SDK Release
 permissions:
   contents: read
   id-token: write
+
 on:
   workflow_call:
-    secrets:
-      NPM_TOKEN:
-        description: 'NPM token'
-        required: true
     inputs:
+      ref:
+        description: 'Commit ref for checkout'
+        required: false
+        type: string
+        default: ''
       sdk_version:
         description: 'The version to publish (e.g. v1.0.0)'
         required: true
@@ -18,38 +20,27 @@ on:
         description: 'Semicolon-separated list of tags (e.g., "rc;rc.1"). First tag is primary.'
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      sdk_version:
-        description: 'The version to publish (e.g. v1.0.0)'
-        required: true
-        type: string
-      sdk_tag:
-        description: 'Semicolon-separated list of tags (e.g., "rc;rc.1"). First tag is primary.'
-        required: true
-        type: string
-
 jobs:
-  test:
-    # make sure the released candidate SDK is not breaking the examples
-    uses: ./.github/workflows/test-examples.yaml
-    with:
-      build_local_abi: false # we are using the published abi
-      build_local_sdk: true # we are using the local sdk
   publish:
-    needs: test
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Free up disk space on runner
+        uses: ./.github/actions/free-up-disk-space
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '22.22.1' # Working around bug https://github.com/nodejs/node/issues/62425 until we move to Node 24
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
+
       - name: Install pre-requisites
         uses: ./.github/actions/setup
       
@@ -93,15 +84,15 @@ jobs:
           set -e
           ../../gradlew build
           npm publish --provenance --access public --tag ${{ steps.parse_tags.outputs.primary_tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Add additional dist-tags
         if: steps.parse_tags.outputs.additional_tags != ''
+        # allowing this step to fail until https://github.com/npm/cli/issues/8547 is resolved
+        continue-on-error: true
         shell: bash
         run: |
           # The version for `dist-tag add` must not have the 'v' prefix
-          PACKAGE_SPEC="@lfdecentralizedtrust-labs/paladin-sdk@${{ steps.prep_version.outputs.clean_version }}"
+          PACKAGE_SPEC="@lfdecentralizedtrust/paladin-sdk@${{ steps.prep_version.outputs.clean_version }}"
           
           echo "Adding tags for $PACKAGE_SPEC..."
           
@@ -112,6 +103,6 @@ jobs:
               npm dist-tag add "$PACKAGE_SPEC" "$tag"
             fi
           done <<< "${{ steps.parse_tags.outputs.additional_tags }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-  
+
+      - name: Print disk usage
+        uses: ./.github/actions/print-disk-usage

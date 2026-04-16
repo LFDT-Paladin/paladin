@@ -21,6 +21,9 @@ concurrency:
 jobs:
   build-project:
     uses: ./.github/workflows/build.yaml
+
+  coordination-and-component-tests:
+    uses: ./.github/workflows/core-coordination-component-tests.yaml
    
   release-image:
     # run only on pushes to main or manual triggers
@@ -28,7 +31,7 @@ jobs:
     with:
       registry: ghcr.io
       repository: ${{ github.repository_owner }}
-      image_tags: ${{ github.ref_name }}
+      image_tags: ${{ github.ref_name }},${{ github.sha }}
     secrets:
       username: ${{ github.actor }}
       password: ${{ secrets.GITHUB_TOKEN }}
