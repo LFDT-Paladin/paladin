@@ -185,7 +185,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			// Create a transport writer for the sequencer to communicate with sequencers on other peers
 			transportWriter := transport.NewTransportWriter(seqCtx, &contractAddr, sMgr.nodeName, sMgr.components.TransportManager(), sMgr.HandlePaladinMsg)
 
-			sMgr.engineIntegration = common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, sMgr)
+			engineIntegration := common.NewEngineIntegration(seqCtx, sMgr.components, sMgr.nodeName, domainAPI, dCtx, sMgr)
 			sequencer := &sequencer{
 				contractAddress: contractAddr.String(),
 				transportWriter: transportWriter,
@@ -193,7 +193,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				domainContext:   dCtx,
 			}
 
-			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, sMgr.engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
+			seqOriginator, err := originator.NewOriginator(seqCtx, sMgr.nodeName, transportWriter, engineIntegration, &contractAddr, sMgr.config, sMgr.metrics)
 			if err != nil {
 				cancelCtx()
 				log.L(ctx).Errorf("failed to create sequencer originator for contract %s: %s", contractAddr.String(), err)
@@ -217,7 +217,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				nil,
 				transportWriter,
 				common.RealClock(),
-				sMgr.engineIntegration,
+				engineIntegration,
 				sMgr.syncPoints,
 				initialOriginatorNodes,
 				sMgr.config,

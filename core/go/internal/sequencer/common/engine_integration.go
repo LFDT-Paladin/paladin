@@ -136,8 +136,10 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 	// endorse yet but it is better to wait around on the endorsement flow than to wait around on the assemble flow which is single threaded per domain
 
 	// Create a throwaway domain context for this call
-	delegateDomainContext := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
-	err := delegateDomainContext.ImportSnapshot(ctx, stateLocksJSON)
+	dCtx := e.components.StateManager().NewDomainContext(ctx, e.domainSmartContract.Domain(), e.domainSmartContract.Address())
+	defer dCtx.Close()
+
+	err := dCtx.ImportSnapshot(ctx, stateLocksJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +166,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 		})
 	}
 
-	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, delegateDomainContext)
+	postAssembly, err := e.assembleAndSign(ctx, transactionID, preAssembly, dCtx)
 
 	if err != nil {
 		return nil, err
