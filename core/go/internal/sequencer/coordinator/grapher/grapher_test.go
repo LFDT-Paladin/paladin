@@ -96,7 +96,7 @@ func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("ff", 32)), Data: pldtypes.RawJSON(`{}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
 
 	assert.Equal(t, []uuid.UUID{minterID}, g.GetDependencies(ctx, consumerID))
 }
@@ -110,7 +110,7 @@ func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("22", 32)), Data: pldtypes.RawJSON(`{}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnRead(ctx, []*components.FullState{state}, readerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, readerID)
 
 	assert.Equal(t, []uuid.UUID{minterID}, g.GetDependencies(ctx, readerID))
 }
@@ -127,12 +127,24 @@ func TestGetDependents_UnknownTransaction_ReturnsNil(t *testing.T) {
 	assert.Nil(t, g.GetDependents(ctx, uuid.New()))
 }
 
-func TestGetDependents_ConsumerWithNoPrereqs_ReturnsEmptySlice(t *testing.T) {
+func TestGetDependents_ConsumerWithNoReadPrereqs_ReturnsEmptySlice(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
-	g.LockMintsOnSpend(ctx, []*components.FullState{{ID: unknown}}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: unknown}}, []*components.FullState{}, consumerID)
+
+	deps := g.GetDependents(ctx, consumerID)
+	require.NotNil(t, deps)
+	assert.Empty(t, deps)
+}
+
+func TestGetDependents_ConsumerWithNoSpendPrereqs_ReturnsEmptySlice(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx)
+	consumerID := uuid.New()
+	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: unknown}}, consumerID)
 
 	deps := g.GetDependents(ctx, consumerID)
 	require.NotNil(t, deps)
@@ -157,14 +169,25 @@ func TestGetDependents_ReturnsPrereqOf(t *testing.T) {
 	assert.Equal(t, []uuid.UUID{dependentA, dependentB}, g.GetDependents(ctx, prereqID))
 }
 
-func TestLockMintsOnSpend_UnknownState_NoDependency(t *testing.T) {
+func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
 	state := &components.FullState{ID: unknown}
 
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, consumerID)
+	assert.Empty(t, g.GetDependencies(ctx, consumerID))
+}
+
+func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
+	ctx := context.Background()
+	g := NewGrapher(ctx)
+	consumerID := uuid.New()
+	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
+	state := &components.FullState{ID: unknown}
+
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
 	assert.Empty(t, g.GetDependencies(ctx, consumerID))
 }
 
@@ -175,7 +198,7 @@ func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("de", 32))
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ef", 32))
 
-	g.LockMintsOnSpend(ctx, []*components.FullState{{ID: s1}, {ID: s2}}, txID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: s1}, {ID: s2}}, txID)
 
 	locks := g.lockedStatesByTransaction[txID]
 	require.Len(t, locks, 2)
@@ -216,7 +239,7 @@ func TestExportMints_OutputAndLocks(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("66", 32)), Data: pldtypes.RawJSON(`{"x":1}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnRead(ctx, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, consumerID)
 
 	data, err := g.ExportMints(ctx)
 	require.NoError(t, err)
@@ -246,7 +269,7 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("a1", 32)), Data: pldtypes.RawJSON(`{}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, realDependent)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, realDependent)
 
 	g.mu.Lock()
 	minterTX := g.transactionByID[minterID]
@@ -292,7 +315,7 @@ func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("f1", 32)), Data: pldtypes.RawJSON(`{}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
 
 	minterTX := g.transactionByID[minterID]
 	require.Contains(t, minterTX.dependencies.PrereqOf, consumerID)
@@ -312,7 +335,7 @@ func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 	state := &components.FullState{ID: stateID, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("88", 32)), Data: pldtypes.RawJSON(`{}`)}
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
-	g.LockMintsOnSpend(ctx, []*components.FullState{state}, consumerID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
 	g.Forget(minterID)
 	_, ok := g.transactionByOutputState[stateID.String()]
 	assert.False(t, ok)
@@ -331,7 +354,7 @@ func TestLockMints_InitializesNilLockedStatesMap(t *testing.T) {
 	txID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("e1", 32))
 
-	g.LockMintsOnRead(ctx, []*components.FullState{{ID: stateID}}, txID)
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: stateID}}, []*components.FullState{}, txID)
 
 	require.NotNil(t, g.lockedStatesByTransaction)
 	locks := g.lockedStatesByTransaction[txID]

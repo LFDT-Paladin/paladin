@@ -50,8 +50,7 @@ type Grapher interface {
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
-	LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
-	LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID)
+	LockMintsOnReadAndSpend(ctx context.Context, readStates []*components.FullState, spendStates []*components.FullState, transactionID uuid.UUID)
 }
 
 type grapher struct {
@@ -263,13 +262,13 @@ func (g *grapher) LockMintsOnCreate(ctx context.Context, upserts []*components.S
 	g.lockMints(createLocks, transactionID, pldapi.StateLockTypeCreate)
 }
 
-func (g *grapher) LockMintsOnRead(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
+func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*components.FullState, spendStates []*components.FullState, transactionID uuid.UUID) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.lockMints(states, transactionID, pldapi.StateLockTypeRead)
-	for _, state := range states {
-		log.L(ctx).Debugf("LockMintsOnRead: TX %s taking read lock on state %s", transactionID.String(), state.ID.String())
+	g.lockMints(readStates, transactionID, pldapi.StateLockTypeRead)
+	for _, state := range readStates {
+		log.L(ctx).Debugf("LockMintsOnReadAndSpend: TX %s taking read lock on state %s", transactionID.String(), state.ID.String())
 		mintedBy := g.transactionByOutputState[state.ID.String()]
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
@@ -280,15 +279,10 @@ func (g *grapher) LockMintsOnRead(ctx context.Context, states []*components.Full
 			mintedBy.dependencies.PrereqOf = append(mintedBy.dependencies.PrereqOf, transactionID)
 		}
 	}
-}
 
-func (g *grapher) LockMintsOnSpend(ctx context.Context, states []*components.FullState, transactionID uuid.UUID) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	g.lockMints(states, transactionID, pldapi.StateLockTypeSpend)
-	for _, state := range states {
-		log.L(ctx).Debugf("LockMintsOnRead: TX %s taking spend lock on state %s", transactionID.String(), state.ID.String())
+	g.lockMints(spendStates, transactionID, pldapi.StateLockTypeSpend)
+	for _, state := range spendStates {
+		log.L(ctx).Debugf("LockMintsOnReadAndSpend: TX %s taking spend lock on state %s", transactionID.String(), state.ID.String())
 		mintedBy := g.transactionByOutputState[state.ID.String()]
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.

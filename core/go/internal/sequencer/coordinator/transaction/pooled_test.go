@@ -254,7 +254,7 @@ func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *test
 	grapher.AddMinter(ctx, []*components.FullState{state}, mainTxnID)
 
 	// Dependent TX locks it, so and hence becomes dependent on the main TX
-	grapher.LockMintsOnSpend(ctx, []*components.FullState{state}, dependentID)
+	grapher.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, dependentID)
 
 	// Check the dependency chain has been created
 	dependencies := grapher.GetDependencies(ctx, dependentID)

@@ -98,11 +98,8 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	// Add a lock for every output we create
 	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
 
-	// Add a lock for every read state
-	t.grapher.LockMintsOnRead(ctx, postAssembly.ReadStates, t.pt.ID)
-
-	// Add a lock for every input state to prevent other transactions using them
-	t.grapher.LockMintsOnSpend(ctx, postAssembly.InputStates, t.pt.ID)
+	// Add a lock for every read state and spent state to prevent other transactions using them
+	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
 
 	return nil
 }
