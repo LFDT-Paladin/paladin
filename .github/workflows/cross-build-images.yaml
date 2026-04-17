@@ -51,7 +51,7 @@ jobs:
       image_tag: "${{ github.sha }}-arm64"
       push: ${{ inputs.push }}
       platforms: linux/arm64
-      runs-on: ubuntu-latest
+      runs-on: macos-14-arm64
     secrets:
       username: ${{ secrets.username }}
       password: ${{ secrets.password }}
