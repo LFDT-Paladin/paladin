@@ -280,7 +280,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
 		AddPendingEndorsementRequest(2).
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			DependsOn: []uuid.UUID{txn1.GetID()},
 		})
 	txn2, _ := builder2.Build()
@@ -376,7 +376,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
 		Grapher(grapher).
 		TransactionID(txCID).
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			PrereqOf: []uuid.UUID{txAID},
 		}).
 		AddPendingPreDispatchRequest()
@@ -385,7 +385,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
 		TransactionID(txAID).
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			DependsOn: []uuid.UUID{txBID, txCID},
 		})
 	txnA, _ := builderA.Build()
@@ -414,7 +414,7 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		Grapher(grapher).
 		TransactionID(txBID).
 		AddPendingPreDispatchRequest().
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			PrereqOf: []uuid.UUID{txAID},
 		})
 	txnB, _ := builderB.Build()
@@ -423,14 +423,14 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 		Grapher(grapher).
 		TransactionID(txCID).
 		AddPendingPreDispatchRequest().
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			PrereqOf: []uuid.UUID{txAID},
 		}).Build()
 
 	txnA, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(grapher).
 		TransactionID(txAID).
-		Dependencies(&pldapi.TransactionDependencies{
+		PostAssembleDependencies(&pldapi.TransactionDependencies{
 			DependsOn: []uuid.UUID{txBID, txCID},
 		}).Build()
 
@@ -520,7 +520,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRet
 	ctx := context.Background()
 	revertReason := pldtypes.HexBytes("0x01020304")
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		PostAssembleDependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded error", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
@@ -544,7 +544,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfThresh
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
 		BaseLedgerRevertRetryThreshold(1).
 		RevertCount(1).
-		Dependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		PostAssembleDependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
 	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()

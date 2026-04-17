@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -332,7 +331,6 @@ func Test_calculatePostAssembleDependencies_NoInputOrReadStates(t *testing.T) {
 			InputStates: []*components.FullState{},
 			ReadStates:  []*components.FullState{},
 		}).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	err := txn.calculatePostAssembleDependencies(ctx)
@@ -347,7 +345,6 @@ func Test_calculatePostAssembleDependencies_StateWithNoMinter(t *testing.T) {
 			InputStates: []*components.FullState{{ID: stateID}},
 			ReadStates:  []*components.FullState{},
 		}).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	err := txn.calculatePostAssembleDependencies(ctx)
@@ -363,7 +360,6 @@ func Test_calculatePostAssembleDependencies_StateWithMinter(t *testing.T) {
 	minterTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
 		NumberOfOutputStates(1).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 	stateID := minterTxn.pt.PostAssembly.OutputStates[0].ID
 
@@ -374,13 +370,12 @@ func Test_calculatePostAssembleDependencies_StateWithMinter(t *testing.T) {
 			InputStates: []*components.FullState{{ID: stateID}},
 			ReadStates:  []*components.FullState{},
 		}).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	err := txn.calculatePostAssembleDependencies(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, txn.dependencies.DependsOn, minterTxn.pt.ID)
-	assert.Contains(t, minterTxn.dependencies.PrereqOf, txn.pt.ID)
+	assert.Contains(t, txn.dependencies.PostAssemble.DependsOn, minterTxn.pt.ID)
+	assert.Contains(t, minterTxn.dependencies.PostAssemble.PrereqOf, txn.pt.ID)
 }
 
 func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
@@ -397,7 +392,6 @@ func Test_calculatePostAssembleDependencies_LookupMinterError(t *testing.T) {
 			InputStates: []*components.FullState{{ID: stateID}},
 			ReadStates:  []*components.FullState{},
 		}).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	err := txn.calculatePostAssembleDependencies(ctx)
@@ -422,14 +416,13 @@ func Test_calculatePostAssembleDependencies_DuplicateDependency(t *testing.T) {
 			InputStates: []*components.FullState{{ID: stateID1}, {ID: stateID2}},
 			ReadStates:  []*components.FullState{},
 		}).
-		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	err := txn.calculatePostAssembleDependencies(ctx)
 	require.NoError(t, err)
 	// Should only have one dependency entry
-	require.Len(t, txn.dependencies.DependsOn, 1)
-	assert.Equal(t, minterTxn.pt.ID, txn.dependencies.DependsOn[0])
+	require.Len(t, txn.dependencies.PostAssemble.DependsOn, 1)
+	assert.Equal(t, minterTxn.pt.ID, txn.dependencies.PostAssemble.DependsOn[0])
 }
 
 func Test_writeLockStates_Success(t *testing.T) {
@@ -803,16 +796,15 @@ func Test_action_AssembleError_MultipleCallsIncrementCount(t *testing.T) {
 	}
 }
 
-func Test_notifyPreAssembleDependentOfSelection_NilPrereq(t *testing.T) {
+func Test_notifyDependentsOfSelection_NoDependents(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.preAssemblePrereqOf = nil
 
-	err := txn.notifyPreAssembleDependentOfSelection(ctx)
+	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
 }
 
-func Test_notifyPreAssembleDependentOfSelection_DependentNotFound(t *testing.T) {
+func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T) {
 	ctx := context.Background()
 	dependentID := uuid.New()
 
@@ -821,14 +813,14 @@ func Test_notifyPreAssembleDependentOfSelection_DependentNotFound(t *testing.T) 
 	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(nil)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
-	txn.preAssemblePrereqOf = &dependentID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentID
 
-	err := txn.notifyPreAssembleDependentOfSelection(ctx)
+	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), dependentID.String())
 }
 
-func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
+func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
@@ -839,49 +831,155 @@ func Test_notifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).
 		Build()
-	txn.preAssemblePrereqOf = &dependentTxn.pt.ID
+	txn.dependencies.PreAssemble.PrereqOf = &dependentTxn.pt.ID
 
-	err := txn.notifyPreAssembleDependentOfSelection(ctx)
+	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
 }
 
-func Test_action_NotifyPreAssembleDependentOfSelection_NilPrereq(t *testing.T) {
+func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.preAssemblePrereqOf = nil
+	grapher := NewGrapher(ctx)
 
-	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
+	dependentTxn, depMocks := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(grapher).
+		Build()
+	depMocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentTxn.pt.ID).Return().Maybe()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTxn.pt.ID}
+
+	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
 }
 
-func Test_action_NotifyPreAssembleDependentOfSelection_DependentNotFound(t *testing.T) {
+func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNotReady(t *testing.T) {
 	ctx := context.Background()
-	dependentID := uuid.New()
+	grapher := NewGrapher(ctx)
 
-	mockGrapher := NewMockGrapher(t)
-	mockGrapher.EXPECT().Add(mock.Anything, mock.Anything).Return()
-	mockGrapher.EXPECT().TransactionByID(ctx, dependentID).Return(nil)
+	dependency, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		NumberOfRequiredEndorsers(3).
+		NumberOfEndorsements(2).
+		Build()
 
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
-	txn.preAssemblePrereqOf = &dependentID
+	txnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		AddPendingAssembleRequest().
+		NumberOfRequiredEndorsers(0).
+		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].ID)
 
-	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
+	txn, mocks := txnBuilder.Build()
+
+	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+
+	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleSuccessEvent())
+	require.NoError(t, err)
+	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+}
+
+func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	txn.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{}
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+	err := txn.HandleEvent(ctx, &DependencyResetEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		SourceTransactionID:  depTx.pt.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
+	assert.Contains(t, txn.dependencies.Chained.Unassembled, depTx.pt.ID)
+}
+
+func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	txn.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{}
+
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		SourceTransactionID:  depTx.pt.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
+	assert.Contains(t, txn.dependencies.Chained.Unassembled, depTx.pt.ID)
+}
+
+func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+
+	mocks.SyncPoints.On("QueueTransactionFinalize",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+	).Return()
+	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+
+	err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		FailedTxID:           depID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Reverted, txn.GetCurrentState())
+}
+
+func Test_Assembling_ChainedDependencyEvicted_TransitionsToEvicted(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depID := uuid.New()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+
+	err := txn.HandleEvent(ctx, &ChainedDependencyEvictedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+		EvictedTxID:          depID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Evicted, txn.GetCurrentState())
+}
+
+func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.Chained.PrereqOf = []uuid.UUID{uuid.New()}
+
+	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
-}
-
-func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
-	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
-		Grapher(grapher).
-		Build()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
-		Build()
-	txn.preAssemblePrereqOf = &dependentTxn.pt.ID
-
-	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
-	require.NoError(t, err)
+	assert.Contains(t, err.Error(), "PD012645")
 }
