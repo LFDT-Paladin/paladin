@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -38,7 +38,6 @@ export const Domains: React.FC = () => {
   const {
     data: domains,
     error,
-    isFetching,
   } = useQuery({
     queryKey: ['domains'],
     queryFn: () => listDomains(),
@@ -55,10 +54,6 @@ export const Domains: React.FC = () => {
       setSelectedDomain(domains[0]);
     }
   }, [selectedDomain, domains]);
-
-  if (isFetching) {
-    return <></>;
-  }
 
   if (error) {
     return (
