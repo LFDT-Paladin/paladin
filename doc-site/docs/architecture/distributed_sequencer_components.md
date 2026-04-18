@@ -22,6 +22,10 @@ A coordinator may not always be running on every node participating in the priva
 
 For each node, for each active private contract, there is one instance of the `Sequencer` in memory. The `Sequencer` contains sub components for the `Originator` and `Coordinator`. The `Originator` is responsible for keeping track of transactions sent, including delegating them to the active coordinator (which may be on a different node) and responding to requests to assemble its tranasctions. The `Coordinator` is responsible for coordinating the assembly and submission of transactions from all `Originators`.
 
+### 4 - Grapher
+
+The `Grapher` is a key internal component of the `Coordinator` that manages the in-memory dependency graph of transactions. It resolves transaction IDs and state IDs to pointers to the active state machines for those transactions, ensuring that dependencies are processed in the correct order and handling re-assembly when prerequisites revert.
+
 ```mermaid
 ---
 title: In memory state for a given node and a given contract address
@@ -29,8 +33,10 @@ title: In memory state for a given node and a given contract address
 classDiagram
     Sequencer "1" --> "1" Originator
     Sequencer "1" --> "1" Coordinator
+    Coordinator "1" --> "1" Grapher
     Originator "1" --> "*"  OriginatorTransaction : Transactions
     Coordinator "1" --> "*"  CoordinatorTransaction : Transactions
+    Grapher "1" --> "*" CoordinatorTransaction : Indexes
     class Sequencer{
         String ActiveCoordinator
         Address ContractAddress
