@@ -74,7 +74,7 @@ Some guiding principals that influence the runtime engine architecture include:
 - Supporting atomic interoperability between privacy preserving smart contracts of all types
 - Supporting multiple private data transports, with enterprise qualities of service
 
-Learn more about the [Paladin Runtime Architecture](./runtime_architecture.md).
+Learn more about the [Paladin Cloud Native Runtime](../concepts/cloud_native.md).
 
 ## Member-specific state
 

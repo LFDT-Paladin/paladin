@@ -7,7 +7,7 @@ Paladin is a privacy preserving transaction manager for Ethereum.
 ![Paladin Architecture Overview](../images/paladin_runtime.svg)
 
 - Paladin is a sidecar process that runs alongside a Hyperledger Besu node
-    - Learn more about [Runtime Architecture](./runtime_architecture.md)
+    - Learn more about [Cloud Native Runtime](../concepts/cloud_native.md)
 - Paladin provides **secure channels** of communication to other Paladins over which it can selectively disclose private data
     - Learn more about [Private Data Transports & Endpoint Registry](./data_and_registry.md)
 - Paladin supports Privacy Preserving Smart Contracts, and provides samples out-of-the-box
@@ -26,7 +26,7 @@ Paladin is a privacy preserving transaction manager for Ethereum.
     - _All_ store state in the EVM base ledger in a securely masked format preserving
         - **Confidentiality**: the data is protected via cryptography, and selectively disclosed on a need to know basis
         - **Anonymity**: the parties involved in a transaction, or set of transactions, cannot be determined without access to the confidential data
-        - Learn more about [Privacy](./privacy.md)
+        - Learn more about [Full Enterprise Privacy Stack](../concepts/full_stack.md)
 - Paladin provides a high performance transaction manager that coordinates transaction assembly, submission and confirmation across Paladin runtimes
     - To any EVM smart contract directly on the **base EVM ledger**
     - To EVM Private Smart Contracts in **privacy groups**, backed by privacy preserving smart contracts

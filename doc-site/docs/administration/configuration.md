@@ -6,28 +6,26 @@
 | blockchain | Blockchain client configuration | [`EthClientConfig`](#blockchain) | - |
 | db | Database configuration | [`DBConfig`](#db) | - |
 | debugServer | Debug server configuration | [`DebugServerConfig`](#debugserver) | - |
-| disableSignRPC | True to disable the keymgr_sign JSON/RPC command, in order to prevent external applications from requesting arbitrary signing using the keys of this wallet | `bool` | - |
 | domainManager | Domain manager configuration | [`DomainManagerConfig`](#domainmanager) | - |
 | domains | Map of domain configurations | [`map[string][DomainConfig]`](#domains) | - |
 | groupManager | Group manager configuration | [`GroupManagerConfig`](#groupmanager) | - |
-| grpc | GRPC configuration for plugin manager | [`GRPCConfig`](#grpc) | - |
-| identifierCache | Identifier cache configuration | [`CacheConfig`](#identifiercache) | - |
 | identityResolver | Identity resolver configuration | [`IdentityResolverConfig`](#identityresolver) | - |
+| keyManager | Key manager configuration | [`KeyManagerConfig`](#keymanager) | - |
 | log | Logging configuration | [`LogConfig`](#log) | - |
 | metricsServer | Metrics server configuration | [`MetricsServerConfig`](#metricsserver) | - |
 | nodeName | Node name for transport identification | `string` | - |
-| peerInactivityTimeout | Timeout for peer inactivity detection | `string` | - |
-| peerReaperInterval | Interval for peer reaper cleanup | `string` | - |
+| peerInactivityTimeout | Timeout for peer inactivity detection | `string` | `"1m"` |
+| peerReaperInterval | Interval for peer reaper cleanup | `string` | `"30s"` |
 | publicTxManager | Public transaction manager configuration | [`PublicTxManagerConfig`](#publictxmanager) | - |
 | registries | Map of registry configurations | [`map[string][RegistryConfig]`](#registries) | - |
 | registryManager | Registry manager configuration | [`RegistryManagerConfig`](#registrymanager) | - |
-| reliableMessageResend | Reliable message resend configuration | `string` | - |
+| reliableMessageResend | Reliable message resend configuration | `string` | `"30s"` |
 | reliableMessageWriter | Reliable message writer configuration | [`FlushWriterConfig`](#reliablemessagewriter) | - |
 | reliableScanRetry | Reliable scan retry configuration | [`RetryConfig`](#reliablescanretry) | - |
 | rpcAuthorizers | Map of RPC authorizer configurations | [`map[string][RPCAuthorizerConfig]`](#rpcauthorizers) | - |
 | rpcServer | RPC server configuration | [`RPCServerConfig`](#rpcserver) | - |
-| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | - |
-| sendQueueLen | Maximum length of send queue | `int` | - |
+| sendFailureResetThreshold | Consecutive send failure threshold before resetting a peer sender loop | `int` | `3` |
+| sendQueueLen | Maximum length of send queue | `int` | `10` |
 | sendRetry | Send retry configuration | [`RetryConfigWithMax`](#sendretry) | - |
 | sequencerManager | Sequencer manager configuration | [`SequencerConfig`](#sequencermanager) | - |
 | signingModules | Map of signing module configurations | [`map[string][SigningModuleConfig]`](#signingmodules) | - |
@@ -36,7 +34,6 @@
 | tempDir | Temporary directory path | `string` | - |
 | transports | Map of transport configurations | [`map[string][TransportConfig]`](#transports) | - |
 | txManager | Transaction manager configuration | [`TxManagerConfig`](#txmanager) | - |
-| verifierCache | Verifier cache configuration | [`CacheConfig`](#verifiercache) | - |
 | wallets | List of wallet configurations | [`[WalletConfig]`](#wallets) | - |
 
 ## blockIndexer
@@ -48,8 +45,8 @@
 | commitBatchSize | Number of blocks to commit in a batch | `int` | `50` |
 | commitBatchTimeout | Timeout for batch commits | `string` | `"100ms"` |
 | eventStreams | Event streams configuration | [`EventStreamsConfig`](#blockindexereventstreams) | - |
-| fromBlock | Starting block number for indexing | `[uint8]` | - |
-| ignoredTransactionTypes | Transaction types to ignore | `[int64]` | - |
+| fromBlock | Starting block number for indexing | `integer` | `0` |
+| ignoredTransactionTypes | Transaction types to ignore | `[int64]` | `[0x7e]` |
 | insertDBBatchSize | Batch size for database inserts | `int` | `5000` |
 | requiredConfirmations | Number of confirmations required | `int` | `0` |
 | retry | Retry configuration | [`RetryConfig`](#blockindexerretry) | - |
@@ -159,11 +156,11 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| count | Number of retry attempts | `int` | - |
-| enabled | Whether HTTP retry is enabled | `bool` | - |
+| count | Number of retry attempts | `int` | `5` |
+| enabled | Whether HTTP retry is enabled | `bool` | `false` |
 | errorStatusCodes | Regex pattern for status codes to retry | `string` | - |
-| initialDelay | Initial delay before retry | `string` | - |
-| maximumDelay | Maximum delay between retries | `string` | - |
+| initialDelay | Initial delay before retry | `string` | `"250ms"` |
+| maximumDelay | Maximum delay between retries | `string` | `"30s"` |
 
 ## blockchain.ws.tls
 
@@ -255,7 +252,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| capacity | Cache capacity | `int` | - |
+| capacity | Cache capacity | `int` | `1000` |
 
 ## domains[]
 
@@ -349,13 +346,7 @@
 
 | Key | Description | Type | Default |
 |-----|-------------|------|---------|
-| capacity | Cache capacity | `int` | - |
-
-## keyManager.verifierCache
-
-| Key | Description | Type | Default |
-|-----|-------------|------|---------|
-| capacity | Cache capacity | `int` | - |
+| capacity | Cache capacity | `int` | `1000` |
 
 ## log
 
