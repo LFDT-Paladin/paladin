@@ -77,7 +77,7 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
-	// Transaction pre-assemble dependencies - used for tracking pre-assembly and dispatch order
+	// Transaction pre-assemble dependencies - used for tracking pre-assembly order
 	preAssemblePrereqOf  *uuid.UUID
 	preAssembleDependsOn *uuid.UUID
 

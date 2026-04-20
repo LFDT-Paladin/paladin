@@ -220,7 +220,7 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 
 	g.LockMintsOnCreate(ctx, upserts, states, txID)
 
-	data, err := g.ExportMints(ctx)
+	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
 	var exp exportableStates
 	require.NoError(t, json.Unmarshal(data, &exp))
@@ -230,7 +230,7 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), exp.LockedState[0].Type)
 }
 
-func TestExportMints_OutputAndLocks(t *testing.T) {
+func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 	ctx := context.Background()
 	g := NewGrapher(ctx)
 	minterID := uuid.New()
@@ -241,7 +241,7 @@ func TestExportMints_OutputAndLocks(t *testing.T) {
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{state}, []*components.FullState{}, consumerID)
 
-	data, err := g.ExportMints(ctx)
+	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
 	var exp exportableStates
 	require.NoError(t, json.Unmarshal(data, &exp))

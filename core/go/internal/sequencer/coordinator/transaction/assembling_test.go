@@ -240,17 +240,17 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func Test_sendAssembleRequest_ExportMintsError(t *testing.T) {
+func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
-	mockGrapher.EXPECT().ExportMints(mock.Anything).Return(nil, errors.New("export mints failed"))
+	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything).Return(nil, errors.New("export states and locks failed"))
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(mockGrapher).
 		Build()
 
 	err := txn.sendAssembleRequest(ctx)
-	require.ErrorContains(t, err, "export mints failed")
+	require.ErrorContains(t, err, "export states and locks failed")
 }
 
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {

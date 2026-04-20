@@ -114,7 +114,7 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		grapherStatesAndLocks, err := t.grapher.ExportMints(ctx)
+		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err

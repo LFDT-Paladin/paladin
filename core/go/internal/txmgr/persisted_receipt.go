@@ -115,6 +115,7 @@ func (tm *txManager) FinalizeTransactions(ctx context.Context, dbTX persistence.
 			Indexed:         pldtypes.TimestampNow(),
 			ContractAddress: ri.ContractAddress,
 		}
+		log.L(ctx).Debugf("FinalizeTransactions: created receipt object %v, receipt type %+v", receipt, ri.ReceiptType)
 		if ri.OnChain.Type != pldtypes.NotOnChain {
 			receipt.TransactionHash = &ri.OnChain.TransactionHash
 			receipt.BlockNumber = &ri.OnChain.BlockNumber

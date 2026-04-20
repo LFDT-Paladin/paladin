@@ -45,7 +45,7 @@ import (
 //   - A base-ledger confirmation has occurred so consumed states should be removed
 type Grapher interface {
 	AddMinter(ctx context.Context, state []*components.FullState, txID uuid.UUID) error
-	ExportMints(ctx context.Context) ([]byte, error)
+	ExportStatesAndLocks(ctx context.Context) ([]byte, error)
 	Forget(transactionID uuid.UUID)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
@@ -295,7 +295,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 	}
 }
 
-func (g *grapher) ExportMints(ctx context.Context) ([]byte, error) {
+func (g *grapher) ExportStatesAndLocks(ctx context.Context) ([]byte, error) {
 	g.mu.RLock()
 	exportableStates := exportableStates{}
 	exportableStates.OutputState = make([]*components.StateUpsert, 0, len(g.outputStatesByMinter))
