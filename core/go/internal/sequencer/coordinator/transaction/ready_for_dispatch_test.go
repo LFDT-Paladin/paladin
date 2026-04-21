@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -141,7 +142,7 @@ func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(mockGrapher).
+		Dependencies(&pldapi.TransactionDependencies{}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn.pt.ID).Return(nil)
@@ -155,7 +156,9 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 	missingID := uuid.New()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(mockGrapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{missingID},
+		}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn.pt.ID).Return([]uuid.UUID{missingID})
@@ -171,19 +174,11 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
 	txn1.stateMachine.CurrentState = State_Assembling
 
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
-
-	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return([]uuid.UUID{txn1.pt.ID})
-
-	txByID := map[uuid.UUID]CoordinatorTransaction{
-		txn1.pt.ID: txn1,
-		txn2.pt.ID: txn2,
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(grapher).Build()
+	txn2.dependencies = &pldapi.TransactionDependencies{
+		DependsOn: []uuid.UUID{txn1.pt.ID},
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	txn1.getCoordinatorTransaction = lookup
-	txn2.getCoordinatorTransaction = lookup
+	txn2.pt.PreAssembly = nil
 
 	assert.True(t, txn2.hasDependenciesNotReady(ctx))
 }
@@ -197,7 +192,10 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 		Build()
 
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{txn1.pt.ID},
+		}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return([]uuid.UUID{txn1.pt.ID})
@@ -246,7 +244,9 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(mockGrapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{},
+		}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return(nil)
@@ -260,7 +260,9 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	missingID := uuid.New()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(mockGrapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{missingID},
+		}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{missingID})
@@ -275,16 +277,22 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	mockGrapher := grapher.NewMockGrapher(t)
 	tx1ID := uuid.New()
 	tx2ID := uuid.New()
-
-	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
-		TransactionID(tx2ID).
-		Grapher(mockGrapher).
-		PredefinedDependencies(tx1ID).
-		Build()
-
+	// txn1 is the notifier: it enters Ready_For_Dispatch and notifies its dependents (txn2)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx1ID).
-		Grapher(mockGrapher).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{tx2ID},
+		}).
+		Build()
+	// txn2 is the dependent: it must be in State_Blocked so that Event_DependencyReady causes a transition to State_Confirming_Dispatchable
+	txn2, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		TransactionID(tx2ID).
+		Grapher(grapher).
+		PredefinedDependencies(tx1ID).
+		Dependencies(&pldapi.TransactionDependencies{
+			DependsOn: []uuid.UUID{tx1ID},
+		}).
 		Build()
 
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{txn2.pt.ID}).Once()
@@ -360,8 +368,10 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	dependentTxn.pt.PostAssembly = nil
 
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(mockGrapher).
-		TransactionID(mainTxnID).
+		Grapher(grapher).
+		Dependencies(&pldapi.TransactionDependencies{
+			PrereqOf: []uuid.UUID{dependentID},
+		}).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
 
@@ -428,4 +438,114 @@ func Test_action_AllocateSigningIdentity_WithoutSigner(t *testing.T) {
 	err := action_AllocateSigningIdentity(ctx, txn, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "coordinator-signer", txn.pt.Signer)
+}
+
+func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{txn.pt.ID}
+
+	assert.True(t, txn.hasDependenciesNotReady(ctx))
+}
+
+func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{txn.pt.ID}
+
+	assert.False(t, txn.hasDependenciesNotReady(ctx))
+}
+
+func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	unknownID := uuid.New()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.Chained.DependsOn = []uuid.UUID{unknownID}
+
+	assert.True(t, txn.hasDependenciesNotReady(ctx))
+}
+
+func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+
+	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Confirming_Dispatchable, txn.GetCurrentState())
+}
+
+func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		Grapher(grapher).
+		NumberOfOutputStates(1).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+	txn.dependencies.PostAssemble.DependsOn = []uuid.UUID{depTx.pt.ID}
+
+	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, State_Blocked, txn.GetCurrentState())
+}
+
+func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		Build()
+
+	dependentTx, _ := NewTransactionBuilderForTesting(t, State_Blocked).
+		Grapher(grapher).
+		Build()
+
+	depTx.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTx.pt.ID}
+
+	err := depTx.notifyDependentsOfReadiness(ctx)
+	require.NoError(t, err)
 }

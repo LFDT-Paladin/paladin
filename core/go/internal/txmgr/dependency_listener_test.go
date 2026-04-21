@@ -325,7 +325,7 @@ func TestNotifyDependentTransactions_FailurePropagatesToDependent(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, receipt)
 	assert.False(t, receipt.Success)
-	assert.Contains(t, receipt.FailureMessage, "Transaction dependency failed")
+	assert.Contains(t, receipt.FailureMessage, "PD012256")
 }
 
 func TestNotifyDependentTransactions_HandleTxResumeError_LoggedAndCommitSucceeds(t *testing.T) {

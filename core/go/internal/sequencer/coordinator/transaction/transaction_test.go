@@ -247,6 +247,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
+	store := NewChainedChildStore()
 	txn := newTransaction(
 		ctx,
 		"sender@node1",
@@ -271,6 +272,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		3,
 		3,
 		grapher.NewGrapher(ctx),
+		store,
 		nil,
 	)
 	require.NotNil(t, txn)
@@ -293,6 +295,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
+	store := NewChainedChildStore()
 	txn := NewTransaction(
 		ctx,
 		"sender@node1",
@@ -317,6 +320,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		3,
 		3,
 		grapher.NewGrapher(ctx),
+		store,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NotNil(t, txn)
@@ -377,4 +381,40 @@ func TestTransaction_HasDispatchedPublicTransaction_FalseWhenNil(t *testing.T) {
 		Build()
 
 	assert.False(t, txn.HasDispatchedPublicTransaction())
+}
+
+func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	depID := uuid.New()
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		TransactionID(depID).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ChainedDependencies(depID).
+		Grapher(grapher).
+		Build()
+
+	_ = depTx
+
+	assert.NotNil(t, grapher.TransactionByID(ctx, depID))
+	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	unknownID := uuid.New()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		ChainedDependencies(unknownID).
+		Grapher(grapher).
+		Build()
+
+	assert.Empty(t, txn.dependencies.Chained.DependsOn)
+	assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
 }

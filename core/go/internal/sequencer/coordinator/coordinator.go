@@ -114,6 +114,11 @@ type coordinator struct {
 	dispatchLoopStopped chan struct{}
 	inFlightTxns        map[uuid.UUID]transaction.CoordinatorTransaction
 	inFlightMutex       *sync.Cond
+
+	/* Chained child tracking — maps parent transaction ID to the chained child transaction ID.
+	   Protected by its own mutex so the dispatch loop can read/write without acquiring
+	   individual transaction RWMutex locks (avoiding deadlocks with the event loop). */
+	chainedChildStore transaction.ChainedChildStore
 }
 
 func NewCoordinator(
@@ -156,6 +161,7 @@ func NewCoordinator(
 		nodeName:                           nodeName,
 		metrics:                            metrics,
 		dispatchLoopStopped:                make(chan struct{}),
+		chainedChildStore:                  transaction.NewChainedChildStore(),
 	}
 	c.originatorNodePool = make([]string, 0, len(initialOriginatorNodePool))
 	for _, node := range initialOriginatorNodePool {

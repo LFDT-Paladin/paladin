@@ -101,6 +101,8 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	// Add a lock for every read state and spent state to prevent other transactions using them
 	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
 
+	// MRW TODO - update grapher 2 with the information to track the chained dependencies from 1146
+
 	return nil
 }
 
@@ -141,23 +143,41 @@ func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	return txn.notifyPreAssembleDependentOfSelection(ctx)
+// We notify a transactions dependents at the point it is selected for assembly. If this is the last unassembled prereq,
+// the dependency can move to State_Pooled upon receviing this notification, since the outcome of assembly is irrelevant
+// to ensuring that as a minimum the first assembly attempt is performed in order.
+//
+// For dependency types where the transactions must be assembled in the correct order, regardless of how many resets have
+// occured, a dependency reset event will move the dependent transaction back to State_PreAssembly_Blocked if assembly of
+// this transaction fails.
+func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	return txn.notifyDependentsOfSelection(ctx)
 }
 
-func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
-	if t.preAssemblePrereqOf == nil {
-		return nil
+func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context) error {
+	var dependentIDs []uuid.UUID
+	// MRW TODO post merge - replace with call to pre-assemble grapher
+	if t.dependencies.PreAssemble.PrereqOf != nil {
+		dependentIDs = append(dependentIDs, *t.dependencies.PreAssemble.PrereqOf)
 	}
-	dependent := t.getCoordinatorTransaction(ctx, *t.preAssemblePrereqOf)
-	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, *t.preAssemblePrereqOf)
+	dependentIDs = append(dependentIDs, t.dependencies.Chained.PrereqOf...)
+
+	for _, dependentID := range dependentIDs {
+		dependent := t.getCoordinatorTransaction(ctx, *t.preAssemblePrereqOf)
+		if dependent == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)
+		}
+		err := dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
 	}
-	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: t.pt.ID,
-		},
-	})
+	return nil
 }
 
 func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
