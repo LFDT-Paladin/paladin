@@ -173,9 +173,9 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 // state machine, performing its own finalization (downward pruning of the dependency chain).
 func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
+		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
 		}
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
 		err := dependent.HandleEvent(ctx, &ChainedDependencyFailedEvent{
@@ -219,9 +219,9 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 // or PreAssembly_Blocked.
 func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
+		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
 		}
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
 		err := dependent.HandleEvent(ctx, &ChainedDependencyEvictedEvent{
@@ -246,9 +246,9 @@ func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coor
 		return nil
 	}
 	dependentID := *t.dependencies.PreAssemble.PrereqOf
-	dependent := t.grapher.TransactionByID(ctx, dependentID)
+	dependent := t.getCoordinatorTransaction(ctx, dependentID)
 	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
+		return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)
 	}
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
 	return dependent.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{

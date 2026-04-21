@@ -22,7 +22,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/google/uuid"
 )
 
@@ -126,13 +125,17 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	}
 	// Once dependents have been notified of reset, clear tracked dependencies so repeated reset
 	// events while dispatched are no-ops and stale dependency links are dropped.
-	txn.dependencies = &pldapi.TransactionDependencies{}
+	// MRW TODO - forget dependencies for grapher 2
+	txn.dependencies = TransactionDependencies{}
+
+	txn.grapher.Forget(txn.pt.ID)
 	return nil
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
-	for _, dependentID := range t.dependencies.PrereqOf {
-		dependentTxn := t.grapher.TransactionByID(ctx, dependentID)
+	// MRW TODO - also get grapher 2 dependents
+	for _, dependentID := range t.grapher.GetDependents(ctx, t.pt.ID) {
+		dependentTxn := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependentTxn != nil {
 			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -156,7 +159,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 
 func (t *coordinatorTransaction) removeFromDependencyPrereqOf(ctx context.Context) {
 	for _, depID := range t.dependencies.PostAssemble.DependsOn {
-		dep, ok := t.grapher.TransactionByID(ctx, depID).(*coordinatorTransaction)
+		dep, ok := t.getCoordinatorTransaction(ctx, depID).(*coordinatorTransaction)
 		if !ok || dep == nil {
 			continue
 		}
@@ -175,7 +178,7 @@ func (t *coordinatorTransaction) removeFromDependencyPrereqOf(ctx context.Contex
 // failed by the time this transaction is created.
 func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
 	for _, depID := range txn.dependencies.Chained.DependsOn {
-		dep := txn.grapher.TransactionByID(ctx, depID)
+		dep := txn.getCoordinatorTransaction(ctx, depID)
 		if dep != nil && dep.GetCurrentState() == State_Reverted {
 			return true
 		}
@@ -188,7 +191,7 @@ func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTra
 // been evicted by the time this transaction is created.
 func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
 	for _, depID := range txn.dependencies.Chained.DependsOn {
-		dep := txn.grapher.TransactionByID(ctx, depID)
+		dep := txn.getCoordinatorTransaction(ctx, depID)
 		if dep != nil && dep.GetCurrentState() == State_Evicted {
 			return true
 		}
@@ -201,7 +204,7 @@ func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTran
 // where a chained dependency has already reverted by the time this transaction is delegated.
 func action_FinalizeOnRevertedChainedDependencyAtCreation(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	for _, depID := range t.dependencies.Chained.DependsOn {
-		dep := t.grapher.TransactionByID(ctx, depID)
+		dep := t.getCoordinatorTransaction(ctx, depID)
 		if dep != nil && dep.GetCurrentState() == State_Reverted {
 			log.L(ctx).Infof("finalizing TX %s at creation due to chained dependency %s already reverted", t.pt.ID, depID)
 			t.syncPoints.QueueTransactionFinalize(ctx,

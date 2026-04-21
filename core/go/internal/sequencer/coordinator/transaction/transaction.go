@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -117,17 +118,17 @@ type coordinatorTransaction struct {
 	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
-	clock                    common.Clock
-	transportWriter          transport.TransportWriter
-	grapher                  grapher.Grapher,
-	engineIntegration        common.EngineIntegration
-	syncPoints               syncpoints.SyncPoints
-	components               components.AllComponents
-	domainAPI                components.DomainSmartContract
-	dCtx                     components.DomainContext
-	queueEventForCoordinator func(context.Context, common.Event)
+	clock                     common.Clock
+	transportWriter           transport.TransportWriter
+	grapher                   grapher.Grapher
+	engineIntegration         common.EngineIntegration
+	syncPoints                syncpoints.SyncPoints
+	components                components.AllComponents
+	domainAPI                 components.DomainSmartContract
+	dCtx                      components.DomainContext
+	queueEventForCoordinator  func(context.Context, common.Event)
 	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction
-	metrics                  metrics.DistributedSequencerMetrics
+	metrics                   metrics.DistributedSequencerMetrics
 }
 
 func NewTransaction(ctx context.Context,
@@ -250,7 +251,7 @@ func newTransaction(
 	txn.dependencies.Chained.Unassembled = make(map[uuid.UUID]struct{})
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
 		for _, depID := range pt.PreAssembly.ChainedDependsOn {
-			dep := grapher.TransactionByID(txCtx, depID)
+			dep := txn.getCoordinatorTransaction(txCtx, depID)
 			if dep == nil {
 				// It is possible for a chained transaction to be created referencing dependencies that the original
 				// grapher knew about at creation time, but for the chained transactions of those dependencies to have

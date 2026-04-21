@@ -163,7 +163,7 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	dependentIDs = append(dependentIDs, t.dependencies.Chained.PrereqOf...)
 
 	for _, dependentID := range dependentIDs {
-		dependent := t.getCoordinatorTransaction(ctx, *t.preAssemblePrereqOf)
+		dependent := t.getCoordinatorTransaction(ctx, dependentID)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)
 		}

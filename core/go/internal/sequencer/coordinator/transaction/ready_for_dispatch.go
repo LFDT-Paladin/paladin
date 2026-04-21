@@ -112,7 +112,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	// MRW TODO - replace t.dependencies.Chained.PrereqOf with grapher 2 GetDependents call
 	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencies.Chained.PrereqOf...) {
-		dependent := t.getCoordinatorTransaction(ctx, dependentID)
+		dependent := t.getCoordinatorTransaction(ctx, dependentId)
 		if dependent == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
 		} else {
