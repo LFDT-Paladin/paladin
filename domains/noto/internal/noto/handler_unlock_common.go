@@ -108,7 +108,7 @@ func (h *unlockCommon) buildUnlockData(ctx context.Context, notaryID, senderID, 
 				StateDataJson: s.StateDataJson,
 			}
 		}
-		encodedUnlockData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, endorsableInfoStates)
+		encodedUnlockData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, endorsableInfoStates, resolvedVerifiers)
 	}
 	return
 }
@@ -400,7 +400,7 @@ func (h *unlockCommon) buildPrepareUnlockParams(ctx context.Context, tx *types.P
 
 }
 
-func (h *unlockCommon) buildCreateLockParams(ctx context.Context, tx *types.ParsedTransaction, lockTransition *lockTransition, proof pldtypes.HexBytes, inputs, lockedOutputs, additionalOutputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState) (_ *CreateLockParams, err error) {
+func (h *unlockCommon) buildCreateLockParams(ctx context.Context, tx *types.ParsedTransaction, lockTransition *lockTransition, proof pldtypes.HexBytes, inputs, lockedOutputs, additionalOutputs, spendOutputs, cancelOutputs, infoStates []*prototk.EndorsableState, verifiers []*prototk.ResolvedVerifier) (_ *CreateLockParams, err error) {
 	lockID := lockTransition.newLockInfo.LockID
 	spendData := lockTransition.newLockInfo.SpendData
 	cancelData := lockTransition.newLockInfo.CancelData
@@ -432,7 +432,7 @@ func (h *unlockCommon) buildCreateLockParams(ctx context.Context, tx *types.Pars
 		return nil, err
 	}
 
-	txData, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, infoStates)
+	txData, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, infoStates, verifiers)
 	if err != nil {
 		return nil, err
 	}

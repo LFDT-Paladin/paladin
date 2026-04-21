@@ -276,6 +276,7 @@ func (h *createMintLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		spendOutputs,
 		[]*prototk.EndorsableState{},
 		req.InfoStates,
+		req.ResolvedVerifiers,
 	)
 	if err == nil {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)

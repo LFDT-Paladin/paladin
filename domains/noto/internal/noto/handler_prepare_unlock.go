@@ -270,7 +270,7 @@ func (h *prepareUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *types.P
 		// We must use the legacy encoding for the transaction data, because there is no other place
 		// to pass in the transaction ID on this
 		var txData pldtypes.HexBytes
-		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates)
+		txData, err = h.noto.encodeTransactionData(ctx, tx.DomainConfig, tx.Transaction, req.InfoStates, req.ResolvedVerifiers)
 		if err == nil {
 			interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
 			functionName = "prepareUnlock"

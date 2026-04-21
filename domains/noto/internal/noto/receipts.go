@@ -42,6 +42,16 @@ func (n *Noto) BuildReceipt(ctx context.Context, req *prototk.BuildReceiptReques
 		}
 		receipt.Data = info.Data
 		variant = info.Variant
+
+		// Extract requester information from TransactionData
+		if txData, err := n.decodeTransactionDataV1(ctx, info.Data); err == nil && txData != nil {
+			if txData.From != nil || txData.FromAddress != nil {
+				receipt.Requester = &types.ReceiptRequester{
+					Lookup:  txData.From,
+					Address: txData.FromAddress,
+				}
+			}
+		}
 	}
 
 	receipt.States.Inputs, err = n.receiptStates(ctx, n.filterSchema(req.InputStates, []string{n.coinSchema.Id}))

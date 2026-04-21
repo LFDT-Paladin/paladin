@@ -37,6 +37,7 @@ func sampleV0Data(t *testing.T, n *Noto) (txID pldtypes.Bytes32, data pldtypes.H
 		}, []*prototk.EndorsableState{
 			{Id: pldtypes.RandBytes32().String()},
 		},
+		nil, // no verifiers for test
 	)
 	require.NoError(t, err)
 	return txID, data

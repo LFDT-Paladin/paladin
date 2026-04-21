@@ -1,0 +1,732 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 7.22kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/ubuntu:24.04
+#2 ...
+
+#3 [auth] library/ubuntu:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/ubuntu:24.04
+#2 DONE 2.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 656B done
+#4 DONE 0.0s
+
+#5 [base-builder  1/21] FROM docker.io/library/ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
+#5 resolve docker.io/library/ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 548.18kB 0.2s done
+#6 DONE 0.2s
+
+#7 [base-builder  9/21] WORKDIR /app
+#7 CACHED
+
+#8 [base-builder  4/21] RUN NODE_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "arm64"; else echo -n "x64"; fi ) &&     curl -sLo - https://nodejs.org/dist/v20.17.0/node-v20.17.0-linux-${NODE_ARCH}.tar.xz |     xz -cd - | tar -C /usr/local -xf - &&     ln -s /usr/local/node-* /usr/local/node
+#8 CACHED
+
+#9 [base-builder  7/21] RUN curl -sLo gradle-8.5-bin.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip &&     unzip gradle-8.5-bin.zip -d /usr/local &&     rm gradle-8.5-bin.zip &&     ln -s /usr/local/gradle-* /usr/local/gradle
+#9 CACHED
+
+#10 [base-builder  8/21] RUN WASMER_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "aarch64"; else echo -n "amd64"; fi  ) &&     mkdir -p /usr/local/wasmer &&     curl -sLo - https://github.com/wasmerio/wasmer/releases/download/v4.3.7/wasmer-linux-${WASMER_ARCH}.tar.gz |     tar -C /usr/local/wasmer -zxf -
+#10 CACHED
+
+#11 [base-builder 10/21] COPY build.gradle settings.gradle ./
+#11 CACHED
+
+#12 [base-builder 11/21] COPY buildSrc buildSrc
+#12 CACHED
+
+#13 [base-builder  2/21] RUN apt-get update && apt-get install -y     curl     unzip     git     build-essential     gcc     g++     libc6-dev     pkg-config     libgomp1     xz-utils     && apt-get clean
+#13 CACHED
+
+#14 [base-builder  3/21] RUN JAVA_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "aarch64"; else echo -n "x64"; fi ) &&     curl -sLo - https://api.adoptium.net/v3/binary/version/jdk-21.0.4+7/linux/${JAVA_ARCH}/jdk/hotspot/normal/eclipse |     tar -C /usr/local -xzf - &&     ln -s /usr/local/jdk-* /usr/local/java
+#14 CACHED
+
+#15 [base-builder  5/21] RUN PROTO_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "aarch_64"; else echo -n "x86_64"; fi ) &&     curl -sLo protoc-28.2-linux-${PROTO_ARCH}.zip     https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-${PROTO_ARCH}.zip &&     unzip protoc-28.2-linux-${PROTO_ARCH}.zip -d /usr/local/protoc &&     rm protoc-28.2-linux-${PROTO_ARCH}.zip
+#15 CACHED
+
+#16 [base-builder  6/21] RUN GO_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "arm64"; else echo -n "amd64"; fi  ) &&     curl -sLo - https://go.dev/dl/go1.24.3.linux-${GO_ARCH}.tar.gz |     tar -C /usr/local -xzf -
+#16 CACHED
+
+#17 [base-builder 12/21] RUN gradle --no-daemon --parallel :buildSrc:jar
+#17 CACHED
+
+#18 [base-builder 13/21] COPY solidity solidity
+#18 DONE 0.0s
+
+#19 [base-builder 14/21] COPY config config
+#19 DONE 0.0s
+
+#20 [base-builder 15/21] COPY common/go common/go
+#20 DONE 0.0s
+
+#21 [base-builder 16/21] COPY sdk/go sdk/go
+#21 DONE 0.0s
+
+#22 [base-builder 17/21] COPY toolkit/proto toolkit/proto
+#22 DONE 0.0s
+
+#23 [base-builder 18/21] COPY toolkit toolkit
+#23 DONE 0.0s
+
+#24 [base-builder 19/21] COPY go.work.sum ./
+#24 DONE 0.0s
+
+#25 [base-builder 20/21] COPY go.work.base go.work
+#25 DONE 0.0s
+
+#26 [base-builder 21/21] RUN gradle --no-daemon --parallel :toolkit:go:assemble :solidity:compile
+#26 0.853 To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.5/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+#26 1.452 Daemon will be stopped at the end of the build 
+#26 3.153 > Task :buildSrc:compileJava NO-SOURCE
+#26 3.252 > Task :buildSrc:compileGroovy UP-TO-DATE
+#26 3.252 > Task :buildSrc:processResources NO-SOURCE
+#26 3.253 > Task :buildSrc:classes UP-TO-DATE
+#26 3.253 > Task :buildSrc:jar UP-TO-DATE
+#26 10.05 
+#26 10.05 > Task :installProtocGenGo
+#26 10.05 go: downloading google.golang.org/protobuf v1.34.2
+#26 13.15 
+#26 13.15 > Task :solidity:install
+#26 13.15 npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+#26 13.15 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#26 13.15 npm warn deprecated glob@8.1.0: Glob versions prior to v9 are no longer supported
+#26 15.15 
+#26 15.15 > Task :installProtocGenGoRPC
+#26 15.15 go: downloading google.golang.org/grpc v1.5.1
+#26 15.15 go: downloading google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
+#26 15.15 go: downloading google.golang.org/protobuf v1.34.1
+#26 15.45 
+#26 15.45 > Task :toolkit:go:protoc
+#26 17.45 
+#26 17.45 > Task :toolkit:go:goGet
+#26 17.45 go: downloading github.com/gorilla/mux v1.8.1
+#26 17.45 go: downloading github.com/google/uuid v1.6.0
+#26 17.45 go: downloading github.com/gorilla/websocket v1.5.3
+#26 17.45 go: downloading github.com/btcsuite/btcd/btcutil v1.1.6
+#26 17.45 go: downloading github.com/btcsuite/btcd v0.24.2
+#26 17.45 go: downloading github.com/tyler-smith/go-bip39 v1.1.0
+#26 17.45 go: downloading github.com/hyperledger/firefly-signer v1.1.21
+#26 17.45 go: downloading sigs.k8s.io/yaml v1.4.0
+#26 17.45 go: downloading github.com/Code-Hex/go-generics-cache v1.5.1
+#26 17.85 go: downloading google.golang.org/grpc v1.67.1
+#26 17.95 go: downloading google.golang.org/protobuf v1.36.5
+#26 18.45 go: downloading github.com/rs/cors v1.11.1
+#26 18.45 go: downloading github.com/prometheus/client_golang v1.22.0
+#26 18.45 go: downloading k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
+#26 21.15 go: downloading github.com/docker/go-units v0.5.0
+#26 21.25 go: downloading github.com/sirupsen/logrus v1.9.3
+#26 21.75 go: downloading github.com/x-cray/logrus-prefixed-formatter v0.5.2
+#26 21.85 go: downloading gopkg.in/natefinch/lumberjack.v2 v2.2.1
+#26 21.85 go: downloading golang.org/x/text v0.23.0
+#26 21.85 go: downloading github.com/pkg/errors v0.9.1
+#26 21.85 go: downloading github.com/go-resty/resty/v2 v2.14.0
+#26 21.95 go: downloading github.com/aidarkhanov/nanoid v1.0.8
+#26 21.95 go: downloading golang.org/x/crypto v0.36.0
+#26 21.95 go: downloading gopkg.in/yaml.v3 v3.0.1
+#26 23.25 go: downloading golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
+#26 24.55 go: downloading github.com/hyperledger/firefly-common v1.5.6
+#26 25.25 go: downloading github.com/btcsuite/btcd/btcec/v2 v2.3.2
+#26 25.65 go: downloading golang.org/x/net v0.38.0
+#26 25.65 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20241007155032-5fefd90f89a9
+#26 25.65 go: downloading github.com/beorn7/perks v1.0.1
+#26 25.75 go: downloading github.com/cespare/xxhash/v2 v2.3.0
+#26 25.85 go: downloading github.com/prometheus/client_model v0.6.1
+#26 25.85 go: downloading github.com/prometheus/common v0.62.0
+#26 26.25 go: downloading github.com/prometheus/procfs v0.15.1
+#26 26.25 go: downloading golang.org/x/sys v0.31.0
+#26 26.45 go: downloading github.com/stretchr/testify v1.10.0
+#26 26.45 go: downloading github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d
+#26 26.75 go: downloading github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
+#26 26.95 go: downloading github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
+#26 26.95 go: downloading github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
+#26 26.95 go: downloading github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
+#26 27.05 go: downloading golang.org/x/term v0.30.0
+#26 27.05 go: downloading github.com/mattn/go-colorable v0.1.13
+#26 27.05 go: downloading github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
+#26 27.05 go: downloading github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
+#26 27.25 go: downloading github.com/mattn/go-isatty v0.0.20
+#26 28.75 
+#26 28.75 > Task :solidity:install
+#26 28.75 npm warn deprecated glob@7.1.7: Glob versions prior to v9 are no longer supported
+#26 28.75 npm warn deprecated glob@5.0.15: Glob versions prior to v9 are no longer supported
+#26 28.75 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+#26 28.75 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+#26 36.55 
+#26 36.55 > Task :toolkit:go:buildStarterLibrary
+#26 36.55 go: downloading google.golang.org/genproto v0.0.0-20240213162025-012b6fc9bca9
+#26 36.55 
+#26 36.55 > Task :toolkit:go:assemble
+#26 44.55 
+#26 44.55 > Task :solidity:install
+#26 44.55 
+#26 44.55 added 721 packages, and audited 722 packages in 36s
+#26 44.55 
+#26 44.55 117 packages are looking for funding
+#26 44.55   run `npm fund` for details
+#26 44.55 
+#26 44.55 70 vulnerabilities (23 low, 18 moderate, 27 high, 2 critical)
+#26 44.55 
+#26 44.55 To address issues that do not require attention, run:
+#26 44.55   npm audit fix
+#26 44.55 
+#26 44.55 To address all issues (including breaking changes), run:
+#26 44.55   npm audit fix --force
+#26 44.55 
+#26 44.55 npm notice
+#26 44.55 Run `npm audit` for details.
+#26 44.55 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#26 44.55 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#26 44.55 npm notice To update run: npm install -g npm@11.12.1
+#26 44.55 npm notice
+#26 51.85 
+#26 51.85 > Task :solidity:compile
+#26 51.85 Downloading compiler 0.8.30
+#26 54.85 Warning: Unreachable code.
+#26 54.85   --> @openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol:79:9:
+#26 54.85    |
+#26 54.85 79 |         _nonReentrantAfter();
+#26 54.85    |         ^^^^^^^^^^^^^^^^^^^^
+#26 54.85 
+#26 54.85 
+#26 54.95 Generating typings for: 84 artifacts in dir: typechain-types for target: ethers-v6
+#26 56.05 Successfully generated 248 typings!
+#26 56.05 Compiled 81 Solidity files successfully (evm target: shanghai).
+#26 56.15 
+#26 56.15 Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+#26 56.15 
+#26 56.15 You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+#26 56.15 
+#26 56.15 For more on this, please refer to https://docs.gradle.org/8.5/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+#26 56.15 
+#26 56.15 BUILD SUCCESSFUL in 55s
+#26 56.15 9 actionable tasks: 7 executed, 2 up-to-date
+#26 DONE 56.8s
+
+#27 [full-builder  1/18] COPY go.work go.work
+#27 DONE 0.6s
+
+#28 [full-builder  2/18] COPY core/go core/go
+#28 DONE 0.1s
+
+#29 [full-builder  3/18] COPY core/java core/java
+#29 DONE 0.0s
+
+#30 [full-builder  4/18] COPY toolkit/java toolkit/java
+#30 DONE 0.0s
+
+#31 [full-builder  5/18] COPY domains/pente domains/pente
+#31 DONE 0.0s
+
+#32 [full-builder  6/18] COPY domains/zeto domains/zeto
+#32 DONE 0.0s
+
+#33 [full-builder  7/18] COPY domains/noto domains/noto
+#33 DONE 0.0s
+
+#34 [full-builder  8/18] COPY domains/integration-test domains/integration-test
+#34 DONE 0.0s
+
+#35 [full-builder  9/18] COPY registries/static registries/static
+#35 DONE 0.0s
+
+#36 [full-builder 10/18] COPY registries/evm registries/evm
+#36 DONE 0.0s
+
+#37 [full-builder 11/18] COPY rpcauth/basicauth rpcauth/basicauth
+#37 DONE 0.0s
+
+#38 [full-builder 12/18] COPY signingmodules/example signingmodules/example
+#38 DONE 0.0s
+
+#39 [full-builder 13/18] COPY transports/grpc transports/grpc
+#39 DONE 0.0s
+
+#40 [full-builder 14/18] COPY ui/client ui/client
+#40 DONE 0.0s
+
+#41 [full-builder 15/18] COPY testinfra/go.mod testinfra/go.mod
+#41 DONE 0.0s
+
+#42 [full-builder 16/18] COPY operator/go.mod operator/go.mod
+#42 DONE 0.0s
+
+#43 [full-builder 17/18] COPY perf/go.mod perf/go.mod
+#43 DONE 0.0s
+
+#44 [full-builder 18/18] RUN gradle --no-daemon --parallel assemble
+#44 0.617 To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.5/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+#44 1.217 Daemon will be stopped at the end of the build 
+#44 2.718 > Task :buildSrc:compileJava NO-SOURCE
+#44 2.718 > Task :buildSrc:compileGroovy UP-TO-DATE
+#44 2.818 > Task :buildSrc:processResources NO-SOURCE
+#44 2.818 > Task :buildSrc:classes UP-TO-DATE
+#44 2.818 > Task :buildSrc:jar UP-TO-DATE
+#44 207.1 > Task :toolkit:proto:assemble SKIPPED
+#44 207.3 > Task :toolkit_java:collectProtocFiles
+#44 207.3 > Task :domains:pente:processResources NO-SOURCE
+#44 207.3 > Task :core:java:processResources NO-SOURCE
+#44 208.7 
+#44 208.7 > Task :domains:zeto:downloadZetoCompiledContracts
+#44 208.7 Download https://github.com/hyperledger-labs/zeto/releases/download/v0.2.0/zeto-contracts-v0.2.0.tar.gz
+#44 209.1 
+#44 209.1 > Task :installMockery
+#44 209.1 go: downloading github.com/vektra/mockery/v3 v3.3.2
+#44 209.3 
+#44 209.3 > Task :solidity:install UP-TO-DATE
+#44 209.3 
+#44 209.3 > Task :domains:zeto:downloadZetoProver
+#44 209.3 Download https://github.com/hyperledger-labs/zeto/releases/download/v0.2.0/zeto-wasm-v0.2.0.tar.gz
+#44 209.4 
+#44 209.4 > Task :solidity:compile UP-TO-DATE
+#44 209.4 > Task :solidity:assemble SKIPPED
+#44 209.4 
+#44 209.4 > Task :domains:zeto:downloadZetoTestProvingKeys
+#44 209.4 Download https://github.com/hyperledger-labs/zeto/releases/download/v0.2.0/zeto-test-proving-keys-v0.2.0.tar.gz
+#44 209.5 
+#44 209.5 > Task :domains:zeto:copyPkgSolidity
+#44 209.5 > Task :registries:evm:copyContracts
+#44 209.5 > Task :domains:noto:copyInternalSolidity
+#44 209.5 > Task :core:go:copyDomainManagerContracts
+#44 209.5 > Task :domains:noto:copyPkgSolidity
+#44 209.5 > Task :core:go:copyTestContracts
+#44 209.5 > Task :domains:noto:copySolidity
+#44 209.5 > Task :core:go:copyTestDomainContracts
+#44 209.5 > Task :core:go:copyTestbedContracts
+#44 209.5 > Task :core:go:copyContracts
+#44 209.6 > Task :toolkit_java:extractIncludeProto
+#44 209.6 > Task :toolkit_java:extractProto
+#44 211.4 
+#44 211.4 > Task :installMockery
+#44 211.4 go: downloading github.com/jedib0t/go-pretty/v6 v6.6.7
+#44 211.4 go: downloading github.com/knadh/koanf/v2 v2.1.2
+#44 211.4 go: downloading github.com/knadh/koanf/providers/structs v0.1.0
+#44 211.4 go: downloading github.com/chigopher/pathlib v0.19.1
+#44 211.4 go: downloading github.com/knadh/koanf/parsers/yaml v0.1.0
+#44 211.4 go: downloading github.com/rs/zerolog v1.33.0
+#44 211.4 go: downloading github.com/spf13/pflag v1.0.5
+#44 211.4 go: downloading github.com/spf13/cobra v1.8.1
+#44 211.4 go: downloading golang.org/x/term v0.29.0
+#44 212.6 go: downloading golang.org/x/tools v0.33.0
+#44 212.6 go: downloading github.com/brunoga/deep v1.2.4
+#44 212.6 go: downloading github.com/go-viper/mapstructure/v2 v2.2.1
+#44 212.6 go: downloading github.com/knadh/koanf/providers/env v1.0.0
+#44 212.6 go: downloading github.com/knadh/koanf/providers/file v1.1.2
+#44 212.9 go: downloading github.com/knadh/koanf/providers/posflag v0.1.0
+#44 213.0 
+#44 213.0 > Task :toolkit_java:generateProto
+#44 214.9 
+#44 214.9 > Task :installMockery
+#44 214.9 go: downloading github.com/xeipuuv/gojsonschema v1.2.0
+#44 214.9 go: downloading github.com/knadh/koanf/maps v0.1.1
+#44 214.9 go: downloading github.com/mitchellh/copystructure v1.2.0
+#44 214.9 go: downloading golang.org/x/sys v0.33.0
+#44 214.9 go: downloading github.com/mattn/go-runewidth v0.0.16
+#44 214.9 go: downloading golang.org/x/text v0.22.0
+#44 214.9 go: downloading github.com/huandu/xstrings v1.5.0
+#44 214.9 go: downloading github.com/spf13/afero v1.11.0
+#44 214.9 go: downloading github.com/fatih/structs v1.1.0
+#44 214.9 go: downloading github.com/fsnotify/fsnotify v1.8.0
+#44 214.9 go: downloading github.com/mitchellh/reflectwalk v1.0.2
+#44 214.9 go: downloading github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415
+#44 214.9 go: downloading github.com/rivo/uniseg v0.4.7
+#44 214.9 go: downloading golang.org/x/sync v0.14.0
+#44 214.9 go: downloading golang.org/x/mod v0.24.0
+#44 214.9 go: downloading github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f
+#44 223.6 
+#44 223.6 > Task :installProtocGenGo UP-TO-DATE
+#44 223.6 > Task :installProtocGenGoRPC UP-TO-DATE
+#44 223.6 > Task :toolkit:go:protoc UP-TO-DATE
+#44 223.6 
+#44 223.6 > Task :ui:client:install
+#44 223.6 
+#44 223.6 added 302 packages, and audited 303 packages in 11s
+#44 223.6 
+#44 223.6 66 packages are looking for funding
+#44 223.6   run `npm fund` for details
+#44 223.6 
+#44 223.6 3 moderate severity vulnerabilities
+#44 223.6 
+#44 223.6 To address issues that do not require attention, run:
+#44 223.6   npm audit fix
+#44 223.6 
+#44 223.6 To address all issues (including breaking changes), run:
+#44 223.6   npm audit fix --force
+#44 223.6 
+#44 223.6 Run `npm audit` for details.
+#44 223.8 
+#44 223.8 > Task :transports:grpc:protoc
+#44 223.9 > Task :core:go:protoc
+#44 224.9 > Task :toolkit:go:goGet UP-TO-DATE
+#44 225.5 > Task :toolkit_java:compileJava
+#44 225.5 > Task :toolkit_java:processResources
+#44 225.5 > Task :toolkit_java:classes
+#44 225.7 > Task :toolkit:go:buildStarterLibrary UP-TO-DATE
+#44 225.7 > Task :toolkit:go:assemble UP-TO-DATE
+#44 225.7 > Task :toolkit_java:jar
+#44 225.9 
+#44 225.9 > Task :core:go:makeMocksComponents
+#44 225.9 2026-04-17T10:07:18.492354920Z INF Starting mockery config-file=/app/core/go/.mockery.yml version=v3.3.2
+#44 225.9 2026-04-17T10:07:18.494950712Z INF Parsing configured packages... version=v3.3.2
+#44 245.9 
+#44 245.9 > Task :registries:static:buildGo
+#44 245.9 go: downloading google.golang.org/grpc v1.72.1
+#44 245.9 go: downloading google.golang.org/protobuf v1.36.8
+#44 245.9 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+#44 245.9 
+#44 245.9 > Task :transports:grpc:buildGo
+#44 245.9 go: downloading google.golang.org/grpc v1.72.1
+#44 245.9 go: downloading google.golang.org/protobuf v1.36.8
+#44 245.9 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+#44 245.9 
+#44 245.9 > Task :registries:evm:buildGo
+#44 245.9 
+#44 245.9 go: downloading google.golang.org/grpc v1.72.1
+#44 245.9 go: downloading google.golang.org/protobuf v1.36.8
+#44 245.9 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+#44 245.9 > Task :rpcauth:basicauth:buildGo
+#44 245.9 go: downloading google.golang.org/grpc v1.72.1
+#44 245.9 go: downloading google.golang.org/protobuf v1.36.8
+#44 245.9 > Task :signingmodules:example:buildGo
+#44 245.9 
+#44 245.9 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+#44 245.9 go: downloading sigs.k8s.io/yaml v1.6.0
+#44 245.9 go: downloading google.golang.org/grpc v1.72.1
+#44 245.9 go: downloading google.golang.org/protobuf v1.36.8
+#44 245.9 go: downloading go.yaml.in/yaml/v2 v2.4.2
+#44 245.9 go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+#44 245.9 
+#44 245.9 > Task :registries:evm:assemble
+#44 245.9 > Task :signingmodules:example:assemble
+#44 245.9 > Task :rpcauth:basicauth:assemble
+#44 245.9 > Task :registries:static:assemble
+#44 245.9 > Task :transports:grpc:assemble
+#44 245.9 > Task :toolkit_java:assemble SKIPPED
+#44 255.0 > Task :domains:noto:buildGo
+#44 255.7 > Task :core:java:compileJava
+#44 260.0 > Task :domains:noto:assemble
+#44 260.1 
+#44 260.1 > Task :ui:client:build
+#44 260.1 
+#44 260.1 > paladin-ui-client@0.0.0 build
+#44 260.1 > tsc -b && vite build
+#44 260.1 
+#44 261.2 
+#44 261.2 > Task :domains:pente:compileJava
+#44 261.2 > Task :domains:pente:classes
+#44 261.3 > Task :core:java:classes
+#44 266.2 
+#44 266.2 > Task :ui:client:build
+#44 266.2 vite v5.4.21 building for production...
+#44 266.3 transforming...
+#44 271.2 
+#44 271.2 > Task :core:java:jar
+#44 272.1 > Task :domains:pente:jar
+#44 272.1 > Task :domains:pente:assemble
+#44 275.3 > Task :core:java:startScripts
+#44 276.5 > Task :core:java:distTar
+#44 279.3 
+#44 279.3 > Task :ui:client:build
+#44 279.4 ✓ 13222 modules transformed.
+#44 280.3 rendering chunks...
+#44 280.3 computing gzip size...
+#44 280.4 dist/index.html                                              0.53 kB │ gzip:   0.35 kB
+#44 280.4 dist/assets/roboto-vietnamese-700-normal-B4Nagvlm.woff       4.97 kB
+#44 280.4 dist/assets/roboto-vietnamese-500-normal-LvuCHq7y.woff       4.98 kB
+#44 280.4 dist/assets/roboto-vietnamese-400-normal-D5pJwT9g.woff       5.00 kB
+#44 280.4 dist/assets/roboto-vietnamese-300-normal-CAomnZLO.woff       5.02 kB
+#44 280.4 dist/assets/roboto-vietnamese-300-normal-PZa9KE_J.woff2      5.69 kB
+#44 280.4 dist/assets/roboto-vietnamese-700-normal-CBbheh0s.woff2      5.71 kB
+#44 280.4 dist/assets/roboto-vietnamese-400-normal-DhTUfTw_.woff2      5.80 kB
+#44 280.4 dist/assets/roboto-vietnamese-500-normal-p0V0BAAE.woff2      5.86 kB
+#44 280.4 dist/assets/roboto-greek-700-normal-1IZ-NEfb.woff            6.31 kB
+#44 280.4 dist/assets/roboto-greek-500-normal-CdRewbqV.woff            6.32 kB
+#44 280.4 dist/assets/roboto-greek-400-normal-IIc_WWwF.woff            6.34 kB
+#44 280.4 dist/assets/roboto-greek-300-normal-D3gN5oZ1.woff            6.44 kB
+#44 280.4 dist/assets/roboto-greek-700-normal-Bs05n1ZH.woff2           6.90 kB
+#44 280.4 dist/assets/roboto-greek-500-normal-Bg8BLohm.woff2           7.03 kB
+#44 280.4 dist/assets/roboto-greek-400-normal-LPh2sqOm.woff2           7.10 kB
+#44 280.4 dist/assets/roboto-greek-300-normal-Bx8edVml.woff2           7.18 kB
+#44 280.4 dist/assets/roboto-cyrillic-400-normal-JN0iKxGs.woff         8.57 kB
+#44 280.4 dist/assets/roboto-cyrillic-300-normal-Dg7J0kAT.woff         8.62 kB
+#44 280.4 dist/assets/roboto-cyrillic-700-normal-BJaAVvFw.woff         8.84 kB
+#44 280.4 dist/assets/roboto-cyrillic-500-normal-YnJLGrUm.woff         8.86 kB
+#44 280.4 dist/assets/roboto-cyrillic-300-normal-DJfICpyc.woff2        9.68 kB
+#44 280.4 dist/assets/roboto-cyrillic-700-normal-jruQITdB.woff2        9.78 kB
+#44 280.4 dist/assets/roboto-cyrillic-400-normal-BiRJyiea.woff2        9.85 kB
+#44 280.4 dist/assets/roboto-cyrillic-500-normal-_hamcpv8.woff2        9.96 kB
+#44 280.4 dist/assets/roboto-latin-ext-700-normal-Ba-CAIIA.woff       10.69 kB
+#44 280.4 dist/assets/roboto-latin-ext-500-normal-DvHxAkTn.woff       10.70 kB
+#44 280.4 dist/assets/roboto-latin-ext-400-normal-BSFkPfbf.woff       10.72 kB
+#44 280.4 dist/assets/roboto-latin-ext-300-normal-Djx841zm.woff       10.89 kB
+#44 280.4 dist/assets/roboto-latin-ext-500-normal-OQJhyaXd.woff2      12.28 kB
+#44 280.4 dist/assets/roboto-latin-ext-700-normal-DchBbzVz.woff2      12.30 kB
+#44 280.4 dist/assets/roboto-latin-ext-300-normal-BzRVPTS2.woff2      12.32 kB
+#44 280.4 dist/assets/roboto-latin-ext-400-normal-DgXbz5gU.woff2      12.46 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-700-normal-DXzexxfu.woff    13.46 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-500-normal-37WQE4S0.woff    13.46 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-400-normal-b0JluIOJ.woff    13.49 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-300-normal-BLLmCegk.woff    13.57 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-700-normal-CyZgh00P.woff2   14.74 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-500-normal-BJvL3D7h.woff2   14.99 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-300-normal-Chhwl1Jq.woff2   15.03 kB
+#44 280.4 dist/assets/roboto-cyrillic-ext-400-normal-D76n7Daw.woff2   15.34 kB
+#44 280.4 dist/assets/roboto-latin-400-normal-BVyCgWwA.woff           17.30 kB
+#44 280.4 dist/assets/roboto-latin-500-normal-rpP1_v3s.woff           17.32 kB
+#44 280.4 dist/assets/roboto-latin-700-normal-BWcFiwQV.woff           17.37 kB
+#44 280.4 dist/assets/roboto-latin-300-normal-BZ6gvbSO.woff           17.56 kB
+#44 280.4 dist/assets/roboto-latin-300-normal-BizgZZ3y.woff2          18.49 kB
+#44 280.4 dist/assets/roboto-latin-400-normal-DXyFPIdK.woff2          18.54 kB
+#44 280.4 dist/assets/roboto-latin-500-normal-C6iW8rdg.woff2          18.59 kB
+#44 280.4 dist/assets/roboto-latin-700-normal-CbYYDfWS.woff2          18.60 kB
+#44 280.4 dist/assets/index-ChvkVzSO.css                              23.37 kB │ gzip:  10.57 kB
+#44 280.4 dist/assets/index-BkZ8pmZm.js                              735.37 kB │ gzip: 224.57 kB
+#44 280.4 ✓ built in 14.13s
+#44 280.4 
+#44 280.4 (!) Some chunks are larger than 500 kB after minification. Consider:
+#44 280.4 - Using dynamic import() to code-split the application
+#44 280.4 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#44 280.4 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+#44 280.8 
+#44 280.8 > Task :ui:client:assemble
+#44 281.8 > Task :core:java:distZip
+#44 281.8 > Task :core:java:assemble
+#44 284.5 
+#44 284.5 > Task :core:go:makeMocksComponents
+#44 284.5 2026-04-17T10:08:19.053365378Z INF Done parsing configured packages. version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.054294253Z INF adding interface to collection collection=mocks/persistencemocks/persistencemocks.go interface=SQLDBProvider package-path=github.com/LFDT-Paladin/paladin/core/pkg/persistence version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.054554837Z INF adding interface to collection collection=mocks/persistencemocks/persistencemocks.go interface=Persistence package-path=github.com/LFDT-Paladin/paladin/core/pkg/persistence version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.054805378Z INF adding interface to collection collection=mocks/persistencemocks/persistencemocks.go interface=DBTX package-path=github.com/LFDT-Paladin/paladin/core/pkg/persistence version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.055024545Z INF adding interface to collection collection=mocks/metricsmocks/metricsmocks.go interface=Metrics package-path=github.com/LFDT-Paladin/paladin/core/internal/metrics version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.055244628Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=ClosableClient package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.055457128Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=Byteable package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.055921045Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=ErrorRPC package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.056484712Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=Client package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.056881128Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=WSClient package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.057149878Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=Subscription package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.057420837Z INF adding interface to collection collection=mocks/rpcclientmocks/rpcclientmocks.go interface=RPCSubscriptionNotification package-path=github.com/LFDT-Paladin/paladin/sdk/go/pkg/rpcclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.057921962Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=RPCHandler package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.058207920Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=RPCAsyncControl package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.058486587Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=RPCAsyncInstance package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.058839712Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=RPCAsyncHandler package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.059122045Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=RPCServer package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.059340503Z INF adding interface to collection collection=mocks/rpcservermocks/rpcservermocks.go interface=Authorizer package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/rpcserver version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.059529420Z INF adding interface to collection collection=mocks/blockindexermocks/blockindexermocks.go interface=BlockIndexer package-path=github.com/LFDT-Paladin/paladin/core/pkg/blockindexer version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.059906253Z INF adding interface to collection collection=mocks/signermocks/signermocks.go interface=SigningModule package-path=github.com/LFDT-Paladin/paladin/toolkit/pkg/signer version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.060106378Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=EthClient package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.060428670Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=EthClientWithKeyManager package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.060630128Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=CallOption package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.060855670Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=KeyManager package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.061051462Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=EthClientFactoryBase package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.061239753Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=EthClientFactory package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.061480378Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=EthClientFactoryWithKeyManager package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.061768295Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=ABIFunctionClient package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.061986420Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=ABIClient package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.062486045Z INF adding interface to collection collection=mocks/ethclientmocks/ethclientmocks.go interface=ABIFunctionRequestBuilder package-path=github.com/LFDT-Paladin/paladin/core/pkg/ethclient version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.065053962Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=PreInitComponents package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.065188337Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=Managers package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.065547587Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=ManagerLifecycle package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.065721837Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=AdditionalManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.065886962Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=AllComponents package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066049920Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=DomainManagerToDomain package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066161378Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=DomainManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066268670Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=Domain package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066387670Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=DomainSmartContract package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066494087Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=PrivacyGroupMessageReceiver package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066644628Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=PrivacyGroupMessageReceiverCloser package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066776587Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=GroupManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.066894837Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=IdentityResolver package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.067038253Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=KeyResolver package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.067137712Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=KeyManagerToSigningModule package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.067238045Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=KeyManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.067424170Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=PluginManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.067870795Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=PublicTxManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068022753Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=RegistryManagerToRegistry package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068136628Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=RegistryManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068319795Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=Registry package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068446878Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=RPCAuthManagerToAuthorizer package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068573295Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=RPCAuthManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068697962Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=SequencerManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068804878Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=StateManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.068935587Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=DomainContext package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069059378Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=Schema package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069205003Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=TransportManagerToTransport package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069363462Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=TransportClient package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069523462Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=TransportManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069685712Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=ReceiptReceiver package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069829337Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=BlockchainEventReceiver package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.069980295Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=ReceiverCloser package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.070219545Z INF adding interface to collection collection=mocks/componentsmocks/componentsmocks.go interface=TXManager package-path=github.com/LFDT-Paladin/paladin/core/internal/components version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.070540295Z INF adding interface to collection collection=mocks/publictxmgrmocks/publictxmgrmocks.go interface=InFlightStageActionTriggers package-path=github.com/LFDT-Paladin/paladin/core/internal/publictxmgr version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.070681545Z INF adding interface to collection collection=mocks/componentmgrmocks/componentmgrmocks.go interface=ComponentManager package-path=github.com/LFDT-Paladin/paladin/core/internal/componentmgr version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.070859003Z INF adding interface to collection collection=mocks/componentmgrmocks/componentmgrmocks.go interface=stoppable package-path=github.com/LFDT-Paladin/paladin/core/internal/componentmgr version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.071025212Z INF adding interface to collection collection=mocks/componentmgrmocks/componentmgrmocks.go interface=closeable package-path=github.com/LFDT-Paladin/paladin/core/internal/componentmgr version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.072061670Z INF Executing template file=mocks/publictxmgrmocks/publictxmgrmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.078480253Z INF Writing template to file file=mocks/publictxmgrmocks/publictxmgrmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.078938128Z INF Executing template file=mocks/componentmgrmocks/componentmgrmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.087895337Z INF Writing template to file file=mocks/componentmgrmocks/componentmgrmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.088467753Z INF Executing template file=mocks/persistencemocks/persistencemocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.094328295Z INF Writing template to file file=mocks/persistencemocks/persistencemocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.094656087Z INF Executing template file=mocks/rpcclientmocks/rpcclientmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.105573920Z INF Writing template to file file=mocks/rpcclientmocks/rpcclientmocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.106231837Z INF Executing template file=mocks/signermocks/signermocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.109754962Z INF Writing template to file file=mocks/signermocks/signermocks.go version=v3.3.2
+#44 284.5 2026-04-17T10:08:19.110136212Z INF Executing template file=mocks/ethclientmocks/ethclientmocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.136084462Z INF Writing template to file file=mocks/ethclientmocks/ethclientmocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.136515878Z INF Executing template file=mocks/metricsmocks/metricsmocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.137374753Z INF Writing template to file file=mocks/metricsmocks/metricsmocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.138033128Z INF Executing template file=mocks/rpcservermocks/rpcservermocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.143741337Z INF Writing template to file file=mocks/rpcservermocks/rpcservermocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.144228170Z INF Executing template file=mocks/blockindexermocks/blockindexermocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.154932170Z INF Writing template to file file=mocks/blockindexermocks/blockindexermocks.go version=v3.3.2
+#44 284.6 2026-04-17T10:08:19.155297920Z INF Executing template file=mocks/componentsmocks/componentsmocks.go version=v3.3.2
+#44 284.7 2026-04-17T10:08:19.280249295Z INF Writing template to file file=mocks/componentsmocks/componentsmocks.go version=v3.3.2
+#44 285.4 
+#44 285.4 > Task :core:go:makeMocksTransport
+#44 285.4 2026-04-17T10:08:19.322264129Z INF Starting mockery config-file=.mockery.sequencer.transport.yml version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.324376712Z INF Parsing configured packages... version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969321837Z INF Done parsing configured packages. version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969514587Z INF adding interface to collection collection=/app/core/go/internal/sequencer/common/commonmocks.go interface=Clock package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/common version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969640671Z INF adding interface to collection collection=/app/core/go/internal/sequencer/common/commonmocks.go interface=Hooks package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/common version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969730879Z INF adding interface to collection collection=/app/core/go/internal/sequencer/common/commonmocks.go interface=EngineIntegration package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/common version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969831337Z INF adding interface to collection collection=/app/core/go/internal/sequencer/common/commonmocks.go interface=Event package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/common version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.969918712Z INF adding interface to collection collection=/app/core/go/internal/sequencer/common/commonmocks.go interface=StateDistributionBuilder package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/common version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.970024087Z INF adding interface to collection collection=/app/core/go/internal/sequencer/transport/transportmocks.go interface=LoopbackTransportManager package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.970115921Z INF adding interface to collection collection=/app/core/go/internal/sequencer/transport/transportmocks.go interface=TransportWriter package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.970240671Z INF Executing template file=/app/core/go/internal/sequencer/common/commonmocks.go version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.976818254Z INF Writing template to file file=/app/core/go/internal/sequencer/common/commonmocks.go version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.979623504Z INF Executing template file=/app/core/go/internal/sequencer/transport/transportmocks.go version=v3.3.2
+#44 285.4 2026-04-17T10:08:19.987780671Z INF Writing template to file file=/app/core/go/internal/sequencer/transport/transportmocks.go version=v3.3.2
+#44 285.6 
+#44 285.6 > Task :core:go:makeMocksSyncpoints
+#44 285.6 2026-04-17T10:08:19.996683212Z INF Starting mockery config-file=.mockery.sequencer.syncpoints.yml version=v3.3.2
+#44 285.6 2026-04-17T10:08:19.996731754Z INF Parsing configured packages... version=v3.3.2
+#44 285.6 2026-04-17T10:08:20.182680087Z INF Done parsing configured packages. version=v3.3.2
+#44 285.6 2026-04-17T10:08:20.182956004Z INF adding interface to collection collection=/app/core/go/internal/sequencer/syncpoints/syncpointsmocks.go interface=SyncPoints package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints version=v3.3.2
+#44 285.6 2026-04-17T10:08:20.183200712Z INF Executing template file=/app/core/go/internal/sequencer/syncpoints/syncpointsmocks.go version=v3.3.2
+#44 285.6 2026-04-17T10:08:20.187552004Z INF Writing template to file file=/app/core/go/internal/sequencer/syncpoints/syncpointsmocks.go version=v3.3.2
+#44 287.6 
+#44 287.6 > Task :core:go:makeMocks
+#44 287.6 2026-04-17T10:08:20.198607504Z INF Starting mockery config-file=.mockery.sequencer.yml version=v3.3.2
+#44 287.6 2026-04-17T10:08:20.198682254Z INF Parsing configured packages... version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.892887380Z INF Done parsing configured packages. version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.893249297Z INF adding interface to collection collection=/app/core/go/internal/sequencer/metrics/metricsmocks.go interface=DistributedSequencerMetrics package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.893486130Z INF adding interface to collection collection=/app/core/go/internal/sequencer/coordinator/transaction/transactionmocks.go interface=Event package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.893672130Z INF adding interface to collection collection=/app/core/go/internal/sequencer/coordinator/transaction/transactionmocks.go interface=Grapher package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.893819130Z INF adding interface to collection collection=/app/core/go/internal/sequencer/coordinator/transaction/transactionmocks.go interface=CoordinatorTransaction package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.893946005Z INF adding interface to collection collection=/app/core/go/internal/sequencer/coordinator/coordinatormocks.go interface=Coordinator package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.894116339Z INF adding interface to collection collection=/app/core/go/internal/sequencer/coordinator/coordinatormocks.go interface=Event package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.894290214Z INF adding interface to collection collection=/app/core/go/internal/sequencer/originator/transaction/transactionmocks.go interface=Event package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.894479339Z INF adding interface to collection collection=/app/core/go/internal/sequencer/originator/transaction/transactionmocks.go interface=OriginatorTransaction package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator/transaction version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.894667589Z INF adding interface to collection collection=/app/core/go/internal/sequencer/originator/originatormocks.go interface=Event package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.894827672Z INF adding interface to collection collection=/app/core/go/internal/sequencer/originator/originatormocks.go interface=Originator package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.895020130Z INF adding interface to collection collection=/app/core/go/internal/sequencer/sequencermocks.go interface=Sequencer package-path=github.com/LFDT-Paladin/paladin/core/internal/sequencer version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.895256672Z INF Executing template file=/app/core/go/internal/sequencer/coordinator/transaction/transactionmocks.go version=v3.3.2
+#44 288.3 2026-04-17T10:08:22.905045630Z INF Writing template to file file=/app/core/go/internal/sequencer/coordinator/transaction/transactionmocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.957781005Z INF Executing template file=/app/core/go/internal/sequencer/coordinator/coordinatormocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.960194880Z INF Writing template to file file=/app/core/go/internal/sequencer/coordinator/coordinatormocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.961349255Z INF Executing template file=/app/core/go/internal/sequencer/originator/transaction/transactionmocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.963846922Z INF Writing template to file file=/app/core/go/internal/sequencer/originator/transaction/transactionmocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.966084255Z INF Executing template file=/app/core/go/internal/sequencer/originator/originatormocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.968339755Z INF Writing template to file file=/app/core/go/internal/sequencer/originator/originatormocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.969419797Z INF Executing template file=/app/core/go/internal/sequencer/sequencermocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.970666130Z INF Writing template to file file=/app/core/go/internal/sequencer/sequencermocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.971572547Z INF Executing template file=/app/core/go/internal/sequencer/metrics/metricsmocks.go version=v3.3.2
+#44 288.4 2026-04-17T10:08:22.973756130Z INF Writing template to file file=/app/core/go/internal/sequencer/metrics/metricsmocks.go version=v3.3.2
+#44 291.2 
+#44 291.2 > Task :core:go:goGet
+#44 321.2 > Task :core:go:buildSharedLibrary
+#44 381.3 > Task :core:go:assemble
+#44 450.6 > Task :domains:zeto:protoc
+#44 467.2 > Task :domains:zeto:extractZetoArtifacts
+#44 467.4 > Task :domains:zeto:copySolidity
+#44 469.4 
+#44 469.4 > Task :domains:zeto:buildGo
+#44 469.4 go: downloading github.com/hyperledger-labs/zeto/go-sdk v0.0.0-20241004174307-aa3c1fdf0966
+#44 469.4 go: downloading github.com/iden3/go-iden3-crypto v0.0.17
+#44 469.4 go: downloading github.com/iden3/go-rapidsnark/prover v0.0.12
+#44 469.4 go: downloading github.com/iden3/go-rapidsnark/types v0.0.3
+#44 469.4 go: downloading github.com/iden3/go-rapidsnark/witness/v2 v2.0.0
+#44 469.4 go: downloading github.com/iden3/go-rapidsnark/witness/wasmer v0.0.0-20240914111027-9588ce2d7e1b
+#44 469.4 go: downloading github.com/iden3/wasmer-go v0.0.1
+#44 469.4 go: downloading github.com/dchest/blake512 v1.0.0
+#44 481.3 
+#44 481.3 > Task :domains:zeto:assemble
+#44 481.3 > Task :assemble
+#44 483.8 
+#44 483.8 > Task :copyZetoZKPFiles
+#44 483.8 Copied zetoZkp files to /app/build/domains/zeto/zkp
+#44 485.8 
+#44 485.8 > Task :copyUIFiles
+#44 485.8 Copied UI files to /app/build/ui
+#44 485.9 
+#44 485.9 > Task :copyTransports
+#44 485.9 Copied transports to /app/build/transports
+#44 486.2 
+#44 486.2 > Task :copySigningModules
+#44 486.2 Copied signing modules to /app/build/signingmodules
+#44 486.5 
+#44 486.5 > Task :copyRegistries
+#44 486.5 Copied registries to /app/build/registries
+#44 486.6 
+#44 486.6 > Task :copyRPCAuth
+#44 486.6 Copied rpcauth plugins to /app/build/rpcauth
+#44 487.4 
+#44 487.4 > Task :copyLibraries
+#44 487.4 Copied executables to /app/build/libs
+#44 488.2 
+#44 488.2 > Task :copyDomains
+#44 488.2 Copied domains to /app/build/domains
+#44 488.6 
+#44 488.6 Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+#44 488.6 
+#44 488.6 You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+#44 488.6 
+#44 488.6 For more on this, please refer to https://docs.gradle.org/8.5/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+#44 488.6 
+#44 488.7 BUILD SUCCESSFUL in 8m 8s
+#44 488.7 63 actionable tasks: 54 executed, 9 up-to-date
+#44 DONE 489.9s
+
+#45 [runtime 2/9] RUN apt-get update && apt-get install -y     libgomp1     curl     postgresql-client     && apt-get clean
+#45 CACHED
+
+#46 [runtime 3/9] RUN JAVA_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "aarch64"; else echo -n "x64"; fi ) &&     curl -sLo - https://api.adoptium.net/v3/binary/version/jdk-21.0.4+7/linux/${JAVA_ARCH}/jre/hotspot/normal/eclipse |     tar -C /usr/local -xzf - &&     ln -s /usr/local/jdk-* /usr/local/java
+#46 CACHED
+
+#47 [runtime 4/9] RUN GO_MIRGATE_ARCH=$( if [ "arm64" = "arm64" ]; then echo -n "arm64"; else echo -n "amd64"; fi ) &&     curl -sLo - https://github.com/golang-migrate/migrate/releases/download/v4.18.3/migrate.linux-${GO_MIRGATE_ARCH}.tar.gz |     tar -C /usr/local/bin -xzf - migrate &&     chmod 755 /usr/local/bin/migrate
+#47 CACHED
+
+#48 [runtime 5/9] COPY --from=full-builder /usr/local/wasmer/lib/libwasmer.so /usr/local/wasmer/lib/libwasmer.so
+#48 CACHED
+
+#49 [runtime 6/9] COPY --from=full-builder /app/build /app
+#49 DONE 3.8s
+
+#50 [runtime 7/9] RUN mkdir /app/jna && chmod -R g+rwx /app/jna && chown -R 1001:1001 /app/jna
+#50 DONE 0.5s
+
+#51 [runtime 8/9] WORKDIR /app
+#51 DONE 0.0s
+
+#52 [runtime 9/9] COPY --from=full-builder /app/core/go/db /app/db
+#52 DONE 0.0s
+
+#53 exporting to image
+#53 exporting layers
+#53 exporting layers 26.9s done
+#53 exporting manifest sha256:78a669e237d764324ad9ccde870a77483783dbe7379c98c3864790f5cdb2ed04 done
+#53 exporting config sha256:653483ea8e330efc46f7d51c2014f4cc86648727b2d65af152be740c60f760be done
+#53 exporting attestation manifest sha256:4977dc87abfb7693b003c6b9569c4a66c8b10e6d233e8c0bc488b164e910141d 0.0s done
+#53 exporting manifest list sha256:66f07b75f0068ca52bf82c3a7831cb736e094f72fca5a225bb5d3f9a005a8437 done
+#53 naming to docker.io/library/paladin:latest done
+#53 unpacking to docker.io/library/paladin:latest
+#53 unpacking to docker.io/library/paladin:latest 7.8s done
+#53 DONE 34.9s

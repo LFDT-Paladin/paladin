@@ -1016,9 +1016,9 @@ func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, lockID pldtypes.By
 	return abiData, err
 }
 
-func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState, verifiers []*prototk.ResolvedVerifier) (pldtypes.HexBytes, error) {
 	if domainConfig.IsV1() {
-		return n.encodeTransactionDataV1(ctx, infoStates)
+		return n.encodeTransactionDataV1(ctx, transaction, infoStates, verifiers)
 	} else {
 		return n.encodeTransactionDataV0(ctx, transaction, infoStates)
 	}
@@ -1057,7 +1057,7 @@ func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk
 	return data, nil
 }
 
-func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
+func (n *Noto) encodeTransactionDataV1(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState, verifiers []*prototk.ResolvedVerifier) (pldtypes.HexBytes, error) {
 	var err error
 	stateIDs := make([]pldtypes.Bytes32, len(infoStates))
 	for i, state := range infoStates {
@@ -1067,8 +1067,24 @@ func (n *Noto) encodeTransactionDataV1(ctx context.Context, infoStates []*protot
 		}
 	}
 
+	// Extract the requester identity and resolved address
+	var from *string
+	var fromAddress *pldtypes.EthAddress
+	if transaction != nil && transaction.From != "" {
+		from = &transaction.From
+		// Try to find the resolved Ethereum address for the requester
+		if verifiers != nil {
+			fromAddr, err := n.findEthAddressVerifier(ctx, "from", transaction.From, verifiers)
+			if err == nil && fromAddr != nil {
+				fromAddress = fromAddr.address
+			}
+		}
+	}
+
 	dataValues := &types.NotoTransactionData_V1{
-		InfoStates: stateIDs,
+		InfoStates:  stateIDs,
+		From:        from,
+		FromAddress: fromAddress,
 	}
 	dataJSON, err := json.Marshal(dataValues)
 	if err != nil {

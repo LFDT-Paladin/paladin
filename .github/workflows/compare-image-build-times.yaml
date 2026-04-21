@@ -1,0 +1,141 @@
+name: Compare Image Build Times
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/compare-image-build-times.yaml
+      - Dockerfile
+      - operator/Dockerfile
+  push:
+    branches:
+      - testing-workflow
+    paths:
+      - .github/workflows/compare-image-build-times.yaml
+      - Dockerfile
+      - operator/Dockerfile
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: ${{ matrix.image }} on ${{ matrix.runner_label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 🔹 Core image
+          - image: paladin
+            dockerfile: ./Dockerfile
+            runner: ubuntu-latest
+            runner_label: ubuntu-amd64
+            platform: linux/amd64
+
+          - image: paladin
+            dockerfile: ./Dockerfile
+            runner: macos-14-arm64
+            runner_label: macos-arm64
+            platform: linux/arm64
+
+          # 🔹 Operator image
+          - image: paladin-operator
+            dockerfile: ./operator/Dockerfile
+            runner: ubuntu-latest
+            runner_label: ubuntu-amd64
+            platform: linux/amd64
+
+          - image: paladin-operator
+            dockerfile: ./operator/Dockerfile
+            runner: macos-14-arm64
+            runner_label: macos-arm64
+            platform: linux/arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Free up disk space on runner
+        if: ${{ runner.os == 'Linux' }}
+        uses: ./.github/actions/free-up-disk-space
+
+      - name: Set up Docker (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        uses: docker/setup-docker-action@v5
+        with:
+          set-host: true
+
+      - name: Set up QEMU (only for Linux ARM emulation if needed)
+        if: ${{ runner.os == 'Linux' && matrix.platform == 'linux/arm64' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Print Docker environment
+        run: |
+          docker version
+          docker buildx version
+          docker buildx ls
+
+      - name: Benchmark uncached build
+        id: benchmark
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE_NAME: ${{ matrix.image }}
+          PLATFORM: ${{ matrix.platform }}
+          LOCAL_TAG: benchmark-${{ matrix.image }}:${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          echo "Building $IMAGE_NAME on $PLATFORM"
+
+          start_time=$(date +%s)
+
+          docker buildx build \
+            --builder "$BUILDER_NAME" \
+            --platform "$PLATFORM" \
+            --file "$DOCKERFILE" \
+            --no-cache \
+            --provenance=false \
+            --tag "$LOCAL_TAG" \
+            --load \
+            .
+
+          end_time=$(date +%s)
+          duration_seconds=$((end_time - start_time))
+
+          echo "duration_seconds=${duration_seconds}" >> "$GITHUB_OUTPUT"
+          echo "run_url=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Write benchmark summary
+        env:
+          DURATION_SECONDS: ${{ steps.benchmark.outputs.duration_seconds }}
+          IMAGE_NAME: ${{ matrix.image }}
+          RUNNER_LABEL: ${{ matrix.runner_label }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          {
+            echo "### ${IMAGE_NAME} on ${RUNNER_LABEL}"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Image | ${IMAGE_NAME} |"
+            echo "| Runner | ${RUNNER_LABEL} |"
+            echo "| Platform | ${PLATFORM} |"
+            echo "| Cache | disabled (\`--no-cache\`) |"
+            echo "| Duration (s) | ${DURATION_SECONDS} |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Run | https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

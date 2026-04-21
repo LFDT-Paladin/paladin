@@ -25,6 +25,7 @@ type NotoDomainReceipt struct {
 	Transfers []*ReceiptTransfer `json:"transfers,omitempty"`
 	LockInfo  *ReceiptLockInfo   `json:"lockInfo,omitempty"`
 	Data      pldtypes.HexBytes  `json:"data,omitempty"`
+	Requester *ReceiptRequester  `json:"requester,omitempty"`
 }
 
 type ReceiptStates struct {
@@ -61,6 +62,11 @@ type ReceiptTransfer struct {
 	From   *pldtypes.EthAddress `json:"from,omitempty"`
 	To     *pldtypes.EthAddress `json:"to,omitempty"`
 	Amount *pldtypes.HexUint256 `json:"amount"`
+}
+
+type ReceiptRequester struct {
+	Lookup  *string              `json:"lookup,omitempty"`  // Transaction requester identity lookup
+	Address *pldtypes.EthAddress `json:"address,omitempty"` // Resolved Ethereum address of the requester
 }
 
 type NotoCoinState struct {
