@@ -74,8 +74,11 @@ func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, 
 		// Take a numeric hash of the identities using the current block range
 		h := fnv.New32a()
 		h.Write([]byte(strconv.FormatUint(effectiveBlockNumber, 10)))
-		coordinatorNode = c.originatorNodePool[int(h.Sum32())%len(c.originatorNodePool)]
-		log.L(ctx).Debugf("coordinator %s selected based on hash modulus of the originator pool %+v", coordinatorNode, c.originatorNodePool)
+		primaryIdx := int(h.Sum32()) % len(c.originatorNodePool)
+		selectedIdx := (primaryIdx + c.coordinatorFailoverIndex) % len(c.originatorNodePool)
+		coordinatorNode = c.originatorNodePool[selectedIdx]
+		log.L(ctx).Debugf("coordinator %s selected (primaryCandidate=%s, failoverIndex=%d) based on effective block %d, pool %+v",
+			coordinatorNode, c.originatorNodePool[primaryIdx], c.coordinatorFailoverIndex, effectiveBlockNumber, c.originatorNodePool)
 	} else if c.domainAPI.ContractConfig().GetCoordinatorSelection() == prototk.ContractConfig_COORDINATOR_SENDER {
 		// E.g. Zeto
 		log.L(ctx).Debugf("coordinator %s selected as next active coordinator in originator coordinator mode", c.nodeName)
@@ -104,4 +107,82 @@ func (c *coordinator) updateOriginatorNodePool(originatorNode string) {
 		c.originatorNodePool = append(c.originatorNodePool, c.nodeName)
 	}
 	slices.Sort(c.originatorNodePool)
+}
+
+// action_AttemptCoordinatorFailover is triggered when the currently observed coordinator has not
+// sent a heartbeat for long enough to exceed the inactiveToIdleGracePeriod. It advances
+// coordinatorFailoverIndex by one and selects the next deterministic candidate from the
+// originatorNodePool. All peers independently compute the same candidate because they share
+// the same sorted pool, block range, and failover counter progression.
+//
+// If the new candidate responds with a heartbeat, coordinatorFailoverIndex is reset to 0
+// (in action_HeartbeatReceived) and normal operation resumes.
+//
+// If every node in the pool has been tried without response, coordinatorFailoverIndex wraps
+// past the pool size: the index is reset to 0, activeCoordinatorNode is cleared, and the
+// coordinator transitions to State_Idle.
+//
+// Only COORDINATOR_ENDORSER mode supports multi-node failover. For COORDINATOR_STATIC and
+// COORDINATOR_SENDER modes, activeCoordinatorNode is cleared so the state machine can
+// transition directly to State_Idle.
+func action_AttemptCoordinatorFailover(ctx context.Context, c *coordinator, _ common.Event) error {
+	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_ENDORSER {
+		// Static and sender modes have no fallback; go idle.
+		c.activeCoordinatorNode = ""
+		return nil
+	}
+	if len(c.originatorNodePool) <= 1 {
+		log.L(ctx).Warnf("coordinator failover: pool has ≤1 node, going idle")
+		c.activeCoordinatorNode = ""
+		return nil
+	}
+
+	c.coordinatorFailoverIndex++
+	if c.coordinatorFailoverIndex >= len(c.originatorNodePool) {
+		// All candidates have been tried without a heartbeat response.
+		log.L(ctx).Warnf("coordinator failover: all %d candidates in pool tried without response, going idle", len(c.originatorNodePool))
+		c.coordinatorFailoverIndex = 0
+		c.activeCoordinatorNode = ""
+		return nil
+	}
+
+	newCoordinator, err := c.selectActiveCoordinatorNode(ctx)
+	if err != nil || newCoordinator == "" {
+		log.L(ctx).Warnf("coordinator failover: selection returned empty/error at failoverIndex=%d, going idle: %v", c.coordinatorFailoverIndex, err)
+		c.activeCoordinatorNode = ""
+		return nil
+	}
+
+	log.L(ctx).Infof("coordinator failover attempt %d: switching from %s to next candidate %s",
+		c.coordinatorFailoverIndex, c.activeCoordinatorNode, newCoordinator)
+	c.activeCoordinatorNode = newCoordinator
+	c.coordinatorActive(c.contractAddress, newCoordinator)
+	// Give the new candidate a fresh window to respond.
+	c.heartbeatIntervalsSinceLastReceive = 0
+	return nil
+}
+
+// action_ReevaluateCoordinatorOnNewBlock is called when a new block is received while in
+// State_Observing. If the effective block range has changed (causing action_NewBlock to
+// have reset coordinatorFailoverIndex to 0), this action re-runs coordinator selection so
+// that the primary candidate for the new block range is tried first.
+func action_ReevaluateCoordinatorOnNewBlock(ctx context.Context, c *coordinator, _ common.Event) error {
+	if c.domainAPI.ContractConfig().GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_ENDORSER {
+		return nil
+	}
+	if len(c.originatorNodePool) == 0 {
+		return nil
+	}
+	newCoordinator, err := c.selectActiveCoordinatorNode(ctx)
+	if err != nil || newCoordinator == "" {
+		return nil
+	}
+	if newCoordinator != c.activeCoordinatorNode {
+		log.L(ctx).Infof("coordinator selection changed after new block: %s → %s (failoverIndex=%d)",
+			c.activeCoordinatorNode, newCoordinator, c.coordinatorFailoverIndex)
+		c.activeCoordinatorNode = newCoordinator
+		c.coordinatorActive(c.contractAddress, newCoordinator)
+		c.heartbeatIntervalsSinceLastReceive = 0
+	}
+	return nil
 }

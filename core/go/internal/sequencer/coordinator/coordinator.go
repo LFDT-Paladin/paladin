@@ -91,6 +91,7 @@ type coordinator struct {
 	stateTimeout                      time.Duration
 	nodeName                          string
 	coordinatorSelectionBlockRange    uint64
+	coordinatorFailoverIndex          int
 	maxInflightTransactions           int
 	maxDispatchAhead                  int
 
