@@ -508,11 +508,12 @@ func TestRPCQuerySmartContracts_SuccessWithResults(t *testing.T) {
 
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
+	deployTx := uuid.New()
 
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
-			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()).
+			AddRow(joinRowVals(deployTx, domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef})...),
 	)
 	mc.db.ExpectCommit()
 
@@ -529,13 +530,15 @@ func TestRPCQuerySmartContracts_SuccessWithResults(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Nil(t, resp.Error, "Expected no error")
 
-	var result []*pldapi.DomainSmartContract
+	var result []*pldapi.DomainSmartContractWithDeployTransaction
 	err := json.Unmarshal(resp.Result.Bytes(), &result)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	assert.Equal(t, *contractAddr, result[0].Address)
 	assert.Equal(t, domainAddr, *result[0].DomainAddress)
 	assert.Equal(t, "test1", result[0].DomainName)
+	require.NotNil(t, result[0].DeployTransaction)
+	assert.Equal(t, deployTx, *result[0].DeployTransaction.ID)
 }
 
 func TestRPCQuerySmartContracts_SuccessWithEmptyResults(t *testing.T) {
@@ -585,7 +588,7 @@ func TestRPCQuerySmartContracts_SuccessWithEmptyResults(t *testing.T) {
 
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()),
 	)
 	mc.db.ExpectCommit()
 
@@ -602,7 +605,7 @@ func TestRPCQuerySmartContracts_SuccessWithEmptyResults(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Nil(t, resp.Error, "Expected no error")
 
-	var result []*pldapi.DomainSmartContract
+	var result []*pldapi.DomainSmartContractWithDeployTransaction
 	err := json.Unmarshal(resp.Result.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Empty(t, result)

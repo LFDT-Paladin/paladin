@@ -91,9 +91,9 @@ func (dm *domainManager) populateDomainConfig(result *pldapi.Domain, config *pro
 func (dm *domainManager) rpcQuerySmartContracts() rpcserver.RPCHandler {
 	return rpcserver.RPCMethod1(func(ctx context.Context,
 		query query.QueryJSON,
-	) ([]*pldapi.DomainSmartContract, error) {
+	) ([]*pldapi.DomainSmartContractWithDeployTransaction, error) {
 		ctx = log.WithComponent(ctx, "domainmanager")
-		var results []*pldapi.DomainSmartContract
+		var results []*pldapi.DomainSmartContractWithDeployTransaction
 		err := dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 			var err error
 			results, err = dm.querySmartContracts(ctx, dbTX, &query)

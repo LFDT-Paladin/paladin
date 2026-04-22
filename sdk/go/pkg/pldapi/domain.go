@@ -40,3 +40,8 @@ type DomainSmartContract struct {
 	Address       pldtypes.EthAddress  `docstruct:"SmartContract" json:"address"`
 	Config        *ContractConfig      `docstruct:"SmartContract" json:"config,omitempty"`
 }
+
+type DomainSmartContractWithDeployTransaction struct {
+	DomainSmartContract
+	DeployTransaction *Transaction `docstruct:"SmartContractWithDeploy" json:"deployTransaction,omitempty"`
+}
