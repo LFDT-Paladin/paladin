@@ -60,7 +60,7 @@ var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignatur
 var smartContractFilters = filters.FieldMap{
 	"domainAddress":   filters.HexBytesField(`"private_smart_contracts"."domain_address"`),
 	"address":         filters.HexBytesField(`"private_smart_contracts"."address"`),
-	"deployTxCreated": filters.HexBytesField(`"transactions"."created"`),
+	"deployTxCreated": filters.TimestampField(`"transactions"."created"`),
 }
 
 func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerInlineConfig) components.DomainManager {

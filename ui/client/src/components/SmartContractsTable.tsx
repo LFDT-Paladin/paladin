@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -22,7 +22,10 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
+  TableSortLabel,
+  Typography,
   useTheme,
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
@@ -31,27 +34,45 @@ import { querySmartContractsByDomain } from '../queries/domains';
 import { getAltModeScrollBarStyle } from '../themes/default';
 import { DomainButtons } from './DomainButtons';
 import { Hash } from './Hash';
+import { IDomainContract } from '../interfaces';
+import { Timestamp } from './Timestamp';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 
 type Props = {
-  domainAddress: string;
+  domainAddress: string
+  sortAscending: boolean
+  setSortAscending: Dispatch<SetStateAction<boolean>>
+  page: number
+  setPage: Dispatch<SetStateAction<number>>
+  rowsPerPage: number
+  setRowsPerPage: Dispatch<SetStateAction<number>>
+  refTimestamps: string[]
+  setRefTimestamps: Dispatch<SetStateAction<string[]>>
 };
 
-export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
+export const SmartContractsTable: React.FC<Props> = ({
+  domainAddress,
+  sortAscending,
+  setSortAscending,
+  page,
+  setPage,
+  rowsPerPage,
+  setRowsPerPage,
+  refTimestamps,
+  setRefTimestamps
+}) => {
+
+  const [count, setCount] = useState(-1);
   const { t } = useTranslation();
   const theme = useTheme();
 
   const {
     data: contracts,
     error,
-    isFetching,
   } = useQuery({
-    queryKey: ['contracts', domainAddress],
-    queryFn: () => querySmartContractsByDomain(domainAddress),
+    queryKey: ['contracts', domainAddress, sortAscending, page, rowsPerPage, refTimestamps],
+    queryFn: () => querySmartContractsByDomain(domainAddress, sortAscending, rowsPerPage, refTimestamps[refTimestamps.length - 1]),
   });
-
-  if (isFetching) {
-    return <></>;
-  }
 
   if (error) {
     return (
@@ -61,17 +82,71 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
     );
   }
 
+  useEffect(() => {
+    if (contracts !== undefined && count === -1) {
+      if (contracts.length < rowsPerPage) {
+        setCount(rowsPerPage * page + contracts.length);
+      }
+    }
+  }, [contracts, rowsPerPage, page]);
+
+  const handleChangePage = (
+    _event: React.MouseEvent<HTMLButtonElement> | null,
+    newPage: number
+  ) => {
+    if (newPage === 0) {
+      setRefTimestamps([]);
+    } else if (newPage > page) {
+      if (contracts !== undefined) {
+        const refEntriesCopy = [...refTimestamps];
+        refEntriesCopy.push(contracts[contracts.length - 1].deployTransaction.created);
+        setRefTimestamps(refEntriesCopy);
+      }
+    } else {
+      const refEntriesCopy = [...refTimestamps];
+      refEntriesCopy.pop();
+      setRefTimestamps(refEntriesCopy);
+    }
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const value = parseInt(event.target.value, 10);
+    setRowsPerPage(value);
+    setRefTimestamps([]);
+    setPage(0);
+  };
+
   return (
     <TableContainer
       component={Paper}
       sx={{
-        height: 'calc(100vh - 320px)',
         ...getAltModeScrollBarStyle(theme.palette.mode),
       }}
     >
       <Table stickyHeader>
         <TableHead>
           <TableRow>
+            <TableCell
+              width={1}
+              sx={{
+                backgroundColor: (theme) => theme.palette.background.paper,
+              }}>
+              <TableSortLabel
+                active={true}
+                direction={sortAscending ? 'asc' : 'desc'}
+                onClick={() => 
+                  {
+                    setSortAscending(!sortAscending);
+                    setRefTimestamps([]);
+                    setPage(0);
+                  }}
+              >
+                {t('deployed')}
+              </TableSortLabel>
+            </TableCell>
             <TableCell
               sx={{
                 backgroundColor: (theme) => theme.palette.background.paper,
@@ -89,8 +164,11 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {contracts?.map((contract: any) => (
+          {contracts?.map((contract: IDomainContract) => (
             <TableRow key={contract.address} sx={{ height: '70px' }}>
+              <TableCell>
+                <Timestamp timestamp={contract.deployTransaction.created} />
+              </TableCell>
               <TableCell>
                 <Hash title={t('address')} hash={contract.address} />
               </TableCell>
@@ -104,6 +182,28 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
           ))}
         </TableBody>
       </Table>
+      {contracts?.length === 0 ?
+        <Typography color="textSecondary" align="center" variant="h6" sx={{ marginTop: '40px' }}>
+          {t('noSmartContracts')}
+        </Typography>
+        :
+        <TablePagination
+          slotProps={{
+            actions: {
+              lastButton: {
+                disabled: true
+              }
+            }
+          }}
+          component="div"
+          showFirstButton
+          showLastButton
+          count={count}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+        />}
     </TableContainer>
   );
 };
