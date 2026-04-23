@@ -49,7 +49,6 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 	ctx := context.Background()
 
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
-	mocks.EngineIntegration.EXPECT().GetStateLocks(mock.Anything).Return([]byte("{}"), nil)
 	mocks.EngineIntegration.EXPECT().GetBlockHeight(mock.Anything).Return(int64(100), nil)
 
 	err := txn.HandleEvent(ctx, &transaction.SelectedEvent{
@@ -65,15 +64,22 @@ func TestCoordinatorTransaction_Pooled_ToAssembling_OnSelected(t *testing.T) {
 
 func TestCoordinatorTransaction_Assembling_ToEndorsing_OnAssembleResponse(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
+	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockGrapher.EXPECT().LockMintsOnCreate(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	mockGrapher.EXPECT().LockMintsOnReadAndSpend(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+
 	txnBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).
+		Grapher(mockGrapher).
 		NumberOfOutputStates(1).
 		AddPendingAssembleRequest()
 	txn, mocks := txnBuilder.Build()
 
 	successEvent := txnBuilder.BuildAssembleSuccessEvent()
 	outputState := successEvent.PostAssembly.OutputStates[0]
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Run(func(ctx context.Context, txn *components.PrivateTransaction) {
-		assert.Equal(t, outputState.ID, txn.PostAssembly.OutputStates[0].ID)
+	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Run(func(ctx context.Context, pt *components.PrivateTransaction) {
+		assert.Equal(t, outputState.ID, pt.PostAssembly.OutputStates[0].ID)
 	}).Return(nil)
 
 	err := txn.HandleEvent(ctx, successEvent)
@@ -126,7 +132,6 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 		Grapher(mockGrapher).
 		StateTimeout(1).
 		Build()
-	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.StateTimeoutIntervalEvent{
@@ -273,24 +278,24 @@ func TestCoordinatorTransaction_Endorsement_GatheringNoTransition_IfNotAttestati
 func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAttestationPlanCompleteAndHasDependenciesNotReady(t *testing.T) {
 	ctx := context.Background()
 
-	//we need 2 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
+	// Create a mock grapher
+	mockGrapher := grapher.NewMockGrapher(t)
 
 	txn1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
-		Grapher(grapher).
+		Grapher(mockGrapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
 		Build()
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
-		Grapher(grapher).
+		Grapher(mockGrapher).
+		CoordinatorTransactions(txn1).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
-		AddPendingEndorsementRequest(2).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txn1.GetID()},
-		})
+		AddPendingEndorsementRequest(2)
 	txn2, _ := builder2.Build()
+
+	mockGrapher.EXPECT().GetDependencies(mock.Anything, mock.Anything).Return([]uuid.UUID{txn1.GetID()})
 
 	err := txn2.HandleEvent(ctx, builder2.BuildEndorsedEvent(2))
 	require.NoError(t, err)
@@ -300,13 +305,15 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 
 func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected(t *testing.T) {
 	ctx := context.Background()
+	mockGrapher := grapher.NewMockGrapher(t)
 	builder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
+		Grapher(mockGrapher).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
 		AddPendingEndorsementRequest(2)
 
-	txn, mocks := builder.Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	txn, _ := builder.Build()
+	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	require.NoError(t, err)
@@ -368,34 +375,32 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	//A transaction (A) is dependant on another 2 transactions (B and C).  One of which (B) is ready for dispatch and the other (C) becomes ready for dispatch,
 	// triggering a transition for A to move from blocked to confirming dispatch
 
-	//we need 3 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
+	mockGrapher := grapher.NewMockGrapher(t)
 
 	txAID := uuid.New()
 	txBID := uuid.New()
 	txCID := uuid.New()
 
-	_, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
-		Grapher(grapher).
+	txnB, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
+		Grapher(mockGrapher).
 		TransactionID(txBID).
 		Build()
 
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher).
+		Grapher(mockGrapher).
 		TransactionID(txCID).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txAID},
-		}).
 		AddPendingPreDispatchRequest()
 	txnC, _ := builderC.Build()
 
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
-		Grapher(grapher).
-		TransactionID(txAID).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txBID, txCID},
-		})
+		Grapher(mockGrapher).
+		TransactionID(txAID)
 	txnA, _ := builderA.Build()
+
+	mockGrapher.EXPECT().GetDependencies(mock.Anything, txAID).Return([]uuid.UUID{txBID, txCID}).Maybe()
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txCID).Return([]uuid.UUID{txAID}).Once()
+
+	transaction.WireCoordinatorLookupsForTesting(txnA, txnB, txnC)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing C to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
@@ -411,35 +416,32 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 	//A transaction (A) is dependant on another 2 transactions (B and C).  Neither of which a ready for dispatch. One of them (B) becomes ready for dispatch, but the other is still not ready
 	// thus gating the triggering of a transition for A to move from blocked to confirming dispatch
 
-	//we need 3 transactions to know about each other so they need to share a state index
-	grapher := transaction.NewGrapher(ctx)
+	mockGrapher := grapher.NewMockGrapher(t)
 	txAID := uuid.New()
 	txBID := uuid.New()
 	txCID := uuid.New()
 
 	builderB := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher).
+		Grapher(mockGrapher).
 		TransactionID(txBID).
-		AddPendingPreDispatchRequest().
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txAID},
-		})
+		AddPendingPreDispatchRequest()
 	txnB, _ := builderB.Build()
 
 	_, _ = transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
-		Grapher(grapher).
+		Grapher(mockGrapher).
 		TransactionID(txCID).
 		AddPendingPreDispatchRequest().
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txAID},
-		}).Build()
+		Build()
 
 	txnA, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
-		Grapher(grapher).
+		Grapher(mockGrapher).
 		TransactionID(txAID).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txBID, txCID},
-		}).Build()
+		Build()
+
+	mockGrapher.EXPECT().GetDependencies(mock.Anything, txAID).Return([]uuid.UUID{txBID, txCID}).Maybe()
+	mockGrapher.EXPECT().GetDependents(mock.Anything, txBID).Return([]uuid.UUID{txAID}).Once()
+
+	transaction.WireCoordinatorLookupsForTesting(txnA, txnB)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing B to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
@@ -513,7 +515,6 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 		BaseLedgerRevertRetryThreshold(3).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	mockGrapher.EXPECT().Forget(txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
@@ -529,11 +530,12 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRetryable(t *testing.T) {
 	ctx := context.Background()
 	revertReason := pldtypes.HexBytes("0x01020304")
+	mockGrapher := grapher.NewMockGrapher(t)
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
+		Grapher(mockGrapher).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded error", nil)
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	mockGrapher.EXPECT().Forget(txn.GetID())
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
@@ -551,13 +553,14 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRet
 func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfThresholdExceeded(t *testing.T) {
 	ctx := context.Background()
 	revertReason := pldtypes.HexBytes("0x01020304")
+	mockGrapher := grapher.NewMockGrapher(t)
 	txn, mocks := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).
+		Grapher(mockGrapher).
 		BaseLedgerRevertRetryThreshold(1).
 		RevertCount(1).
-		PostAssembleDependencies(&pldapi.TransactionDependencies{PrereqOf: []uuid.UUID{}}).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.GetID()).Return()
+	mockGrapher.EXPECT().Forget(txn.GetID())
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()

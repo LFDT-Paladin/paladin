@@ -25,6 +25,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -40,6 +41,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 )
+
+func newTestGrapher(ctx context.Context) grapher.Grapher {
+	return grapher.NewGrapher(ctx, dependencytracker.NewDependencyTracker())
+}
+
+func newTestDependencyTracker(ctx context.Context) dependencytracker.DependencyTracker {
+	return dependencytracker.NewDependencyTracker()
+}
 
 // pendingEndorsementRequestAddition is used by the builder to add one pending endorsement request (builder creates IdempotentRequest from clock/requestTimeout).
 type pendingEndorsementRequestAddition struct {
@@ -272,11 +281,11 @@ type TransactionBuilderForTesting struct {
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
 	errorCount                         int
-	dependencies                       *TransactionDependencies
 	state                              State
 	useMockTransportWriter             bool
 	useMockClock                       bool
 	grapher                            grapher.Grapher
+	dependencyTracker                  dependencytracker.DependencyTracker
 	chainedChildStore                  ChainedChildStore
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
@@ -358,6 +367,29 @@ func (b *TransactionBuilderForTesting) CoordinatorTransactions(coordinatorTransa
 	return b
 }
 
+// WireCoordinatorLookupsForTesting sets getCoordinatorTransaction on each concrete coordinator transaction
+// so they resolve one another by ID. Intended for integration-style tests in other packages (e.g. spec).
+func WireCoordinatorLookupsForTesting(transactions ...CoordinatorTransaction) {
+	m := make(map[uuid.UUID]CoordinatorTransaction, len(transactions))
+	for _, t := range transactions {
+		if t == nil {
+			continue
+		}
+		m[t.GetID()] = t
+	}
+	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
+		return m[id]
+	}
+	for _, t := range transactions {
+		if t == nil {
+			continue
+		}
+		if ct, ok := t.(*coordinatorTransaction); ok {
+			ct.getCoordinatorTransaction = lookup
+		}
+	}
+}
+
 func (b *TransactionBuilderForTesting) NumberOfEndorsements(num int) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.NumberOfEndorsements(num)
 	return b
@@ -395,6 +427,11 @@ func (b *TransactionBuilderForTesting) ChainedChildStore(store ChainedChildStore
 
 func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
 	b.grapher = grapher
+	return b
+}
+
+func (b *TransactionBuilderForTesting) DependencyTracker(dependencyTracker dependencytracker.DependencyTracker) *TransactionBuilderForTesting {
+	b.dependencyTracker = dependencyTracker
 	return b
 }
 
@@ -481,21 +518,6 @@ func (b *TransactionBuilderForTesting) RevertReason(revertReason pldtypes.HexByt
 
 func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBuilderForTesting {
 	b.errorCount = errorCount
-	return b
-}
-
-func (b *TransactionBuilderForTesting) Dependencies(dependencies *TransactionDependencies) *TransactionBuilderForTesting {
-	b.dependencies = dependencies
-	b.privateTransactionBuilder.ChainedDependencies(dependencies.Chained.DependsOn...)
-	return b
-}
-
-func (b *TransactionBuilderForTesting) PostAssembleDependencies(deps *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
-	if b.dependencies == nil {
-		b.dependencies = &TransactionDependencies{}
-	}
-	b.dependencies.PostAssemble.DependsOn = deps.DependsOn
-	b.dependencies.PostAssemble.PrereqOf = deps.PrereqOf
 	return b
 }
 
@@ -657,7 +679,10 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.chainedChildStore = NewChainedChildStore()
 	}
 	if b.grapher == nil {
-		b.grapher = grapher.NewGrapher(ctx)
+		b.grapher = newTestGrapher(ctx)
+	}
+	if b.dependencyTracker == nil {
+		b.dependencyTracker = newTestDependencyTracker(ctx)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
@@ -720,7 +745,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.nodeName,
 		privateTransaction,
 		b.coordinatorSigningIdentity,
-		nil,
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
@@ -737,6 +761,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
 		b.grapher,
+		b.dependencyTracker,
 		b.chainedChildStore,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
@@ -755,9 +780,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
 
-	if b.dependencies != nil {
-		txn.dependencies = *b.dependencies
-	}
+	// if b.dependencies != nil {
+	// 	txn.dependencies = *b.dependencies
+	// }
 	if b.pendingAssembleRequestSend != nil {
 		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)
 	}

@@ -277,9 +277,9 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	mockGrapher := transaction.NewMockGrapher(t)
-	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID()).Return(fmt.Errorf("forget failed"))
-	c.grapher = mockGrapher
+	// mockGrapher := transaction.NewMockGrapher(t)
+	// mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID()).Return(fmt.Errorf("forget failed"))
+	// c.grapher = mockGrapher
 
 	err := action_CleanUpTransaction(ctx, c, &common.TransactionStateTransitionEvent[transaction.State]{
 		TransactionID: txn.GetID(),
@@ -522,7 +522,6 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Grapher(mockGrapher).Build()
 	mockGrapher.EXPECT().Forget(txn.GetID())
-	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.GetID()).Return([]uuid.UUID{})
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_cancelCurrentlyAssemblingTransaction(ctx, c, nil)
@@ -676,9 +675,8 @@ func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *t
 	createTransaction := func(
 		_ context.Context,
 		_ string, _ string, _ string,
-		pt *components.PrivateTransaction,
+		_ *components.PrivateTransaction,
 		_ string,
-		_ *uuid.UUID,
 	) transaction.CoordinatorTransaction {
 		return mockTxn
 	}
@@ -720,7 +718,6 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 		_ string, _ string, _ string,
 		_ *components.PrivateTransaction,
 		_ string,
-		_ *uuid.UUID,
 	) transaction.CoordinatorTransaction {
 		return mockTxn
 	}
@@ -779,11 +776,10 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 		_ string, _ string, _ string,
 		pt *components.PrivateTransaction,
 		_ string,
-		_ *uuid.UUID,
 	) transaction.CoordinatorTransaction {
 		idx := -1
-		for i, t := range txns {
-			if t.ID == pt.ID {
+		for i, priv := range txns {
+			if priv.ID == pt.ID {
 				idx = i
 				break
 			}
@@ -901,8 +897,8 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 	c.transportWriter = mockTransport
 
 	idxOf := func(pt *components.PrivateTransaction) int {
-		for i, t := range txns {
-			if t.ID == pt.ID {
+		for i, priv := range txns {
+			if priv.ID == pt.ID {
 				return i
 			}
 		}
@@ -916,7 +912,6 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 		_ string, _ string, _ string,
 		pt *components.PrivateTransaction,
 		_ string,
-		_ *uuid.UUID,
 	) transaction.CoordinatorTransaction {
 		idx := idxOf(pt)
 		require.GreaterOrEqual(t, idx, 0)

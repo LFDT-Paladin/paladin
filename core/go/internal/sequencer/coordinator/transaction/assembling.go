@@ -101,8 +101,6 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	// Add a lock for every read state and spent state to prevent other transactions using them
 	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
 
-	// MRW TODO - update grapher 2 with the information to track the chained dependencies from 1146
-
 	return nil
 }
 
@@ -156,11 +154,12 @@ func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTra
 
 func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context) error {
 	var dependentIDs []uuid.UUID
-	// MRW TODO post merge - replace with call to pre-assemble grapher
-	if t.dependencies.PreAssemble.PrereqOf != nil {
-		dependentIDs = append(dependentIDs, *t.dependencies.PreAssemble.PrereqOf)
-	}
-	dependentIDs = append(dependentIDs, t.dependencies.Chained.PrereqOf...)
+	// Get transactions this is a pre-req, including chained dependencies
+	dependents := t.dependencyTracker.GetPreassemblyDeps().GetDependents(t.pt.ID)
+	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
+
+	dependentIDs = append(dependentIDs, dependents...)
+	dependentIDs = append(dependentIDs, chainedDependents...)
 
 	for _, dependentID := range dependentIDs {
 		dependent := t.getCoordinatorTransaction(ctx, dependentID)

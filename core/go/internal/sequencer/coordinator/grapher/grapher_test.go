@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -30,15 +31,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testCtx(t *testing.T) context.Context {
+	t.Helper()
+	return context.Background()
+}
+
+func testGrapher(t *testing.T) Grapher {
+	t.Helper()
+	return NewGrapher(testCtx(t), dependencytracker.NewDependencyTracker())
+}
+
+func testGrapherUnlocked(t *testing.T) *grapher {
+	t.Helper()
+	return NewGrapher(testCtx(t), dependencytracker.NewDependencyTracker()).(*grapher)
+}
+
 func TestGrapher_NewGrapher(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	g := testGrapher(t)
 	assert.NotNil(t, g)
 }
 
 func TestAddMinter_Success(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
 
@@ -53,9 +68,25 @@ func TestAddMinter_Success(t *testing.T) {
 	assert.True(t, g.outputStatesByMinter[minterID][0].ID.Equals(stateID))
 }
 
+func TestAddMinter_MultipleStates_AppendsToOutputStatesByMinter(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
+	minterID := uuid.New()
+	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("01", 32))
+	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("02", 32))
+	states := []*components.FullState{
+		{ID: s1, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("03", 32)), Data: pldtypes.RawJSON(`{}`)},
+		{ID: s2, Schema: pldtypes.MustParseBytes32("0x" + strings.Repeat("04", 32)), Data: pldtypes.RawJSON(`{}`)},
+	}
+	require.NoError(t, g.AddMinter(ctx, states, minterID))
+	require.Len(t, g.outputStatesByMinter[minterID], 2)
+	assert.True(t, g.outputStatesByMinter[minterID][0].ID.Equals(s1))
+	assert.True(t, g.outputStatesByMinter[minterID][1].ID.Equals(s2))
+}
+
 func TestAddMinter_RegistersSameGrapherTXInTransactionByIDAndTransactionByOutputState(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c0", 32))
 	states := []*components.FullState{
@@ -74,8 +105,8 @@ func TestAddMinter_RegistersSameGrapherTXInTransactionByIDAndTransactionByOutput
 }
 
 func TestAddMinter_AlreadyExists(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	firstMinter := uuid.New()
 	secondMinter := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("cc", 32))
@@ -87,9 +118,19 @@ func TestAddMinter_AlreadyExists(t *testing.T) {
 	assert.ErrorContains(t, err, string(msgs.MsgSequencerGrapherAddMinterAlreadyExistsError))
 }
 
+func TestAddConsumer_Idempotent(t *testing.T) {
+	g := testGrapherUnlocked(t)
+	txID := uuid.New()
+	g.mu.Lock()
+	g.addConsumer(txID)
+	g.addConsumer(txID)
+	g.mu.Unlock()
+	require.Contains(t, g.transactionByID, txID)
+}
+
 func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ee", 32))
@@ -102,8 +143,8 @@ func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
 }
 
 func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	minterID := uuid.New()
 	readerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("11", 32))
@@ -116,44 +157,40 @@ func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
 }
 
 func TestGetDependencies_UnknownTransaction_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	assert.Nil(t, g.GetDependencies(ctx, uuid.New()))
 }
 
 func TestGetDependents_UnknownTransaction_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	assert.Nil(t, g.GetDependents(ctx, uuid.New()))
 }
 
 func TestGetDependents_ConsumerWithNoReadPrereqs_ReturnsEmptySlice(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: unknown}}, []*components.FullState{}, consumerID)
 
-	deps := g.GetDependents(ctx, consumerID)
-	require.NotNil(t, deps)
-	assert.Empty(t, deps)
+	assert.Empty(t, g.GetDependents(ctx, consumerID))
 }
 
 func TestGetDependents_ConsumerWithNoSpendPrereqs_ReturnsEmptySlice(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{{ID: unknown}}, consumerID)
 
-	deps := g.GetDependents(ctx, consumerID)
-	require.NotNil(t, deps)
-	assert.Empty(t, deps)
+	assert.Empty(t, g.GetDependents(ctx, consumerID))
 }
 
-func TestGetDependents_ReturnsPrereqOf(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+func TestGetDependents_ReturnsDependentsViaPrerequisiteEdges(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	prereqID := uuid.New()
 	dependentA := uuid.New()
 	dependentB := uuid.New()
@@ -162,16 +199,16 @@ func TestGetDependents_ReturnsPrereqOf(t *testing.T) {
 	g.addConsumer(prereqID)
 	g.addConsumer(dependentA)
 	g.addConsumer(dependentB)
-	prereqTX := g.transactionByID[prereqID]
-	prereqTX.dependencies.PrereqOf = []uuid.UUID{dependentA, dependentB}
+	g.dependencyChain.AddPrerequisites(dependentA, prereqID)
+	g.dependencyChain.AddPrerequisites(dependentB, prereqID)
 	g.mu.Unlock()
 
-	assert.Equal(t, []uuid.UUID{dependentA, dependentB}, g.GetDependents(ctx, prereqID))
+	assert.ElementsMatch(t, []uuid.UUID{dependentA, dependentB}, g.GetDependents(ctx, prereqID))
 }
 
 func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
 	state := &components.FullState{ID: unknown}
@@ -181,8 +218,8 @@ func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
 }
 
 func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
 	state := &components.FullState{ID: unknown}
@@ -192,8 +229,8 @@ func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
 }
 
 func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("de", 32))
 	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ef", 32))
@@ -208,8 +245,8 @@ func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
 }
 
 func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	txID := uuid.New()
 	createdBy := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("44", 32))
@@ -230,9 +267,49 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), exp.LockedState[0].Type)
 }
 
+func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapher(t)
+	txID := uuid.New()
+	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("90", 32))
+	upserts := []*components.StateUpsert{{ID: stateID, CreatedBy: nil}}
+	states := []*components.FullState{{ID: stateID}}
+
+	g.LockMintsOnCreate(ctx, upserts, states, txID)
+
+	data, err := g.ExportStatesAndLocks(ctx)
+	require.NoError(t, err)
+	var exp exportableStates
+	require.NoError(t, json.Unmarshal(data, &exp))
+	assert.Empty(t, exp.LockedState)
+}
+
+func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapher(t)
+	txID := uuid.New()
+	createdBy := uuid.New()
+	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("91", 32))
+	s2 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("92", 32))
+	upserts := []*components.StateUpsert{
+		{ID: s1, CreatedBy: nil},
+		{ID: s2, CreatedBy: &createdBy},
+	}
+	states := []*components.FullState{{ID: s1}, {ID: s2}}
+
+	g.LockMintsOnCreate(ctx, upserts, states, txID)
+
+	data, err := g.ExportStatesAndLocks(ctx)
+	require.NoError(t, err)
+	var exp exportableStates
+	require.NoError(t, json.Unmarshal(data, &exp))
+	require.Len(t, exp.LockedState, 1)
+	assert.True(t, exp.LockedState[0].State.Equals(s2))
+}
+
 func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("55", 32))
@@ -251,17 +328,28 @@ func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 	assert.True(t, exp.LockedState[0].State.Equals(stateID))
 }
 
+func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapher(t)
+	data, err := g.ExportStatesAndLocks(ctx)
+	require.NoError(t, err)
+	var exp exportableStates
+	require.NoError(t, json.Unmarshal(data, &exp))
+	assert.Empty(t, exp.OutputState)
+	assert.Empty(t, exp.LockedState)
+}
+
 func TestForget_UnknownTransaction_RemoveAllDependencyLinksEarlyReturn(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx)
+	ctx := testCtx(t)
+	g := testGrapher(t)
 	unknown := uuid.New()
 	g.Forget(unknown)
 	assert.Nil(t, g.GetDependencies(ctx, unknown))
 }
 
 func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	ghostDependent := uuid.New()
 	realDependent := uuid.New()
 	minterID := uuid.New()
@@ -272,8 +360,8 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, realDependent)
 
 	g.mu.Lock()
-	minterTX := g.transactionByID[minterID]
-	minterTX.dependencies.PrereqOf = append(minterTX.dependencies.PrereqOf, ghostDependent)
+	g.addConsumer(ghostDependent)
+	g.dependencyChain.AddPrerequisites(ghostDependent, minterID)
 	g.mu.Unlock()
 
 	g.Forget(minterID)
@@ -282,8 +370,8 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
 }
 
 func TestForget_RemoveAllDependencyLinks_SkipsMissingPrerequisite(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	ghostPrereq := uuid.New()
 	minterID := uuid.New()
@@ -293,22 +381,19 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingPrerequisite(t *testing.T) 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
 
 	g.mu.Lock()
+	g.addConsumer(ghostPrereq)
 	g.addConsumer(txID)
-	tx := g.transactionByID[txID]
-	tx.dependencies.DependsOn = append(tx.dependencies.DependsOn, minterID, ghostPrereq)
-	minterTX := g.transactionByID[minterID]
-	minterTX.dependencies.PrereqOf = append(minterTX.dependencies.PrereqOf, txID)
+	g.dependencyChain.AddPrerequisites(txID, minterID, ghostPrereq)
 	g.mu.Unlock()
 
 	g.Forget(txID)
 
-	minterTX = g.transactionByID[minterID]
-	require.NotContains(t, minterTX.dependencies.PrereqOf, txID)
+	assert.NotContains(t, g.GetDependents(ctx, minterID), txID)
 }
 
 func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("f0", 32))
@@ -317,18 +402,16 @@ func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
 
-	minterTX := g.transactionByID[minterID]
-	require.Contains(t, minterTX.dependencies.PrereqOf, consumerID)
+	require.Contains(t, g.GetDependents(ctx, minterID), consumerID)
 
 	g.Forget(consumerID)
 
-	minterTX = g.transactionByID[minterID]
-	require.NotContains(t, minterTX.dependencies.PrereqOf, consumerID)
+	assert.NotContains(t, g.GetDependents(ctx, minterID), consumerID)
 }
 
 func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
-	ctx := context.Background()
-	g := NewGrapher(ctx).(*grapher)
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("77", 32))
@@ -343,9 +426,23 @@ func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestForget_ClearsLocksForTransaction(t *testing.T) {
+	ctx := testCtx(t)
+	g := testGrapherUnlocked(t)
+	txID := uuid.New()
+	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ab", 32))
+	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
+	require.Contains(t, g.lockedStatesByTransaction, txID)
+	g.Forget(txID)
+	_, ok := g.lockedStatesByTransaction[txID]
+	assert.False(t, ok)
+}
+
 func TestLockMints_InitializesNilLockedStatesMap(t *testing.T) {
-	ctx := context.Background()
+	ctx := testCtx(t)
+	deps := dependencytracker.NewDependencyTracker()
 	g := &grapher{
+		dependencyChain:           deps.GetPostAssemblyDeps(),
 		transactionByOutputState:  make(map[string]*grapherTX),
 		transactionByID:           make(map[uuid.UUID]*grapherTX),
 		outputStatesByMinter:      make(map[uuid.UUID][]*components.StateUpsert),
@@ -361,13 +458,4 @@ func TestLockMints_InitializesNilLockedStatesMap(t *testing.T) {
 	require.Len(t, locks, 1)
 	assert.True(t, locks[0].State.Equals(stateID))
 	assert.Equal(t, pldapi.StateLockTypeRead.Enum(), locks[0].Type)
-}
-
-func Test_removeUUID(t *testing.T) {
-	a := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	b := uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	c := uuid.MustParse("33333333-3333-3333-3333-333333333333")
-	assert.Equal(t, []uuid.UUID{b, c}, removeUUID([]uuid.UUID{a, b, a, c, a}, a))
-	assert.Empty(t, removeUUID([]uuid.UUID{a, a}, a))
-	assert.Empty(t, removeUUID([]uuid.UUID{a}, a))
 }

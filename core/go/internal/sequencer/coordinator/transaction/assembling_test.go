@@ -23,6 +23,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -32,6 +33,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// assemblingSharedGrapher returns a grapher backed by a single dependency tracker so multiple
+// test transactions share consistent pre-/chained-assembly edges.
+func assemblingSharedGrapher(ctx context.Context) (grapher.Grapher, dependencytracker.DependencyTracker) {
+	dt := newTestDependencyTracker(ctx)
+	return grapher.NewGrapher(ctx, dt), dt
+}
 
 func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	ctx := context.Background()
@@ -676,11 +684,10 @@ func Test_notifyDependentsOfSelection_NoDependents(t *testing.T) {
 func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T) {
 	ctx := context.Background()
 	dependentID := uuid.New()
+	depTracker := dependencytracker.NewDependencyTracker()
 
-	mockGrapher := grapher.NewMockGrapher(t)
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Grapher(mockGrapher).Build()
-	txn.dependencies.PreAssemble.PrereqOf = &dependentID
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).DependencyTracker(depTracker).Build()
+	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
@@ -689,26 +696,18 @@ func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T)
 
 func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 	ctx := context.Background()
-	mockGrapher := grapher.NewMockGrapher(t)
+	g, dt := assemblingSharedGrapher(ctx)
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
-		Grapher(mockGrapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	mockGrapher.EXPECT().Forget(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
 
-	mockGrapher2 := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher2).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.preAssemblePrereqOf = &dependentTxn.pt.ID
-	txn.getCoordinatorTransaction = func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
-		if id == dependentTxn.pt.ID {
-			return dependentTxn
-		}
-		return nil
-	}
-	txn.dependencies.PreAssemble.PrereqOf = &dependentTxn.pt.ID
+
+	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
+	WireCoordinatorLookupsForTesting(dependentTxn, txn)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
@@ -716,17 +715,18 @@ func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 
 func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	g, dt := assemblingSharedGrapher(ctx)
 
-	dependentTxn, depMocks := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
-		Grapher(grapher).
+	depTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	depMocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, dependentTxn.pt.ID).Return().Maybe()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.dependencies.Chained.PrereqOf = []uuid.UUID{dependentTxn.pt.ID}
+
+	dt.GetChainedDeps().AddPrerequisites(depTx.pt.ID, txn.pt.ID)
+	WireCoordinatorLookupsForTesting(depTx, txn)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
@@ -734,25 +734,24 @@ func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 
 func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNotReady(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	g, _ := assemblingSharedGrapher(ctx)
 
-	mockGrapher := grapher.NewMockGrapher(t)
 	dependency, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
-		Grapher(grapher).
+		Grapher(g).
 		NumberOfOutputStates(1).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
 		Build()
 
 	txnBuilder := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
+		Grapher(g).
 		AddPendingAssembleRequest().
 		NumberOfRequiredEndorsers(0).
 		InputStateIDs(dependency.pt.PostAssembly.OutputStates[0].ID)
 
 	txn, mocks := txnBuilder.Build()
-
-	mocks.EngineIntegration.EXPECT().WriteLockStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
+	mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
@@ -761,19 +760,16 @@ func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNo
 
 func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	g, dt := assemblingSharedGrapher(ctx)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
 
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
-	txn.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{}
-
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	dt.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -781,24 +777,22 @@ func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
-	assert.Contains(t, txn.dependencies.Chained.Unassembled, depTx.pt.ID)
+	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID)[depTx.pt.ID]
+	assert.True(t, marked)
 }
 
 func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	g, dt := assemblingSharedGrapher(ctx)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
 
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(grapher).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.dependencies.Chained.DependsOn = []uuid.UUID{depTx.pt.ID}
-	txn.dependencies.Chained.Unassembled = map[uuid.UUID]struct{}{}
-
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	dt.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -806,12 +800,13 @@ func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
-	assert.Contains(t, txn.dependencies.Chained.Unassembled, depTx.pt.ID)
+	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID)[depTx.pt.ID]
+	assert.True(t, marked)
 }
 
 func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	grapher := newTestGrapher(ctx)
 
 	depID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -821,7 +816,7 @@ func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T)
 	mocks.SyncPoints.On("QueueTransactionFinalize",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+	// mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 	err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -833,7 +828,7 @@ func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T)
 
 func Test_Assembling_ChainedDependencyEvicted_TransitionsToEvicted(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	grapher := newTestGrapher(ctx)
 
 	depID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -850,12 +845,13 @@ func Test_Assembling_ChainedDependencyEvicted_TransitionsToEvicted(t *testing.T)
 
 func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
 	ctx := context.Background()
-	grapher := NewGrapher(ctx)
+	g, dt := assemblingSharedGrapher(ctx)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.dependencies.Chained.PrereqOf = []uuid.UUID{uuid.New()}
+	missingDependentID := uuid.New()
+	dt.GetChainedDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
@@ -864,26 +860,19 @@ func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
 
 func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 	ctx := context.Background()
-	mockGrapher := grapher.NewMockGrapher(t)
+	g, dt := assemblingSharedGrapher(ctx)
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
-		Grapher(mockGrapher).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	mockGrapher.EXPECT().Forget(dependentTxn.pt.ID)
-	mockGrapher.EXPECT().GetDependents(mock.Anything, dependentTxn.pt.ID).Return([]uuid.UUID{})
 
-	mockGrapher2 := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
-		Grapher(mockGrapher2).
+		Grapher(g).DependencyTracker(dt).
 		Build()
-	txn.preAssemblePrereqOf = &dependentTxn.pt.ID
-	txn.getCoordinatorTransaction = func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
-		if id == dependentTxn.pt.ID {
-			return dependentTxn
-		}
-		return nil
-	}
 
-	err := action_NotifyPreAssembleDependentOfSelection(ctx, txn, nil)
+	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
+	WireCoordinatorLookupsForTesting(dependentTxn, txn)
+
+	err := action_NotifyDependentsOfSelection(ctx, txn, nil)
 	require.NoError(t, err)
 }

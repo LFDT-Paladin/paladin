@@ -22,6 +22,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -41,31 +42,31 @@ type CoordinatorTransaction interface {
 	DependentsMustWait(ctx context.Context) bool
 }
 
-type PreAssembleDependencies struct {
-	DependsOn *uuid.UUID
-	PrereqOf  *uuid.UUID
-}
+// type PreAssembleDependencies struct {
+// 	DependsOn *uuid.UUID
+// 	PrereqOf  *uuid.UUID
+// }
 
-type PostAssembleDependencies struct {
-	DependsOn []uuid.UUID
-	PrereqOf  []uuid.UUID
-}
+// type PostAssembleDependencies struct {
+// 	DependsOn []uuid.UUID
+// 	PrereqOf  []uuid.UUID
+// }
 
-type ChainedDependencies struct {
-	DependsOn   []uuid.UUID
-	PrereqOf    []uuid.UUID
-	Unassembled map[uuid.UUID]struct{}
-}
+// type ChainedDependencies struct {
+// 	DependsOn   []uuid.UUID
+// 	PrereqOf    []uuid.UUID
+// 	Unassembled map[uuid.UUID]struct{}
+// }
 
 // TransactionDependencies tracks all dependency categories for a coordinator transaction.
 // - preAssemble: 0-1 dependency links in each direction
 // - postAssemble: 0-many dependency links in each direction
 // - chained: 0-many dependency links in each direction
-type TransactionDependencies struct {
-	PreAssemble  PreAssembleDependencies
-	PostAssemble PostAssembleDependencies
-	Chained      ChainedDependencies
-}
+// type TransactionDependencies struct {
+// 	PreAssemble  PreAssembleDependencies
+// 	PostAssemble PostAssembleDependencies
+// 	Chained      ChainedDependencies
+// }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 // It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
@@ -105,7 +106,6 @@ type coordinatorTransaction struct {
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
 	// Transaction dependencies - tracked by dependency type.
-	dependencies      TransactionDependencies
 	chainedChildStore ChainedChildStore
 
 	//Configuration
@@ -121,6 +121,7 @@ type coordinatorTransaction struct {
 	clock                     common.Clock
 	transportWriter           transport.TransportWriter
 	grapher                   grapher.Grapher
+	dependencyTracker         dependencytracker.DependencyTracker
 	engineIntegration         common.EngineIntegration
 	syncPoints                syncpoints.SyncPoints
 	components                components.AllComponents
@@ -137,7 +138,6 @@ func NewTransaction(ctx context.Context,
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
-	preAssembleDependsOn *uuid.UUID,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
@@ -154,6 +154,7 @@ func NewTransaction(ctx context.Context,
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	dependencyTracker dependencytracker.DependencyTracker,
 	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
@@ -164,7 +165,6 @@ func NewTransaction(ctx context.Context,
 		nodeName,
 		pt,
 		coordinatorSigningIdentity,
-		preAssembleDependsOn,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
@@ -181,6 +181,7 @@ func NewTransaction(ctx context.Context,
 		baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold,
 		grapher,
+		dependencyTracker,
 		chainedChildStore,
 		metrics,
 	)
@@ -193,7 +194,6 @@ func newTransaction(
 	nodeName string,
 	pt *components.PrivateTransaction,
 	coordinatorSigningIdentity string,
-	preAssembleDependsOn *uuid.UUID,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
@@ -210,6 +210,7 @@ func newTransaction(
 	baseLedgerRevertRetryThreshold int,
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
+	dependencyTracker dependencytracker.DependencyTracker,
 	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
@@ -238,17 +239,14 @@ func newTransaction(
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
-		dependencies: TransactionDependencies{
-			PreAssemble: PreAssembleDependencies{DependsOn: preAssembleDependsOn},
-		},
-		grapher:           grapher,
-		chainedChildStore: chainedChildStore,
-		metrics:           metrics,
+		grapher:                           grapher,
+		dependencyTracker:                 dependencyTracker,
+		chainedChildStore:                 chainedChildStore,
+		metrics:                           metrics,
 	}
 
 	// Set up chained dependencies carried from the parent coordinator's grapher.
 	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
-	txn.dependencies.Chained.Unassembled = make(map[uuid.UUID]struct{})
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
 		for _, depID := range pt.PreAssembly.ChainedDependsOn {
 			dep := txn.getCoordinatorTransaction(txCtx, depID)
@@ -266,17 +264,11 @@ func newTransaction(
 				log.L(txCtx).Warnf("Dependency %s not found in grapher for TX %s, assuming finalized", depID, pt.ID)
 				continue
 			}
-			txn.dependencies.Chained.DependsOn = append(txn.dependencies.Chained.DependsOn, depID)
-			if depTx, ok := dep.(*coordinatorTransaction); ok {
-				// TODO: this is directly modifying the prereq transaction without a mutex. This is ok at the current
-				// point in time, because the only other goroutine which has access to the transaction is the dispatch
-				// loop and this only touches dependencies not prereqs
-				log.L(txCtx).Debugf("Transaction %s has a chained dependency on %s", pt.ID, depID)
-				depTx.dependencies.Chained.PrereqOf = append(depTx.dependencies.Chained.PrereqOf, pt.ID)
-			}
+			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(pt.ID, depID) // MRW TODO - should do both
+			// txn.dependencyTracker.GetChainedDeps().AddDependents(depID, pt.ID)
 			state := dep.GetCurrentState()
 			if state == State_Initial || state == State_PreAssembly_Blocked || state == State_Pooled {
-				txn.dependencies.Chained.Unassembled[depID] = struct{}{}
+				txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(pt.ID, depID)
 			}
 		}
 	}

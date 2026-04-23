@@ -48,11 +48,11 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
 }
 
-func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string, preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, preAssembleDependsOn, c.transportWriter, c.clock, c.queueEventInternal, func(ctx context.Context, id uuid.UUID) transaction.CoordinatorTransaction {
+func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string) transaction.CoordinatorTransaction {
+	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, c.transportWriter, c.clock, c.queueEventInternal, func(ctx context.Context, id uuid.UUID) transaction.CoordinatorTransaction {
 		// MRW TODO unsafe placeholder
 		return c.transactionsByID[id]
-	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.chainedChildStore, c.metrics)
+	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.dependencyTracker, c.chainedChildStore, c.metrics)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
@@ -67,8 +67,7 @@ func (c *coordinator) addToDelegatedTransactions(
 		originatorNode string,
 		nodeName string,
 		pt *components.PrivateTransaction,
-		coordinatorSigningIdentity string,
-		preAssembleDependsOn *uuid.UUID) transaction.CoordinatorTransaction) error {
+		coordinatorSigningIdentity string) transaction.CoordinatorTransaction) error {
 
 	var previousTransaction transaction.CoordinatorTransaction
 
@@ -131,7 +130,6 @@ func (c *coordinator) addToDelegatedTransactions(
 		// - if the prereq transaction is in a preassembly state then the only goroutine that can move it out of that state is this one
 		//   so we can establish the dependency knowing that the new transaction will definitely receive the selection notitication
 
-		var previousTransactionID *uuid.UUID
 		if previousTransaction != nil {
 			switch previousTransaction.GetCurrentState() {
 			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
@@ -154,11 +152,12 @@ func (c *coordinator) addToDelegatedTransactions(
 					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
 					continue
 				}
-				previousTransactionID = &txID
+				// New delegated transaction depends on the previous one while both are in pre-assembly flow.
+				c.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(txn.ID, txID)
 			}
 		}
 
-		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity, previousTransactionID)
+		newTransaction := createTransaction(ctx, originator, originatorNode, c.nodeName, txn, c.signingIdentity)
 
 		c.transactionsByID[txn.ID] = newTransaction
 		c.metrics.IncCoordinatingTransactions()

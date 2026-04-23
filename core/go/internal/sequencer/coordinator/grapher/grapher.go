@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
@@ -56,6 +57,7 @@ type Grapher interface {
 type grapher struct {
 	mu sync.RWMutex
 
+	dependencyChain           dependencytracker.DependencyChain
 	transactionByOutputState  map[string]*grapherTX
 	transactionByID           map[uuid.UUID]*grapherTX
 	outputStatesByMinter      map[uuid.UUID][]*components.StateUpsert // used for reverse lookup to cleanup transactionByOutputState
@@ -63,12 +65,12 @@ type grapher struct {
 }
 
 type grapherTX struct {
-	ID           uuid.UUID
-	dependencies *pldapi.TransactionDependencies
+	ID uuid.UUID
 }
 
-func NewGrapher(ctx context.Context) Grapher {
+func NewGrapher(ctx context.Context, dependencyTracker dependencytracker.DependencyTracker) Grapher {
 	return &grapher{
+		dependencyChain:           dependencyTracker.GetPostAssemblyDeps(), // The grapher only updates post-assembly dependencies in the tracker
 		transactionByOutputState:  make(map[string]*grapherTX),
 		transactionByID:           make(map[uuid.UUID]*grapherTX),
 		outputStatesByMinter:      make(map[uuid.UUID][]*components.StateUpsert),
@@ -94,10 +96,6 @@ func (g *grapher) addConsumer(transactionID uuid.UUID) {
 	if _, ok := g.transactionByID[transactionID]; !ok {
 		g.transactionByID[transactionID] = &grapherTX{
 			ID: transactionID,
-			dependencies: &pldapi.TransactionDependencies{
-				DependsOn: make([]uuid.UUID, 0),
-				PrereqOf:  make([]uuid.UUID, 0),
-			},
 		}
 	}
 }
@@ -109,10 +107,6 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 
 	g.transactionByID[transactionID] = &grapherTX{
 		ID: transactionID,
-		dependencies: &pldapi.TransactionDependencies{
-			DependsOn: make([]uuid.UUID, 0),
-			PrereqOf:  make([]uuid.UUID, 0),
-		},
 	}
 	for _, state := range states {
 		if txn, ok := g.transactionByOutputState[state.ID.String()]; ok {
@@ -138,57 +132,10 @@ func (g *grapher) Forget(transactionID uuid.UUID) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Anything that used to depend on this transaction no longer does.
-	// Anything that this transaction used to depend on, it no longer does
-	g.removeAllDependencyLinks(transactionID)
+	g.dependencyChain.Delete(transactionID)
 	g.forgetMints(transactionID)
 	g.forgetLocks(transactionID)
 	delete(g.transactionByID, transactionID)
-}
-
-func (g *grapher) removeAllDependencyLinks(transactionID uuid.UUID) {
-	tx := g.transactionByID[transactionID]
-	if tx == nil {
-		return
-	}
-
-	// Find all transactions that this TX is a pre-req of
-	dependentIDs := make(map[uuid.UUID]struct{})
-	for _, dependentID := range tx.dependencies.PrereqOf {
-		dependentIDs[dependentID] = struct{}{}
-	}
-	// Then remove the depends-on chain from those transactions to this one
-	for dependentID := range dependentIDs {
-		tx := g.transactionByID[dependentID]
-		if tx == nil {
-			continue
-		}
-		tx.dependencies.DependsOn = removeUUID(tx.dependencies.DependsOn, transactionID)
-	}
-
-	// Find all transactions that this TX depends on
-	prereqIDs := make(map[uuid.UUID]struct{})
-	for _, prereqID := range tx.dependencies.DependsOn {
-		prereqIDs[prereqID] = struct{}{}
-	}
-	// Then remove this TX from each prerequisite's pre-req list
-	for prereqID := range prereqIDs {
-		prereqTX := g.transactionByID[prereqID]
-		if prereqTX == nil {
-			continue
-		}
-		prereqTX.dependencies.PrereqOf = removeUUID(prereqTX.dependencies.PrereqOf, transactionID)
-	}
-}
-
-func removeUUID(ids []uuid.UUID, target uuid.UUID) []uuid.UUID {
-	filtered := ids[:0]
-	for _, id := range ids {
-		if id != target {
-			filtered = append(filtered, id)
-		}
-	}
-	return filtered
 }
 
 // Caller must hold g.mu write lock
@@ -210,10 +157,8 @@ func (g *grapher) forgetLocks(transactionID uuid.UUID) {
 func (g *grapher) GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	if tx, ok := g.transactionByID[transactionID]; ok {
-		out := make([]uuid.UUID, len(tx.dependencies.DependsOn))
-		copy(out, tx.dependencies.DependsOn)
-		return out
+	if _, ok := g.transactionByID[transactionID]; ok {
+		return g.dependencyChain.GetPrerequisites(transactionID)
 	}
 	return nil
 }
@@ -222,10 +167,8 @@ func (g *grapher) GetDependencies(ctx context.Context, transactionID uuid.UUID) 
 func (g *grapher) GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	if tx, ok := g.transactionByID[transactionID]; ok {
-		out := make([]uuid.UUID, len(tx.dependencies.PrereqOf))
-		copy(out, tx.dependencies.PrereqOf)
-		return out
+	if _, ok := g.transactionByID[transactionID]; ok {
+		return g.dependencyChain.GetDependents(transactionID)
 	}
 	return nil
 }
@@ -273,10 +216,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
-			// Add depends-on chain
-			g.transactionByID[transactionID].dependencies.DependsOn = append(g.transactionByID[transactionID].dependencies.DependsOn, mintedBy.ID)
-			// Add pre-req chain
-			mintedBy.dependencies.PrereqOf = append(mintedBy.dependencies.PrereqOf, transactionID)
+			g.dependencyChain.AddPrerequisites(transactionID, mintedBy.ID)
 		}
 	}
 
@@ -287,10 +227,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
-			// Add depends-on chain
-			g.transactionByID[transactionID].dependencies.DependsOn = append(g.transactionByID[transactionID].dependencies.DependsOn, mintedBy.ID)
-			// Add pre-req chain
-			mintedBy.dependencies.PrereqOf = append(mintedBy.dependencies.PrereqOf, transactionID)
+			g.dependencyChain.AddPrerequisites(transactionID, mintedBy.ID)
 		}
 	}
 }
