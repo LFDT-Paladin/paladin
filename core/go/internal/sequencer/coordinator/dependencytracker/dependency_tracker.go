@@ -13,8 +13,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// Package dependencytracker implements thread-safe bidirectional dependency graphs between
-// transactions (depends-on / prereq-of), organized as DependencyChains under a DependencyTracker.
+// The dependency tracker is a package that is designed to provide thread-safe tracking of inter-TX dependencies.
+// Paladin has several mechanisms for tracking transactions that might depend on, or be a pre-requisite, of another:
+//   - pre-assembly dependencies. These are determined the first time transactions are received, to maintain FIFO order
+//     of delegated tranasctions
+//   - post-assembly dependencies. These are determine by the grapher package. The grapher updates the PostAssembly chain in
+//     the dependency tracker directly, based on calls to the grapher to mint/lock/clear states.
+//   - chained dependencies. These are determined when transaction dispatches result in a new chained transactions, where each of
+//     the chained transactions has a dependency link with the chained transactions of previous parent transactions.
+
+// The dependency tracker also implements a discrete interface DependencyChain which each over the above types of dependency is
+// represented by. Some dependencies are graph-like (e.g. TX3 pre-reqs TX1 and TX2). Some are linked-lists, and the DependecyChain
+// constructor allows the caller to specify this, to allow for stricter checks are chain-manipulation time. The DependencyChain
+// is thread-safe, so a call can retrieve the singleton-instance of the correct chain, then update it in a thread-safe manner.
 package dependencytracker
 
 import (
