@@ -124,7 +124,6 @@ export const EnrichedTransaction: React.FC<Props> = ({
               <PaladinTransactionChip 
               key={paladinTransaction.id} 
               paladinTransaction={paladinTransaction}
-              blockchainTransactionHash={enrichedTransaction.hash}
                />
             )}
           </Box>
