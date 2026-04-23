@@ -58,7 +58,6 @@ export const Domains: React.FC<Props> = ({
   const {
     data: domains,
     error,
-    isFetching,
   } = useQuery({
     queryKey: ['domains'],
     queryFn: () => listDomains(),
@@ -75,10 +74,6 @@ export const Domains: React.FC<Props> = ({
       setSelectedDomain(domains[0]);
     }
   }, [selectedDomain, domains]);
-
-  if (isFetching) {
-    return <></>;
-  }
 
   if (error) {
     return (
