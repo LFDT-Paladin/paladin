@@ -49,7 +49,7 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
 	// dependencies from a previous version of the grapher.
 	t.pt.CleanUpPostAssemblyData()
-	t.chainedChildStore.ForgetChainedChild(t.pt.ID)
+	t.dependencyTracker.GetChainedDeps().ForgetChainedChild(t.pt.ID)
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
 	t.pendingPreDispatchRequest = nil
 	t.grapher.Forget(t.pt.ID)
@@ -118,9 +118,8 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	// State_Pooled or State_PreAssembly_Blocked.
 	// For the initial transition from State_Initial and the transition from State_Assembling to State_Pooled
 	// the only dependents we expect are chained dependencies
-	if err := txn.notifyDependentsOfReset(ctx); err != nil {
-		return err
-	}
+	txn.notifyDependentsOfReset(ctx)
+
 	// Once dependents have been notified of reset, remove ourselves from the grapher (and indirectly
 	// clear post-assemble dependencies) so repeated reset events while dispatched are no-ops and stale
 	// dependency links are dropped.
@@ -128,28 +127,15 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	return nil
 }
 
-func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) error {
+func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		dependentTxn := t.getCoordinatorTransaction(ctx, dependentID)
-		if dependentTxn != nil {
-			err := dependentTxn.HandleEvent(ctx, &DependencyResetEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependentID,
-				},
-				SourceTransactionID: t.pt.ID,
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of repool of transaction %s: %s", dependentID, t.pt.ID, err)
-				return err
-			}
-		} else {
-			// The only condition under which this branch should be reachable is if the dependent has failed on
-			// assembly, which is a final state, and has been cleaned up from memory
-			log.L(ctx).Warnf("notifyDependentsOfRepool: Dependent transaction %s not found in memory", dependentID)
-		}
+		t.queueEventForCoordinator(ctx, &DependencyResetEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
 	}
-
-	return nil
 }
 
 // guard_HasRevertedChainedDependency returns true if any chained dependency is in State_Reverted.
@@ -157,8 +143,8 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) er
 // failed by the time this transaction is created.
 func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
 	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID) {
-		dep := txn.getCoordinatorTransaction(ctx, depID)
-		if dep != nil && dep.GetCurrentState() == State_Reverted {
+		state, ok := txn.getCoordinatorTransactionState(ctx, depID)
+		if ok && state == State_Reverted {
 			return true
 		}
 	}
@@ -170,8 +156,8 @@ func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTra
 // been evicted by the time this transaction is created.
 func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
 	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID) {
-		dep := txn.getCoordinatorTransaction(ctx, depID)
-		if dep != nil && dep.GetCurrentState() == State_Evicted {
+		state, ok := txn.getCoordinatorTransactionState(ctx, depID)
+		if ok && state == State_Evicted {
 			return true
 		}
 	}
@@ -183,8 +169,8 @@ func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTran
 // where a chained dependency has already reverted by the time this transaction is delegated.
 func action_FinalizeOnRevertedChainedDependencyAtCreation(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
 	for _, depID := range t.dependencyTracker.GetChainedDeps().GetPrerequisites(t.pt.ID) {
-		dep := t.getCoordinatorTransaction(ctx, depID)
-		if dep != nil && dep.GetCurrentState() == State_Reverted {
+		state, ok := t.getCoordinatorTransactionState(ctx, depID)
+		if ok && state == State_Reverted {
 			log.L(ctx).Infof("finalizing TX %s at creation due to chained dependency %s already reverted", t.pt.ID, depID)
 			t.syncPoints.QueueTransactionFinalize(ctx,
 				&syncpoints.TransactionFinalizeRequest{

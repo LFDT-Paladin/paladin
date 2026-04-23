@@ -49,6 +49,9 @@ type ChainedTransactionDependencyChain interface {
 	AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
 	DeleteUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
 	GetUnassembledDependencies(txID uuid.UUID) map[uuid.UUID]struct{}
+	SetChainedChild(parentID uuid.UUID, childID uuid.UUID)
+	GetChainedChild(parentID uuid.UUID) *uuid.UUID
+	ForgetChainedChild(parentID uuid.UUID)
 }
 
 type dependencyChain struct {
@@ -60,6 +63,7 @@ type dependencyChain struct {
 type nodeLinks struct {
 	dependsOn []uuid.UUID
 	prereqOf  []uuid.UUID
+	child     uuid.UUID // Optional for dependency chains tracking chained transactions
 }
 
 type chainedDependencies struct {
@@ -104,6 +108,8 @@ func (dt *dependencyTracker) GetChainedDeps() ChainedTransactionDependencyChain 
 }
 
 func (cd *chainedDependencies) AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
 	for _, unassembledDependencyID := range unassembledDependencyIDs {
 		if cd.unassembledDependencies[txID] == nil {
 			cd.unassembledDependencies[txID] = make(map[uuid.UUID]struct{})
@@ -113,13 +119,53 @@ func (cd *chainedDependencies) AddUnassembledDependencies(txID uuid.UUID, unasse
 }
 
 func (cd *chainedDependencies) DeleteUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
 	for _, unassembledDependencyID := range unassembledDependencyIDs {
 		delete(cd.unassembledDependencies[txID], unassembledDependencyID)
 	}
 }
 
 func (cd *chainedDependencies) GetUnassembledDependencies(txID uuid.UUID) map[uuid.UUID]struct{} {
-	return cd.unassembledDependencies[txID]
+	cd.mu.RLock()
+	defer cd.mu.RUnlock()
+	m := cd.unassembledDependencies[txID]
+	if m == nil {
+		return nil
+	}
+	out := make(map[uuid.UUID]struct{}, len(m))
+	for k := range m {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// Functions that manage the (optional) child node for a given chained transaction
+func (cd *chainedDependencies) SetChainedChild(parentID uuid.UUID, childID uuid.UUID) {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
+	cd.ensure(parentID).child = childID
+}
+
+func (cd *chainedDependencies) GetChainedChild(parentID uuid.UUID) *uuid.UUID {
+	cd.mu.RLock()
+	defer cd.mu.RUnlock()
+	n := cd.nodes[parentID]
+	if n == nil || n.child == uuid.Nil {
+		return nil
+	}
+	c := n.child
+	return &c
+}
+
+func (cd *chainedDependencies) ForgetChainedChild(parentID uuid.UUID) {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
+	n := cd.nodes[parentID]
+	if n == nil {
+		return
+	}
+	n.child = uuid.Nil
 }
 
 func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {

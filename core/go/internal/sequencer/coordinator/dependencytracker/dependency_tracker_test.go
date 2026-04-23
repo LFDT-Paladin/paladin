@@ -253,6 +253,41 @@ func TestChained_AddUnassembledDependencies_SecondTx(t *testing.T) {
 	assert.Len(t, cd.GetUnassembledDependencies(tx1), 1)
 }
 
+func TestChained_GetChainedChild_UnknownParent(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	assert.Nil(t, cd.GetChainedChild(uuid.New()))
+}
+
+func TestChained_GetChainedChild_NilWhenChildUnsetOrZero(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	parent := uuid.New()
+	cd.SetChainedChild(parent, uuid.Nil)
+	assert.Nil(t, cd.GetChainedChild(parent))
+}
+
+func TestChained_SetGetForgetChainedChild(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	parent, child := uuid.New(), uuid.New()
+	assert.Nil(t, cd.GetChainedChild(parent))
+
+	cd.SetChainedChild(parent, child)
+	got := cd.GetChainedChild(parent)
+	require.NotNil(t, got)
+	assert.Equal(t, child, *got)
+	// Returned UUID is a copy; mutating the pointer does not change stored child.
+	other := uuid.New()
+	*got = other
+	assert.Equal(t, child, *cd.GetChainedChild(parent))
+
+	cd.ForgetChainedChild(parent)
+	assert.Nil(t, cd.GetChainedChild(parent))
+}
+
+func TestChained_ForgetChainedChild_NoOpWhenUnknownParent(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	cd.ForgetChainedChild(uuid.New())
+}
+
 func TestConcurrentAddPrerequisites(t *testing.T) {
 	d := NewDependencyTracker().GetPostAssemblyDeps()
 	center := uuid.New()

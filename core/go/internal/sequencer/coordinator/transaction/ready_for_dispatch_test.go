@@ -21,6 +21,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -29,6 +30,30 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDependentsMustWait_TrueWhenNotReadyForDispatchDispatchedOrConfirmed(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+	assert.True(t, txn.DependentsMustWait(ctx), "dependents should wait until TX reaches ready-for-dispatch, dispatched, or confirmed")
+}
+
+func TestDependentsMustWait_FalseWhenReadyForDispatch(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
+	assert.False(t, txn.DependentsMustWait(ctx))
+}
+
+func TestDependentsMustWait_FalseWhenDispatched(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
+	assert.False(t, txn.DependentsMustWait(ctx))
+}
+
+func TestDependentsMustWait_FalseWhenConfirmed(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
+	assert.False(t, txn.DependentsMustWait(ctx))
+}
 
 func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
 	ctx := context.Background()
@@ -182,11 +207,9 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 		txn1.pt.ID: txn1,
 		txn2.pt.ID: txn2,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	txn1.getCoordinatorTransaction = lookup
-	txn2.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	txn1.getCoordinatorTransactionState = stateLookup
+	txn2.getCoordinatorTransactionState = stateLookup
 
 	assert.True(t, txn2.hasDependenciesNotReady(ctx))
 }
@@ -209,11 +232,9 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 		txn1.pt.ID: txn1,
 		txn2.pt.ID: txn2,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	txn1.getCoordinatorTransaction = lookup
-	txn2.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	txn1.getCoordinatorTransactionState = stateLookup
+	txn2.getCoordinatorTransactionState = stateLookup
 
 	assert.False(t, txn2.hasDependenciesNotReady(ctx))
 }
@@ -269,7 +290,7 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn.pt.ID).Return([]uuid.UUID{missingID})
 
 	err := txn.notifyDependentsOfReadiness(ctx)
-	require.ErrorContains(t, err, "PD012645")
+	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
@@ -292,15 +313,12 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{txn2.pt.ID})
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return(nil).Maybe()
 
-	txByID := map[uuid.UUID]CoordinatorTransaction{
-		txn1.pt.ID: txn1,
-		txn2.pt.ID: txn2,
+	WireCoordinatorLookupsForTesting(txn1, txn2)
+	txn1.queueEventForCoordinator = func(ctx context.Context, ev common.Event) {
+		if e, ok := ev.(*DependencyReadyEvent); ok {
+			_ = txn2.HandleEvent(ctx, e)
+		}
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	txn1.getCoordinatorTransaction = lookup
-	txn2.getCoordinatorTransaction = lookup
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)
@@ -373,14 +391,25 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 		txn1.pt.ID:         txn1,
 		dependentTxn.pt.ID: dependentTxn,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	txn1.getCoordinatorTransactionState = stateLookup
+	dependentTxn.getCoordinatorTransactionState = stateLookup
+	var deliveryErr error
+	txn1.queueEventForCoordinator = func(ctx context.Context, ev common.Event) {
+		te, ok := ev.(Event)
+		if !ok {
+			return
+		}
+		target, ok := txByID[te.GetTransactionID()].(*coordinatorTransaction)
+		if !ok {
+			return
+		}
+		deliveryErr = target.HandleEvent(ctx, ev)
 	}
-	txn1.getCoordinatorTransaction = lookup
-	dependentTxn.getCoordinatorTransaction = lookup
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
-	assert.Error(t, err)
+	require.NoError(t, err)
+	require.Error(t, deliveryErr)
 }
 
 func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
@@ -449,11 +478,9 @@ func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
 		depTx.pt.ID: depTx,
 		txn.pt.ID:   txn,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	depTx.getCoordinatorTransaction = lookup
-	txn.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	depTx.getCoordinatorTransactionState = stateLookup
+	txn.getCoordinatorTransactionState = stateLookup
 
 	assert.True(t, txn.hasDependenciesNotReady(ctx))
 }
@@ -476,11 +503,9 @@ func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing
 		depTx.pt.ID: depTx,
 		txn.pt.ID:   txn,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	depTx.getCoordinatorTransaction = lookup
-	txn.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	depTx.getCoordinatorTransactionState = stateLookup
+	txn.getCoordinatorTransactionState = stateLookup
 
 	assert.False(t, txn.hasDependenciesNotReady(ctx))
 }
@@ -520,11 +545,9 @@ func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing
 		depTx.pt.ID: depTx,
 		txn.pt.ID:   txn,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	depTx.getCoordinatorTransaction = lookup
-	txn.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	depTx.getCoordinatorTransactionState = stateLookup
+	txn.getCoordinatorTransactionState = stateLookup
 
 	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -553,11 +576,9 @@ func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
 		depTx.pt.ID: depTx,
 		txn.pt.ID:   txn,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	depTx.getCoordinatorTransaction = lookup
-	txn.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	depTx.getCoordinatorTransactionState = stateLookup
+	txn.getCoordinatorTransactionState = stateLookup
 
 	err := txn.HandleEvent(ctx, &DependencyReadyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -583,6 +604,7 @@ func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, depTx.pt.ID)
 	WireCoordinatorLookupsForTesting(depTx, dependentTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(depTx, dependentTx)
 
 	err := depTx.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)

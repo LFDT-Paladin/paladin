@@ -16,10 +16,10 @@ package transaction
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
@@ -39,16 +39,8 @@ func pooledTestGrapher(ctx context.Context) (g grapher.Grapher, dt dependencytra
 }
 
 func wireCoordinatorLookups(transactions ...CoordinatorTransaction) {
-	m := make(map[uuid.UUID]CoordinatorTransaction, len(transactions))
-	for _, t := range transactions {
-		m[t.GetPrivateTransaction().ID] = t
-	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction { return m[id] }
-	for _, t := range transactions {
-		if ct, ok := t.(*coordinatorTransaction); ok {
-			ct.getCoordinatorTransaction = lookup
-		}
-	}
+	WireCoordinatorLookupsForTesting(transactions...)
+	WireCoordinatorTransactionEventDeliveryForTesting(transactions...)
 }
 
 func removeFromDependencyPrereqOf(_ context.Context, txn *coordinatorTransaction) {
@@ -156,11 +148,9 @@ func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 		dep2.pt.ID: dep2,
 		txn2.pt.ID: txn2,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	dep2.getCoordinatorTransaction = lookup
-	txn2.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	dep2.getCoordinatorTransactionState = stateLookup
+	txn2.getCoordinatorTransactionState = stateLookup
 
 	err := txn2.HandleEvent(ctx, txn2Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
@@ -190,11 +180,9 @@ func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T)
 		dep3.pt.ID: dep3,
 		txn3.pt.ID: txn3,
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	dep3.getCoordinatorTransaction = lookup
-	txn3.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	dep3.getCoordinatorTransactionState = stateLookup
+	txn3.getCoordinatorTransactionState = stateLookup
 
 	err := txn3.HandleEvent(ctx, txn3Builder.BuildAssembleSuccessEvent())
 	require.NoError(t, err)
@@ -238,16 +226,6 @@ func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *tes
 	require.NoError(t, err)
 }
 
-func Test_notifyDependentsOfRepool_NoDependents(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		PreAssembly(&components.TransactionPreAssembly{}).
-		Build()
-
-	err := txn.notifyDependentsOfReset(ctx)
-	assert.NoError(t, err)
-}
-
 func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T) {
 	ctx := context.Background()
 	grapher, depTracker := pooledTestGrapher(ctx)
@@ -266,91 +244,51 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 	wireCoordinatorLookups(dependentTxn, txn)
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
 
-	err := txn.notifyDependentsOfReset(ctx)
-	assert.NoError(t, err)
+	txn.notifyDependentsOfReset(ctx)
 	assert.Equal(t, State_PreAssembly_Blocked, dependentTxn.GetCurrentState())
 }
 
-func Test_notifyDependentsOfReset_HandleEventReturnsError(t *testing.T) {
+func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 	ctx := context.Background()
 	grapher, depTracker := pooledTestGrapher(ctx)
 
-	mockDependentTxn := NewMockCoordinatorTransaction(t)
-	expectedError := errors.New("dependency reset notification failed")
 	mockDependentID := uuid.New()
-	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: mockDependentID}).Maybe()
-	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
 
 	mainTxnID := uuid.New()
+	var queued int
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
 		Grapher(grapher).DependencyTracker(depTracker).
 		PreAssembly(&components.TransactionPreAssembly{}).
+		QueueEventForCoordinator(func(context.Context, common.Event) { queued++ }).
 		Build()
 
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(mockDependentID, mainTxn.pt.ID)
-	mainTxn.getCoordinatorTransaction = func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		if id == mainTxn.pt.ID {
-			return mainTxn
-		}
-		if id == mockDependentID {
-			return mockDependentTxn
-		}
-		return nil
-	}
 
-	err := mainTxn.notifyDependentsOfReset(ctx)
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
+	mainTxn.notifyDependentsOfReset(ctx)
+	assert.Equal(t, 1, queued)
 }
 
-func Test_action_NotifyDependentsOfReset_propagatesNotifyDependentsError(t *testing.T) {
+func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 	ctx := context.Background()
 	grapher, depTracker := pooledTestGrapher(ctx)
 
-	mockDependentTxn := NewMockCoordinatorTransaction(t)
-	expectedError := errors.New("dependency reset notification failed")
 	mockDependentID := uuid.New()
-	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: mockDependentID}).Maybe()
-	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyResetEvent")).Return(expectedError)
 
 	mainTxnID := uuid.New()
+	var queued int
 	mainTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		TransactionID(mainTxnID).
 		Grapher(grapher).DependencyTracker(depTracker).
 		PreAssembly(&components.TransactionPreAssembly{}).
+		QueueEventForCoordinator(func(context.Context, common.Event) { queued++ }).
 		Build()
 
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(mockDependentID, mainTxn.pt.ID)
-	mainTxn.getCoordinatorTransaction = func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		if id == mainTxn.pt.ID {
-			return mainTxn
-		}
-		if id == mockDependentID {
-			return mockDependentTxn
-		}
-		return nil
-	}
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
-}
-
-func Test_notifyDependentsOfRepool_DependentNotFound(t *testing.T) {
-	ctx := context.Background()
-	missingID := uuid.New()
-	grapher, depTracker := pooledTestGrapher(ctx)
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
-		Grapher(grapher).DependencyTracker(depTracker).
-		PreAssembly(&components.TransactionPreAssembly{}).
-		Build()
-
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(missingID, txn.pt.ID)
-
-	err := txn.notifyDependentsOfReset(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, 1, queued)
 }
 
 func Test_action_RemovePreAssembleDependency(t *testing.T) {
@@ -964,12 +902,60 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation(t *testing.T) {
 
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, _ func(context.Context), _ func(context.Context, error)) {
+	).Run(func(_ context.Context, req *syncpoints.TransactionFinalizeRequest, onSuccess func(context.Context), onFailure func(context.Context, error)) {
 		assert.Equal(t, txn.pt.ID, req.TransactionID)
 		assert.Contains(t, req.FailureMessage, depTx.pt.ID.String())
+		if onSuccess != nil {
+			onSuccess(ctx)
+		}
+		if onFailure != nil {
+			onFailure(ctx, assert.AnError)
+		}
 	}).Return()
 
 	err := action_FinalizeOnRevertedChainedDependencyAtCreation(ctx, txn, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_FinalizeOnRevertedChainedDependencyAtCreation_NoRevertedDependency(t *testing.T) {
+	ctx := context.Background()
+	grapher, depTracker := pooledTestGrapher(ctx)
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(grapher).DependencyTracker(depTracker).
+		Build()
+
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Initial).
+		Grapher(grapher).DependencyTracker(depTracker).
+		CoordinatorTransactions(depTx).
+		Build()
+
+	wireCoordinatorLookups(depTx, txn)
+	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+
+	err := action_FinalizeOnRevertedChainedDependencyAtCreation(ctx, txn, nil)
+	require.NoError(t, err)
+	mocks.SyncPoints.AssertNotCalled(t, "QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func Test_validator_IsChainedDependency_UnknownEventType(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+
+	ok, err := validator_IsChainedDependency(ctx, txn, &DelegatedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func Test_action_MarkChainedDependencyUnassembled_UnknownEventType(t *testing.T) {
+	ctx := context.Background()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
+
+	err := action_MarkChainedDependencyUnassembled(ctx, txn, &DelegatedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
+	})
 	require.NoError(t, err)
 }
 

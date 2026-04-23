@@ -690,8 +690,7 @@ func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T)
 	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), dependentID.String())
+	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
@@ -854,8 +853,7 @@ func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
 	dt.GetChainedDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012645")
+	require.NoError(t, err)
 }
 
 func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {

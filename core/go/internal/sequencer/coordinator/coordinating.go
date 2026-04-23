@@ -49,10 +49,13 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 }
 
 func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, c.transportWriter, c.clock, c.queueEventInternal, func(ctx context.Context, id uuid.UUID) transaction.CoordinatorTransaction {
-		// MRW TODO unsafe placeholder
-		return c.transactionsByID[id]
-	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.dependencyTracker, c.chainedChildStore, c.metrics)
+	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, c.transportWriter, c.clock, c.queueEventInternal, func(ctx context.Context, id uuid.UUID) (transaction.State, bool) {
+		txn := c.transactionsByID[id]
+		if txn == nil {
+			return transaction.State(0), false
+		}
+		return txn.GetCurrentState(), true
+	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.dependencyTracker, c.metrics)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned

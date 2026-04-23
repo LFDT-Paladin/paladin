@@ -42,32 +42,6 @@ type CoordinatorTransaction interface {
 	DependentsMustWait(ctx context.Context) bool
 }
 
-// type PreAssembleDependencies struct {
-// 	DependsOn *uuid.UUID
-// 	PrereqOf  *uuid.UUID
-// }
-
-// type PostAssembleDependencies struct {
-// 	DependsOn []uuid.UUID
-// 	PrereqOf  []uuid.UUID
-// }
-
-// type ChainedDependencies struct {
-// 	DependsOn   []uuid.UUID
-// 	PrereqOf    []uuid.UUID
-// 	Unassembled map[uuid.UUID]struct{}
-// }
-
-// TransactionDependencies tracks all dependency categories for a coordinator transaction.
-// - preAssemble: 0-1 dependency links in each direction
-// - postAssemble: 0-many dependency links in each direction
-// - chained: 0-many dependency links in each direction
-// type TransactionDependencies struct {
-// 	PreAssemble  PreAssembleDependencies
-// 	PostAssemble PostAssembleDependencies
-// 	Chained      ChainedDependencies
-// }
-
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
 // It implements statemachine.Lockable; the state machine holds this lock for the duration of each ProcessEvent call.
 // pt holds the private transaction; it is not embedded so that all modifications go through this package.
@@ -105,11 +79,7 @@ type coordinatorTransaction struct {
 	pendingEndorsementRequests   map[string]map[string]*common.IdempotentRequest //map of attestationRequest names to a map of parties to a struct containing information about the active pending request
 	pendingPreDispatchRequest    *common.IdempotentRequest
 
-	// Transaction dependencies - tracked by dependency type.
-	chainedChildStore ChainedChildStore
-
 	//Configuration
-
 	requestTimeout                    time.Duration
 	stateTimeout                      time.Duration
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
@@ -118,18 +88,18 @@ type coordinatorTransaction struct {
 	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
-	clock                     common.Clock
-	transportWriter           transport.TransportWriter
-	grapher                   grapher.Grapher
-	dependencyTracker         dependencytracker.DependencyTracker
-	engineIntegration         common.EngineIntegration
-	syncPoints                syncpoints.SyncPoints
-	components                components.AllComponents
-	domainAPI                 components.DomainSmartContract
-	dCtx                      components.DomainContext
-	queueEventForCoordinator  func(context.Context, common.Event)
-	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction
-	metrics                   metrics.DistributedSequencerMetrics
+	clock                          common.Clock
+	transportWriter                transport.TransportWriter
+	grapher                        grapher.Grapher
+	dependencyTracker              dependencytracker.DependencyTracker
+	engineIntegration              common.EngineIntegration
+	syncPoints                     syncpoints.SyncPoints
+	components                     components.AllComponents
+	domainAPI                      components.DomainSmartContract
+	dCtx                           components.DomainContext
+	queueEventForCoordinator       func(context.Context, common.Event)
+	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool)
+	metrics                        metrics.DistributedSequencerMetrics
 }
 
 func NewTransaction(ctx context.Context,
@@ -141,7 +111,7 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
-	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
+	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
@@ -155,7 +125,6 @@ func NewTransaction(ctx context.Context,
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	dependencyTracker dependencytracker.DependencyTracker,
-	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) CoordinatorTransaction {
 	return newTransaction(
@@ -168,7 +137,7 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
-		getCoordinatorTransaction,
+		getCoordinatorTransactionState,
 		engineIntegration,
 		syncPoints,
 		allComponents,
@@ -182,7 +151,6 @@ func NewTransaction(ctx context.Context,
 		assembleErrorRetryThreshhold,
 		grapher,
 		dependencyTracker,
-		chainedChildStore,
 		metrics,
 	)
 }
@@ -197,7 +165,7 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
-	getCoordinatorTransaction func(context.Context, uuid.UUID) CoordinatorTransaction,
+	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
 	allComponents components.AllComponents,
@@ -211,7 +179,6 @@ func newTransaction(
 	assembleErrorRetryThreshhold int,
 	grapher grapher.Grapher,
 	dependencyTracker dependencytracker.DependencyTracker,
-	chainedChildStore ChainedChildStore,
 	metrics metrics.DistributedSequencerMetrics,
 ) *coordinatorTransaction {
 	txCtx := log.WithLogField(ctx, "txID", pt.ID.String())
@@ -224,7 +191,7 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
-		getCoordinatorTransaction:         getCoordinatorTransaction,
+		getCoordinatorTransactionState:    getCoordinatorTransactionState,
 		engineIntegration:                 engineIntegration,
 		syncPoints:                        syncPoints,
 		components:                        allComponents,
@@ -241,7 +208,6 @@ func newTransaction(
 		assembleErrorRetryThreshhold:      assembleErrorRetryThreshhold,
 		grapher:                           grapher,
 		dependencyTracker:                 dependencyTracker,
-		chainedChildStore:                 chainedChildStore,
 		metrics:                           metrics,
 	}
 
@@ -249,8 +215,8 @@ func newTransaction(
 	// Only retain dependencies that are still known in the grapher; unknown = assumed finalized.
 	if pt.PreAssembly != nil && len(pt.PreAssembly.ChainedDependsOn) > 0 {
 		for _, depID := range pt.PreAssembly.ChainedDependsOn {
-			dep := txn.getCoordinatorTransaction(txCtx, depID)
-			if dep == nil {
+			state, ok := txn.getCoordinatorTransactionState(txCtx, depID)
+			if !ok {
 				// It is possible for a chained transaction to be created referencing dependencies that the original
 				// grapher knew about at creation time, but for the chained transactions of those dependencies to have
 				// already been finalized and removed from memory, by the time the chained transaction begins to be sequenced.
@@ -264,9 +230,7 @@ func newTransaction(
 				log.L(txCtx).Warnf("Dependency %s not found in grapher for TX %s, assuming finalized", depID, pt.ID)
 				continue
 			}
-			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(pt.ID, depID) // MRW TODO - should do both
-			// txn.dependencyTracker.GetChainedDeps().AddDependents(depID, pt.ID)
-			state := dep.GetCurrentState()
+			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(pt.ID, depID)
 			if state == State_Initial || state == State_PreAssembly_Blocked || state == State_Pooled {
 				txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(pt.ID, depID)
 			}

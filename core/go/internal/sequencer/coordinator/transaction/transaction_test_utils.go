@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,7 +287,6 @@ type TransactionBuilderForTesting struct {
 	useMockClock                       bool
 	grapher                            grapher.Grapher
 	dependencyTracker                  dependencytracker.DependencyTracker
-	chainedChildStore                  ChainedChildStore
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
@@ -367,8 +367,22 @@ func (b *TransactionBuilderForTesting) CoordinatorTransactions(coordinatorTransa
 	return b
 }
 
-// WireCoordinatorLookupsForTesting sets getCoordinatorTransaction on each concrete coordinator transaction
-// so they resolve one another by ID. Intended for integration-style tests in other packages (e.g. spec).
+// coordinatorTransactionStateLookup builds getCoordinatorTransactionState from transactions indexed by ID.
+func coordinatorTransactionStateLookup(byID map[uuid.UUID]CoordinatorTransaction) func(context.Context, uuid.UUID) (State, bool) {
+	return func(_ context.Context, id uuid.UUID) (State, bool) {
+		if byID == nil {
+			return State(0), false
+		}
+		ct := byID[id]
+		if ct == nil {
+			return State(0), false
+		}
+		return ct.GetCurrentState(), true
+	}
+}
+
+// WireCoordinatorLookupsForTesting wires getCoordinatorTransactionState on each concrete coordinator transaction
+// so they resolve one another by ID. Skips nil entries.
 func WireCoordinatorLookupsForTesting(transactions ...CoordinatorTransaction) {
 	m := make(map[uuid.UUID]CoordinatorTransaction, len(transactions))
 	for _, t := range transactions {
@@ -377,17 +391,76 @@ func WireCoordinatorLookupsForTesting(transactions ...CoordinatorTransaction) {
 		}
 		m[t.GetID()] = t
 	}
-	lookup := func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		return m[id]
+	stateLookup := coordinatorTransactionStateLookup(m)
+	for _, t := range transactions {
+		if t == nil {
+			continue
+		}
+		if ct, ok := t.(*coordinatorTransaction); ok {
+			ct.getCoordinatorTransactionState = stateLookup
+		}
+	}
+}
+
+// WireCoordinatorTransactionEventDeliveryForTesting sets queueEventForCoordinator on each transaction so
+// transaction.Event values are delivered synchronously to the target by ID (mirroring coordinator preProcess).
+// Prefer UseMockClock on builders when using this with state transitions that arm timeouts. Skips nil entries.
+func WireCoordinatorTransactionEventDeliveryForTesting(transactions ...CoordinatorTransaction) {
+	m := make(map[uuid.UUID]CoordinatorTransaction, len(transactions))
+	for _, t := range transactions {
+		if t == nil {
+			continue
+		}
+		m[t.GetID()] = t
+	}
+	deliver := func(ctx context.Context, ev common.Event) {
+		te, ok := ev.(Event)
+		if !ok {
+			return
+		}
+		target, ok := m[te.GetTransactionID()].(*coordinatorTransaction)
+		if !ok {
+			return
+		}
+		_ = target.HandleEvent(ctx, ev)
 	}
 	for _, t := range transactions {
 		if t == nil {
 			continue
 		}
 		if ct, ok := t.(*coordinatorTransaction); ok {
-			ct.getCoordinatorTransaction = lookup
+			ct.queueEventForCoordinator = deliver
 		}
 	}
+}
+
+// WireCoordinatorQueueDeliveryFrom sets queueEventForCoordinator only on from, delivering transaction.Event
+// values to targets in byID in a new goroutine so from can release its state machine lock before the target
+// runs (the target may call getCoordinatorTransactionState on from and would deadlock on synchronous delivery).
+// The returned function blocks until all such deliveries started from this wiring have completed; call it
+// after from's HandleEvent returns before asserting on the target.
+func WireCoordinatorQueueDeliveryFrom(from CoordinatorTransaction, byID map[uuid.UUID]CoordinatorTransaction) (waitDeliveries func()) {
+	fromCT, ok := from.(*coordinatorTransaction)
+	if !ok {
+		panic("WireCoordinatorQueueDeliveryFrom: from must be *coordinatorTransaction from NewTransactionBuilderForTesting")
+	}
+	var wg sync.WaitGroup
+	fromCT.queueEventForCoordinator = func(ctx context.Context, ev common.Event) {
+		te, ok := ev.(Event)
+		if !ok {
+			return
+		}
+		target, ok := byID[te.GetTransactionID()].(*coordinatorTransaction)
+		if !ok {
+			return
+		}
+		wg.Add(1)
+		go func(ctx context.Context, ev common.Event, target *coordinatorTransaction) {
+			defer wg.Done()
+			_ = target.HandleEvent(ctx, ev)
+		}(ctx, ev, target)
+	}
+	return wg.Wait
 }
 
 func (b *TransactionBuilderForTesting) NumberOfEndorsements(num int) *TransactionBuilderForTesting {
@@ -417,11 +490,6 @@ func (b *TransactionBuilderForTesting) ChainedDependencies(transactionIDs ...uui
 
 func (b *TransactionBuilderForTesting) Reverts(revertReason string) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.Reverts(revertReason)
-	return b
-}
-
-func (b *TransactionBuilderForTesting) ChainedChildStore(store ChainedChildStore) *TransactionBuilderForTesting {
-	b.chainedChildStore = store
 	return b
 }
 
@@ -675,9 +743,6 @@ type transactionDependencyMocks struct {
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
 	ctx := context.Background()
-	if b.chainedChildStore == nil {
-		b.chainedChildStore = NewChainedChildStore()
-	}
 	if b.grapher == nil {
 		b.grapher = newTestGrapher(ctx)
 	}
@@ -748,7 +813,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
-		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return b.coordinatorTransactions[id] },
+		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
 		mocks.AllComponents,
@@ -762,7 +827,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.assembleErrorRetryThreshhold,
 		b.grapher,
 		b.dependencyTracker,
-		b.chainedChildStore,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NoError(b.t, err)

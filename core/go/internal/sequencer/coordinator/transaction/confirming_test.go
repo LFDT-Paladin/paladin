@@ -17,11 +17,9 @@ package transaction
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
-	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
@@ -573,6 +571,7 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, txn.pt.ID)
 	WireCoordinatorLookupsForTesting(txn, dependentTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(txn, dependentTx)
 
 	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().Forget(dependentTx.pt.ID)
@@ -600,35 +599,30 @@ func Test_notifyDependentsOfRevertedConfirmation_DependentNotInMemory(t *testing
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfRevertedConfirmation(ctx)
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "PD012645"))
+	require.NoError(t, err)
 }
 
-func Test_notifyDependentsOfRevertedConfirmation_HandleEventReturnsError(t *testing.T) {
+func Test_notifyDependentsOfRevertedConfirmation_QueuesForDelivery(t *testing.T) {
 	ctx := context.Background()
 	dependentID := uuid.New()
 	depTracker := dependencytracker.NewDependencyTracker()
 
-	mockDependentTxn := NewMockCoordinatorTransaction(t)
-	expectedError := errors.New("handle event error")
-	mockDependentTxn.EXPECT().GetPrivateTransaction().Return(&components.PrivateTransaction{ID: dependentID})
-	mockDependentTxn.EXPECT().HandleEvent(ctx, mock.AnythingOfType("*transaction.DependencyConfirmedRevertedEvent")).Return(expectedError)
+	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		TransactionID(dependentID).
+		DependencyTracker(depTracker).
+		Build()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		DependencyTracker(depTracker).
+		CoordinatorTransactions(dependentTxn).
 		Build()
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
-	txn.getCoordinatorTransaction = func(_ context.Context, id uuid.UUID) CoordinatorTransaction {
-		if id == dependentID {
-			return mockDependentTxn
-		}
-		return nil
-	}
+	WireCoordinatorLookupsForTesting(txn, dependentTxn)
+	WireCoordinatorTransactionEventDeliveryForTesting(txn, dependentTxn)
 
-	// Call notifyDependentsOfRevertedConfirmation - should return the error from HandleEvent
 	err := txn.notifyDependentsOfRevertedConfirmation(ctx)
-	require.Error(t, err)
-	assert.Equal(t, expectedError, err)
+	require.NoError(t, err)
+	assert.Equal(t, State_Pooled, dependentTxn.GetCurrentState())
 }
 
 func Test_DependencyReset_Dispatched_StaysDispatched(t *testing.T) {
@@ -721,8 +715,8 @@ func TestDependsOn_CascadeFailure_SendsEventToDependentWhichFinalizesItself(t *t
 		CoordinatorTransactions(revertedTx).
 		Build()
 
-	// Cascade resolves dependents via revertedTx.getCoordinatorTransaction; wire both IDs so lookups match.
 	WireCoordinatorLookupsForTesting(revertedTx, dependentTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(revertedTx, dependentTx)
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, revertedTx.pt.ID)
 
@@ -757,7 +751,12 @@ func TestDependsOn_FinalizeOnChainedDependencyFailure(t *testing.T) {
 		}),
 		mock.Anything,
 		mock.Anything,
-	).Return()
+	).Run(func(args mock.Arguments) {
+		onCommit := args.Get(2).(func(context.Context))
+		onRollback := args.Get(3).(func(context.Context, error))
+		onCommit(ctx)
+		onRollback(ctx, assert.AnError)
+	}).Return()
 
 	event := &ChainedDependencyFailedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -767,7 +766,7 @@ func TestDependsOn_FinalizeOnChainedDependencyFailure(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDependsOn_CascadeFailure_ErrorsOnMissingDependent(t *testing.T) {
+func TestDependsOn_CascadeFailure_QueuesWhenDependentMissing(t *testing.T) {
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
@@ -780,8 +779,7 @@ func TestDependsOn_CascadeFailure_ErrorsOnMissingDependent(t *testing.T) {
 	depTracker.GetChainedDeps().AddPrerequisites(missingDependentID, revertedTx.pt.ID)
 
 	err := action_CascadeChainedDependencyFailure(ctx, revertedTx, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012645")
+	require.NoError(t, err)
 }
 
 func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *testing.T) {
@@ -802,6 +800,7 @@ func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *tes
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, evictedTx.pt.ID)
 	WireCoordinatorLookupsForTesting(evictedTx, dependentTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(evictedTx, dependentTx)
 
 	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
 	require.NoError(t, err)
@@ -809,7 +808,7 @@ func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *tes
 	assert.Equal(t, State_Evicted, dependentTx.stateMachine.CurrentState)
 }
 
-func TestDependsOn_CascadeEviction_ErrorsOnMissingDependent(t *testing.T) {
+func TestDependsOn_CascadeEviction_QueuesWhenDependentMissing(t *testing.T) {
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
@@ -822,8 +821,7 @@ func TestDependsOn_CascadeEviction_ErrorsOnMissingDependent(t *testing.T) {
 	depTracker.GetChainedDeps().AddPrerequisites(missingDependentID, evictedTx.pt.ID)
 
 	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012645")
+	require.NoError(t, err)
 }
 
 func TestDependsOn_ParentRecognition_ChainedDependencyRevert(t *testing.T) {
@@ -908,8 +906,7 @@ func Test_action_NotifyPreAssembleDependentOfTermination_DependentNotInGrapher(t
 	depTracker.GetPreassemblyDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
 
 	err := action_NotifyPreAssembleDependentOfTermination(ctx, txn, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD012645")
+	require.NoError(t, err)
 }
 
 func Test_action_NotifyPreAssembleDependentOfTermination_SendsEventToDependent(t *testing.T) {
@@ -930,6 +927,7 @@ func Test_action_NotifyPreAssembleDependentOfTermination_SendsEventToDependent(t
 
 	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentTx.pt.ID, prereqTx.pt.ID)
 	WireCoordinatorLookupsForTesting(prereqTx, dependentTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(prereqTx, dependentTx)
 
 	mockGrapher.EXPECT().Forget(dependentTx.pt.ID)
 
@@ -966,6 +964,7 @@ func Test_action_NotifyPreAssembleDependentOfTermination_StaysBlockedWithChained
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, chainedDepTx.pt.ID)
 	depTracker.GetChainedDeps().AddUnassembledDependencies(dependentTx.pt.ID, chainedDepTx.pt.ID)
 	WireCoordinatorLookupsForTesting(prereqTx, dependentTx, chainedDepTx)
+	WireCoordinatorTransactionEventDeliveryForTesting(prereqTx, dependentTx, chainedDepTx)
 
 	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
 	require.NoError(t, err)

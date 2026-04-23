@@ -68,6 +68,14 @@ func guard_HasDependenciesNotReady(ctx context.Context, txn *coordinatorTransact
 	return txn.hasDependenciesNotReady(ctx)
 }
 
+// dependencyNotReadyForDispatch matches DependentsMustWait: a dependency blocks dispatch until it is
+// ready for dispatch, dispatched, or confirmed.
+func dependencyNotReadyForDispatch(state State) bool {
+	return state != State_Confirmed &&
+		state != State_Dispatched &&
+		state != State_Ready_For_Dispatch
+}
+
 // Function hasDependenciesNotReady checks if the transaction has any dependencies that themselves are not ready for dispatch
 func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bool {
 	// Chained dependencies are set on transaction creation and we already calculated the post assemble dependencies when we got assembled
@@ -75,13 +83,13 @@ func (t *coordinatorTransaction) hasDependenciesNotReady(ctx context.Context) bo
 	// Some of them might have been confirmed and removed from our list to avoid a memory leak so this is not necessarily the complete list of dependencies
 	// but it should contain all the ones that are not ready for dispatch
 	for _, dependencyID := range append(t.grapher.GetDependencies(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetPrerequisites(t.pt.ID)...) {
-		dependency := t.getCoordinatorTransaction(ctx, dependencyID)
-		if dependency == nil {
+		state, ok := t.getCoordinatorTransactionState(ctx, dependencyID)
+		if !ok {
 			log.L(ctx).Error(i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependencyID))
 			return true
 		}
 
-		if dependency.DependentsMustWait(ctx) {
+		if dependencyNotReadyForDispatch(state) {
 			log.L(ctx).Debugf("TX %s blocked by dependency %s", t.pt.ID, dependencyID)
 			return true
 		}
@@ -110,21 +118,11 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		dependent := t.getCoordinatorTransaction(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentId)
-		} else {
-			err := dependent.HandleEvent(ctx, &DependencyReadyEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.GetPrivateTransaction().ID,
-				},
-			})
-
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of readiness of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
-				return err
-			}
-		}
+		t.queueEventForCoordinator(ctx, &DependencyReadyEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+		})
 	}
 	return nil
 }

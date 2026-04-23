@@ -162,19 +162,12 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	dependentIDs = append(dependentIDs, chainedDependents...)
 
 	for _, dependentID := range dependentIDs {
-		dependent := t.getCoordinatorTransaction(ctx, dependentID)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, dependentID)
-		}
-		err := dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+		t.queueEventForCoordinator(ctx, &DependencySelectedForAssemblyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
 			SourceTransactionID: t.pt.ID,
 		})
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }

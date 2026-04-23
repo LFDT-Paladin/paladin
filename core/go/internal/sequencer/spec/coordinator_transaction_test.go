@@ -401,12 +401,19 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txCID).Return([]uuid.UUID{txAID}).Once()
 
 	transaction.WireCoordinatorLookupsForTesting(txnA, txnB, txnC)
+	txByID := map[uuid.UUID]transaction.CoordinatorTransaction{
+		txnA.GetID(): txnA,
+		txnB.GetID(): txnB,
+		txnC.GetID(): txnC,
+	}
+	waitDeliveries := transaction.WireCoordinatorQueueDeliveryFrom(txnC, txByID)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing C to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
 	err := txnC.HandleEvent(ctx, builderC.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	waitDeliveries()
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
 
@@ -442,12 +449,18 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txBID).Return([]uuid.UUID{txAID}).Once()
 
 	transaction.WireCoordinatorLookupsForTesting(txnA, txnB)
+	txByID := map[uuid.UUID]transaction.CoordinatorTransaction{
+		txnA.GetID(): txnA,
+		txnB.GetID(): txnB,
+	}
+	waitDeliveries := transaction.WireCoordinatorQueueDeliveryFrom(txnB, txByID)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing B to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
 	err := txnB.HandleEvent(ctx, builderB.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
+	waitDeliveries()
 
 	assert.Equal(t, transaction.State_Blocked, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 

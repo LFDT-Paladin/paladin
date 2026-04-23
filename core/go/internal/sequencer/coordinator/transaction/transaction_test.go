@@ -61,11 +61,9 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 		transaction1.pt.ID: transaction1,
 		transaction2.pt.ID: transaction2,
 	}
-	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	transaction1.getCoordinatorTransaction = lookup
-	transaction2.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	transaction1.getCoordinatorTransactionState = stateLookup
+	transaction2.getCoordinatorTransactionState = stateLookup
 
 	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
@@ -102,11 +100,9 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 		transaction1.pt.ID: transaction1,
 		transaction2.pt.ID: transaction2,
 	}
-	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	transaction1.getCoordinatorTransaction = lookup
-	transaction2.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	transaction1.getCoordinatorTransactionState = stateLookup
+	transaction2.getCoordinatorTransactionState = stateLookup
 
 	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
@@ -158,12 +154,10 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 		transaction2.pt.ID: transaction2,
 		transaction3.pt.ID: transaction3,
 	}
-	lookup := func(ctx context.Context, id uuid.UUID) CoordinatorTransaction {
-		return txByID[id]
-	}
-	transaction1.getCoordinatorTransaction = lookup
-	transaction2.getCoordinatorTransaction = lookup
-	transaction3.getCoordinatorTransaction = lookup
+	stateLookup := coordinatorTransactionStateLookup(txByID)
+	transaction1.getCoordinatorTransactionState = stateLookup
+	transaction2.getCoordinatorTransactionState = stateLookup
+	transaction3.getCoordinatorTransactionState = stateLookup
 
 	transaction3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
@@ -246,7 +240,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
-	store := NewChainedChildStore()
+	reg := prometheus.NewRegistry()
 	txn := newTransaction(
 		ctx,
 		"sender@node1",
@@ -257,7 +251,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
-		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return nil },
+		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
 		allComponents,
@@ -271,8 +265,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		3,
 		newTestGrapher(ctx),
 		newTestDependencyTracker(ctx),
-		store,
-		nil,
+		metrics.InitMetrics(ctx, reg),
 	)
 	require.NotNil(t, txn)
 	assert.Equal(t, pt.ID, txn.GetID())
@@ -294,7 +287,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 	})
 	clock.EXPECT().Now().Return(time.Now())
 
-	store := NewChainedChildStore()
+	reg := prometheus.NewRegistry()
 	txn := NewTransaction(
 		ctx,
 		"sender@node1",
@@ -305,7 +298,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
-		func(ctx context.Context, id uuid.UUID) CoordinatorTransaction { return nil },
+		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
 		allComponents,
@@ -319,8 +312,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		3,
 		newTestGrapher(ctx),
 		newTestDependencyTracker(ctx),
-		store,
-		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
+		metrics.InitMetrics(ctx, reg),
 	)
 	require.NotNil(t, txn)
 	assert.Equal(t, pt.ID, txn.GetID())
@@ -416,4 +408,50 @@ func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
 
 	// assert.Empty(t, txn.dependencies.Chained.DependsOn)
 	// assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+}
+
+func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyNotReady(t *testing.T) {
+	ctx := context.Background()
+	grapher := newTestGrapher(ctx)
+	depID := uuid.New()
+	txID := uuid.New()
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
+		TransactionID(depID).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		TransactionID(txID).
+		Grapher(grapher).
+		ChainedDependencies(depID).
+		CoordinatorTransactions(depTx).
+		Build()
+
+	ch := txn.dependencyTracker.GetChainedDeps()
+	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(txn.pt.ID))
+	assert.Contains(t, ch.GetUnassembledDependencies(txn.pt.ID), depID)
+}
+
+func TestNewTransaction_ChainedDependsOn_AddsPrereqOnlyWhenDependencyPastUnassembledStates(t *testing.T) {
+	ctx := context.Background()
+	grapher := newTestGrapher(ctx)
+	depID := uuid.New()
+	txID := uuid.New()
+
+	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(depID).
+		Grapher(grapher).
+		Build()
+
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
+		TransactionID(txID).
+		Grapher(grapher).
+		ChainedDependencies(depID).
+		CoordinatorTransactions(depTx).
+		Build()
+
+	ch := txn.dependencyTracker.GetChainedDeps()
+	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(txn.pt.ID))
+	assert.Nil(t, ch.GetUnassembledDependencies(txn.pt.ID))
 }
