@@ -22,13 +22,11 @@ import { useNavigate } from "react-router-dom";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 type Props = {
-  blockchainTransactionHash: string
   paladinTransaction: IPaladinTransaction
 }
 
 export const PaladinTransactionChip: React.FC<Props> = ({
-  paladinTransaction,
-  blockchainTransactionHash
+  paladinTransaction
 }) => {
 
   const { t } = useTranslation();
@@ -41,7 +39,7 @@ export const PaladinTransactionChip: React.FC<Props> = ({
         paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap',
         minWidth: '155px'
       }}
-      onClick={() => navigate(`/ui/transactions/${blockchainTransactionHash}/${paladinTransaction.id}`)}
+      onClick={() => navigate(`/ui/transactions/${paladinTransaction.id}`, { state: { from: 'transactions' }})}
       endIcon={<OpenInNewIcon />}
     >
       {paladinTransaction.domain !== undefined &&

@@ -38,6 +38,7 @@ export const RpcMethods = {
   ptx_storeABI: 'ptx_storeABI',
   ptx_resolveVerifier: 'ptx_resolveVerifier',
   ptx_sendTransaction: 'ptx_sendTransaction',
+  ptx_getTransactionFull: 'ptx_getTransactionFull',
   reg_QueryEntriesWithProps: 'reg_queryEntriesWithProps',
   reg_Registries: 'reg_registries',
   transport_nodeName: 'transport_nodeName',
