@@ -844,9 +844,6 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
 
-	// if b.dependencies != nil {
-	// 	txn.dependencies = *b.dependencies
-	// }
 	if b.pendingAssembleRequestSend != nil {
 		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)
 	}
