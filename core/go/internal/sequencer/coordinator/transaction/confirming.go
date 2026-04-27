@@ -53,7 +53,7 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 			// know will not be confirmed on the base ledger.
 			// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
 			// this is acceptable since this is an error code that can originate from within the sequencer.
-			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256")
+			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
 		} else {
 			t.revertOnChain = &e.OnChain
 			retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)

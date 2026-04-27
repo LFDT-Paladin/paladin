@@ -829,7 +829,10 @@ func TestDependsOn_CascadeEviction_QueuesWhenDependentMissing(t *testing.T) {
 
 func TestDependsOn_ParentRecognition_ChainedDependencyRevert(t *testing.T) {
 	mockGrapher := grapher.NewMockGrapher(t)
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Grapher(mockGrapher).Build()
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(mockGrapher).
+		BaseLedgerRevertRetryThreshold(3).
+		Build()
 
 	event := &ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -843,6 +846,30 @@ func TestDependsOn_ParentRecognition_ChainedDependencyRevert(t *testing.T) {
 
 	assert.Equal(t, 1, txn.revertCount)
 	assert.True(t, txn.lastCanRetryRevert)
+	assert.Equal(t, "PD012256: Transaction dependency abc12345 failed", txn.decodedRevertReason)
+}
+
+func TestDependsOn_ParentRecognition_ChainedDependencyRevert_RespectsRetryThreshold(t *testing.T) {
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		Grapher(mockGrapher).
+		BaseLedgerRevertRetryThreshold(3).
+		RevertCount(3).
+		Build()
+
+	event := &ConfirmedRevertedEvent{
+		BaseCoordinatorEvent: BaseCoordinatorEvent{
+			TransactionID: txn.pt.ID,
+		},
+		FailureMessage: "PD012256: Transaction dependency abc12345 failed",
+	}
+
+	err := action_RecordConfirmation(context.Background(), txn, event)
+	require.NoError(t, err)
+
+	// revertCount increments before retryability is evaluated.
+	assert.Equal(t, 4, txn.revertCount)
+	assert.False(t, txn.lastCanRetryRevert)
 	assert.Equal(t, "PD012256: Transaction dependency abc12345 failed", txn.decodedRevertReason)
 }
 
