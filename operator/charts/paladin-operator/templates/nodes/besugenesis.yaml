@@ -11,8 +11,8 @@ spec:
   chainID: 1337
   gasLimit: 700000000
   consensus: qbft
-  blockPeriod: 1s
-  emptyBlockPeriod: 1s
+  blockPeriod: 100ms
+  emptyBlockPeriod: 10s
   initialValidators:
   {{- $prefix := .Values.besu.nodeNamePrefix }}
   {{- $besuCount := include "paladin-operator.besuNodeCount" . | int }}
