@@ -1,0 +1,178 @@
+// Copyright © 2025 Kaleido, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package cmd
+
+import (
+	"encoding/json"
+	"io/ioutil"
+	"path"
+	"time"
+
+	"github.com/LFDT-Paladin/paladin/test/internal/conf"
+	"github.com/LFDT-Paladin/paladin/test/internal/perf"
+	"github.com/LFDT-Paladin/paladin/test/internal/server"
+	"github.com/LFDT-Paladin/paladin/test/internal/util"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+)
+
+var configFilePath string
+var instanceName string
+var instanceIndex int
+var daemonOverride bool
+
+var httpServer *server.HttpServer
+var perfRunner perf.PerfRunner
+
+// runCmd represents the run command
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Executes an instance within a test suite to generate synthetic load against a Paladin node",
+	Long:  "Executes an instance within a test suite to generate synthetic load against a Paladin node",
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		config, err := loadConfig(configFilePath)
+		if err != nil {
+			return err
+		}
+
+		if !config.Daemon {
+			config.Daemon = daemonOverride
+		}
+
+		if instanceName != "" && instanceIndex != -1 {
+			log.Warn("both the \"instance-name\" and \"instance-index\" flags were provided, using \"instance-name\"")
+		}
+
+		instanceConfig, err := selectInstance(config)
+		if err != nil {
+			return err
+		}
+
+		runnerConfig, err := generateRunnerConfigFromInstance(instanceConfig, config)
+		if err != nil {
+			return err
+		}
+
+		configYaml, err := yaml.Marshal(instanceConfig)
+		if err != nil {
+			return err
+		}
+
+		perfRunner = perf.New(runnerConfig, util.NewReportForTestInstance(string(configYaml), instanceName))
+		httpServer = server.NewHttpServer()
+
+		return nil
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		err := perfRunner.Init()
+		if err != nil {
+			return err
+		}
+
+		go httpServer.Run()
+		return perfRunner.Start()
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(runCmd)
+
+	runCmd.Flags().StringVarP(&configFilePath, "config", "c", "", "Path to test config that describes the nodes and test instances")
+	runCmd.Flags().StringVarP(&instanceName, "instance-name", "n", "", "Instance within test config to run")
+	runCmd.Flags().IntVarP(&instanceIndex, "instance-idx", "i", -1, "Index of the instance within test config to run")
+	runCmd.Flags().BoolVarP(&daemonOverride, "daemon", "d", false, "Run in long-lived, daemon mode. Any provided test length is ignored.")
+
+	runCmd.MarkFlagRequired("config")
+}
+
+func loadConfig(filename string) (*conf.PerformanceTestConfig, error) {
+	if d, err := ioutil.ReadFile(filename); err != nil {
+		return nil, err
+	} else {
+		config := &conf.PerformanceTestConfig{}
+		var err error
+		if path.Ext(filename) == ".yaml" || path.Ext(filename) == ".yml" {
+			err = yaml.Unmarshal(d, config)
+		} else {
+			err = json.Unmarshal(d, config)
+		}
+
+		if err != nil {
+			return nil, err
+		}
+		return config, nil
+	}
+}
+
+func selectInstance(config *conf.PerformanceTestConfig) (*conf.InstanceConfig, error) {
+	if instanceName != "" {
+		for _, i := range config.Instances {
+			if i.Name == instanceName {
+				return &i, nil
+			}
+		}
+		return nil, errors.Errorf("did not find instance named \"%s\" within the provided config", instanceName)
+	} else if instanceIndex != -1 {
+		if instanceIndex >= len(config.Instances) || instanceIndex < 0 {
+			return nil, errors.Errorf("provided instance index \"%d\" is outside of the range of instances within the provided config", instanceIndex)
+		}
+		return &config.Instances[instanceIndex], nil
+	}
+
+	return nil, errors.Errorf("please set either the \"instance-name\" or \"instance-index\" ")
+}
+
+func generateRunnerConfigFromInstance(instance *conf.InstanceConfig, perfConfig *conf.PerformanceTestConfig) (*conf.RunnerConfig, error) {
+	runnerConfig := &conf.RunnerConfig{
+		Test: instance.Test,
+	}
+
+	runnerConfig.HTTPConfig = perfConfig.HTTPConfig
+	runnerConfig.WSConfig = perfConfig.WSConfig
+
+	runnerConfig.LogLevel = perfConfig.LogLevel
+	runnerConfig.MaxSubmissionsPerSecond = instance.MaxSubmissionsPerSecond
+	runnerConfig.Length = instance.Length
+	runnerConfig.Daemon = perfConfig.Daemon
+	runnerConfig.LogEvents = perfConfig.LogEvents
+	runnerConfig.MaxActions = instance.MaxActions
+	runnerConfig.RampLength = instance.RampLength
+	runnerConfig.CompletionTimeout = instance.CompletionTimeout
+	runnerConfig.NoWaitSubmission = instance.NoWaitSubmission
+	runnerConfig.NodeKillConfig = instance.NodeKillConfig
+	runnerConfig.Nodes = perfConfig.Nodes
+
+	setDefaults(runnerConfig)
+
+	return runnerConfig, nil
+}
+
+func setDefaults(runnerConfig *conf.RunnerConfig) {
+	if runnerConfig.Test.ActionsPerLoop <= 0 {
+		runnerConfig.Test.ActionsPerLoop = 1
+	}
+
+	if runnerConfig.CompletionTimeout == 0 {
+		runnerConfig.CompletionTimeout = 5 * time.Minute
+	}
+
+	if runnerConfig.NodeKillConfig != nil && runnerConfig.NodeKillConfig.RestartTimeout == 0 {
+		runnerConfig.NodeKillConfig.RestartTimeout = 2 * time.Minute
+	}
+}
