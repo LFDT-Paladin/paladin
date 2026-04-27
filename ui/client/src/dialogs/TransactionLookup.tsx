@@ -16,78 +16,74 @@
 
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
   TextField
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchTransaction, fetchTransactionReceipt } from '../queries/transactions';
+import { fetchPaladinTransaction, fetchTransaction } from '../queries/transactions';
 import { isValidTransactionHash, isValidUUID } from '../utils';
 import { useNavigate } from 'react-router-dom';
 
 type Props = {
   dialogOpen: boolean
   setDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  label: string
 }
 
 export const TransactionLookupDialog: React.FC<Props> = ({
   dialogOpen,
-  setDialogOpen
+  setDialogOpen,
+  label
 }) => {
 
   const { t } = useTranslation();
-  const [selectedType, setSelectedType] = useState<'bth' | 'pti'>('bth');
   const [notFound, setNotFound] = useState(false);
-  const [blockchainTransactionHash, setBlockchainTransactionHash] = useState('');
-  const [paladinTransactionId, setPaladinTransactionId] = useState('');
+  const [hashOrId, setHashOrId] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     if (dialogOpen) {
-      setSelectedType('bth');
-      setBlockchainTransactionHash('');
-      setPaladinTransactionId('');
+      setHashOrId('');
     }
   }, [dialogOpen]);
 
   const { refetch: blockchainTransactionByHash } = useQuery({
-    queryKey: ["blockchainTransactionByHash", blockchainTransactionHash],
-    queryFn: () => fetchTransaction(blockchainTransactionHash),
-    enabled: false,
+    queryKey: ["blockchainTransactionByHash", hashOrId],
+    queryFn: () => fetchTransaction(hashOrId),
+    enabled: isValidTransactionHash(hashOrId),
     refetchOnMount: false,
     retry: false
   });
 
   const { refetch: paladinTransactionById } = useQuery({
-    queryKey: ["paladinTransactionById", paladinTransactionId],
-    queryFn: () => fetchTransactionReceipt(paladinTransactionId),
-    enabled: false,
+    queryKey: ["paladinTransactionById", hashOrId],
+    queryFn: () => fetchPaladinTransaction(hashOrId),
+    enabled: isValidUUID(hashOrId),
     refetchOnMount: false,
     retry: false
   });
 
   const handleSubmit = () => {
     setNotFound(false);
-    if (selectedType === 'bth') {
+    if (isValidTransactionHash(hashOrId)) {
       blockchainTransactionByHash().then(result => {
         if (result.isSuccess) {
-          navigate(`/ui/transactions/${blockchainTransactionHash}`);
+          navigate(`/ui/transactions/${hashOrId}`);
         } else {
           setNotFound(true);
         }
       });
-    } else {
+    } else if (isValidUUID(hashOrId)) {
       paladinTransactionById().then(result => {
         if (result.isSuccess && result.data !== null) {
-          navigate(`/ui/transactions/${result.data.transactionHash}/${paladinTransactionId}`);
+          navigate(`/ui/transactions/${hashOrId}`);
         } else {
           setNotFound(true);
         }
@@ -95,8 +91,7 @@ export const TransactionLookupDialog: React.FC<Props> = ({
     }
   };
 
-  const canSubmit = (selectedType === 'bth' && isValidTransactionHash(blockchainTransactionHash))
-    || (selectedType === 'pti' && isValidUUID(paladinTransactionId));
+  const canSubmit = isValidTransactionHash(hashOrId) || isValidUUID(hashOrId);
 
   return (
     <Dialog
@@ -111,44 +106,22 @@ export const TransactionLookupDialog: React.FC<Props> = ({
         handleSubmit();
       }}>
         <DialogTitle>
-          {t('lookupTransaction')}
+          {t('lookup')}
           {notFound &&
             <Alert sx={{ marginTop: '15px' }} variant="filled" severity="warning">{t('transactionNotFound')}</Alert>}
-
         </DialogTitle>
         <DialogContent>
+          <Box sx={{ marginTop: '6px' }}>
 
-          <RadioGroup
-            value={selectedType}
-            onChange={event => setSelectedType((event.target as HTMLInputElement).value as any)}
-          >
-            <FormControlLabel value="bth" control={<Radio />} label={t('blockchainTransactionHash')} />
             <TextField
+              label={label}
               autoComplete="OFF"
               sx={{ marginBottom: '20px' }}
               fullWidth
-              value={blockchainTransactionHash}
-              onChange={event => {
-                if (selectedType !== 'bth') {
-                  setSelectedType('bth');
-                }
-                setBlockchainTransactionHash(event.target.value);
-              }}
+              value={hashOrId}
+              onChange={event => setHashOrId(event.target.value)}
             />
-            <FormControlLabel value="pti" control={<Radio />} label={t('paladinTransactionId')} />
-            <TextField
-              autoComplete="OFF"
-              fullWidth
-              value={paladinTransactionId}
-              onChange={event => {
-                if (selectedType !== 'pti') {
-                  setSelectedType('pti');
-                }
-                setPaladinTransactionId(event.target.value);
-              }}
-            />
-          </RadioGroup>
-
+          </Box>
 
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', marginBottom: '15px' }}>

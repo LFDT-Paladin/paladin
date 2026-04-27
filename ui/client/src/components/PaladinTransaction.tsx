@@ -24,10 +24,10 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { EllapsedTime } from "./EllapsedTime";
 import VisibilityIcon from '@mui/icons-material/VisibilityOutlined';
-import { PaladinTransactionsDetailsDialog } from "../dialogs/TransactionDetails";
 import { Captions, Tag } from 'lucide-react';
 import { formatJSONWhenApplicable } from "../utils";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 
 daysjs.extend(relativeTime);
 
@@ -37,9 +37,9 @@ type Props = {
 
 export const PaladinTransaction: React.FC<Props> = ({ paladinTransaction }) => {
 
-  const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const theme = useTheme();
+  const navigate = useNavigate();
   const { t } = useTranslation();
 
   if (paladinTransaction === undefined) {
@@ -92,7 +92,7 @@ export const PaladinTransaction: React.FC<Props> = ({ paladinTransaction }) => {
             <Grid2 container spacing={3} size="grow" justifyContent="end">
               <Grid2>
                 <Button size="small" startIcon={<VisibilityIcon />} sx={{ minWidth: '120px', fontWeight: '400' }}
-                  onClick={() => setViewDetailsDialogOpen(true)}>{t('viewDetails')}</Button>
+                  onClick={() => navigate(`/ui/transactions/${paladinTransaction.id}`, { state: { from: 'submissions' }})}>{t('viewDetails')}</Button>
               </Grid2>
               <Grid2>
                 <Button size="small" endIcon={isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -123,11 +123,6 @@ export const PaladinTransaction: React.FC<Props> = ({ paladinTransaction }) => {
           </Collapse>
         </Box>
       </Box>
-      <PaladinTransactionsDetailsDialog
-        paladinTransactions={[paladinTransaction]}
-        dialogOpen={viewDetailsDialogOpen}
-        setDialogOpen={setViewDetailsDialogOpen}
-      />
     </>
   );
 };

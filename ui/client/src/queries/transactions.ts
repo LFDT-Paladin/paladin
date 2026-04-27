@@ -22,6 +22,7 @@ import {
   IEvent,
   IFilter,
   IPaladinTransaction,
+  IPaladinTransactionPagingReference,
   ITransaction,
   ITransactionInput,
   ITransactionPagingReference,
@@ -128,13 +129,13 @@ export const fetchIndexedTransactions = async (
 };
 
 export const fetchSubmissions = async (
-  type: 'all' | 'pending',
+  type: 'pending' | 'failed',
   filters: IFilter[],
-  pageParam?: IPaladinTransaction
+  pageParam?: IPaladinTransactionPagingReference
 ): Promise<IPaladinTransaction[]> => {
   let translatedFilters = translateFilters(filters);
 
-  let allParams: any = [
+  let params: any = [
     {
       ...translatedFilters,
       limit: constants.SUBMISSIONS_QUERY_LIMIT,
@@ -143,24 +144,37 @@ export const fetchSubmissions = async (
   ];
 
   if (pageParam !== undefined) {
-    if (allParams[0].lessThan === undefined) {
-      allParams[0].lessThan = [];
+    if (params[0].lessThan === undefined) {
+      params[0].lessThan = [];
     }
-    allParams[0].lessThan.push({
+    params[0].lessThan.push({
       field: 'created',
       value: pageParam.created,
     });
   }
 
-  const pendingParams = [...allParams, true];
+  if (type === 'failed') {
+    if (params[0].equal === undefined) {
+      params[0].equal = [];
+    }
+    params[0].equal.push(
+      {
+        field: 'success',
+        value: false
+      }
+    );
+  } else {
+    params = [...params, true];
+  }
+
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method:
-      type === 'all'
+      type === 'failed'
         ? RpcMethods.ptx_QueryTransactionsFull
         : RpcMethods.ptx_QueryPendingTransactions,
-    params: type === 'all' ? allParams : pendingParams,
+    params
   };
 
   return <Promise<IPaladinTransaction[]>>(
@@ -317,7 +331,7 @@ export const fetchTransaction = async (
 
   const block = await fetchBlockByNumber(transaction.blockNumber);
   const receiptsResult = await fetchTransactionReceipts([transaction]);
-  const paladinTransactionsResult = await fetchPaladinTransactions(
+  const paladinTransactionsResult = receiptsResult.length === 0 ? [] : await fetchPaladinTransactions(
     receiptsResult
   );
   const events = await fetchTransactionEvents([transaction]);
@@ -357,6 +371,24 @@ export const fetchBlockByNumber = async (
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingBlock')
+    )
+  );
+};
+
+export const fetchPaladinTransaction = async (
+  id: string
+): Promise<IPaladinTransaction> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransactionFull,
+    params: [id]
+  };
+
+  return <Promise<IPaladinTransaction>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingPaladinTransaction')
     )
   );
 };
