@@ -10,12 +10,12 @@ use (
 	./domains/noto
 	./domains/zeto
 	./operator
-	./perf
 	./registries/evm
 	./registries/static
 	./rpcauth/basicauth
 	./sdk/go
 	./signingmodules/example
+	./test
 	./testinfra
 	./toolkit/go
 	./transports/grpc
