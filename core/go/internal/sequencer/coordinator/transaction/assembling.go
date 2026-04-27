@@ -154,7 +154,7 @@ func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTra
 
 func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context) error {
 	var dependentIDs []uuid.UUID
-	// Get transactions this is a pre-req, including chained dependencies
+	// Get transactions this is a pre-req of, including chained dependencies
 	dependents := t.dependencyTracker.GetPreassemblyDeps().GetDependents(t.pt.ID)
 	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 
