@@ -247,8 +247,7 @@ func newTransaction(
 }
 
 func (t *coordinatorTransaction) GetCurrentState() State {
-	// t.RLock() TODO AM: replace with a state specific lock on the state machine
-	// defer t.RUnlock()
+	// the state machine has its own lock for current state so we don't need to take the whole transaction lock
 	return t.stateMachine.GetCurrentState()
 }
 
