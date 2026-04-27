@@ -16,6 +16,7 @@
 package transaction
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
+	"github.com/google/uuid"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -733,4 +735,220 @@ func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
 	assert.Equal(t, []pldtypes.HexBytes{readID}, refs.StateRefs.Read)
 	assert.Equal(t, []pldtypes.HexBytes{outputID}, refs.StateRefs.Confirmed)
 	assert.Equal(t, []pldtypes.HexBytes{infoID}, refs.StateRefs.Info)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewChainedChildStore()
+	grapher := NewGrapher(ctx)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		Build()
+	depChildID := uuid.New()
+	store.SetChainedChild(dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{dep.pt.ID},
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+	assert.Equal(t, &childTxID, store.GetChainedChild(txn.pt.ID))
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewChainedChildStore()
+	grapher := NewGrapher(ctx)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		Build()
+	depChildID := uuid.New()
+	store.SetChainedChild(dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{dep.pt.ID},
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testing.T) {
+	ctx := context.Background()
+	store := NewChainedChildStore()
+	grapher := NewGrapher(ctx)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		Build()
+	depChildID := uuid.New()
+	store.SetChainedChild(dep.pt.ID, depChildID)
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{dep.pt.ID},
+			},
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{dep.pt.ID},
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn,
+		"same dependency appearing in both PostAssemble and Chained should be deduplicated")
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
+	ctx := context.Background()
+	store := NewChainedChildStore()
+	grapher := NewGrapher(ctx)
+
+	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		Build()
+	// no chained child set in store for dep
+
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		ChainedChildStore(store).
+		Grapher(grapher).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{dep.pt.ID},
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Empty(t, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
+}
+
+func Test_buildDispatchBatch_ChainedPrivate_SkipsDepNotInGrapher(t *testing.T) {
+	ctx := context.Background()
+	grapher := NewGrapher(ctx)
+
+	missingDepID := uuid.New()
+	childTxID := uuid.New()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		Grapher(grapher).
+		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
+		PreAssembly(&components.TransactionPreAssembly{
+			TransactionSpecification: &prototk.TransactionSpecification{
+				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
+			},
+		}).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{missingDepID},
+			},
+		}).
+		Build()
+
+	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&components.ChainedPrivateTransaction{
+			NewTransaction: &components.ValidatedTransaction{
+				ResolvedTransaction: components.ResolvedTransaction{
+					Transaction: &pldapi.Transaction{ID: &childTxID},
+				},
+			},
+		}, nil)
+
+	batch, err := txn.buildDispatchBatch(ctx)
+	require.NoError(t, err)
+	require.Len(t, batch.PrivateDispatches, 1)
+	assert.Empty(t, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
 }

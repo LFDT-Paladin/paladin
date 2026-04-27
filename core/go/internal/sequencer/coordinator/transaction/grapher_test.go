@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -49,7 +48,7 @@ func Test_grapher_Forget_RemovesTransaction(t *testing.T) {
 	grapher := NewGrapher(ctx)
 	grapher.Add(ctx, txn)
 
-	err := grapher.Forget(txn.pt.ID)
+	err := grapher.Forget(ctx, txn.pt.ID)
 	require.NoError(t, err)
 
 	lookup := grapher.TransactionByID(ctx, txn.pt.ID)
@@ -110,112 +109,125 @@ func Test_grapher_AddMinter_DuplicateMinter(t *testing.T) {
 	assert.Equal(t, txn1.pt.ID, minter.pt.ID, "First transaction should still be the minter")
 }
 
-func Test_pruneDependencyLinks_NilDependencies(t *testing.T) {
-	ctx := context.Background()
-
-	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
-
-	grapher := NewGrapher(ctx)
-	grapher.Add(ctx, txn)
-
-	err := grapher.Forget(txn.pt.ID)
-	require.NoError(t, err)
-
-	assert.Nil(t, grapher.TransactionByID(ctx, txn.pt.ID))
-}
-
 func Test_pruneDependencyLinks_PrereqOfNotInGrapher(t *testing.T) {
 	ctx := context.Background()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000001")},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000001")},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{uuid.MustParse("00000000-0000-0000-0000-000000000002")},
+			},
 		}).
 		Build()
 
 	grapher := NewGrapher(ctx)
 	grapher.Add(ctx, txn)
 
-	err := grapher.Forget(txn.pt.ID)
+	err := grapher.Forget(ctx, txn.pt.ID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, txn.pt.ID))
 }
 
-// When a dependent is finalized before its prerequisite is still in the grapher (chained dispatch),
 // DependsOn may list a prereq ID that is no longer indexed — prune must skip updating that prereq.
-func Test_pruneDependencyLinks_DependsOnPrereqNotInGrapher(t *testing.T) {
+func Test_pruneDependencyLinks_PrereqsNotInGrapher(t *testing.T) {
 	ctx := context.Background()
 
-	prereqID := uuid.New()
+	postAssemblePrereqID := uuid.New()
+	externalPrereqID := uuid.New()
 	dependentID := uuid.New()
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(dependentID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{prereqID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{postAssemblePrereqID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{externalPrereqID},
+			},
 		}).
 		Build()
 
 	grapher := NewGrapher(ctx)
 	grapher.Add(ctx, dependentTxn)
 
-	err := grapher.Forget(dependentID)
+	err := grapher.Forget(ctx, dependentID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, dependentID))
 }
 
-func Test_pruneDependencyLinks_DependentHasNilDependencies(t *testing.T) {
+func Test_pruneDependencyLinks_DependentHasEmptyDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	tx2ID := uuid.New()
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
+			},
 		}).
 		Build()
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx2ID).
 		Build()
 
-	txn2.dependencies = nil
-
 	grapher := NewGrapher(ctx)
 
 	grapher.Add(ctx, txn1)
 	grapher.Add(ctx, txn2)
 
-	err := grapher.Forget(txn1.pt.ID)
+	err := grapher.Forget(ctx, txn1.pt.ID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
-	assert.Nil(t, txn2.dependencies)
 }
 
-func Test_pruneDependencyLinks_RemovesDependsOnLink(t *testing.T) {
+func Test_pruneDependencyLinks_RemovesDependsOnLinks(t *testing.T) {
 	ctx := context.Background()
 	grapher := NewGrapher(ctx)
 
 	tx1ID := uuid.New()
 	tx2ID := uuid.New()
+	tx3ID := uuid.New()
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx1ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{tx3ID},
+			},
 		}).
 		Build()
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx2ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{tx1ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
+		}).
+		Build()
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx3ID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
 		}).
 		Build()
 
 	grapher.Add(ctx, txn1)
 	grapher.Add(ctx, txn2)
+	grapher.Add(ctx, txn3)
 
-	err := grapher.Forget(txn1.pt.ID)
+	err := grapher.Forget(ctx, txn1.pt.ID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
-	assert.Empty(t, txn2.dependencies.DependsOn)
+	assert.Empty(t, txn2.dependencies.PostAssemble.DependsOn)
+	assert.Empty(t, txn3.dependencies.Chained.DependsOn)
 }
 
 func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
@@ -224,22 +236,49 @@ func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
 	tx1ID := uuid.New()
 	tx2ID := uuid.New()
 	tx3ID := uuid.New()
+	tx4ID := uuid.New()
+	tx5ID := uuid.New()
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx1ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{tx2ID, tx3ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID, tx3ID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{tx4ID, tx5ID},
+			},
 		}).
 		Build()
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx2ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{tx1ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
 		}).
 		Build()
 	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx3ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{tx1ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
+		}).
+		Build()
+	txn4, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx4ID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
+		}).
+		Build()
+	txn5, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx5ID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{tx1ID},
+			},
 		}).
 		Build()
 
@@ -247,12 +286,16 @@ func Test_pruneDependencyLinks_MultipleDependents(t *testing.T) {
 	grapher.Add(ctx, txn1)
 	grapher.Add(ctx, txn2)
 	grapher.Add(ctx, txn3)
+	grapher.Add(ctx, txn4)
+	grapher.Add(ctx, txn5)
 
-	err := grapher.Forget(txn1.pt.ID)
+	err := grapher.Forget(ctx, txn1.pt.ID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
-	assert.Empty(t, txn2.dependencies.DependsOn)
-	assert.Empty(t, txn3.dependencies.DependsOn)
+	assert.Empty(t, txn2.dependencies.PostAssemble.DependsOn)
+	assert.Empty(t, txn3.dependencies.PostAssemble.DependsOn)
+	assert.Empty(t, txn4.dependencies.Chained.DependsOn)
+	assert.Empty(t, txn5.dependencies.Chained.DependsOn)
 }
 
 func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
@@ -261,17 +304,33 @@ func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
 	otherID := uuid.New()
 	tx1ID := uuid.New()
 	tx2ID := uuid.New()
+	tx3ID := uuid.New()
 
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx1ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{tx2ID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{tx2ID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{tx3ID},
+			},
 		}).
 		Build()
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(tx2ID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{tx1ID, otherID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{tx1ID, otherID},
+			},
+		}).
+		Build()
+	txn3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(tx3ID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{tx1ID, otherID},
+			},
 		}).
 		Build()
 
@@ -279,69 +338,118 @@ func Test_pruneDependencyLinks_DependsOnRetainsOtherIDs(t *testing.T) {
 
 	grapher.Add(ctx, txn1)
 	grapher.Add(ctx, txn2)
-	err := grapher.Forget(txn1.pt.ID)
+	grapher.Add(ctx, txn3)
+	err := grapher.Forget(ctx, txn1.pt.ID)
 	require.NoError(t, err)
 	assert.Nil(t, grapher.TransactionByID(ctx, txn1.pt.ID))
-	require.Len(t, txn2.dependencies.DependsOn, 1)
-	assert.Equal(t, otherID, txn2.dependencies.DependsOn[0])
+	require.Len(t, txn2.dependencies.PostAssemble.DependsOn, 1)
+	assert.Equal(t, otherID, txn2.dependencies.PostAssemble.DependsOn[0])
+	require.Len(t, txn3.dependencies.Chained.DependsOn, 1)
+	assert.Equal(t, otherID, txn3.dependencies.Chained.DependsOn[0])
 }
 
 func Test_pruneDependencyLinks_RemovesSelfFromPrerequisitePrereqOf(t *testing.T) {
 	ctx := context.Background()
 
 	txPrereqID := uuid.New()
-	txDependentID := uuid.New()
+	txPostAssembleDependentID := uuid.New()
+	txExternalDependentID := uuid.New()
 
 	prereqTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(txPrereqID).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txDependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{txPostAssembleDependentID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{txExternalDependentID},
+			},
 		}).
 		Build()
-	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		TransactionID(txDependentID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txPrereqID},
+	postAssembleDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txPostAssembleDependentID).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{txPrereqID},
+			},
+		}).
+		Build()
+
+	externalDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txExternalDependentID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{txPrereqID},
+			},
 		}).
 		Build()
 
 	grapher := NewGrapher(ctx)
 	grapher.Add(ctx, prereqTxn)
-	grapher.Add(ctx, dependentTxn)
+	grapher.Add(ctx, postAssembleDependentTxn)
+	grapher.Add(ctx, externalDependentTxn)
 
-	err := grapher.Forget(txDependentID)
+	err := grapher.Forget(ctx, txPostAssembleDependentID)
 	require.NoError(t, err)
-	assert.Nil(t, grapher.TransactionByID(ctx, txDependentID))
-	assert.Empty(t, prereqTxn.dependencies.PrereqOf)
+	assert.Nil(t, grapher.TransactionByID(ctx, txPostAssembleDependentID))
+	assert.Empty(t, prereqTxn.dependencies.PostAssemble.PrereqOf)
+
+	err = grapher.Forget(ctx, txExternalDependentID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txExternalDependentID))
+	assert.Empty(t, prereqTxn.dependencies.Chained.PrereqOf)
 }
 
 func Test_pruneDependencyLinks_PrereqOfRetainsOtherDependents(t *testing.T) {
 	ctx := context.Background()
 
 	txPrereqID := uuid.New()
-	txDependentID := uuid.New()
+	txPostAssembleDependentID := uuid.New()
+	txExternalDependentID := uuid.New()
 	otherDependentID := uuid.New()
 
 	prereqTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		TransactionID(txPrereqID).
-		Dependencies(&pldapi.TransactionDependencies{
-			PrereqOf: []uuid.UUID{txDependentID, otherDependentID},
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				PrereqOf: []uuid.UUID{txPostAssembleDependentID, otherDependentID},
+			},
+			Chained: ChainedDependencies{
+				PrereqOf: []uuid.UUID{txExternalDependentID, otherDependentID},
+			},
 		}).
 		Build()
-	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		TransactionID(txDependentID).
-		Dependencies(&pldapi.TransactionDependencies{
-			DependsOn: []uuid.UUID{txPrereqID},
+	postAssembleDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txPostAssembleDependentID).
+		Dependencies(&TransactionDependencies{
+			PostAssemble: PostAssembleDependencies{
+				DependsOn: []uuid.UUID{txPrereqID},
+			},
+		}).
+		Build()
+	externalDependentTxn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
+		TransactionID(txExternalDependentID).
+		Dependencies(&TransactionDependencies{
+			Chained: ChainedDependencies{
+				DependsOn: []uuid.UUID{txPrereqID},
+			},
 		}).
 		Build()
 
 	grapher := NewGrapher(ctx)
 	grapher.Add(ctx, prereqTxn)
-	grapher.Add(ctx, dependentTxn)
+	grapher.Add(ctx, postAssembleDependentTxn)
+	grapher.Add(ctx, externalDependentTxn)
 
-	err := grapher.Forget(txDependentID)
+	err := grapher.Forget(ctx, txPostAssembleDependentID)
 	require.NoError(t, err)
-	assert.Nil(t, grapher.TransactionByID(ctx, txDependentID))
-	require.Len(t, prereqTxn.dependencies.PrereqOf, 1)
-	assert.Equal(t, otherDependentID, prereqTxn.dependencies.PrereqOf[0])
+	assert.Nil(t, grapher.TransactionByID(ctx, txPostAssembleDependentID))
+	require.Len(t, prereqTxn.dependencies.PostAssemble.PrereqOf, 1)
+	assert.Equal(t, otherDependentID, prereqTxn.dependencies.PostAssemble.PrereqOf[0])
+
+	err = grapher.Forget(ctx, txExternalDependentID)
+	require.NoError(t, err)
+	assert.Nil(t, grapher.TransactionByID(ctx, txExternalDependentID))
+	require.Len(t, prereqTxn.dependencies.Chained.PrereqOf, 1)
+	assert.Equal(t, otherDependentID, prereqTxn.dependencies.Chained.PrereqOf[0])
 }

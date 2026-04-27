@@ -39,9 +39,10 @@ import { AppRoutes } from '../routes';
 
 enum HeaderTab {
   Transactions = 0,
-  Keys = 1,
-  Registry = 2,
-  Domains = 3,
+  Submissions = 1,
+  Keys = 2,
+  Registry = 3,
+  Domains = 4,
 }
 
 export const Header: React.FC = () => {
@@ -56,6 +57,8 @@ export const Header: React.FC = () => {
   const getTabFromPath = (path: string) => {
     if (path.startsWith(AppRoutes.Transactions)) {
       return HeaderTab.Transactions;
+    } else if (path.startsWith(AppRoutes.Submissions)) {
+      return HeaderTab.Submissions;
     } else if (path.startsWith(AppRoutes.Keys)) {
       return HeaderTab.Keys;
     } else if (path.startsWith(AppRoutes.Registry)) {
@@ -71,6 +74,9 @@ export const Header: React.FC = () => {
   const handleNavigation = (tab: number) => {
     setTab(tab);
     switch (tab) {
+      case HeaderTab.Submissions:
+        navigate(AppRoutes.Submissions);
+        break;
       case HeaderTab.Keys:
         navigate(AppRoutes.Keys);
         break;
@@ -115,7 +121,8 @@ export const Header: React.FC = () => {
                   centered
                 >
                   <Tab sx={{ minWidth: '120px'}} label={t('transactions')} onClick={() => navigate(AppRoutes.Transactions)} />
-                  <Tab sx={{ minWidth: '120px'}} label={t('keys')} />
+                  <Tab sx={{ minWidth: '120px'}} label={t('submissions')} onClick={() => navigate(AppRoutes.Submissions)} />
+                  <Tab sx={{ minWidth: '120px'}} label={t('localKeys')} />
                   <Tab sx={{ minWidth: '120px'}} label={t('registry')} />
                   <Tab sx={{ minWidth: '120px'}} label={t('domains')} />
                 </Tabs>

@@ -24,7 +24,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
-	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -130,23 +129,40 @@ func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 
-func action_NotifyPreAssembleDependentOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	return txn.notifyPreAssembleDependentOfSelection(ctx)
+// We notify a transactions dependents at the point it is selected for assembly. If this is the last unassembled prereq,
+// the dependency can move to State_Pooled upon receviing this notification, since the outcome of assembly is irrelevant
+// to ensuring that as a minimum the first assembly attempt is performed in order.
+//
+// For dependency types where the transactions must be assembled in the correct order, regardless of how many resets have
+// occured, a dependency reset event will move the dependent transaction back to State_PreAssembly_Blocked if assembly of
+// this transaction fails.
+func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	return txn.notifyDependentsOfSelection(ctx)
 }
 
-func (t *coordinatorTransaction) notifyPreAssembleDependentOfSelection(ctx context.Context) error {
-	if t.preAssemblePrereqOf == nil {
-		return nil
+func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context) error {
+	var dependentIDs []uuid.UUID
+	if t.dependencies.PreAssemble.PrereqOf != nil {
+		dependentIDs = append(dependentIDs, *t.dependencies.PreAssemble.PrereqOf)
 	}
-	dependent := t.grapher.TransactionByID(ctx, *t.preAssemblePrereqOf)
-	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, *t.preAssemblePrereqOf)
+	dependentIDs = append(dependentIDs, t.dependencies.Chained.PrereqOf...)
+
+	for _, dependentID := range dependentIDs {
+		dependent := t.grapher.TransactionByID(ctx, dependentID)
+		if dependent == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
+		}
+		err := dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentID,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
+		}
 	}
-	return dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: t.pt.ID,
-		},
-	})
+	return nil
 }
 
 func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
@@ -161,10 +177,8 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 	}
 
 	found := make(map[uuid.UUID]bool)
-	t.dependencies = &pldapi.TransactionDependencies{
-		DependsOn: make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-		PrereqOf:  make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates)),
-	}
+	t.dependencies.PostAssemble.DependsOn = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
+	t.dependencies.PostAssemble.PrereqOf = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
 	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
 		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
 		if err != nil {
@@ -183,10 +197,11 @@ func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.C
 		}
 		found[dependency.pt.ID] = true
 
-		t.dependencies.DependsOn = append(t.dependencies.DependsOn, dependency.pt.ID)
+		t.dependencies.PostAssemble.DependsOn = append(t.dependencies.PostAssemble.DependsOn, dependency.pt.ID)
 		//also set up the reverse association
-		dependency.dependencies.PrereqOf = append(dependency.dependencies.PrereqOf, t.pt.ID)
+		dependency.dependencies.PostAssemble.PrereqOf = append(dependency.dependencies.PostAssemble.PrereqOf, t.pt.ID)
 	}
+	log.L(ctx).Debugf("Post-assembly dependencies for TX %s: %v", t.pt.ID, t.dependencies.PostAssemble.DependsOn)
 	return nil
 }
 
