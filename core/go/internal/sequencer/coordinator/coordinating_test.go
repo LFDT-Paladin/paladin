@@ -342,37 +342,108 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 	assert.False(t, ok, "transaction should still be removed from map despite grapher error")
 }
 
-func Test_validator_TransactionStateTransitionToPooled(t *testing.T) {
+func Test_validator_TransactionStateTransitionFrom(t *testing.T) {
 	ctx := context.Background()
-	valid, err := validator_TransactionStateTransitionToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
-	require.NoError(t, err)
-	assert.True(t, valid)
+	testCases := []struct {
+		name       string
+		states     []transaction.State
+		eventFrom  transaction.State
+		eventTo    transaction.State
+		wantResult bool
+	}{
+		{
+			name:       "matches single from state",
+			states:     []transaction.State{transaction.State_Dispatched},
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Pooled,
+			wantResult: true,
+		},
+		{
+			name:       "matches any from state in list",
+			states:     []transaction.State{transaction.State_Dispatched, transaction.State_Assembling},
+			eventFrom:  transaction.State_Assembling,
+			eventTo:    transaction.State_Reverted,
+			wantResult: true,
+		},
+		{
+			name:       "does not match when from state not in list",
+			states:     []transaction.State{transaction.State_Dispatched, transaction.State_Pooled},
+			eventFrom:  transaction.State_Initial,
+			eventTo:    transaction.State_Pooled,
+			wantResult: false,
+		},
+		{
+			name:       "returns false when no states provided",
+			states:     nil,
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Pooled,
+			wantResult: false,
+		},
+	}
 
-	valid, err = validator_TransactionStateTransitionToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
-	require.NoError(t, err)
-	assert.False(t, valid)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := validator_TransactionStateTransitionFrom(tc.states...)
+			valid, err := validator(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{
+				From: tc.eventFrom,
+				To:   tc.eventTo,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantResult, valid)
+		})
+	}
 }
 
-func Test_validator_TransactionStateTransitionToReadyForDispatch(t *testing.T) {
+func Test_validator_TransactionStateTransitionTo(t *testing.T) {
 	ctx := context.Background()
-	valid, err := validator_TransactionStateTransitionToReadyForDispatch(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Ready_For_Dispatch})
-	require.NoError(t, err)
-	assert.True(t, valid)
+	testCases := []struct {
+		name       string
+		states     []transaction.State
+		eventFrom  transaction.State
+		eventTo    transaction.State
+		wantResult bool
+	}{
+		{
+			name:       "matches single to state",
+			states:     []transaction.State{transaction.State_Pooled},
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Pooled,
+			wantResult: true,
+		},
+		{
+			name:       "matches any to state in list",
+			states:     []transaction.State{transaction.State_Pooled, transaction.State_Reverted},
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Reverted,
+			wantResult: true,
+		},
+		{
+			name:       "does not match when to state not in list",
+			states:     []transaction.State{transaction.State_Pooled, transaction.State_Ready_For_Dispatch},
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Final,
+			wantResult: false,
+		},
+		{
+			name:       "returns false when no states provided",
+			states:     nil,
+			eventFrom:  transaction.State_Dispatched,
+			eventTo:    transaction.State_Pooled,
+			wantResult: false,
+		},
+	}
 
-	valid, err = validator_TransactionStateTransitionToReadyForDispatch(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
-	require.NoError(t, err)
-	assert.False(t, valid)
-}
-
-func Test_validator_TransactionStateTransitionToFinal(t *testing.T) {
-	ctx := context.Background()
-	valid, err := validator_TransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Final})
-	require.NoError(t, err)
-	assert.True(t, valid)
-
-	valid, err = validator_TransactionStateTransitionToFinal(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{To: transaction.State_Pooled})
-	require.NoError(t, err)
-	assert.False(t, valid)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := validator_TransactionStateTransitionTo(tc.states...)
+			valid, err := validator(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{
+				From: tc.eventFrom,
+				To:   tc.eventTo,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantResult, valid)
+		})
+	}
 }
 
 func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *testing.T) {
@@ -580,23 +651,6 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 	require.NoError(t, err)
 	// Transaction should transition from Assembling to Pooled when AssembleCancelledEvent is handled
 	assert.Equal(t, transaction.State_Pooled, txn.GetCurrentState())
-}
-
-func Test_validator_TransactionStateTransitionDispatchedToPooled(t *testing.T) {
-	ctx := context.Background()
-	valid, err := validator_TransactionStateTransitionDispatchedToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{
-		From: transaction.State_Dispatched,
-		To:   transaction.State_Pooled,
-	})
-	require.NoError(t, err)
-	assert.True(t, valid)
-
-	valid, err = validator_TransactionStateTransitionDispatchedToPooled(ctx, nil, &common.TransactionStateTransitionEvent[transaction.State]{
-		From: transaction.State_Assembling,
-		To:   transaction.State_Pooled,
-	})
-	require.NoError(t, err)
-	assert.False(t, valid)
 }
 
 func Test_action_PoolTransaction_WhenTxnNotInMap_NoOp(t *testing.T) {

@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/statemachine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/google/uuid"
 )
@@ -283,14 +284,28 @@ func (c *coordinator) removeTransactionFromPool(id uuid.UUID) {
 	}
 }
 
-func validator_TransactionStateTransitionToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Pooled, nil
+func validator_TransactionStateTransitionFrom(states ...transaction.State) statemachine.Validator[*coordinator] {
+	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+		for _, s := range states {
+			if e.From == s {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
-func validator_TransactionStateTransitionDispatchedToPooled(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.From == transaction.State_Dispatched && e.To == transaction.State_Pooled, nil
+func validator_TransactionStateTransitionTo(states ...transaction.State) statemachine.Validator[*coordinator] {
+	return func(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
+		e := event.(*common.TransactionStateTransitionEvent[transaction.State])
+		for _, s := range states {
+			if e.To == s {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 }
 
 func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Event) error {
@@ -306,11 +321,6 @@ func action_PoolTransaction(ctx context.Context, c *coordinator, event common.Ev
 	return nil
 }
 
-func validator_TransactionStateTransitionToReadyForDispatch(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Ready_For_Dispatch, nil
-}
-
 func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
 	txn := c.transactionsByID[e.TransactionID]
@@ -321,16 +331,6 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 		}
 	}
 	return nil
-}
-
-func validator_TransactionStateTransitionToFinal(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Final, nil
-}
-
-func validator_TransactionStateTransitionToEvicted(ctx context.Context, _ *coordinator, event common.Event) (bool, error) {
-	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	return e.To == transaction.State_Evicted, nil
 }
 
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
