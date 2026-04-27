@@ -114,6 +114,74 @@ func TestRPCMessageBatch(t *testing.T) {
 
 }
 
+func TestRPCMessageBatchUnauthorized(t *testing.T) {
+
+	url, s, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
+	defer done()
+
+	auth := &mockAuthorizer{
+		authenticateFunc: func(ctx context.Context, headers map[string]string) (string, error) {
+			return `{"username":"test"}`, nil
+		},
+		authorizeFunc: func(ctx context.Context, result string, method string, payload []byte) bool {
+			return false
+		},
+	}
+	s.SetAuthorizers([]Authorizer{auth})
+
+	regTestRPC(s, "ut_methodA", RPCMethod2(func(ctx context.Context, param0, param1 string) (string, error) {
+		assert.Equal(t, "valueA0", param0)
+		assert.Equal(t, "valueA1", param1)
+		return "resultA", nil
+	}))
+	regTestRPC(s, "ut_methodB", RPCMethod2(func(ctx context.Context, param0, param1 string) (string, error) {
+		assert.Equal(t, "valueB0", param0)
+		assert.Equal(t, "valueB1", param1)
+		return "", fmt.Errorf("pop")
+	}))
+
+	var jsonResponse pldtypes.RawJSON
+	res, err := resty.New().R().
+		SetBody(`[
+			{
+				"jsonrpc": "2.0",
+				"id": "1",
+				"method": "ut_methodA",
+				"params": ["valueA0","valueA1"]
+			},
+			{
+				"jsonrpc": "2.0",
+				"id": "2",
+				"method": "ut_methodB",
+				"params": ["valueB0","valueB1"]
+			}
+		]`).
+		SetResult(&jsonResponse).
+		SetError(&jsonResponse).
+		Post(url)
+	require.NoError(t, err)
+	assert.False(t, res.IsSuccess())
+	assert.JSONEq(t, `[
+		{
+			"jsonrpc": "2.0",
+			"id": "1",
+			"error": {
+			  "code": -32000,
+			  "message": "PD020707: Unauthorized"
+			}
+		},
+		{
+			"jsonrpc": "2.0",
+			"id": "2",
+			"error": {
+			  "code": -32000,
+			  "message": "PD020707: Unauthorized"
+			}
+		}
+	]`, (string)(jsonResponse))
+
+}
+
 func TestRPCMessageBatchOneFails200WithError(t *testing.T) {
 
 	url, s, done := newTestServerHTTP(t, &pldconf.RPCServerConfig{})
@@ -215,7 +283,7 @@ func TestRPCMessageBatchAllFail(t *testing.T) {
 		SetError(&jsonResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.JSONEq(t, `[
 		{
 			"jsonrpc": "2.0",
@@ -257,7 +325,7 @@ func TestRPCHandleBadDataEmptySpace(t *testing.T) {
 		SetError(&jsonResponse).
 		Post(url)
 	require.NoError(t, err)
-	assert.False(t, res.IsSuccess())
+	assert.True(t, res.IsSuccess())
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
 
@@ -269,7 +337,6 @@ func TestRPCHandleIOError(t *testing.T) {
 	defer done()
 
 	r := s.rpcHandler(context.Background(), iotest.ErrReader(fmt.Errorf("pop")), nil)
-	assert.False(t, r.isOK)
 	jsonResponse := r.res.(*rpcclient.RPCResponse)
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)
@@ -282,7 +349,6 @@ func TestRPCBadArrayError(t *testing.T) {
 	defer done()
 
 	r := s.rpcHandler(context.Background(), strings.NewReader("[... this is not an array"), nil)
-	assert.False(t, r.isOK)
 	jsonResponse := r.res.(*rpcclient.RPCResponse)
 	assert.Equal(t, int64(rpcclient.RPCCodeInvalidRequest), jsonResponse.Error.Code)
 	assert.Regexp(t, "PD020700", jsonResponse.Error.Message)

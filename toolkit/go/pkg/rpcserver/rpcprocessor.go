@@ -61,7 +61,7 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 				i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
 				rpcReq.ID,
 				rpcclient.RPCCodeUnauthorized,
-			), false, nil
+			), true, nil
 		}
 
 		// Authorize through chain - stop on first failure
@@ -73,7 +73,7 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 					i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
 					rpcReq.ID,
 					rpcclient.RPCCodeUnauthorized,
-				), false, nil
+				), true, nil
 			}
 
 			authorized := auth.Authorize(ctx, authenticationResults[i], rpcReq.Method, payload)
@@ -83,7 +83,7 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 					i18n.NewError(ctx, pldmsgs.MsgJSONRPCUnauthorized),
 					rpcReq.ID,
 					rpcclient.RPCCodeUnauthorized,
-				), false, nil
+				), true, nil
 			}
 		}
 	}
@@ -113,9 +113,5 @@ func (s *rpcServer) processRPC(ctx context.Context, rpcReq *rpcclient.RPCRequest
 			rpcRes = wsc.handleLifecycle(ctx, rpcReq, mh.async)
 		}
 	}
-	isOK := true
-	if rpcRes != nil {
-		isOK = rpcRes.Error == nil
-	}
-	return rpcRes, isOK, afterSend
+	return rpcRes, false, afterSend
 }
