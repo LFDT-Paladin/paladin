@@ -24,16 +24,11 @@ metadata:
     app.kubernetes.io/name: {{ $name }}
 spec:
   config: |
-    blockIndexer:
-      requiredConfirmations: 1
     log:
       level: debug
     publicTxManager:
       gasLimit:
         gasEstimateFactor: 2.0
-    sequencerManager:
-      delegateTimeout: 2m
-      heartbeatInterval: 15s
   database:
     mode: sidecarPostgres
     migrationMode: auto
