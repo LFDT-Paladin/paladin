@@ -48,7 +48,7 @@ type DependencyTracker interface {
 // individual lists, and functions to remove from just one of the lists.
 type DependencyChain interface {
 	AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) // Updates both the pre-req-of and depends-on lists
-	ClearPrerequisites(txID uuid.UUID)                    // Remove all depends-on entries this transaction for the transaction, updating their pre-req-of chains as well
+	ClearPrerequisites(txID uuid.UUID)                    // Remove all depends-on entries for this transaction for the transaction, updating their pre-req-of chains as well
 	ClearDependents(txID uuid.UUID)                       // Remove all pre-req of entries for this transaction, updating their depends-on chains as well
 	Delete(transactionID uuid.UUID)                       // Remove the TX entirely, so it has no pre-reqs or dependents and any it did have their respective lists updated
 	GetPrerequisites(txID uuid.UUID) []uuid.UUID
