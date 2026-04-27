@@ -104,7 +104,7 @@ func NewDependencyTracker() DependencyTracker {
 		preAssembly:  newDependencyChain(true),
 		postAssembly: newDependencyChain(false),
 		chained: &chainedDependencies{
-			dependencyChain:         newDependencyChain(true),
+			dependencyChain:         newDependencyChain(false),
 			unassembledDependencies: make(map[uuid.UUID]map[uuid.UUID]struct{}),
 			children:                make(map[uuid.UUID]uuid.UUID),
 		},
@@ -213,6 +213,9 @@ func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {
 // AddPrerequisites records that txID depends on each prerequisite (prerequisite IDs must
 // complete before txID). Updates both sides of each edge.
 func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) {
+	if d.singleChainOnly && len(prereq) > 1 {
+		panic("singleChainOnly dependency chain does not support multiple prerequisites")
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx := d.ensure(txID)
@@ -221,11 +224,16 @@ func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) 
 			continue
 		}
 		prereqNode := d.ensure(preReq)
-		tx.dependsOn = appendUnique(tx.dependsOn, preReq)
-		prereqNode.prereqOf = appendUnique(prereqNode.prereqOf, txID)
-		// TODO AM: are we certain we want to panic here?
-		if d.singleChainOnly && (len(prereqNode.prereqOf) > 1 || len(tx.dependsOn) > 1) {
-			panic("singleChainOnly dependency chain does not support multiple prerequisites")
+		if d.singleChainOnly {
+			// TODO: this mirrors the behaviour of preassembly dependencies before this new grapher
+			// where a new dependency would overwrite the old one, if it existed. This doesn't quite
+			// feel right as in principle why should there be an old one? I'm choosing to preserve
+			// the old tested behaviour until we have time to think about this more.
+			tx.dependsOn = []uuid.UUID{preReq}
+			prereqNode.prereqOf = []uuid.UUID{txID}
+		} else {
+			tx.dependsOn = appendUnique(tx.dependsOn, preReq)
+			prereqNode.prereqOf = appendUnique(prereqNode.prereqOf, txID)
 		}
 	}
 }

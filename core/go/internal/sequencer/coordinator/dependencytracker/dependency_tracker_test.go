@@ -29,13 +29,13 @@ func TestNewDependencyTracker_GettersReturnDistinctChains(t *testing.T) {
 	pre := tr.GetPreassemblyDeps()
 	post := tr.GetPostAssemblyDeps()
 	ch := tr.GetChainedDeps()
-	a, b := uuid.New(), uuid.New()
+	a, b, c := uuid.New(), uuid.New(), uuid.New()
 	pre.AddPrerequisites(a, b)
-	post.AddPrerequisites(a, b)
-	ch.AddPrerequisites(a, b)
+	post.AddPrerequisites(a, b, c)
+	ch.AddPrerequisites(a, b, c)
 	assert.ElementsMatch(t, []uuid.UUID{b}, pre.GetPrerequisites(a))
-	assert.ElementsMatch(t, []uuid.UUID{b}, post.GetPrerequisites(a))
-	assert.ElementsMatch(t, []uuid.UUID{b}, ch.GetPrerequisites(a))
+	assert.ElementsMatch(t, []uuid.UUID{b, c}, post.GetPrerequisites(a))
+	assert.ElementsMatch(t, []uuid.UUID{b, c}, ch.GetPrerequisites(a))
 }
 
 func TestAddPrerequisites_PostAssembly_MultiplePrerequisites(t *testing.T) {
@@ -85,12 +85,11 @@ func TestAddPrerequisites_Chained_SinglePrerequisiteOK(t *testing.T) {
 	assert.Equal(t, []uuid.UUID{b}, ch.GetPrerequisites(a))
 }
 
-func TestAddPrerequisites_Chained_PanicsOnMultiplePrerequisites(t *testing.T) {
+func TestAddPrerequisites_Chained_AllowsMultiplePrerequisites(t *testing.T) {
 	ch := NewDependencyTracker().GetChainedDeps()
 	a, b, c := uuid.New(), uuid.New(), uuid.New()
-	require.Panics(t, func() {
-		ch.AddPrerequisites(a, b, c)
-	})
+	ch.AddPrerequisites(a, b, c)
+	assert.ElementsMatch(t, []uuid.UUID{b, c}, ch.GetPrerequisites(a))
 }
 
 func TestClearPrerequisites_NoOpWhenUnknown(t *testing.T) {
