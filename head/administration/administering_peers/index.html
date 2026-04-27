@@ -1,116 +1,49 @@
 
-<!doctype html>
-<html lang="en" class="no-js">
-  <head>
-    
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
-      
-      
-      
-      
-        <link rel="prev" href="../certificate_management/">
-      
-      
-        <link rel="next" href="../l1-and-l2-chains/">
-      
-      
-      <link rel="icon" href="../../assets/paladin-icon-light.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.44">
-    
-    
-      
-        <title>Administering Peers - Paladin</title>
-      
-    
-    
-      <link rel="stylesheet" href="../../assets/stylesheets/main.0253249f.min.css">
-      
-        
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
-      
-      
+<!DOCTYPE html>
 
-
-    
-    
-      
-    
-    
-      
-        
-        
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
-      
-    
-    
-      <link rel="stylesheet" href="../../stylesheets/paladin.css">
-    
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
-    
-      
-  
-
-
-  
-  
-
+<html class="no-js" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<link href="../../tutorials/bond-issuance/" rel="prev"/>
+<link href="../auth/" rel="next"/>
+<link href="../../assets/paladin-icon-light.png" rel="icon"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.5.44" name="generator"/>
+<title>Administering Peers - Paladin</title>
+<link href="../../assets/stylesheets/main.0253249f.min.css" rel="stylesheet"/>
+<link href="../../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
+<style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+<link href="../../stylesheets/paladin.css" rel="stylesheet"/>
+<script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
 <script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
-  
-    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
-  
-
-    
-    
-    
-  </head>
-  
-  
-    
-    
-      
-    
-    
-    
-    
-    <body dir="ltr" data-md-color-scheme="paladin" data-md-color-primary="indigo" data-md-color-accent="indigo">
-  
-    
-    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
-    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
-    <label class="md-overlay" for="__drawer"></label>
-    <div data-md-component="skip">
-      
-        
-        <a href="#administering-peers" class="md-skip">
+<script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".zoomable-image", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
+<input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
+<input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
+<label class="md-overlay" for="__drawer"></label>
+<div data-md-component="skip">
+<a class="md-skip" href="#administering-peers">
           Skip to content
         </a>
-      
-    </div>
-    <div data-md-component="announce">
-      
-    </div>
-    
-      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
-        
-          <aside class="md-banner md-banner--warning">
-            <div class="md-banner__inner md-grid md-typeset">
+</div>
+<div data-md-component="announce">
+</div>
+<div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+<aside class="md-banner md-banner--warning">
+<div class="md-banner__inner md-grid md-typeset">
               
   You're not viewing the latest version.
-  <a href="../../.."> 
-    <strong>Click here to go to latest.</strong>
-  </a>
-
-            </div>
-            <script>var el=document.querySelector("[data-md-component=outdated]"),outdated=__md_get("__outdated",sessionStorage);!0===outdated&&el&&(el.hidden=!1)</script>
-          </aside>
-        
-      </div>
-    
-    
-      <!--
+  <a href="../../..">
+<strong>Click here to go to latest.</strong>
+</a>
+</div>
+<script>var el=document.querySelector("[data-md-component=outdated]"),outdated=__md_get("__outdated",sessionStorage);!0===outdated&&el&&(el.hidden=!1)</script>
+</aside>
+</div>
+<!--
   Copyright (c) 2016-2022 Martin Donath <martin.donath@squidfunk.com>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -131,29 +64,13 @@
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
   IN THE SOFTWARE.
 -->
-
 <!-- Determine class according to configuration -->
-
-
-  
-
-
 <!-- Header -->
 <header class="md-header md-header--lifted" data-md-component="header">
-  <nav
-    class="md-header__inner md-grid"
-    aria-label="header.title"
-  >
-
-    <!-- Link to home -->
-    <a
-      href="../.."
-      title="Paladin"
-      class="md-header__button md-logo"
-      aria-label="Paladin"
-      data-md-component="logo"
-    >
-      <!--
+<nav aria-label="header.title" class="md-header__inner md-grid">
+<!-- Link to home -->
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
+<!--
   Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -174,132 +91,62 @@
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
   IN THE SOFTWARE.
 -->
-
 <!-- Logo -->
-<img src="../../assets/paladin-logo-dark.svg#only-dark" alt="Paladin" />
-<img src="../../assets/paladin-logo-light.svg#only-light" alt="Paladin" />
-    </a>
-
-    <!-- Button to open drawer -->
-    <label class="md-header__button md-icon" for="__drawer">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
-    </label>
-
-    <!-- Header title -->
-    <div class="md-header__title" data-md-component="header-title">
-      <div class="md-header__ellipsis">
-        <div class="md-header__topic">
-          <span class="md-ellipsis">
-            <!-- Paladin -->
-          </span>
-        </div>
-        <div class="md-header__topic" data-md-component="header-topic">
-          <span class="md-ellipsis">
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
+</a>
+<!-- Button to open drawer -->
+<label class="md-header__button md-icon" for="__drawer">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+</label>
+<!-- Header title -->
+<div class="md-header__title" data-md-component="header-title">
+<div class="md-header__ellipsis">
+<div class="md-header__topic">
+<span class="md-ellipsis">
+<!-- Paladin -->
+</span>
+</div>
+<div class="md-header__topic" data-md-component="header-topic">
+<span class="md-ellipsis">
             
               Administering Peers
             
           </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Color palette -->
-    
-      <form class="md-header__option" data-md-component="palette">
-        
-          
-          
-          <input
-            class="md-option"
-            data-md-color-media="(prefers-color-scheme: light)"
-            data-md-color-scheme="paladin"
-            data-md-color-primary=""
-            data-md-color-accent=""
-            
-              aria-label="Switch to dark mode"
-            
-            type="radio"
-            name="__palette"
-            id="__palette_1"
-          />
-          
-            <label
-              class="md-header__button md-icon"
-              title="Switch to dark mode"
-              for="__palette_2"
-              hidden
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
-            </label>
-          
-        
-          
-          
-          <input
-            class="md-option"
-            data-md-color-media="(prefers-color-scheme: dark)"
-            data-md-color-scheme="paladin-dark"
-            data-md-color-primary=""
-            data-md-color-accent=""
-            
-              aria-label="Switch to light mode"
-            
-            type="radio"
-            name="__palette"
-            id="__palette_2"
-          />
-          
-            <label
-              class="md-header__button md-icon"
-              title="Switch to light mode"
-              for="__palette_1"
-              hidden
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
-            </label>
-          
-        
-      </form>
-    
-
-    <!-- Site language selector -->
-    
-
-    <!-- Button to open search modal -->
-    
-
-    <!-- Repository information -->
-    
-      <div class="md-header__source">
-        <a href="https://github.com/LFDT-Paladin/paladin" title="Go to repository" class="md-source" data-md-component="source">
-  <div class="md-source__icon md-icon">
-    
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
-  </div>
-  <div class="md-source__repository">
+</div>
+</div>
+</div>
+<!-- Color palette -->
+<form class="md-header__option" data-md-component="palette">
+<input aria-label="Switch to dark mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: light)" data-md-color-primary="" data-md-color-scheme="paladin" id="__palette_1" name="__palette" type="radio">
+<label class="md-header__button md-icon" for="__palette_2" hidden="" title="Switch to dark mode">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+</label>
+<input aria-label="Switch to light mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-primary="" data-md-color-scheme="paladin-dark" id="__palette_2" name="__palette" type="radio">
+<label class="md-header__button md-icon" for="__palette_1" hidden="" title="Switch to light mode">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+</label>
+</input></input></form>
+<!-- Site language selector -->
+<!-- Button to open search modal -->
+<!-- Repository information -->
+<div class="md-header__source">
+<a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+</div>
+<div class="md-source__repository">
     LFDT-Paladin/paladin
   </div>
 </a>
-      </div>
-    
-  </nav>
-
-  <!-- Navigation tabs (sticky) -->
-  
-    
-      
-<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
-  <div class="md-grid">
-    <ul class="md-tabs__list">
-      
-        
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../.." class="md-tabs__link">
+</div>
+</nav>
+<!-- Navigation tabs (sticky) -->
+<nav aria-label="Tabs" class="md-tabs" data-md-component="tabs">
+<div class="md-grid">
+<ul class="md-tabs__list">
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../..">
           
   
     
@@ -307,19 +154,9 @@
   Introduction
 
         </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../architecture/overview/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../architecture/overview/">
           
   
     
@@ -327,25 +164,9 @@
   Architecture
 
         </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-    
-    
-      
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../getting-started/installation/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../getting-started/installation/">
           
   
     
@@ -353,22 +174,9 @@
   Getting Started
 
         </a>
-      </li>
-    
-  
-
-    
-  
-
-      
-        
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../tutorials/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../tutorials/">
           
   
     
@@ -376,21 +184,9 @@
   Tutorials
 
         </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-    
-  
-  
-    
-    
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../configuration/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item md-tabs__item--active">
+<a class="md-tabs__link" href="./">
           
   
     
@@ -398,25 +194,9 @@
   Administration
 
         </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-    
-    
-      
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../reference/apis/bidx/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../reference/apis/bidx/">
           
   
     
@@ -424,22 +204,9 @@
   Reference
 
         </a>
-      </li>
-    
-  
-
-    
-  
-
-      
-        
-  
-  
-  
-    
-    
-      <li class="md-tabs__item">
-        <a href="../../contributing/how-to-contribute/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../contributing/how-to-contribute/">
           
   
     
@@ -447,17 +214,9 @@
   Contributing
 
         </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-  
-    <li class="md-tabs__item">
-      <a href="../../faqs/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../faqs/">
         
   
     
@@ -465,16 +224,9 @@
   FAQs
 
       </a>
-    </li>
-  
-
-      
-        
-  
-  
-  
-    <li class="md-tabs__item">
-      <a href="../../glossary/" class="md-tabs__link">
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../glossary/">
         
   
     
@@ -482,44 +234,21 @@
   Glossary
 
       </a>
-    </li>
-  
-
-      
-    </ul>
-  </div>
+</li>
+</ul>
+</div>
 </nav>
-    
-  
 </header>
-    
-    <div class="md-container" data-md-component="container">
-      
-      
-        
-      
-      <main class="md-main" data-md-component="main">
-        <div class="md-main__inner md-grid">
-          
-            
-              
-              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
-                <div class="md-sidebar__scrollwrap">
-                  <div class="md-sidebar__inner">
-                    
-
-
-  
-
-
-<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
-  <label class="md-nav__title" for="__drawer">
-    <a href="../.."
-    title="Paladin"
-    class="md-header__button md-logo"
-    aria-label="Paladin"
-    data-md-component="logo">
-      <!--
+<div class="md-container" data-md-component="container">
+<main class="md-main" data-md-component="main">
+<div class="md-main__inner md-grid">
+<div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Navigation" class="md-nav md-nav--primary md-nav--lifted" data-md-level="0">
+<label class="md-nav__title" for="__drawer">
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
+<!--
   Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -540,3151 +269,1141 @@
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
   IN THE SOFTWARE.
 -->
-
 <!-- Logo -->
-<img src="../../assets/paladin-logo-dark.svg#only-dark" alt="Paladin" />
-<img src="../../assets/paladin-logo-light.svg#only-light" alt="Paladin" />
-    </a>
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
+</a>
     Paladin
   </label>
-  
-    <div class="md-nav__source">
-      <a href="https://github.com/LFDT-Paladin/paladin" title="Go to repository" class="md-source" data-md-component="source">
-  <div class="md-source__icon md-icon">
-    
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
-  </div>
-  <div class="md-source__repository">
+<div class="md-nav__source">
+<a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+</div>
+<div class="md-source__repository">
     LFDT-Paladin/paladin
   </div>
 </a>
-    </div>
-  
-  <ul class="md-nav__list" data-md-scrollfix>
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_1" >
-        
-          
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../.." class="md-nav__link ">
-              
-  
-  <span class="md-ellipsis">
+</div>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_1" type="checkbox"/>
+<div class="md-nav__link md-nav__container">
+<a class="md-nav__link" href="../..">
+<span class="md-ellipsis">
     Introduction
   </span>
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_1">
-            <span class="md-nav__icon md-icon"></span>
+</a>
+<label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+<span class="md-nav__icon md-icon"></span>
+</label>
+</div>
+<nav aria-expanded="false" aria-labelledby="__nav_1_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_1">
+<span class="md-nav__icon md-icon"></span>
             Introduction
           </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/tokens/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/tokens/">
+<span class="md-ellipsis">
     Privacy Preserving Tokens
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/private_evm/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/private_evm/">
+<span class="md-ellipsis">
     Private EVM Smart Contracts
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/advanced_crypto/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/advanced_crypto/">
+<span class="md-ellipsis">
     Advanced Cryptography
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/atomic_programmability/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/atomic_programmability/">
+<span class="md-ellipsis">
     Atomic EVM Programmability
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/full_stack/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/full_stack/">
+<span class="md-ellipsis">
     Full Enterprise Privacy Stack
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/cloud_native/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/cloud_native/">
+<span class="md-ellipsis">
     Cloud Native Runtime
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2" type="checkbox"/>
+<label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+<span class="md-ellipsis">
     Architecture
   </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
-            <span class="md-nav__icon md-icon"></span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_2_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_2">
+<span class="md-nav__icon md-icon"></span>
             Architecture
           </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/overview/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/overview/">
+<span class="md-ellipsis">
     Overview
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/programming_model/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/programming_model/">
+<span class="md-ellipsis">
     Programming model
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/domains/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/domains/">
+<span class="md-ellipsis">
     Domains
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/zeto/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/zeto/">
+<span class="md-ellipsis">
     Zeto - ZKP Tokens
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/noto/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/noto/">
+<span class="md-ellipsis">
     Noto - Notarized Tokens
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/pente/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/pente/">
+<span class="md-ellipsis">
     Pente - EVM Privacy Groups
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/key_management/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/key_management/">
+<span class="md-ellipsis">
     Key management
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/state_store/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/state_store/">
+<span class="md-ellipsis">
     State store
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/atomic_interop/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/atomic_interop/">
+<span class="md-ellipsis">
     Atomic interop
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/data_and_registry/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Data Transports & Registry
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/data_and_registry/">
+<span class="md-ellipsis">
+    Data Transports &amp; Registry
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/ledger_layers/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/ledger_layers/">
+<span class="md-ellipsis">
     Ledger Layers
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Getting Started
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
-            <span class="md-nav__icon md-icon"></span>
-            Getting Started
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3_1" >
-        
-          
-          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Installation
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_1">
-            <span class="md-nav__icon md-icon"></span>
-            Installation
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/installation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Default Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/installation-advanced/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Advanced Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/installation-manual/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Manual Installation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/user-interface/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    User Interface
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-started/troubleshooting/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Troubleshooting
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-          
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../../tutorials/" class="md-nav__link ">
-              
-  
-  <span class="md-ellipsis">
-    Tutorials
-  </span>
-  
-
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            Tutorials
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/hello-world/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Hello World
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/public-storage/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Public Smart Contract
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/private-storage/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Private Smart Contract
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/notarized-tokens/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Notarized Tokens
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/zkp-cbdc/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Wholesale CBDC
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/private-stablecoin/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Private Stablecoin with KYC
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/atomic-swap/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Atomic Swap
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../tutorials/bond-issuance/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Bond Issuance
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-        
-        
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
-            
-  
-  <span class="md-ellipsis">
-    Administration
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
-            <span class="md-nav__icon md-icon"></span>
-            Administration
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Configuration
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../certificate_management/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Certificate Management
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Administering Peers
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  <span class="md-ellipsis">
-    Administering Peers
-  </span>
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#debugging-peering-issues-in-the-reference-evm-registry" class="md-nav__link">
-    <span class="md-ellipsis">
-      Debugging peering issues in the reference evm registry
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Debugging peering issues in the reference evm registry">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-confirm-the-status-of-the-paladinregistration" class="md-nav__link">
-    <span class="md-ellipsis">
-      1. Confirm the status of the paladinregistration
-    </span>
-  </a>
-  
+</a>
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#2-confirm-that-all-registration-events-have-been-indexed" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Confirm that all registration events have been indexed
-    </span>
-  </a>
-  
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2_12" type="checkbox"/>
+<label class="md-nav__link" for="__nav_2_12" id="__nav_2_12_label" tabindex="0">
+<span class="md-ellipsis">
+    Distributed Sequencer
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_2_12_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_2_12">
+<span class="md-nav__icon md-icon"></span>
+            Distributed Sequencer
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_overview/">
+<span class="md-ellipsis">
+    Overview
+  </span>
+</a>
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#3-confirm-registry-contents" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Confirm registry contents
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../l1-and-l2-chains/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    L1 and L2 Chains
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Logging
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
-        
-          
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Reference
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
-            <span class="md-nav__icon md-icon"></span>
-            Reference
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_1" >
-        
-          
-          <label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    APIs
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1">
-            <span class="md-nav__icon md-icon"></span>
-            APIs
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/bidx/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    bidx_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/keymgr/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    keymgr_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/pgroup/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    pgroup_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/pstate/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    pstate_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/ptx/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    ptx_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/reg/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    reg_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/apis/transport/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    transport_*
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Types
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_2">
-            <span class="md-nav__icon md-icon"></span>
-            Types
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/abidecodeddata/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    ABIDecodedData
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/blockchaineventlistener/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    BlockchainEventListener
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/blockchaineventlistenercheckpoint/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    BlockchainEventListenerCheckpoint
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/blockchaineventlisteneroptions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    BlockchainEventListenerOptions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/blockchaineventlistenersource/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    BlockchainEventListenerSource
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/blockchaineventlistenerstatus/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    BlockchainEventListenerStatus
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/eventwithdata/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    EventWithData
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/indexedblock/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    IndexedBlock
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/indexedevent/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    IndexedEvent
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/indexedtransaction/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    IndexedTransaction
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/jsonformatoptions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    JSONFormatOptions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/keymappingandverifier/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    KeyMappingAndVerifier
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/keyqueryentry/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    KeyQueryEntry
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/onchainlocation/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    OnChainLocation
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/peerinfo/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PeerInfo
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/preparedtransaction/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PreparedTransaction
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroup/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroup
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupevmcall/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupEVMCall
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupevmtxinput/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupEVMTXInput
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupinput/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupInput
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupmessage/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupMessage
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupmessageinput/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupMessageInput
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupmessagelistener/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupMessageListener
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/privacygroupwithabi/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PrivacyGroupWithABI
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/publictx/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    PublicTx
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/queryjson/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    QueryJSON
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/registryentry/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    RegistryEntry
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/registryentrywithproperties/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    RegistryEntryWithProperties
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/registryproperty/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    RegistryProperty
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/reliablemessage/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    ReliableMessage
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/reliablemessageack/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    ReliableMessageAck
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/schema/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Schema
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/simpletypes/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Simple Types
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/state/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    State
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/stateconfirm/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateConfirm
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/stateconfirmrecord/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateConfirmRecord
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/statelock/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateLock
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/statespend/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateSpend
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/statespendrecord/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateSpendRecord
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/statestatusqualifier/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StateStatusQualifier
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/storedabi/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    StoredABI
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transaction/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Transaction
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactioncall/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionCall
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionfull/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionFull
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactioninput/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionInput
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionreceipt/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionReceipt
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionreceiptfilters/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionReceiptFilters
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionreceiptfull/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionReceiptFull
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionreceiptlistener/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionReceiptListener
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionreceiptlisteneroptions/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionReceiptListenerOptions
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/types/transactionstates/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    TransactionStates
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    
-    
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Kubernetes CRDs
-  </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_3">
-            <span class="md-nav__icon md-icon"></span>
-            Kubernetes CRDs
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/crds/core.paladin.io/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    core.paladin.io
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/architecture/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_architecture/">
+<span class="md-ellipsis">
     Architecture
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/commands/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Commands
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_components/">
+<span class="md-ellipsis">
+    Components
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../reference/roadmap/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Roadmap
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_state_machine/">
+<span class="md-ellipsis">
+    State Machine
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-      
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
-        
-          
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
-            
-  
-  <span class="md-ellipsis">
-    Contributing
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_data_flows/">
+<span class="md-ellipsis">
+    Data Flows
   </span>
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
-            <span class="md-nav__icon md-icon"></span>
-            Contributing
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../contributing/how-to-contribute/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    How to Contribute
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_dependency_handling/">
+<span class="md-ellipsis">
+    Dependency Handling
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../contributing/reporting-a-bug/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Reporting a Bug
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_protocol/">
+<span class="md-ellipsis">
+    Protocol
   </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../contributing/requesting-a-change/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Requesting a Change
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../contributing/asking-a-question/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Asking a Question
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../faqs/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    FAQs
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../glossary/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Glossary
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-  </ul>
+</a>
+</li>
+</ul>
 </nav>
-                  </div>
-                </div>
-              </div>
-            
-            
-              
-              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
-                <div class="md-sidebar__scrollwrap">
-                  <div class="md-sidebar__inner">
-                    
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3" type="checkbox"/>
+<label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+<span class="md-ellipsis">
+    Getting Started
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_3_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_3">
+<span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3_1" type="checkbox"/>
+<label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+<span class="md-ellipsis">
+    Installation
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_3_1_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_3_1">
+<span class="md-nav__icon md-icon"></span>
+            Installation
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation/">
+<span class="md-ellipsis">
+    Default Installation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation-advanced/">
+<span class="md-ellipsis">
+    Advanced Installation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation-manual/">
+<span class="md-ellipsis">
+    Manual Installation
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/user-interface/">
+<span class="md-ellipsis">
+    User Interface
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/troubleshooting/">
+<span class="md-ellipsis">
+    Troubleshooting
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_4" type="checkbox"/>
+<div class="md-nav__link md-nav__container">
+<a class="md-nav__link" href="../../tutorials/">
+<span class="md-ellipsis">
+    Tutorials
+  </span>
+</a>
+<label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+<span class="md-nav__icon md-icon"></span>
+</label>
+</div>
+<nav aria-expanded="false" aria-labelledby="__nav_4_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_4">
+<span class="md-nav__icon md-icon"></span>
+            Tutorials
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/hello-world/">
+<span class="md-ellipsis">
+    Hello World
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/public-storage/">
+<span class="md-ellipsis">
+    Public Smart Contract
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/private-storage/">
+<span class="md-ellipsis">
+    Private Smart Contract
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/notarized-tokens/">
+<span class="md-ellipsis">
+    Notarized Tokens
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/zkp-cbdc/">
+<span class="md-ellipsis">
+    Wholesale CBDC
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/private-stablecoin/">
+<span class="md-ellipsis">
+    Private Stablecoin with KYC
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/atomic-swap/">
+<span class="md-ellipsis">
+    Atomic Swap
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/bond-issuance/">
+<span class="md-ellipsis">
+    Bond Issuance
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+<input checked="" class="md-nav__toggle md-toggle" id="__nav_5" type="checkbox"/>
+<label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+<span class="md-ellipsis">
+    Administration
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="true" aria-labelledby="__nav_5_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_5">
+<span class="md-nav__icon md-icon"></span>
+            Administration
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--active">
+<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    Administering Peers
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<a class="md-nav__link md-nav__link--active" href="./">
+<span class="md-ellipsis">
+    Administering Peers
+  </span>
+</a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
       Table of contents
     </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#debugging-peering-issues-in-the-reference-evm-registry" class="md-nav__link">
-    <span class="md-ellipsis">
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#debugging-peering-issues-in-the-reference-evm-registry">
+<span class="md-ellipsis">
       Debugging peering issues in the reference evm registry
     </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Debugging peering issues in the reference evm registry">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-confirm-the-status-of-the-paladinregistration" class="md-nav__link">
-    <span class="md-ellipsis">
+</a>
+<nav aria-label="Debugging peering issues in the reference evm registry" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#1-confirm-the-status-of-the-paladinregistration">
+<span class="md-ellipsis">
       1. Confirm the status of the paladinregistration
     </span>
-  </a>
-  
+</a>
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#2-confirm-that-all-registration-events-have-been-indexed" class="md-nav__link">
-    <span class="md-ellipsis">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#2-confirm-that-all-registration-events-have-been-indexed">
+<span class="md-ellipsis">
       2. Confirm that all registration events have been indexed
     </span>
-  </a>
-  
+</a>
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#3-confirm-registry-contents" class="md-nav__link">
-    <span class="md-ellipsis">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#3-confirm-registry-contents">
+<span class="md-ellipsis">
       3. Confirm registry contents
     </span>
-  </a>
-  
+</a>
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
+</ul>
 </nav>
-                  </div>
-                </div>
-              </div>
-            
-          
-          
-            <div class="md-content" data-md-component="content">
-              <article class="md-content__inner md-typeset">
-                
-                  
-
-  
-  
-
-
-<h1 id="administering-peers">Administering peers<a class="headerlink" href="#administering-peers" title="Permanent link">&para;</a></h1>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../auth/">
+<span class="md-ellipsis">
+    Authentication and Authorization
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../certificate_management/">
+<span class="md-ellipsis">
+    Certificate Management
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../configuration/">
+<span class="md-ellipsis">
+    Configuration
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../l1-and-l2-chains/">
+<span class="md-ellipsis">
+    L1 and L2 Chains
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../logging/">
+<span class="md-ellipsis">
+    Logging
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+<span class="md-ellipsis">
+    Reference
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_6">
+<span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_1" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+<span class="md-ellipsis">
+    APIs
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_1_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_1">
+<span class="md-nav__icon md-icon"></span>
+            APIs
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/bidx/">
+<span class="md-ellipsis">
+    bidx_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/keymgr/">
+<span class="md-ellipsis">
+    keymgr_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/pgroup/">
+<span class="md-ellipsis">
+    pgroup_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/pstate/">
+<span class="md-ellipsis">
+    pstate_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/ptx/">
+<span class="md-ellipsis">
+    ptx_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/reg/">
+<span class="md-ellipsis">
+    reg_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/transport/">
+<span class="md-ellipsis">
+    transport_*
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_2" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+<span class="md-ellipsis">
+    Types
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_2_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_2">
+<span class="md-nav__icon md-icon"></span>
+            Types
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/abidecodeddata/">
+<span class="md-ellipsis">
+    ABIDecodedData
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistener/">
+<span class="md-ellipsis">
+    BlockchainEventListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenercheckpoint/">
+<span class="md-ellipsis">
+    BlockchainEventListenerCheckpoint
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlisteneroptions/">
+<span class="md-ellipsis">
+    BlockchainEventListenerOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenersource/">
+<span class="md-ellipsis">
+    BlockchainEventListenerSource
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenerstatus/">
+<span class="md-ellipsis">
+    BlockchainEventListenerStatus
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/chaineddispatch/">
+<span class="md-ellipsis">
+    ChainedDispatch
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/dispatch/">
+<span class="md-ellipsis">
+    Dispatch
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/eventwithdata/">
+<span class="md-ellipsis">
+    EventWithData
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedblock/">
+<span class="md-ellipsis">
+    IndexedBlock
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedevent/">
+<span class="md-ellipsis">
+    IndexedEvent
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedtransaction/">
+<span class="md-ellipsis">
+    IndexedTransaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/jsonformatoptions/">
+<span class="md-ellipsis">
+    JSONFormatOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/keymappingandverifier/">
+<span class="md-ellipsis">
+    KeyMappingAndVerifier
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/keyqueryentry/">
+<span class="md-ellipsis">
+    KeyQueryEntry
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/onchainlocation/">
+<span class="md-ellipsis">
+    OnChainLocation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/peerinfo/">
+<span class="md-ellipsis">
+    PeerInfo
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/preparedtransaction/">
+<span class="md-ellipsis">
+    PreparedTransaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroup/">
+<span class="md-ellipsis">
+    PrivacyGroup
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmcall/">
+<span class="md-ellipsis">
+    PrivacyGroupEVMCall
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmtxinput/">
+<span class="md-ellipsis">
+    PrivacyGroupEVMTXInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupinput/">
+<span class="md-ellipsis">
+    PrivacyGroupInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessage/">
+<span class="md-ellipsis">
+    PrivacyGroupMessage
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessageinput/">
+<span class="md-ellipsis">
+    PrivacyGroupMessageInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessagelistener/">
+<span class="md-ellipsis">
+    PrivacyGroupMessageListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupwithabi/">
+<span class="md-ellipsis">
+    PrivacyGroupWithABI
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/publictx/">
+<span class="md-ellipsis">
+    PublicTx
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/publictxwithbinding/">
+<span class="md-ellipsis">
+    PublicTxWithBinding
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/queryjson/">
+<span class="md-ellipsis">
+    QueryJSON
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryentry/">
+<span class="md-ellipsis">
+    RegistryEntry
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryentrywithproperties/">
+<span class="md-ellipsis">
+    RegistryEntryWithProperties
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryproperty/">
+<span class="md-ellipsis">
+    RegistryProperty
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/reliablemessage/">
+<span class="md-ellipsis">
+    ReliableMessage
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/reliablemessageack/">
+<span class="md-ellipsis">
+    ReliableMessageAck
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/schema/">
+<span class="md-ellipsis">
+    Schema
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/simpletypes/">
+<span class="md-ellipsis">
+    Simple Types
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/state/">
+<span class="md-ellipsis">
+    State
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/stateconfirm/">
+<span class="md-ellipsis">
+    StateConfirm
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/stateconfirmrecord/">
+<span class="md-ellipsis">
+    StateConfirmRecord
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statelock/">
+<span class="md-ellipsis">
+    StateLock
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statespend/">
+<span class="md-ellipsis">
+    StateSpend
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statespendrecord/">
+<span class="md-ellipsis">
+    StateSpendRecord
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statestatusqualifier/">
+<span class="md-ellipsis">
+    StateStatusQualifier
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/storedabi/">
+<span class="md-ellipsis">
+    StoredABI
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transaction/">
+<span class="md-ellipsis">
+    Transaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactioncall/">
+<span class="md-ellipsis">
+    TransactionCall
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionfull/">
+<span class="md-ellipsis">
+    TransactionFull
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactioninput/">
+<span class="md-ellipsis">
+    TransactionInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceipt/">
+<span class="md-ellipsis">
+    TransactionReceipt
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfilters/">
+<span class="md-ellipsis">
+    TransactionReceiptFilters
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfull/">
+<span class="md-ellipsis">
+    TransactionReceiptFull
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlistener/">
+<span class="md-ellipsis">
+    TransactionReceiptListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlisteneroptions/">
+<span class="md-ellipsis">
+    TransactionReceiptListenerOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionstates/">
+<span class="md-ellipsis">
+    TransactionStates
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_3" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+<span class="md-ellipsis">
+    Kubernetes CRDs
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_3_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_3">
+<span class="md-nav__icon md-icon"></span>
+            Kubernetes CRDs
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/crds/core.paladin.io/">
+<span class="md-ellipsis">
+    core.paladin.io
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/architecture/">
+<span class="md-ellipsis">
+    Architecture
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/commands/">
+<span class="md-ellipsis">
+    Commands
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/roadmap/">
+<span class="md-ellipsis">
+    Roadmap
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_7" type="checkbox"/>
+<label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+<span class="md-ellipsis">
+    Contributing
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_7_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_7">
+<span class="md-nav__icon md-icon"></span>
+            Contributing
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/how-to-contribute/">
+<span class="md-ellipsis">
+    How to Contribute
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/reporting-a-bug/">
+<span class="md-ellipsis">
+    Reporting a Bug
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/requesting-a-change/">
+<span class="md-ellipsis">
+    Requesting a Change
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/asking-a-question/">
+<span class="md-ellipsis">
+    Asking a Question
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../faqs/">
+<span class="md-ellipsis">
+    FAQs
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../glossary/">
+<span class="md-ellipsis">
+    Glossary
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#debugging-peering-issues-in-the-reference-evm-registry">
+<span class="md-ellipsis">
+      Debugging peering issues in the reference evm registry
+    </span>
+</a>
+<nav aria-label="Debugging peering issues in the reference evm registry" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#1-confirm-the-status-of-the-paladinregistration">
+<span class="md-ellipsis">
+      1. Confirm the status of the paladinregistration
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#2-confirm-that-all-registration-events-have-been-indexed">
+<span class="md-ellipsis">
+      2. Confirm that all registration events have been indexed
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#3-confirm-registry-contents">
+<span class="md-ellipsis">
+      3. Confirm registry contents
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-content" data-md-component="content">
+<article class="md-content__inner md-typeset">
+<h1 id="administering-peers">Administering peers<a class="headerlink" href="#administering-peers" title="Permanent link">¶</a></h1>
 <!-- TODO: this section could include an overview of our reference registry implementations. The architecture page needs to be filled in for the generic registry architecture. -->
-
 <!-- TODO: talk about the difference in behaviour between directCertVerification being enabled or not -->
-
-<h2 id="debugging-peering-issues-in-the-reference-evm-registry">Debugging peering issues in the reference <code>evm</code> registry<a class="headerlink" href="#debugging-peering-issues-in-the-reference-evm-registry" title="Permanent link">&para;</a></h2>
+<h2 id="debugging-peering-issues-in-the-reference-evm-registry">Debugging peering issues in the reference <code>evm</code> registry<a class="headerlink" href="#debugging-peering-issues-in-the-reference-evm-registry" title="Permanent link">¶</a></h2>
 <p>Errors such as: 
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>PD012100: No entries found for node &#39;node2&#39;
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-0-1" id="__codelineno-0-1" name="__codelineno-0-1"></a>PD012100: No entries found for node 'node2'
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>&quot;PD011206: TRANSPORT grpc returned error: PD030015: GRPC connection failed for endpoint &#39;dns:///paladin-node2.paladin.svc.cluster.local:9000&#39;: rpc error: code = Unavailable desc = connection error: desc = \&quot;transport: authentication handshake failed: PD030007: peer &#39;node2&#39; did not provide a certificate signed an expected issuer received=CN=node2 issuers=[CN=node1]: x509: certificate signed by unknown authority\&quot;&quot;
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-1-1" id="__codelineno-1-1" name="__codelineno-1-1"></a>"PD011206: TRANSPORT grpc returned error: PD030015: GRPC connection failed for endpoint 'dns:///paladin-node2.paladin.svc.cluster.local:9000': rpc error: code = Unavailable desc = connection error: desc = \"transport: authentication handshake failed: PD030007: peer 'node2' did not provide a certificate signed an expected issuer received=CN=node2 issuers=[CN=node1]: x509: certificate signed by unknown authority\""
 </code></pre></div>
 can occur when</p>
 <ul>
@@ -3696,59 +1415,59 @@ can occur when</p>
 <blockquote>
 <p>N.B. The steps below may ask you to make RPC requests to the "registry admin node". This is <code>node1</code> for <code>devnet</code> installations or the first node in the <code>paladinNodes</code> array from the values file for <code>customnet</code> installations.</p>
 </blockquote>
-<h3 id="1-confirm-the-status-of-the-paladinregistration">1. Confirm the status of the <code>paladinregistration</code><a class="headerlink" href="#1-confirm-the-status-of-the-paladinregistration" title="Permanent link">&para;</a></h3>
+<h3 id="1-confirm-the-status-of-the-paladinregistration">1. Confirm the status of the <code>paladinregistration</code><a class="headerlink" href="#1-confirm-the-status-of-the-paladinregistration" title="Permanent link">¶</a></h3>
 <p>Run
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl get paladinregistration
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-2-1" id="__codelineno-2-1" name="__codelineno-2-1"></a>kubectl get paladinregistration
 </code></pre></div></p>
 <details>
 <summary>See output</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>NAME<span class="w">    </span>PUBLISHED
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>node1<span class="w">   </span><span class="m">2</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>node2<span class="w">   </span><span class="m">2</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>node3<span class="w">   </span><span class="m">2</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-3-1" id="__codelineno-3-1" name="__codelineno-3-1"></a>NAME<span class="w">    </span>PUBLISHED
+<a href="#__codelineno-3-2" id="__codelineno-3-2" name="__codelineno-3-2"></a>node1<span class="w">   </span><span class="m">2</span>
+<a href="#__codelineno-3-3" id="__codelineno-3-3" name="__codelineno-3-3"></a>node2<span class="w">   </span><span class="m">2</span>
+<a href="#__codelineno-3-4" id="__codelineno-3-4" name="__codelineno-3-4"></a>node3<span class="w">   </span><span class="m">2</span>
 </code></pre></div>
 </details>
 <p>If the output shows 2 publications per node then registrations have completed successfully. </p>
 <p>If any of the numbers in the published column are below 2, get the detailed status for that node
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl describe paladinregistration node1
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-4-1" id="__codelineno-4-1" name="__codelineno-4-1"></a>kubectl describe paladinregistration node1
 </code></pre></div></p>
 <details>
 <summary>See output</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>Name:<span class="w">         </span>node1
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>Namespace:<span class="w">    </span>default
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>Labels:<span class="w">       </span>app.kubernetes.io/managed-by<span class="o">=</span>Helm
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">              </span>app.kubernetes.io/name<span class="o">=</span>operator-go
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>Annotations:<span class="w">  </span>meta.helm.sh/release-name:<span class="w"> </span>paladin
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">              </span>meta.helm.sh/release-namespace:<span class="w"> </span>default
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>API<span class="w"> </span>Version:<span class="w">  </span>core.paladin.io/v1alpha1
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>Kind:<span class="w">         </span>PaladinRegistration
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>Metadata:
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span>Creation<span class="w"> </span>Timestamp:<span class="w">  </span><span class="m">2025</span>-09-09T15:11:15Z
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">  </span>Generation:<span class="w">          </span><span class="m">1</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">  </span>Resource<span class="w"> </span>Version:<span class="w">    </span><span class="m">2350</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span>UID:<span class="w">                 </span>6800bc37-f317-4b51-9799-872ad8f2aeff
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>Spec:
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span>Node:<span class="w">                 </span>node1
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">  </span>Node<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">       </span>registry.node1
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">  </span>Registry:<span class="w">             </span>evm-registry
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">   </span>registry.operator
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Node:<span class="w">  </span>node1
-<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">  </span>Transports:
-<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">    </span>grpc
-<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>Status:
-<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">  </span>Publish<span class="w"> </span>Count:<span class="w">  </span><span class="m">1</span>
-<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">  </span>Publish<span class="w"> </span>Txs:
-<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="w">    </span>Grpc:
-<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">      </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.grpc.1757430744774547
-<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="w">      </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>83278a5f-5f89-412c-b8a4-9757bdb1f382
-<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="w">      </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Pending
-<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="w">  </span>Registration<span class="w"> </span>Tx:
-<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a><span class="w">    </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">6</span>
-<a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="w">    </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.1757430743709513
-<a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="w">    </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0xaa92ab37b2afab75dd77d04e0039e5e0748777b5d0ca72591c9ceb9d9907deea
-<a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">    </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>8cdae679-a0ce-43e4-9be0-62a4313d37dc
-<a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="w">    </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
-<a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a>Events:<span class="w">                  </span>&lt;none&gt;
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-5-1" id="__codelineno-5-1" name="__codelineno-5-1"></a>Name:<span class="w">         </span>node1
+<a href="#__codelineno-5-2" id="__codelineno-5-2" name="__codelineno-5-2"></a>Namespace:<span class="w">    </span>default
+<a href="#__codelineno-5-3" id="__codelineno-5-3" name="__codelineno-5-3"></a>Labels:<span class="w">       </span>app.kubernetes.io/managed-by<span class="o">=</span>Helm
+<a href="#__codelineno-5-4" id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">              </span>app.kubernetes.io/name<span class="o">=</span>operator-go
+<a href="#__codelineno-5-5" id="__codelineno-5-5" name="__codelineno-5-5"></a>Annotations:<span class="w">  </span>meta.helm.sh/release-name:<span class="w"> </span>paladin
+<a href="#__codelineno-5-6" id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">              </span>meta.helm.sh/release-namespace:<span class="w"> </span>default
+<a href="#__codelineno-5-7" id="__codelineno-5-7" name="__codelineno-5-7"></a>API<span class="w"> </span>Version:<span class="w">  </span>core.paladin.io/v1alpha1
+<a href="#__codelineno-5-8" id="__codelineno-5-8" name="__codelineno-5-8"></a>Kind:<span class="w">         </span>PaladinRegistration
+<a href="#__codelineno-5-9" id="__codelineno-5-9" name="__codelineno-5-9"></a>Metadata:
+<a href="#__codelineno-5-10" id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span>Creation<span class="w"> </span>Timestamp:<span class="w">  </span><span class="m">2025</span>-09-09T15:11:15Z
+<a href="#__codelineno-5-11" id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="w">  </span>Generation:<span class="w">          </span><span class="m">1</span>
+<a href="#__codelineno-5-12" id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span>Resource<span class="w"> </span>Version:<span class="w">    </span><span class="m">2350</span>
+<a href="#__codelineno-5-13" id="__codelineno-5-13" name="__codelineno-5-13"></a><span class="w">  </span>UID:<span class="w">                 </span>6800bc37-f317-4b51-9799-872ad8f2aeff
+<a href="#__codelineno-5-14" id="__codelineno-5-14" name="__codelineno-5-14"></a>Spec:
+<a href="#__codelineno-5-15" id="__codelineno-5-15" name="__codelineno-5-15"></a><span class="w">  </span>Node:<span class="w">                 </span>node1
+<a href="#__codelineno-5-16" id="__codelineno-5-16" name="__codelineno-5-16"></a><span class="w">  </span>Node<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">       </span>registry.node1
+<a href="#__codelineno-5-17" id="__codelineno-5-17" name="__codelineno-5-17"></a><span class="w">  </span>Registry:<span class="w">             </span>evm-registry
+<a href="#__codelineno-5-18" id="__codelineno-5-18" name="__codelineno-5-18"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">   </span>registry.operator
+<a href="#__codelineno-5-19" id="__codelineno-5-19" name="__codelineno-5-19"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Node:<span class="w">  </span>node1
+<a href="#__codelineno-5-20" id="__codelineno-5-20" name="__codelineno-5-20"></a><span class="w">  </span>Transports:
+<a href="#__codelineno-5-21" id="__codelineno-5-21" name="__codelineno-5-21"></a><span class="w">    </span>grpc
+<a href="#__codelineno-5-22" id="__codelineno-5-22" name="__codelineno-5-22"></a>Status:
+<a href="#__codelineno-5-23" id="__codelineno-5-23" name="__codelineno-5-23"></a><span class="w">  </span>Publish<span class="w"> </span>Count:<span class="w">  </span><span class="m">1</span>
+<a href="#__codelineno-5-24" id="__codelineno-5-24" name="__codelineno-5-24"></a><span class="w">  </span>Publish<span class="w"> </span>Txs:
+<a href="#__codelineno-5-25" id="__codelineno-5-25" name="__codelineno-5-25"></a><span class="w">    </span>Grpc:
+<a href="#__codelineno-5-26" id="__codelineno-5-26" name="__codelineno-5-26"></a><span class="w">      </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.grpc.1757430744774547
+<a href="#__codelineno-5-27" id="__codelineno-5-27" name="__codelineno-5-27"></a><span class="w">      </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>83278a5f-5f89-412c-b8a4-9757bdb1f382
+<a href="#__codelineno-5-28" id="__codelineno-5-28" name="__codelineno-5-28"></a><span class="w">      </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Pending
+<a href="#__codelineno-5-29" id="__codelineno-5-29" name="__codelineno-5-29"></a><span class="w">  </span>Registration<span class="w"> </span>Tx:
+<a href="#__codelineno-5-30" id="__codelineno-5-30" name="__codelineno-5-30"></a><span class="w">    </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">6</span>
+<a href="#__codelineno-5-31" id="__codelineno-5-31" name="__codelineno-5-31"></a><span class="w">    </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.1757430743709513
+<a href="#__codelineno-5-32" id="__codelineno-5-32" name="__codelineno-5-32"></a><span class="w">    </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0xaa92ab37b2afab75dd77d04e0039e5e0748777b5d0ca72591c9ceb9d9907deea
+<a href="#__codelineno-5-33" id="__codelineno-5-33" name="__codelineno-5-33"></a><span class="w">    </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>8cdae679-a0ce-43e4-9be0-62a4313d37dc
+<a href="#__codelineno-5-34" id="__codelineno-5-34" name="__codelineno-5-34"></a><span class="w">    </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
+<a href="#__codelineno-5-35" id="__codelineno-5-35" name="__codelineno-5-35"></a>Events:<span class="w">                  </span>&lt;none&gt;
 </code></pre></div>
 </details>
 <p>If one of the transactions has <code>Submitting</code> status, it has not yet been submitted to a Paladin node. Further information may be available in the operator logs.</p>
@@ -3759,78 +1478,76 @@ can occur when</p>
 </ul>
 <details>
 <summary>See example curl command</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s1">    &quot;method&quot;: &quot;ptx_getTransactionFull&quot;,</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s1">    &quot;params&quot;: [&quot;83278a5f-5f89-412c-b8a4-9757bdb1f382&quot;]</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-6-1" id="__codelineno-6-1" name="__codelineno-6-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-6-2" id="__codelineno-6-2" name="__codelineno-6-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-6-3" id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-6-4" id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-6-5" id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="s1">    "method": "ptx_getTransactionFull",</span>
+<a href="#__codelineno-6-6" id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="s1">    "params": ["83278a5f-5f89-412c-b8a4-9757bdb1f382"]</span>
+<a href="#__codelineno-6-7" id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
 <!-- TODO: There's scope here to write a whole guide on debugging pending transactions- e.g. indexer not yet caught up, insufficient funds etc. -->
-
-<h3 id="2-confirm-that-all-registration-events-have-been-indexed">2. Confirm that all registration events have been indexed<a class="headerlink" href="#2-confirm-that-all-registration-events-have-been-indexed" title="Permanent link">&para;</a></h3>
+<h3 id="2-confirm-that-all-registration-events-have-been-indexed">2. Confirm that all registration events have been indexed<a class="headerlink" href="#2-confirm-that-all-registration-events-have-been-indexed" title="Permanent link">¶</a></h3>
 <p>This can be confirmed in the <code>Registry</code> tab of the Paladin UI or by making a <code>reg_queryEntriesWithProps</code> RPC call.</p>
 <details>
 <summary>See example curl command</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="s1">    &quot;method&quot;: &quot;reg_queryEntriesWithProps&quot;,</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="s1">    &quot;params&quot;: [&quot;evm-registry&quot;, {&quot;limit&quot;: 100}, &quot;any&quot;]</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-7-1" id="__codelineno-7-1" name="__codelineno-7-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-7-2" id="__codelineno-7-2" name="__codelineno-7-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-7-3" id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-7-4" id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-7-5" id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="s1">    "method": "reg_queryEntriesWithProps",</span>
+<a href="#__codelineno-7-6" id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="s1">    "params": ["evm-registry", {"limit": 100}, "any"]</span>
+<a href="#__codelineno-7-7" id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
-
 <p>There should be an entry for every node, and each node entry should have a <code>transport.grpc</code> property. This check needs to be made against every node in the installation, as they independently build their registries by indexing chain events.</p>
 <blockquote>
 <p>N.B. <code>root</code> is the root identity of the registry. It does not correspond to a node and is not expected to have any properties.</p>
 </blockquote>
 <p>If any node or property is missing it means that the event which held that information has not been indexed. This is usually due to the block indexer being configured to start from a later block than the start of the registry history, or the block indexer having not yet reached the block that contains the relevant event.</p>
 <p>First identify the block number which contains the event with the missing data by looking at the detailed registration status for the node which is missing or has the <code>transport.grpc</code> property missing.
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>kubectl describe paladinregistration node1
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-8-1" id="__codelineno-8-1" name="__codelineno-8-1"></a>kubectl describe paladinregistration node1
 </code></pre></div></p>
 <details>
 <summary>See output</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Name:<span class="w">         </span>node1
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>Namespace:<span class="w">    </span>default
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>Labels:<span class="w">       </span>app.kubernetes.io/managed-by<span class="o">=</span>Helm
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">              </span>app.kubernetes.io/name<span class="o">=</span>operator-go
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>Annotations:<span class="w">  </span>meta.helm.sh/release-name:<span class="w"> </span>paladin
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">              </span>meta.helm.sh/release-namespace:<span class="w"> </span>default
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>API<span class="w"> </span>Version:<span class="w">  </span>core.paladin.io/v1alpha1
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>Kind:<span class="w">         </span>PaladinRegistration
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>Metadata:
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">  </span>Creation<span class="w"> </span>Timestamp:<span class="w">  </span><span class="m">2025</span>-09-09T15:11:15Z
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">  </span>Generation:<span class="w">          </span><span class="m">1</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">  </span>Resource<span class="w"> </span>Version:<span class="w">    </span><span class="m">2350</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">  </span>UID:<span class="w">                 </span>6800bc37-f317-4b51-9799-872ad8f2aeff
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>Spec:
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">  </span>Node:<span class="w">                 </span>node1
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">  </span>Node<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">       </span>registry.node1
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">  </span>Registry:<span class="w">             </span>evm-registry
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">   </span>registry.operator
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Node:<span class="w">  </span>node1
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">  </span>Transports:
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">    </span>grpc
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>Status:
-<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">  </span>Publish<span class="w"> </span>Count:<span class="w">  </span><span class="m">2</span>
-<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">  </span>Publish<span class="w"> </span>Txs:
-<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">    </span>Grpc:
-<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">      </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">11</span>
-<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="w">      </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.grpc.1757430744774547
-<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="w">      </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0x6f02b322be187569922ec8f2143e3f8ad5ce39e1eae874d0e2191c17ffc1f5a6
-<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="w">      </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>83278a5f-5f89-412c-b8a4-9757bdb1f382
-<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="w">      </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
-<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a><span class="w">  </span>Registration<span class="w"> </span>Tx:
-<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a><span class="w">    </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">6</span>
-<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a><span class="w">    </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.1757430743709513
-<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a><span class="w">    </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0xaa92ab37b2afab75dd77d04e0039e5e0748777b5d0ca72591c9ceb9d9907deea
-<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a><span class="w">    </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>8cdae679-a0ce-43e4-9be0-62a4313d37dc
-<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a><span class="w">    </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
-<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a>Events:<span class="w">                  </span>&lt;none&gt;
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-9-1" id="__codelineno-9-1" name="__codelineno-9-1"></a>Name:<span class="w">         </span>node1
+<a href="#__codelineno-9-2" id="__codelineno-9-2" name="__codelineno-9-2"></a>Namespace:<span class="w">    </span>default
+<a href="#__codelineno-9-3" id="__codelineno-9-3" name="__codelineno-9-3"></a>Labels:<span class="w">       </span>app.kubernetes.io/managed-by<span class="o">=</span>Helm
+<a href="#__codelineno-9-4" id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="w">              </span>app.kubernetes.io/name<span class="o">=</span>operator-go
+<a href="#__codelineno-9-5" id="__codelineno-9-5" name="__codelineno-9-5"></a>Annotations:<span class="w">  </span>meta.helm.sh/release-name:<span class="w"> </span>paladin
+<a href="#__codelineno-9-6" id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="w">              </span>meta.helm.sh/release-namespace:<span class="w"> </span>default
+<a href="#__codelineno-9-7" id="__codelineno-9-7" name="__codelineno-9-7"></a>API<span class="w"> </span>Version:<span class="w">  </span>core.paladin.io/v1alpha1
+<a href="#__codelineno-9-8" id="__codelineno-9-8" name="__codelineno-9-8"></a>Kind:<span class="w">         </span>PaladinRegistration
+<a href="#__codelineno-9-9" id="__codelineno-9-9" name="__codelineno-9-9"></a>Metadata:
+<a href="#__codelineno-9-10" id="__codelineno-9-10" name="__codelineno-9-10"></a><span class="w">  </span>Creation<span class="w"> </span>Timestamp:<span class="w">  </span><span class="m">2025</span>-09-09T15:11:15Z
+<a href="#__codelineno-9-11" id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="w">  </span>Generation:<span class="w">          </span><span class="m">1</span>
+<a href="#__codelineno-9-12" id="__codelineno-9-12" name="__codelineno-9-12"></a><span class="w">  </span>Resource<span class="w"> </span>Version:<span class="w">    </span><span class="m">2350</span>
+<a href="#__codelineno-9-13" id="__codelineno-9-13" name="__codelineno-9-13"></a><span class="w">  </span>UID:<span class="w">                 </span>6800bc37-f317-4b51-9799-872ad8f2aeff
+<a href="#__codelineno-9-14" id="__codelineno-9-14" name="__codelineno-9-14"></a>Spec:
+<a href="#__codelineno-9-15" id="__codelineno-9-15" name="__codelineno-9-15"></a><span class="w">  </span>Node:<span class="w">                 </span>node1
+<a href="#__codelineno-9-16" id="__codelineno-9-16" name="__codelineno-9-16"></a><span class="w">  </span>Node<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">       </span>registry.node1
+<a href="#__codelineno-9-17" id="__codelineno-9-17" name="__codelineno-9-17"></a><span class="w">  </span>Registry:<span class="w">             </span>evm-registry
+<a href="#__codelineno-9-18" id="__codelineno-9-18" name="__codelineno-9-18"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Key:<span class="w">   </span>registry.operator
+<a href="#__codelineno-9-19" id="__codelineno-9-19" name="__codelineno-9-19"></a><span class="w">  </span>Registry<span class="w"> </span>Admin<span class="w"> </span>Node:<span class="w">  </span>node1
+<a href="#__codelineno-9-20" id="__codelineno-9-20" name="__codelineno-9-20"></a><span class="w">  </span>Transports:
+<a href="#__codelineno-9-21" id="__codelineno-9-21" name="__codelineno-9-21"></a><span class="w">    </span>grpc
+<a href="#__codelineno-9-22" id="__codelineno-9-22" name="__codelineno-9-22"></a>Status:
+<a href="#__codelineno-9-23" id="__codelineno-9-23" name="__codelineno-9-23"></a><span class="w">  </span>Publish<span class="w"> </span>Count:<span class="w">  </span><span class="m">2</span>
+<a href="#__codelineno-9-24" id="__codelineno-9-24" name="__codelineno-9-24"></a><span class="w">  </span>Publish<span class="w"> </span>Txs:
+<a href="#__codelineno-9-25" id="__codelineno-9-25" name="__codelineno-9-25"></a><span class="w">    </span>Grpc:
+<a href="#__codelineno-9-26" id="__codelineno-9-26" name="__codelineno-9-26"></a><span class="w">      </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">11</span>
+<a href="#__codelineno-9-27" id="__codelineno-9-27" name="__codelineno-9-27"></a><span class="w">      </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.grpc.1757430744774547
+<a href="#__codelineno-9-28" id="__codelineno-9-28" name="__codelineno-9-28"></a><span class="w">      </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0x6f02b322be187569922ec8f2143e3f8ad5ce39e1eae874d0e2191c17ffc1f5a6
+<a href="#__codelineno-9-29" id="__codelineno-9-29" name="__codelineno-9-29"></a><span class="w">      </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>83278a5f-5f89-412c-b8a4-9757bdb1f382
+<a href="#__codelineno-9-30" id="__codelineno-9-30" name="__codelineno-9-30"></a><span class="w">      </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
+<a href="#__codelineno-9-31" id="__codelineno-9-31" name="__codelineno-9-31"></a><span class="w">  </span>Registration<span class="w"> </span>Tx:
+<a href="#__codelineno-9-32" id="__codelineno-9-32" name="__codelineno-9-32"></a><span class="w">    </span>Block<span class="w"> </span>Number:<span class="w">        </span><span class="m">6</span>
+<a href="#__codelineno-9-33" id="__codelineno-9-33" name="__codelineno-9-33"></a><span class="w">    </span>Idempotency<span class="w"> </span>Key:<span class="w">     </span>k8s.reg.node1.1757430743709513
+<a href="#__codelineno-9-34" id="__codelineno-9-34" name="__codelineno-9-34"></a><span class="w">    </span>Transaction<span class="w"> </span>Hash:<span class="w">    </span>0xaa92ab37b2afab75dd77d04e0039e5e0748777b5d0ca72591c9ceb9d9907deea
+<a href="#__codelineno-9-35" id="__codelineno-9-35" name="__codelineno-9-35"></a><span class="w">    </span>Transaction<span class="w"> </span>ID:<span class="w">      </span>8cdae679-a0ce-43e4-9be0-62a4313d37dc
+<a href="#__codelineno-9-36" id="__codelineno-9-36" name="__codelineno-9-36"></a><span class="w">    </span>Transaction<span class="w"> </span>Status:<span class="w">  </span>Success
+<a href="#__codelineno-9-37" id="__codelineno-9-37" name="__codelineno-9-37"></a>Events:<span class="w">                  </span>&lt;none&gt;
 </code></pre></div>
 </details>
 <ul>
@@ -3840,87 +1557,84 @@ can occur when</p>
 <p>Now we have a block number, we can check that the block indexer has indexed it by making two <code>bidx_queryIndexedBlocks</code> to get the first and last blocks that the node has indexed. Make these calls against the node which is missing data in its registry.</p>
 <details>
 <summary>See example curl command for getting the first indexed block</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="s1">    &quot;method&quot;: &quot;bidx_queryIndexedBlocks&quot;,</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="s1">    &quot;params&quot;: [{&quot;limit&quot;:1, &quot;sort&quot;: [&quot;number ASC&quot;]}]</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-10-1" id="__codelineno-10-1" name="__codelineno-10-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-10-2" id="__codelineno-10-2" name="__codelineno-10-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-10-3" id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-10-4" id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-10-5" id="__codelineno-10-5" name="__codelineno-10-5"></a><span class="s1">    "method": "bidx_queryIndexedBlocks",</span>
+<a href="#__codelineno-10-6" id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="s1">    "params": [{"limit":1, "sort": ["number ASC"]}]</span>
+<a href="#__codelineno-10-7" id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
 <details>
 <summary>See example curl command for getting the last indexed block</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="s1">    &quot;method&quot;: &quot;bidx_queryIndexedBlocks&quot;,</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s1">    &quot;params&quot;: [{&quot;limit&quot;:1, &quot;sort&quot;: [&quot;number DESC&quot;]}]</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-11-1" id="__codelineno-11-1" name="__codelineno-11-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-11-2" id="__codelineno-11-2" name="__codelineno-11-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-11-3" id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-11-4" id="__codelineno-11-4" name="__codelineno-11-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-11-5" id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="s1">    "method": "bidx_queryIndexedBlocks",</span>
+<a href="#__codelineno-11-6" id="__codelineno-11-6" name="__codelineno-11-6"></a><span class="s1">    "params": [{"limit":1, "sort": ["number DESC"]}]</span>
+<a href="#__codelineno-11-7" id="__codelineno-11-7" name="__codelineno-11-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
-
 <p>If the block number is within the indexed range, look at the Paladin node pod logs to see if there are any errors writing registry data to the database.</p>
 <p>If the block number is above the indexed range, the node likely just needs more time to index all the blocks it needs for the registry. If the last indexed block is not increasing over time, look at the Paladin node pod logs for indexing errors.</p>
 <p>If the block number is below the indexed range, you are likely using a <code>customnet</code> installation and have overriden the default config to set a custom <code>fromBlock</code> for the block indexer.</p>
 <details>
 <summary>See example of overriding the default block indexer from block</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">paladinNodes</span><span class="p">:</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">node1</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">      </span><span class="no">blockIndexer:</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">        </span><span class="no">fromBlock: 17543 # can also be latest</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-12-1" id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="nt">paladinNodes</span><span class="p">:</span>
+<a href="#__codelineno-12-2" id="__codelineno-12-2" name="__codelineno-12-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">node1</span>
+<a href="#__codelineno-12-3" id="__codelineno-12-3" name="__codelineno-12-3"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a href="#__codelineno-12-4" id="__codelineno-12-4" name="__codelineno-12-4"></a><span class="w">      </span><span class="no">blockIndexer:</span>
+<a href="#__codelineno-12-5" id="__codelineno-12-5" name="__codelineno-12-5"></a><span class="w">        </span><span class="no">fromBlock: 17543 # can also be latest</span>
 </code></pre></div>
 </details>
-
 <p>If any of the nodes have started indexing from a later block than one which contains an event they require, it is difficult to recover the situation. It is typically easier to recreate the system, ensuring <code>fromBlock</code> is set to a block number that will come before the next registry contract deployment, than to take any sort of remedial action.</p>
-<h3 id="3-confirm-registry-contents">3. Confirm registry contents<a class="headerlink" href="#3-confirm-registry-contents" title="Permanent link">&para;</a></h3>
+<h3 id="3-confirm-registry-contents">3. Confirm registry contents<a class="headerlink" href="#3-confirm-registry-contents" title="Permanent link">¶</a></h3>
 <p>If all nodes have a fully populated registry, the next step is to verify the contents of the registry.</p>
 <p>The transport properties for a node can be found in the <code>Registry</code> tab of the Paladin UI or by making a <code>reg_queryEntriesWithProps</code> RPC call.</p>
 <details>
 <summary>See example curl command</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="s1">    &quot;method&quot;: &quot;reg_queryEntriesWithProps&quot;,</span>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="s1">    &quot;params&quot;: [&quot;evm-registry&quot;, {&quot;limit&quot;: 100}, &quot;any&quot;]</span>
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-13-1" id="__codelineno-13-1" name="__codelineno-13-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-13-2" id="__codelineno-13-2" name="__codelineno-13-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-13-3" id="__codelineno-13-3" name="__codelineno-13-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-13-4" id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-13-5" id="__codelineno-13-5" name="__codelineno-13-5"></a><span class="s1">    "method": "reg_queryEntriesWithProps",</span>
+<a href="#__codelineno-13-6" id="__codelineno-13-6" name="__codelineno-13-6"></a><span class="s1">    "params": ["evm-registry", {"limit": 100}, "any"]</span>
+<a href="#__codelineno-13-7" id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
 <details>
 <summary>See example properties</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p">{</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">   </span><span class="nt">&quot;$owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0xbd788c85660d249f23e084ee25cf82dd63861965&quot;</span><span class="p">,</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">   </span><span class="nt">&quot;transport.grpc&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{\&quot;endpoint\&quot;:\&quot;dns:///paladin-node3.default.svc.cluster.local:9000\&quot;,\&quot;issuers\&quot;:\&quot;-----BEGIN CERTIFICATE-----\\nMIIC/jCCAeagAwIBAgIQTFQ97yE+BI1FVWT53PlyHDANBgkqhkiG9w0BAQsFADAQ\\nMQ4wDAYDVQQDEwVub2RlMzAeFw0yNTA5MDkxNTExMThaFw0yNTEyMDgxNTExMTha\\nMBAxDjAMBgNVBAMTBW5vZGUzMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC\\nAQEAwhcU9dX0jAqIymu23QwIwBkQsh/Tj9AOUNIlVlAL7+Wrx/7bKoeUCW9kU4hn\\nGJSC23NGAtPWckXAVlTyWzz+Ssn8UCEUO/9drwhJPjXHjKmnwSI2is0koSG0Rm9e\\nFBfpi56KqbByXgDaiTzJDeANr67hKnB5ve6KlolTFheQdwiJ/rKI7TOlX8VgKHlj\\nPpIVxdpbmkwtOHJMl039RG6hWuCaf3r5AOreNKU2XxdFK51Zn0Md4KdcMs9HYOKj\\n0LSz8pw4rM8YJsb5RRcAtLljf0QRzjIrPF+70iWvZY0cvQiKbRr/J6fYN3Door+I\\nVJW8DD4h0jA3EOOk9deFO7WKTQIDAQABo1QwUjAOBgNVHQ8BAf8EBAMCBaAwDAYD\\nVR0TAQH/BAIwADAyBgNVHREEKzApgidwYWxhZGluLW5vZGUzLmRlZmF1bHQuc3Zj\\nLmNsdXN0ZXIubG9jYWwwDQYJKoZIhvcNAQELBQADggEBAHKHxoLYfd0VrzD0NXL9\\nJnnPHxF9S5u6uhMtJtFXtgOixQbTzM4eNL6Z+HtpJRbEZpUGeFvb85gmPryY2OvB\\nzlNZWPnkpfmrQnmFZOlmcjWh/slK8mp7DUjQMeYL42YevLmv2sn+eEbKNO7Z3rDw\\nX8IdOCJju5+HUeGnDobkgCWT8fx9xu6+RLIOhpsUQocoDSSTDP1b3kOjs8vQbF/T\\nCs1g3tP7tE4ARZOlSJXqacCkeStpXftpkI2vAm2bDf3dTNsHxjxRHU1GnEQQFyMW\\nXjvxzuL5J8ArAUVyfyhYjaC0AFMkbaedXI+MsCOmROGYdfYQWZyNbB7HNSJJny4D\\n7gI=\\n-----END CERTIFICATE-----\\n\&quot;}&quot;</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-14-1" id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="p">{</span>
+<a href="#__codelineno-14-2" id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="w">   </span><span class="nt">"$owner"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0xbd788c85660d249f23e084ee25cf82dd63861965"</span><span class="p">,</span>
+<a href="#__codelineno-14-3" id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="w">   </span><span class="nt">"transport.grpc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"endpoint\":\"dns:///paladin-node3.default.svc.cluster.local:9000\",\"issuers\":\"-----BEGIN CERTIFICATE-----\\nMIIC/jCCAeagAwIBAgIQTFQ97yE+BI1FVWT53PlyHDANBgkqhkiG9w0BAQsFADAQ\\nMQ4wDAYDVQQDEwVub2RlMzAeFw0yNTA5MDkxNTExMThaFw0yNTEyMDgxNTExMTha\\nMBAxDjAMBgNVBAMTBW5vZGUzMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC\\nAQEAwhcU9dX0jAqIymu23QwIwBkQsh/Tj9AOUNIlVlAL7+Wrx/7bKoeUCW9kU4hn\\nGJSC23NGAtPWckXAVlTyWzz+Ssn8UCEUO/9drwhJPjXHjKmnwSI2is0koSG0Rm9e\\nFBfpi56KqbByXgDaiTzJDeANr67hKnB5ve6KlolTFheQdwiJ/rKI7TOlX8VgKHlj\\nPpIVxdpbmkwtOHJMl039RG6hWuCaf3r5AOreNKU2XxdFK51Zn0Md4KdcMs9HYOKj\\n0LSz8pw4rM8YJsb5RRcAtLljf0QRzjIrPF+70iWvZY0cvQiKbRr/J6fYN3Door+I\\nVJW8DD4h0jA3EOOk9deFO7WKTQIDAQABo1QwUjAOBgNVHQ8BAf8EBAMCBaAwDAYD\\nVR0TAQH/BAIwADAyBgNVHREEKzApgidwYWxhZGluLW5vZGUzLmRlZmF1bHQuc3Zj\\nLmNsdXN0ZXIubG9jYWwwDQYJKoZIhvcNAQELBQADggEBAHKHxoLYfd0VrzD0NXL9\\nJnnPHxF9S5u6uhMtJtFXtgOixQbTzM4eNL6Z+HtpJRbEZpUGeFvb85gmPryY2OvB\\nzlNZWPnkpfmrQnmFZOlmcjWh/slK8mp7DUjQMeYL42YevLmv2sn+eEbKNO7Z3rDw\\nX8IdOCJju5+HUeGnDobkgCWT8fx9xu6+RLIOhpsUQocoDSSTDP1b3kOjs8vQbF/T\\nCs1g3tP7tE4ARZOlSJXqacCkeStpXftpkI2vAm2bDf3dTNsHxjxRHU1GnEQQFyMW\\nXjvxzuL5J8ArAUVyfyhYjaC0AFMkbaedXI+MsCOmROGYdfYQWZyNbB7HNSJJny4D\\n7gI=\\n-----END CERTIFICATE-----\\n\"}"</span>
+<a href="#__codelineno-14-4" id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="p">}</span>
 </code></pre></div>
 </details>
-
-<h4 id="incorrect-endpoint-customnet-only">Incorrect endpoint: <code>customnet</code> only<a class="headerlink" href="#incorrect-endpoint-customnet-only" title="Permanent link">&para;</a></h4>
+<h4 id="incorrect-endpoint-customnet-only">Incorrect endpoint: <code>customnet</code> only<a class="headerlink" href="#incorrect-endpoint-customnet-only" title="Permanent link">¶</a></h4>
 <p><code>endpoint</code> in the <code>transport.grpc</code> properties is set to the internal cluster host name by default, which allows nodes installed into the same Kubernetes cluster to communicate with each other, but can be overriden in a <code>customnet</code> installation in the <code>transports</code> section of the values file for each node. If you have set this value, including setting it to the empty string <code>""</code>, confirm that the dns lookup of this hostname will work correctly for your infrastructure. </p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">transports</span><span class="p">:</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">   </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">   </span><span class="nt">config</span><span class="p">:</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9000</span>
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">      </span><span class="nt">externalHostname</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;...&quot;</span><span class="w"> </span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-15-1" id="__codelineno-15-1" name="__codelineno-15-1"></a><span class="nt">transports</span><span class="p">:</span>
+<a href="#__codelineno-15-2" id="__codelineno-15-2" name="__codelineno-15-2"></a><span class="w">   </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc</span>
+<a href="#__codelineno-15-3" id="__codelineno-15-3" name="__codelineno-15-3"></a><span class="w">   </span><span class="nt">config</span><span class="p">:</span>
+<a href="#__codelineno-15-4" id="__codelineno-15-4" name="__codelineno-15-4"></a><span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9000</span>
+<a href="#__codelineno-15-5" id="__codelineno-15-5" name="__codelineno-15-5"></a><span class="w">      </span><span class="nt">address</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<a href="#__codelineno-15-6" id="__codelineno-15-6" name="__codelineno-15-6"></a><span class="w">      </span><span class="nt">externalHostname</span><span class="p">:</span><span class="w"> </span><span class="s">"..."</span><span class="w"> </span>
 </code></pre></div>
 <p>If you need to update the <code>externalHostname</code> with a helm upgrade, follow <a href="../certificate_management/#update-the-registry">these instructions</a> to make the corresponding update to the registry. The instructions talk about certificate rotation but since the endpoint is included in the local transport details that get updated in the registry, they are applicable here as well.</p>
-<h4 id="overly-restrictive-network-policies">Overly restrictive network policies<a class="headerlink" href="#overly-restrictive-network-policies" title="Permanent link">&para;</a></h4>
+<h4 id="overly-restrictive-network-policies">Overly restrictive network policies<a class="headerlink" href="#overly-restrictive-network-policies" title="Permanent link">¶</a></h4>
 <p>Check that you do not have any network policies which prohibit nodes from communicating with each other on the grpc port.</p>
-<h4 id="invalid-certificates-customnet-only">Invalid certificates: <code>customnet</code> only<a class="headerlink" href="#invalid-certificates-customnet-only" title="Permanent link">&para;</a></h4>
+<h4 id="invalid-certificates-customnet-only">Invalid certificates: <code>customnet</code> only<a class="headerlink" href="#invalid-certificates-customnet-only" title="Permanent link">¶</a></h4>
 <p><code>customnet</code> installations allow more flexibility in how certificates are configured. The values file specifies a secret name which</p>
 <ul>
 <li>if it exists will be mounted into the Paladin node pod as is (this option allows for use of a <a href="../certificate_management/#custom-certificate-manager">custom certificate manager</a>)</li>
 <li>if it does not exist will be used by the Paladin operator to store <code>cert-manager</code> certificates</li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">transports</span><span class="p">:</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">   </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">tls</span><span class="p p-Indicator">:</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">         </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">paladin-bank-mtls</span><span class="w">  </span>
-<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">         </span><span class="nt">certName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">paladin-bank-mtls</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-16-1" id="__codelineno-16-1" name="__codelineno-16-1"></a><span class="nt">transports</span><span class="p">:</span>
+<a href="#__codelineno-16-2" id="__codelineno-16-2" name="__codelineno-16-2"></a><span class="w">   </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">grpc</span>
+<a href="#__codelineno-16-3" id="__codelineno-16-3" name="__codelineno-16-3"></a><span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">tls</span><span class="p p-Indicator">:</span>
+<a href="#__codelineno-16-4" id="__codelineno-16-4" name="__codelineno-16-4"></a><span class="w">         </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">paladin-bank-mtls</span><span class="w">  </span>
+<a href="#__codelineno-16-5" id="__codelineno-16-5" name="__codelineno-16-5"></a><span class="w">         </span><span class="nt">certName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">paladin-bank-mtls</span>
 </code></pre></div>
 <p>Ensure that all the <code>secretName</code> and <code>certName</code> (if using the Paladin operator to generate certificates) are unique per Paladin node. Duplication can result in one node using the certificates generated for another node.</p>
 <p>If using a custom certificate manager, inspect the certificates in this secret specified by <code>secretName</code> to confirm that:</p>
@@ -3931,109 +1645,66 @@ can occur when</p>
 <li>the published node endpoint is a subject alternative name</li>
 </ul>
 <p>If you make any changes to the certificates that each node is using, you will need to make a corresponding update to the registry by following <a href="../certificate_management/#update-the-registry">these instructions</a>.</p>
-<h4 id="rotated-certificates">Rotated certificates<a class="headerlink" href="#rotated-certificates" title="Permanent link">&para;</a></h4>
+<h4 id="rotated-certificates">Rotated certificates<a class="headerlink" href="#rotated-certificates" title="Permanent link">¶</a></h4>
 <p>A certificate manager (including <code>cert-manager</code> which the Paladin operator uses by default) may rotate certificates automatically. In this case the Paladin node pod will automatically pick up the changes, but they will not be automatically reflected in the registry. To identify whether there is a discrepency between the certificates that the Paladin node is using and what is published in the registry, compare the <code>transport.grpc</code> property in the registry to the result of a <code>transport_localTransportDetails</code> call.</p>
 <details>
 <summary>See example curl command</summary>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>--data<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="s1">    &quot;jsonrpc&quot;: &quot;2.0&quot;,</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="s1">    &quot;id&quot;: &quot;1&quot;,</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="s1">    &quot;method&quot;: &quot;transport_localTransportDetails&quot;,</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="s1">    &quot;params&quot;: [&quot;grpc&quot;]</span>
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="s1">}&#39;</span>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-17-1" id="__codelineno-17-1" name="__codelineno-17-1"></a>curl<span class="w"> </span>http://localhost:31548<span class="w"> </span>--header<span class="w"> </span><span class="s1">'Content-Type: application/json'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-17-2" id="__codelineno-17-2" name="__codelineno-17-2"></a>--data<span class="w"> </span><span class="s1">'{</span>
+<a href="#__codelineno-17-3" id="__codelineno-17-3" name="__codelineno-17-3"></a><span class="s1">    "jsonrpc": "2.0",</span>
+<a href="#__codelineno-17-4" id="__codelineno-17-4" name="__codelineno-17-4"></a><span class="s1">    "id": "1",</span>
+<a href="#__codelineno-17-5" id="__codelineno-17-5" name="__codelineno-17-5"></a><span class="s1">    "method": "transport_localTransportDetails",</span>
+<a href="#__codelineno-17-6" id="__codelineno-17-6" name="__codelineno-17-6"></a><span class="s1">    "params": ["grpc"]</span>
+<a href="#__codelineno-17-7" id="__codelineno-17-7" name="__codelineno-17-7"></a><span class="s1">}'</span>
 </code></pre></div>
 </details>
-
 <p>If they are different, follow <a href="../certificate_management/#update-the-registry">these instructions</a> for updating the registry.</p>
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-                
-              </article>
-            </div>
-          
-          
+</article>
+</div>
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
-        </div>
-        
-      </main>
-      
-        <footer class="md-footer">
-  
-    
-      
-      <nav class="md-footer__inner md-grid" aria-label="Footer" >
-        
-          
-          <a href="../certificate_management/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Certificate Management">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
+</div>
+</main>
+<footer class="md-footer">
+<nav aria-label="Footer" class="md-footer__inner md-grid">
+<a aria-label="Previous: Bond Issuance" class="md-footer__link md-footer__link--prev" href="../../tutorials/bond-issuance/">
+<div class="md-footer__button md-icon">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+</div>
+<div class="md-footer__title">
+<span class="md-footer__direction">
                 Previous
               </span>
-              <div class="md-ellipsis">
-                Certificate Management
+<div class="md-ellipsis">
+                Bond Issuance
               </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="../l1-and-l2-chains/" class="md-footer__link md-footer__link--next" aria-label="Next: L1 and L2 Chains">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
+</div>
+</a>
+<a aria-label="Next: Authentication and Authorization" class="md-footer__link md-footer__link--next" href="../auth/">
+<div class="md-footer__title">
+<span class="md-footer__direction">
                 Next
               </span>
-              <div class="md-ellipsis">
-                L1 and L2 Chains
+<div class="md-ellipsis">
+                Authentication and Authorization
               </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
-        
-      </nav>
-    
-  
-  <div class="md-footer-meta md-typeset">
-    <div class="md-footer-meta__inner md-grid">
-      <div class="md-copyright">
-  
-  
 </div>
-      
-    </div>
-  </div>
+<div class="md-footer__button md-icon">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+</div>
+</a>
+</nav>
+<div class="md-footer-meta md-typeset">
+<div class="md-footer-meta__inner md-grid">
+<div class="md-copyright">
+</div>
+</div>
+</div>
 </footer>
-      
-    </div>
-    <div class="md-dialog" data-md-component="dialog">
-      <div class="md-dialog__inner md-typeset"></div>
-    </div>
-    
-    
-    <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
-    
-    
-      <script src="../../assets/javascripts/bundle.83f73b43.min.js"></script>
-      
-    
-  </body>
+</div>
+<div class="md-dialog" data-md-component="dialog">
+<div class="md-dialog__inner md-typeset"></div>
+</div>
+<script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+<script src="../../assets/javascripts/bundle.83f73b43.min.js"></script>
+<script src="../../assets/javascripts/panzoom.min.js"></script><script src="../../assets/javascripts/zoompan.js"></script></body>
 </html>

@@ -1,0 +1,2038 @@
+
+<!DOCTYPE html>
+
+<html class="no-js" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<link href="../administering_peers/" rel="prev"/>
+<link href="../certificate_management/" rel="next"/>
+<link href="../../assets/paladin-icon-light.png" rel="icon"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.5.44" name="generator"/>
+<title>Authentication and Authorization - Paladin</title>
+<link href="../../assets/stylesheets/main.0253249f.min.css" rel="stylesheet"/>
+<link href="../../assets/stylesheets/palette.06af60db.min.css" rel="stylesheet"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
+<style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+<link href="../../stylesheets/paladin.css" rel="stylesheet"/>
+<script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+<script id="__analytics">function __md_analytics(){function e(){dataLayer.push(arguments)}window.dataLayer=window.dataLayer||[],e("js",new Date),e("config",""),document.addEventListener("DOMContentLoaded",(function(){document.forms.search&&document.forms.search.query.addEventListener("blur",(function(){this.value&&e("event","search",{search_term:this.value})}));document$.subscribe((function(){var t=document.forms.feedback;if(void 0!==t)for(var a of t.querySelectorAll("[type=submit]"))a.addEventListener("click",(function(a){a.preventDefault();var n=document.location.pathname,d=this.getAttribute("data-md-value");e("event","feedback",{page:n,data:d}),t.firstElementChild.disabled=!0;var r=t.querySelector(".md-feedback__note [data-md-value='"+d+"']");r&&(r.hidden=!1)})),t.hidden=!1})),location$.subscribe((function(t){e("config","",{page_path:t.pathname})}))}));var t=document.createElement("script");t.async=!0,t.src="https://www.googletagmanager.com/gtag/js?id=",document.getElementById("__analytics").insertAdjacentElement("afterEnd",t)}</script>
+<script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+<link href="../../assets/stylesheets/panzoom.css" rel="stylesheet"/><meta content='{"selectors": [".mermaid", ".zoomable-image", ".d2"]}' name="panzoom-data"/><meta content="material" name="panzoom-theme"/></head>
+<body data-md-color-accent="indigo" data-md-color-primary="indigo" data-md-color-scheme="paladin" dir="ltr">
+<input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
+<input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
+<label class="md-overlay" for="__drawer"></label>
+<div data-md-component="skip">
+<a class="md-skip" href="#authentication-and-authorization">
+          Skip to content
+        </a>
+</div>
+<div data-md-component="announce">
+</div>
+<div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+<aside class="md-banner md-banner--warning">
+<div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version.
+  <a href="../../..">
+<strong>Click here to go to latest.</strong>
+</a>
+</div>
+<script>var el=document.querySelector("[data-md-component=outdated]"),outdated=__md_get("__outdated",sessionStorage);!0===outdated&&el&&(el.hidden=!1)</script>
+</aside>
+</div>
+<!--
+  Copyright (c) 2016-2022 Martin Donath <martin.donath@squidfunk.com>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+-->
+<!-- Determine class according to configuration -->
+<!-- Header -->
+<header class="md-header md-header--lifted" data-md-component="header">
+<nav aria-label="header.title" class="md-header__inner md-grid">
+<!-- Link to home -->
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
+<!--
+  Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+-->
+<!-- Logo -->
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
+</a>
+<!-- Button to open drawer -->
+<label class="md-header__button md-icon" for="__drawer">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+</label>
+<!-- Header title -->
+<div class="md-header__title" data-md-component="header-title">
+<div class="md-header__ellipsis">
+<div class="md-header__topic">
+<span class="md-ellipsis">
+<!-- Paladin -->
+</span>
+</div>
+<div class="md-header__topic" data-md-component="header-topic">
+<span class="md-ellipsis">
+            
+              Authentication and Authorization
+            
+          </span>
+</div>
+</div>
+</div>
+<!-- Color palette -->
+<form class="md-header__option" data-md-component="palette">
+<input aria-label="Switch to dark mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: light)" data-md-color-primary="" data-md-color-scheme="paladin" id="__palette_1" name="__palette" type="radio">
+<label class="md-header__button md-icon" for="__palette_2" hidden="" title="Switch to dark mode">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+</label>
+<input aria-label="Switch to light mode" class="md-option" data-md-color-accent="" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-primary="" data-md-color-scheme="paladin-dark" id="__palette_2" name="__palette" type="radio">
+<label class="md-header__button md-icon" for="__palette_1" hidden="" title="Switch to light mode">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+</label>
+</input></input></form>
+<!-- Site language selector -->
+<!-- Button to open search modal -->
+<!-- Repository information -->
+<div class="md-header__source">
+<a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+</div>
+<div class="md-source__repository">
+    LFDT-Paladin/paladin
+  </div>
+</a>
+</div>
+</nav>
+<!-- Navigation tabs (sticky) -->
+<nav aria-label="Tabs" class="md-tabs" data-md-component="tabs">
+<div class="md-grid">
+<ul class="md-tabs__list">
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../..">
+          
+  
+    
+  
+  Introduction
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../architecture/overview/">
+          
+  
+    
+  
+  Architecture
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../getting-started/installation/">
+          
+  
+    
+  
+  Getting Started
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../tutorials/">
+          
+  
+    
+  
+  Tutorials
+
+        </a>
+</li>
+<li class="md-tabs__item md-tabs__item--active">
+<a class="md-tabs__link" href="../administering_peers/">
+          
+  
+    
+  
+  Administration
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../reference/apis/bidx/">
+          
+  
+    
+  
+  Reference
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../contributing/how-to-contribute/">
+          
+  
+    
+  
+  Contributing
+
+        </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../faqs/">
+        
+  
+    
+  
+  FAQs
+
+      </a>
+</li>
+<li class="md-tabs__item">
+<a class="md-tabs__link" href="../../glossary/">
+        
+  
+    
+  
+  Glossary
+
+      </a>
+</li>
+</ul>
+</div>
+</nav>
+</header>
+<div class="md-container" data-md-component="container">
+<main class="md-main" data-md-component="main">
+<div class="md-main__inner md-grid">
+<div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Navigation" class="md-nav md-nav--primary md-nav--lifted" data-md-level="0">
+<label class="md-nav__title" for="__drawer">
+<a aria-label="Paladin" class="md-header__button md-logo" data-md-component="logo" href="../.." title="Paladin">
+<!--
+  Copyright (c) 2016-2024 Martin Donath <martin.donath@squidfunk.com>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+-->
+<!-- Logo -->
+<img alt="Paladin" src="../../assets/paladin-logo-dark.svg#only-dark"/>
+<img alt="Paladin" src="../../assets/paladin-logo-light.svg#only-light"/>
+</a>
+    Paladin
+  </label>
+<div class="md-nav__source">
+<a class="md-source" data-md-component="source" href="https://github.com/LFDT-Paladin/paladin" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 496 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+</div>
+<div class="md-source__repository">
+    LFDT-Paladin/paladin
+  </div>
+</a>
+</div>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_1" type="checkbox"/>
+<div class="md-nav__link md-nav__container">
+<a class="md-nav__link" href="../..">
+<span class="md-ellipsis">
+    Introduction
+  </span>
+</a>
+<label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+<span class="md-nav__icon md-icon"></span>
+</label>
+</div>
+<nav aria-expanded="false" aria-labelledby="__nav_1_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_1">
+<span class="md-nav__icon md-icon"></span>
+            Introduction
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/tokens/">
+<span class="md-ellipsis">
+    Privacy Preserving Tokens
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/private_evm/">
+<span class="md-ellipsis">
+    Private EVM Smart Contracts
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/advanced_crypto/">
+<span class="md-ellipsis">
+    Advanced Cryptography
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/atomic_programmability/">
+<span class="md-ellipsis">
+    Atomic EVM Programmability
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/full_stack/">
+<span class="md-ellipsis">
+    Full Enterprise Privacy Stack
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../concepts/cloud_native/">
+<span class="md-ellipsis">
+    Cloud Native Runtime
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2" type="checkbox"/>
+<label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+<span class="md-ellipsis">
+    Architecture
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_2_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_2">
+<span class="md-nav__icon md-icon"></span>
+            Architecture
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/overview/">
+<span class="md-ellipsis">
+    Overview
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/programming_model/">
+<span class="md-ellipsis">
+    Programming model
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/domains/">
+<span class="md-ellipsis">
+    Domains
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/zeto/">
+<span class="md-ellipsis">
+    Zeto - ZKP Tokens
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/noto/">
+<span class="md-ellipsis">
+    Noto - Notarized Tokens
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/pente/">
+<span class="md-ellipsis">
+    Pente - EVM Privacy Groups
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/key_management/">
+<span class="md-ellipsis">
+    Key management
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/state_store/">
+<span class="md-ellipsis">
+    State store
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/atomic_interop/">
+<span class="md-ellipsis">
+    Atomic interop
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/data_and_registry/">
+<span class="md-ellipsis">
+    Data Transports &amp; Registry
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/ledger_layers/">
+<span class="md-ellipsis">
+    Ledger Layers
+  </span>
+</a>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_2_12" type="checkbox"/>
+<label class="md-nav__link" for="__nav_2_12" id="__nav_2_12_label" tabindex="0">
+<span class="md-ellipsis">
+    Distributed Sequencer
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_2_12_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_2_12">
+<span class="md-nav__icon md-icon"></span>
+            Distributed Sequencer
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_overview/">
+<span class="md-ellipsis">
+    Overview
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_architecture/">
+<span class="md-ellipsis">
+    Architecture
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_components/">
+<span class="md-ellipsis">
+    Components
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_state_machine/">
+<span class="md-ellipsis">
+    State Machine
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_data_flows/">
+<span class="md-ellipsis">
+    Data Flows
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_dependency_handling/">
+<span class="md-ellipsis">
+    Dependency Handling
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../architecture/distributed_sequencer_protocol/">
+<span class="md-ellipsis">
+    Protocol
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3" type="checkbox"/>
+<label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+<span class="md-ellipsis">
+    Getting Started
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_3_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_3">
+<span class="md-nav__icon md-icon"></span>
+            Getting Started
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_3_1" type="checkbox"/>
+<label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+<span class="md-ellipsis">
+    Installation
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_3_1_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_3_1">
+<span class="md-nav__icon md-icon"></span>
+            Installation
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation/">
+<span class="md-ellipsis">
+    Default Installation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation-advanced/">
+<span class="md-ellipsis">
+    Advanced Installation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/installation-manual/">
+<span class="md-ellipsis">
+    Manual Installation
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/user-interface/">
+<span class="md-ellipsis">
+    User Interface
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../getting-started/troubleshooting/">
+<span class="md-ellipsis">
+    Troubleshooting
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_4" type="checkbox"/>
+<div class="md-nav__link md-nav__container">
+<a class="md-nav__link" href="../../tutorials/">
+<span class="md-ellipsis">
+    Tutorials
+  </span>
+</a>
+<label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+<span class="md-nav__icon md-icon"></span>
+</label>
+</div>
+<nav aria-expanded="false" aria-labelledby="__nav_4_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_4">
+<span class="md-nav__icon md-icon"></span>
+            Tutorials
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/hello-world/">
+<span class="md-ellipsis">
+    Hello World
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/public-storage/">
+<span class="md-ellipsis">
+    Public Smart Contract
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/private-storage/">
+<span class="md-ellipsis">
+    Private Smart Contract
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/notarized-tokens/">
+<span class="md-ellipsis">
+    Notarized Tokens
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/zkp-cbdc/">
+<span class="md-ellipsis">
+    Wholesale CBDC
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/private-stablecoin/">
+<span class="md-ellipsis">
+    Private Stablecoin with KYC
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/atomic-swap/">
+<span class="md-ellipsis">
+    Atomic Swap
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../tutorials/bond-issuance/">
+<span class="md-ellipsis">
+    Bond Issuance
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+<input checked="" class="md-nav__toggle md-toggle" id="__nav_5" type="checkbox"/>
+<label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+<span class="md-ellipsis">
+    Administration
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="true" aria-labelledby="__nav_5_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_5">
+<span class="md-nav__icon md-icon"></span>
+            Administration
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../administering_peers/">
+<span class="md-ellipsis">
+    Administering Peers
+  </span>
+</a>
+</li>
+<li class="md-nav__item md-nav__item--active">
+<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    Authentication and Authorization
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<a class="md-nav__link md-nav__link--active" href="./">
+<span class="md-ellipsis">
+    Authentication and Authorization
+  </span>
+</a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#overview">
+<span class="md-ellipsis">
+      Overview
+    </span>
+</a>
+<nav aria-label="Overview" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#plugin-architecture">
+<span class="md-ellipsis">
+      Plugin Architecture
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#multiple-authorizers">
+<span class="md-ellipsis">
+      Multiple Authorizers
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#request-lifecycle">
+<span class="md-ellipsis">
+      Request Lifecycle
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#basic-auth-plugin">
+<span class="md-ellipsis">
+      Basic Auth Plugin
+    </span>
+</a>
+<nav aria-label="Basic Auth Plugin" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#creating-a-password-file">
+<span class="md-ellipsis">
+      Creating a Password File
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#configuration">
+<span class="md-ellipsis">
+      Configuration
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#configuration-via-helm-charts-customnet">
+<span class="md-ellipsis">
+      Configuration via Helm Charts (Customnet)
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#using-authentication">
+<span class="md-ellipsis">
+      Using Authentication
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#websocket-connections">
+<span class="md-ellipsis">
+      WebSocket Connections
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#implementing-custom-auth-plugins">
+<span class="md-ellipsis">
+      Implementing Custom Auth Plugins
+    </span>
+</a>
+<nav aria-label="Implementing Custom Auth Plugins" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#plugin-structure">
+<span class="md-ellipsis">
+      Plugin Structure
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#implementation-steps">
+<span class="md-ellipsis">
+      Implementation Steps
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#reference-implementation">
+<span class="md-ellipsis">
+      Reference Implementation
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../certificate_management/">
+<span class="md-ellipsis">
+    Certificate Management
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../configuration/">
+<span class="md-ellipsis">
+    Configuration
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../l1-and-l2-chains/">
+<span class="md-ellipsis">
+    L1 and L2 Chains
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../logging/">
+<span class="md-ellipsis">
+    Logging
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+<span class="md-ellipsis">
+    Reference
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_6">
+<span class="md-nav__icon md-icon"></span>
+            Reference
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_1" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+<span class="md-ellipsis">
+    APIs
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_1_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_1">
+<span class="md-nav__icon md-icon"></span>
+            APIs
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/bidx/">
+<span class="md-ellipsis">
+    bidx_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/keymgr/">
+<span class="md-ellipsis">
+    keymgr_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/pgroup/">
+<span class="md-ellipsis">
+    pgroup_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/pstate/">
+<span class="md-ellipsis">
+    pstate_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/ptx/">
+<span class="md-ellipsis">
+    ptx_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/reg/">
+<span class="md-ellipsis">
+    reg_*
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/apis/transport/">
+<span class="md-ellipsis">
+    transport_*
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_2" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+<span class="md-ellipsis">
+    Types
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_2_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_2">
+<span class="md-nav__icon md-icon"></span>
+            Types
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/abidecodeddata/">
+<span class="md-ellipsis">
+    ABIDecodedData
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistener/">
+<span class="md-ellipsis">
+    BlockchainEventListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenercheckpoint/">
+<span class="md-ellipsis">
+    BlockchainEventListenerCheckpoint
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlisteneroptions/">
+<span class="md-ellipsis">
+    BlockchainEventListenerOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenersource/">
+<span class="md-ellipsis">
+    BlockchainEventListenerSource
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/blockchaineventlistenerstatus/">
+<span class="md-ellipsis">
+    BlockchainEventListenerStatus
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/chaineddispatch/">
+<span class="md-ellipsis">
+    ChainedDispatch
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/dispatch/">
+<span class="md-ellipsis">
+    Dispatch
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/eventwithdata/">
+<span class="md-ellipsis">
+    EventWithData
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedblock/">
+<span class="md-ellipsis">
+    IndexedBlock
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedevent/">
+<span class="md-ellipsis">
+    IndexedEvent
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/indexedtransaction/">
+<span class="md-ellipsis">
+    IndexedTransaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/jsonformatoptions/">
+<span class="md-ellipsis">
+    JSONFormatOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/keymappingandverifier/">
+<span class="md-ellipsis">
+    KeyMappingAndVerifier
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/keyqueryentry/">
+<span class="md-ellipsis">
+    KeyQueryEntry
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/onchainlocation/">
+<span class="md-ellipsis">
+    OnChainLocation
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/peerinfo/">
+<span class="md-ellipsis">
+    PeerInfo
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/preparedtransaction/">
+<span class="md-ellipsis">
+    PreparedTransaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroup/">
+<span class="md-ellipsis">
+    PrivacyGroup
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmcall/">
+<span class="md-ellipsis">
+    PrivacyGroupEVMCall
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupevmtxinput/">
+<span class="md-ellipsis">
+    PrivacyGroupEVMTXInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupinput/">
+<span class="md-ellipsis">
+    PrivacyGroupInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessage/">
+<span class="md-ellipsis">
+    PrivacyGroupMessage
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessageinput/">
+<span class="md-ellipsis">
+    PrivacyGroupMessageInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupmessagelistener/">
+<span class="md-ellipsis">
+    PrivacyGroupMessageListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/privacygroupwithabi/">
+<span class="md-ellipsis">
+    PrivacyGroupWithABI
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/publictx/">
+<span class="md-ellipsis">
+    PublicTx
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/publictxwithbinding/">
+<span class="md-ellipsis">
+    PublicTxWithBinding
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/queryjson/">
+<span class="md-ellipsis">
+    QueryJSON
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryentry/">
+<span class="md-ellipsis">
+    RegistryEntry
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryentrywithproperties/">
+<span class="md-ellipsis">
+    RegistryEntryWithProperties
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/registryproperty/">
+<span class="md-ellipsis">
+    RegistryProperty
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/reliablemessage/">
+<span class="md-ellipsis">
+    ReliableMessage
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/reliablemessageack/">
+<span class="md-ellipsis">
+    ReliableMessageAck
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/schema/">
+<span class="md-ellipsis">
+    Schema
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/simpletypes/">
+<span class="md-ellipsis">
+    Simple Types
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/state/">
+<span class="md-ellipsis">
+    State
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/stateconfirm/">
+<span class="md-ellipsis">
+    StateConfirm
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/stateconfirmrecord/">
+<span class="md-ellipsis">
+    StateConfirmRecord
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statelock/">
+<span class="md-ellipsis">
+    StateLock
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statespend/">
+<span class="md-ellipsis">
+    StateSpend
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statespendrecord/">
+<span class="md-ellipsis">
+    StateSpendRecord
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/statestatusqualifier/">
+<span class="md-ellipsis">
+    StateStatusQualifier
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/storedabi/">
+<span class="md-ellipsis">
+    StoredABI
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transaction/">
+<span class="md-ellipsis">
+    Transaction
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactioncall/">
+<span class="md-ellipsis">
+    TransactionCall
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionfull/">
+<span class="md-ellipsis">
+    TransactionFull
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactioninput/">
+<span class="md-ellipsis">
+    TransactionInput
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceipt/">
+<span class="md-ellipsis">
+    TransactionReceipt
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfilters/">
+<span class="md-ellipsis">
+    TransactionReceiptFilters
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptfull/">
+<span class="md-ellipsis">
+    TransactionReceiptFull
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlistener/">
+<span class="md-ellipsis">
+    TransactionReceiptListener
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionreceiptlisteneroptions/">
+<span class="md-ellipsis">
+    TransactionReceiptListenerOptions
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/types/transactionstates/">
+<span class="md-ellipsis">
+    TransactionStates
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_6_3" type="checkbox"/>
+<label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+<span class="md-ellipsis">
+    Kubernetes CRDs
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_6_3_label" class="md-nav" data-md-level="2">
+<label class="md-nav__title" for="__nav_6_3">
+<span class="md-nav__icon md-icon"></span>
+            Kubernetes CRDs
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/crds/core.paladin.io/">
+<span class="md-ellipsis">
+    core.paladin.io
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/architecture/">
+<span class="md-ellipsis">
+    Architecture
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/commands/">
+<span class="md-ellipsis">
+    Commands
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../reference/roadmap/">
+<span class="md-ellipsis">
+    Roadmap
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item md-nav__item--nested">
+<input class="md-nav__toggle md-toggle md-toggle--indeterminate" id="__nav_7" type="checkbox"/>
+<label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+<span class="md-ellipsis">
+    Contributing
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<nav aria-expanded="false" aria-labelledby="__nav_7_label" class="md-nav" data-md-level="1">
+<label class="md-nav__title" for="__nav_7">
+<span class="md-nav__icon md-icon"></span>
+            Contributing
+          </label>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/how-to-contribute/">
+<span class="md-ellipsis">
+    How to Contribute
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/reporting-a-bug/">
+<span class="md-ellipsis">
+    Reporting a Bug
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/requesting-a-change/">
+<span class="md-ellipsis">
+    Requesting a Change
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../contributing/asking-a-question/">
+<span class="md-ellipsis">
+    Asking a Question
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../faqs/">
+<span class="md-ellipsis">
+    FAQs
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../../glossary/">
+<span class="md-ellipsis">
+    Glossary
+  </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#overview">
+<span class="md-ellipsis">
+      Overview
+    </span>
+</a>
+<nav aria-label="Overview" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#plugin-architecture">
+<span class="md-ellipsis">
+      Plugin Architecture
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#multiple-authorizers">
+<span class="md-ellipsis">
+      Multiple Authorizers
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#request-lifecycle">
+<span class="md-ellipsis">
+      Request Lifecycle
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#basic-auth-plugin">
+<span class="md-ellipsis">
+      Basic Auth Plugin
+    </span>
+</a>
+<nav aria-label="Basic Auth Plugin" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#creating-a-password-file">
+<span class="md-ellipsis">
+      Creating a Password File
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#configuration">
+<span class="md-ellipsis">
+      Configuration
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#configuration-via-helm-charts-customnet">
+<span class="md-ellipsis">
+      Configuration via Helm Charts (Customnet)
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#using-authentication">
+<span class="md-ellipsis">
+      Using Authentication
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#websocket-connections">
+<span class="md-ellipsis">
+      WebSocket Connections
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#implementing-custom-auth-plugins">
+<span class="md-ellipsis">
+      Implementing Custom Auth Plugins
+    </span>
+</a>
+<nav aria-label="Implementing Custom Auth Plugins" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#plugin-structure">
+<span class="md-ellipsis">
+      Plugin Structure
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#implementation-steps">
+<span class="md-ellipsis">
+      Implementation Steps
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#reference-implementation">
+<span class="md-ellipsis">
+      Reference Implementation
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-content" data-md-component="content">
+<article class="md-content__inner md-typeset">
+<h1 id="authentication-and-authorization">Authentication and Authorization<a class="headerlink" href="#authentication-and-authorization" title="Permanent link">¶</a></h1>
+<p>Paladin supports optional RPC authorizers for securing JSON-RPC endpoints.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">¶</a></h2>
+<p>RPC authorizers allow you to secure Paladin's RPC endpoints. They support both</p>
+<ul>
+<li><strong>authentication</strong>: using the HTTP headers to verify <em>who</em> is making the request</li>
+<li><strong>authorization</strong>: using the JSON-RPC method and parameters to determine if the authenticated principal is permitted to perform a specific RPC operation</li>
+</ul>
+<h3 id="plugin-architecture">Plugin Architecture<a class="headerlink" href="#plugin-architecture" title="Permanent link">¶</a></h3>
+<p>RPC authorizers are implemented as <strong>Paladin plugins</strong>, which means they:</p>
+<ul>
+<li>Run as <strong>separate processes</strong> communicating with the Paladin core via gRPC, providing isolation and security</li>
+<li>Follow the standard <strong>Paladin plugin architecture</strong> and lifecycle patterns</li>
+<li>Can be developed using the <strong>plugin toolkit</strong> (Go, Java, or other languages with gRPC support)</li>
+<li>Are loaded dynamically and can be configured per node without modifying core code</li>
+</ul>
+<p>This plugin architecture provides several benefits:</p>
+<ul>
+<li><strong>Isolation</strong>: Authorization plugin failures don't crash the core Paladin system</li>
+<li><strong>Security</strong>: Authorization logic runs in separate processes, limiting potential attack surface</li>
+<li><strong>Extensibility</strong>: New authorization schemes can be added by implementing custom plugins</li>
+<li><strong>Flexibility</strong>: Different nodes can use different authorization plugins based on their requirements</li>
+</ul>
+<p>The reference <code>basicauth</code> plugin demonstrates the standard plugin implementation pattern, which can be used as a template for creating custom authorization plugins.</p>
+<h3 id="multiple-authorizers">Multiple Authorizers<a class="headerlink" href="#multiple-authorizers" title="Permanent link">¶</a></h3>
+<p>You can configure multiple authorizers that are executed sequentially in a chain. All authorizers in the chain must succeed for a request to proceed:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-0-1" id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="p">{</span>
+<a href="#__codelineno-0-2" id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">"rpcServer"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-0-3" id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">    </span><span class="nt">"authorizers"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"basicauth"</span><span class="p">,</span><span class="w"> </span><span class="s2">"customauth"</span><span class="p">]</span>
+<a href="#__codelineno-0-4" id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">  </span><span class="p">}</span>
+<a href="#__codelineno-0-5" id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="p">}</span>
+</code></pre></div>
+<p>When multiple authorizers are configured:</p>
+<ol>
+<li><strong>Authentication phase</strong>: Each authorizer's <code>Authenticate()</code> method is called in sequence. If any authorizer fails authentication, the request is rejected immediately.</li>
+<li><strong>Authorization phase</strong>: Each authorizer's <code>Authorize()</code> method is called in sequence with the corresponding authentication result. If any authorizer denies authorization, the request is rejected immediately.</li>
+<li>All authorizers must succeed for the request to proceed to the RPC method handler.</li>
+</ol>
+<h3 id="request-lifecycle">Request Lifecycle<a class="headerlink" href="#request-lifecycle" title="Permanent link">¶</a></h3>
+<h4 id="http-requests">HTTP Requests<a class="headerlink" href="#http-requests" title="Permanent link">¶</a></h4>
+<p>For HTTP requests, both authentication and authorization happen for each request:</p>
+<ol>
+<li><strong>Request arrives</strong> → HTTP headers are extracted</li>
+<li><strong>Authentication phase</strong>: For each authorizer in the chain:<ul>
+<li><code>Authenticate(headers)</code> is called</li>
+<li>If authentication fails → Return HTTP 401 Unauthorized (native transport response, no JSON body) (stop processing)</li>
+<li>Store the authentication result</li>
+</ul>
+</li>
+<li><strong>Authorization phase</strong>: For each authorizer in the chain:<ul>
+<li><code>Authorize(authenticationResult, method, payload)</code> is called</li>
+<li>If authorization fails → Return JSON-RPC error response (stop processing)</li>
+</ul>
+</li>
+<li><strong>All authorizers succeed</strong> → Proceed to RPC method handler</li>
+</ol>
+<h4 id="websocket-requests">WebSocket Requests<a class="headerlink" href="#websocket-requests" title="Permanent link">¶</a></h4>
+<p>For WebSocket connections, authentication happens once during the upgrade, and authorization happens for each RPC message:</p>
+<p><strong>Connection Upgrade Phase:</strong></p>
+<ol>
+<li><strong>Upgrade request arrives</strong> → HTTP headers are extracted from the WebSocket upgrade request</li>
+<li><strong>Authentication phase</strong>: For each authorizer in the chain:<ul>
+<li><code>Authenticate(headers)</code> is called before WebSocket upgrade</li>
+<li>If authentication fails → Return HTTP 401 Unauthorized (native transport response, no JSON body), abort upgrade (stop processing)</li>
+<li>Store the authentication result</li>
+</ul>
+</li>
+<li><strong>All authorizers succeed</strong> → WebSocket upgrade proceeds (HTTP 101)</li>
+<li><strong>Store authentication results</strong> in the WebSocket connection context</li>
+</ol>
+<p><strong>Subsequent RPC Messages:</strong></p>
+<ol>
+<li><strong>RPC message arrives</strong> → Retrieve stored authentication results from connection</li>
+<li><strong>Authorization phase</strong>: For each authorizer in the chain:<ul>
+<li><code>Authorize(authenticationResult[i], method, payload)</code> is called</li>
+<li>If authorization fails → Return JSON-RPC error response (stop processing)</li>
+</ul>
+</li>
+<li><strong>All authorizers succeed</strong> → Proceed to RPC method handler</li>
+</ol>
+<p><strong>Note</strong>: WebSocket connections authenticate once during upgrade, but authorize each RPC message. This allows long-lived connections while still enforcing authorization checks on every operation. Authentication failures return native HTTP 401 responses, while authorization failures return JSON-RPC error responses.</p>
+<h2 id="basic-auth-plugin">Basic Auth Plugin<a class="headerlink" href="#basic-auth-plugin" title="Permanent link">¶</a></h2>
+<p>The reference basic auth plugin implements HTTP Basic Authentication, where credentials are sent in the <code>Authorization</code> header of each HTTP request.</p>
+<h3 id="creating-a-password-file">Creating a Password File<a class="headerlink" href="#creating-a-password-file" title="Permanent link">¶</a></h3>
+<p>Paladin uses standard bcrypt format compatible with <code>htpasswd</code>:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-1-1" id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="c1"># Create a new password file</span>
+<a href="#__codelineno-1-2" id="__codelineno-1-2" name="__codelineno-1-2"></a>htpasswd<span class="w"> </span>-cB<span class="w"> </span>credentials.txt<span class="w"> </span>alice
+<a href="#__codelineno-1-3" id="__codelineno-1-3" name="__codelineno-1-3"></a>
+<a href="#__codelineno-1-4" id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="c1"># Add additional users</span>
+<a href="#__codelineno-1-5" id="__codelineno-1-5" name="__codelineno-1-5"></a>htpasswd<span class="w"> </span>-B<span class="w"> </span>credentials.txt<span class="w"> </span>bob
+</code></pre></div>
+<p><strong>Expected format</strong>: Standard htpasswd bcrypt output
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-2-1" id="__codelineno-2-1" name="__codelineno-2-1"></a>alice:$2a$10$N9qo8uLOickgx2ZMRZoMye...
+<a href="#__codelineno-2-2" id="__codelineno-2-2" name="__codelineno-2-2"></a>bob:$2a$10$DaEm.rZiUdLSbnTdmHy9ve...
+</code></pre></div></p>
+<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">¶</a></h3>
+<p>Add to your Paladin configuration:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-3-1" id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="p">{</span>
+<a href="#__codelineno-3-2" id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">"rpcAuthorizers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-3-3" id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="w">    </span><span class="nt">"basicauth"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-3-4" id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="w">      </span><span class="nt">"plugin"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-3-5" id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="w">        </span><span class="nt">"library"</span><span class="p">:</span><span class="w"> </span><span class="s2">"basicauth.so"</span><span class="p">,</span>
+<a href="#__codelineno-3-6" id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">        </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"rpc_auth"</span>
+<a href="#__codelineno-3-7" id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">      </span><span class="p">},</span>
+<a href="#__codelineno-3-8" id="__codelineno-3-8" name="__codelineno-3-8"></a><span class="w">      </span><span class="nt">"config"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"credentialsFile\": \"/path/to/users.txt\"}"</span>
+<a href="#__codelineno-3-9" id="__codelineno-3-9" name="__codelineno-3-9"></a><span class="w">    </span><span class="p">}</span>
+<a href="#__codelineno-3-10" id="__codelineno-3-10" name="__codelineno-3-10"></a><span class="w">  </span><span class="p">},</span>
+<a href="#__codelineno-3-11" id="__codelineno-3-11" name="__codelineno-3-11"></a><span class="w">  </span><span class="nt">"rpcServer"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-3-12" id="__codelineno-3-12" name="__codelineno-3-12"></a><span class="w">    </span><span class="nt">"authorizers"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"basicauth"</span><span class="p">]</span>
+<a href="#__codelineno-3-13" id="__codelineno-3-13" name="__codelineno-3-13"></a><span class="w">  </span><span class="p">}</span>
+<a href="#__codelineno-3-14" id="__codelineno-3-14" name="__codelineno-3-14"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Key Fields</strong>:
+- <code>rpcAuthorizers</code>: Map of named authorization plugin configurations
+- <code>rpcServer.authorizers</code>: Ordered array of authorizer plugin names to use</p>
+<h3 id="configuration-via-helm-charts-customnet">Configuration via Helm Charts (Customnet)<a class="headerlink" href="#configuration-via-helm-charts-customnet" title="Permanent link">¶</a></h3>
+<p>When deploying Paladin nodes using Helm charts in <code>customnet</code> mode, RPC authorization can be configured directly through the values file.</p>
+<p><strong>Important Deployment Workflow</strong></p>
+<p>When enabling RPC authorization on a <code>customnet</code> deployment, the operator needs to submit transactions to deploy smart contracts and register nodes. These operations will fail if RPC authentication is enabled from the start, as the operator cannot authenticate to the RPC endpoints.</p>
+<p><strong>Required Deployment Sequence:</strong></p>
+<ol>
+<li>
+<p><strong>Deploy without authentication</strong>: Initially deploy your Paladin nodes <strong>without</strong> RPC authorization configured in the values file.</p>
+</li>
+<li>
+<p><strong>Wait for deployment completion</strong>: Verify that all smart contract deployments, transaction invocations, and node registrations have completed successfully:
+   <div class="highlight"><pre><span></span><code><a href="#__codelineno-4-1" id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="c1"># Check smart contract deployments (all should show "Success" in STATUS column)</span>
+<a href="#__codelineno-4-2" id="__codelineno-4-2" name="__codelineno-4-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>scd<span class="w"> </span>-n<span class="w"> </span>&lt;your-namespace&gt;
+<a href="#__codelineno-4-3" id="__codelineno-4-3" name="__codelineno-4-3"></a>
+<a href="#__codelineno-4-4" id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="c1"># Check transaction invokes (all should show "Success" in STATUS column)</span>
+<a href="#__codelineno-4-5" id="__codelineno-4-5" name="__codelineno-4-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>txn<span class="w"> </span>-n<span class="w"> </span>&lt;your-namespace&gt;
+<a href="#__codelineno-4-6" id="__codelineno-4-6" name="__codelineno-4-6"></a>
+<a href="#__codelineno-4-7" id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="c1"># Check node registrations (all should show publishCount of 2 in Published column)</span>
+<a href="#__codelineno-4-8" id="__codelineno-4-8" name="__codelineno-4-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>reg<span class="w"> </span>-n<span class="w"> </span>&lt;your-namespace&gt;
+</code></pre></div></p>
+</li>
+<li>
+<p><strong>Upgrade with authentication</strong>: Once all deployments and registrations are complete, upgrade your Helm deployment with a values file that includes the <code>rpcAuth</code> configuration (see Step 2 below).</p>
+</li>
+</ol>
+<p><strong>Note</strong>: If you attempt to deploy with RPC authorization enabled from the start, the operator will be unable to authenticate to the RPC endpoints, causing smart contract deployments, transaction invocations, and node registrations to fail.</p>
+<h4 id="step-1-create-the-credentials-secret">Step 1: Create the Credentials Secret<a class="headerlink" href="#step-1-create-the-credentials-secret" title="Permanent link">¶</a></h4>
+<p>First, create a Kubernetes secret containing the credentials file:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-5-1" id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="c1"># Create the credentials file</span>
+<a href="#__codelineno-5-2" id="__codelineno-5-2" name="__codelineno-5-2"></a>htpasswd<span class="w"> </span>-cB<span class="w"> </span>credentials.htpasswd<span class="w"> </span>alice
+<a href="#__codelineno-5-3" id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="c1"># Enter password when prompted</span>
+<a href="#__codelineno-5-4" id="__codelineno-5-4" name="__codelineno-5-4"></a>
+<a href="#__codelineno-5-5" id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="c1"># Add additional users (omit -c flag)</span>
+<a href="#__codelineno-5-6" id="__codelineno-5-6" name="__codelineno-5-6"></a>htpasswd<span class="w"> </span>-B<span class="w"> </span>credentials.htpasswd<span class="w"> </span>bob
+<a href="#__codelineno-5-7" id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="c1"># Enter password when prompted</span>
+<a href="#__codelineno-5-8" id="__codelineno-5-8" name="__codelineno-5-8"></a>
+<a href="#__codelineno-5-9" id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="c1"># Create the Kubernetes secret</span>
+<a href="#__codelineno-5-10" id="__codelineno-5-10" name="__codelineno-5-10"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>paladin-basicauth-credentials<span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-5-11" id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="w">  </span>--from-file<span class="o">=</span>credentials.htpasswd<span class="o">=</span>./credentials.htpasswd<span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-5-12" id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="w">  </span>--namespace<span class="o">=</span>&lt;your-namespace&gt;
+</code></pre></div>
+<p><strong>Important</strong>: 
+- The secret must be created in the same namespace where your Paladin nodes will be deployed
+- The key <strong>must</strong> be named <code>credentials.htpasswd</code>
+- The secret name can be anything you choose (e.g., <code>paladin-basicauth-credentials</code>)</p>
+<h4 id="step-2-configure-in-values-file-upgrade-deployment">Step 2: Configure in Values File (Upgrade Deployment)<a class="headerlink" href="#step-2-configure-in-values-file-upgrade-deployment" title="Permanent link">¶</a></h4>
+<p>After completing the initial deployment and verifying all smart contracts and registrations are complete (as described above), add the RPC authorization configuration to your <code>values-customnet.yaml</code> file and upgrade the deployment:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-6-1" id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nt">paladinNodes</span><span class="p">:</span>
+<a href="#__codelineno-6-2" id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"bank"</span>
+<a href="#__codelineno-6-3" id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">    </span><span class="c1"># ... other configuration ...</span>
+<a href="#__codelineno-6-4" id="__codelineno-6-4" name="__codelineno-6-4"></a>
+<a href="#__codelineno-6-5" id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">    </span><span class="c1"># Enable RPC authorization</span>
+<a href="#__codelineno-6-6" id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">    </span><span class="nt">rpcAuth</span><span class="p">:</span>
+<a href="#__codelineno-6-7" id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">      </span><span class="nt">secretName</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">paladin-basicauth-credentials</span><span class="w">  </span><span class="c1"># Name of the existing secret</span>
+</code></pre></div>
+<p>Then upgrade your Helm deployment:
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-7-1" id="__codelineno-7-1" name="__codelineno-7-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>&lt;your-release-name&gt;<span class="w"> </span>&lt;chart-path&gt;<span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-7-2" id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span>-f<span class="w"> </span>values-customnet.yaml<span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-7-3" id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">  </span>-n<span class="w"> </span>&lt;your-namespace&gt;
+</code></pre></div></p>
+<p>When you configure <code>rpcAuth</code>, the operator automatically:
+- Validates that the secret exists and contains the <code>credentials.htpasswd</code> key
+- Mounts the credentials file at <code>/rpcauth/credentials.htpasswd</code> in the pod
+- Configures the <code>basicauth</code> plugin with the correct path
+- Sets <code>rpcServer.authorizers</code> to <code>["basicauth"]</code></p>
+<h3 id="using-authentication">Using Authentication<a class="headerlink" href="#using-authentication" title="Permanent link">¶</a></h3>
+<p>Once configured, all JSON-RPC requests require valid credentials:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-8-1" id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="c1"># Make authenticated request</span>
+<a href="#__codelineno-8-2" id="__codelineno-8-2" name="__codelineno-8-2"></a>curl<span class="w"> </span>-u<span class="w"> </span>alice:password<span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-8-3" id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-8-4" id="__codelineno-8-4" name="__codelineno-8-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"jsonrpc":"2.0","method":"account_list","id":1}'</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-8-5" id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="w">  </span>http://localhost:8545
+</code></pre></div>
+<h3 id="websocket-connections">WebSocket Connections<a class="headerlink" href="#websocket-connections" title="Permanent link">¶</a></h3>
+<p>When using WebSocket connections, provide credentials in the initial upgrade request headers:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-9-1" id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="c1"># Using wscat</span>
+<a href="#__codelineno-9-2" id="__codelineno-9-2" name="__codelineno-9-2"></a>wscat<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Basic </span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span>-n<span class="w"> </span><span class="s1">'alice:password'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a href="#__codelineno-9-3" id="__codelineno-9-3" name="__codelineno-9-3"></a><span class="w">  </span>ws://localhost:8545
+</code></pre></div>
+<h2 id="implementing-custom-auth-plugins">Implementing Custom Auth Plugins<a class="headerlink" href="#implementing-custom-auth-plugins" title="Permanent link">¶</a></h2>
+<p>The reference <code>basicauth</code> plugin provides a complete example of implementing an RPC authorization plugin. This section explains how to create your own custom auth plugin following the same pattern.</p>
+<h3 id="plugin-structure">Plugin Structure<a class="headerlink" href="#plugin-structure" title="Permanent link">¶</a></h3>
+<p>An RPC auth plugin must implement the <code>RPCAuthAPI</code> interface with three methods:</p>
+<ol>
+<li><strong><code>ConfigureRPCAuthorizer</code></strong>: Called once at startup to configure the plugin with settings</li>
+<li><strong><code>Authenticate</code></strong>: Called for each request to verify credentials from HTTP headers</li>
+<li><strong><code>Authorize</code></strong>: Called for each request to check if the authenticated principal is permitted to perform the operation</li>
+</ol>
+<h3 id="implementation-steps">Implementation Steps<a class="headerlink" href="#implementation-steps" title="Permanent link">¶</a></h3>
+<h4 id="step-1-create-plugin-directory-structure">Step 1: Create Plugin Directory Structure<a class="headerlink" href="#step-1-create-plugin-directory-structure" title="Permanent link">¶</a></h4>
+<p>Create a directory structure following the pattern used by <code>rpcauth/basicauth/</code>:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-10-1" id="__codelineno-10-1" name="__codelineno-10-1"></a>rpcauth/yourplugin/
+<a href="#__codelineno-10-2" id="__codelineno-10-2" name="__codelineno-10-2"></a>├── yourplugin.go          # Main entry point with C exports
+<a href="#__codelineno-10-3" id="__codelineno-10-3" name="__codelineno-10-3"></a>├── build.gradle           # Build configuration
+<a href="#__codelineno-10-4" id="__codelineno-10-4" name="__codelineno-10-4"></a>├── go.mod                 # Go module definition
+<a href="#__codelineno-10-5" id="__codelineno-10-5" name="__codelineno-10-5"></a>└── internal/
+<a href="#__codelineno-10-6" id="__codelineno-10-6" name="__codelineno-10-6"></a>    └── yourplugin/
+<a href="#__codelineno-10-7" id="__codelineno-10-7" name="__codelineno-10-7"></a>        ├── handler.go     # Implements RPCAuthAPI interface
+<a href="#__codelineno-10-8" id="__codelineno-10-8" name="__codelineno-10-8"></a>        ├── config.go      # Configuration parsing
+<a href="#__codelineno-10-9" id="__codelineno-10-9" name="__codelineno-10-9"></a>        └── ...            # Additional implementation files
+</code></pre></div>
+<h4 id="step-2-implement-the-rpcauthapi-interface">Step 2: Implement the RPCAuthAPI Interface<a class="headerlink" href="#step-2-implement-the-rpcauthapi-interface" title="Permanent link">¶</a></h4>
+<p>Create a handler that implements the <code>RPCAuthAPI</code> interface:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-11-1" id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="kn">package</span><span class="w"> </span><span class="nx">yourplugin</span>
+<a href="#__codelineno-11-2" id="__codelineno-11-2" name="__codelineno-11-2"></a>
+<a href="#__codelineno-11-3" id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<a href="#__codelineno-11-4" id="__codelineno-11-4" name="__codelineno-11-4"></a><span class="w">    </span><span class="s">"context"</span>
+<a href="#__codelineno-11-5" id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="w">    </span><span class="s">"encoding/json"</span>
+<a href="#__codelineno-11-6" id="__codelineno-11-6" name="__codelineno-11-6"></a><span class="w">    </span><span class="s">"fmt"</span>
+<a href="#__codelineno-11-7" id="__codelineno-11-7" name="__codelineno-11-7"></a>
+<a href="#__codelineno-11-8" id="__codelineno-11-8" name="__codelineno-11-8"></a><span class="w">    </span><span class="s">"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"</span>
+<a href="#__codelineno-11-9" id="__codelineno-11-9" name="__codelineno-11-9"></a><span class="w">    </span><span class="s">"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"</span>
+<a href="#__codelineno-11-10" id="__codelineno-11-10" name="__codelineno-11-10"></a><span class="p">)</span>
+<a href="#__codelineno-11-11" id="__codelineno-11-11" name="__codelineno-11-11"></a>
+<a href="#__codelineno-11-12" id="__codelineno-11-12" name="__codelineno-11-12"></a><span class="c1">// YourAuthHandler implements the RPCAuthAPI interface</span>
+<a href="#__codelineno-11-13" id="__codelineno-11-13" name="__codelineno-11-13"></a><span class="kd">type</span><span class="w"> </span><span class="nx">YourAuthHandler</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-14" id="__codelineno-11-14" name="__codelineno-11-14"></a><span class="w">    </span><span class="c1">// Your plugin state</span>
+<a href="#__codelineno-11-15" id="__codelineno-11-15" name="__codelineno-11-15"></a><span class="p">}</span>
+<a href="#__codelineno-11-16" id="__codelineno-11-16" name="__codelineno-11-16"></a>
+<a href="#__codelineno-11-17" id="__codelineno-11-17" name="__codelineno-11-17"></a><span class="kd">var</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">RPCAuthAPI</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">YourAuthHandler</span><span class="p">)(</span><span class="kc">nil</span><span class="p">)</span>
+<a href="#__codelineno-11-18" id="__codelineno-11-18" name="__codelineno-11-18"></a>
+<a href="#__codelineno-11-19" id="__codelineno-11-19" name="__codelineno-11-19"></a><span class="c1">// ConfigureRPCAuthorizer loads configuration</span>
+<a href="#__codelineno-11-20" id="__codelineno-11-20" name="__codelineno-11-20"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">YourAuthHandler</span><span class="p">)</span><span class="w"> </span><span class="nx">ConfigureRPCAuthorizer</span><span class="p">(</span>
+<a href="#__codelineno-11-21" id="__codelineno-11-21" name="__codelineno-11-21"></a><span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span>
+<a href="#__codelineno-11-22" id="__codelineno-11-22" name="__codelineno-11-22"></a><span class="w">    </span><span class="nx">req</span><span class="w"> </span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">ConfigureRPCAuthorizerRequest</span><span class="p">,</span>
+<a href="#__codelineno-11-23" id="__codelineno-11-23" name="__codelineno-11-23"></a><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">ConfigureRPCAuthorizerResponse</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-24" id="__codelineno-11-24" name="__codelineno-11-24"></a><span class="w">    </span><span class="c1">// Parse configuration JSON</span>
+<a href="#__codelineno-11-25" id="__codelineno-11-25" name="__codelineno-11-25"></a><span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">config</span><span class="w"> </span><span class="nx">YourConfig</span>
+<a href="#__codelineno-11-26" id="__codelineno-11-26" name="__codelineno-11-26"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Unmarshal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="nx">req</span><span class="p">.</span><span class="nx">ConfigJson</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">config</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-27" id="__codelineno-11-27" name="__codelineno-11-27"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">"invalid config: %w"</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<a href="#__codelineno-11-28" id="__codelineno-11-28" name="__codelineno-11-28"></a><span class="w">    </span><span class="p">}</span>
+<a href="#__codelineno-11-29" id="__codelineno-11-29" name="__codelineno-11-29"></a>
+<a href="#__codelineno-11-30" id="__codelineno-11-30" name="__codelineno-11-30"></a><span class="w">    </span><span class="c1">// Initialize your plugin state</span>
+<a href="#__codelineno-11-31" id="__codelineno-11-31" name="__codelineno-11-31"></a><span class="w">    </span><span class="c1">// ...</span>
+<a href="#__codelineno-11-32" id="__codelineno-11-32" name="__codelineno-11-32"></a>
+<a href="#__codelineno-11-33" id="__codelineno-11-33" name="__codelineno-11-33"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">ConfigureRPCAuthorizerResponse</span><span class="p">{},</span><span class="w"> </span><span class="kc">nil</span>
+<a href="#__codelineno-11-34" id="__codelineno-11-34" name="__codelineno-11-34"></a><span class="p">}</span>
+<a href="#__codelineno-11-35" id="__codelineno-11-35" name="__codelineno-11-35"></a>
+<a href="#__codelineno-11-36" id="__codelineno-11-36" name="__codelineno-11-36"></a><span class="c1">// Authenticate verifies credentials from HTTP headers</span>
+<a href="#__codelineno-11-37" id="__codelineno-11-37" name="__codelineno-11-37"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">YourAuthHandler</span><span class="p">)</span><span class="w"> </span><span class="nx">Authenticate</span><span class="p">(</span>
+<a href="#__codelineno-11-38" id="__codelineno-11-38" name="__codelineno-11-38"></a><span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span>
+<a href="#__codelineno-11-39" id="__codelineno-11-39" name="__codelineno-11-39"></a><span class="w">    </span><span class="nx">req</span><span class="w"> </span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthenticateRequest</span><span class="p">,</span>
+<a href="#__codelineno-11-40" id="__codelineno-11-40" name="__codelineno-11-40"></a><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthenticateResponse</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-41" id="__codelineno-11-41" name="__codelineno-11-41"></a><span class="w">    </span><span class="c1">// Parse headers JSON</span>
+<a href="#__codelineno-11-42" id="__codelineno-11-42" name="__codelineno-11-42"></a><span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">headers</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span>
+<a href="#__codelineno-11-43" id="__codelineno-11-43" name="__codelineno-11-43"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Unmarshal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="nx">req</span><span class="p">.</span><span class="nx">HeadersJson</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">headers</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-44" id="__codelineno-11-44" name="__codelineno-11-44"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthenticateResponse</span><span class="p">{</span>
+<a href="#__codelineno-11-45" id="__codelineno-11-45" name="__codelineno-11-45"></a><span class="w">            </span><span class="nx">Authenticated</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a href="#__codelineno-11-46" id="__codelineno-11-46" name="__codelineno-11-46"></a><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<a href="#__codelineno-11-47" id="__codelineno-11-47" name="__codelineno-11-47"></a><span class="w">    </span><span class="p">}</span>
+<a href="#__codelineno-11-48" id="__codelineno-11-48" name="__codelineno-11-48"></a>
+<a href="#__codelineno-11-49" id="__codelineno-11-49" name="__codelineno-11-49"></a><span class="w">    </span><span class="c1">// Verify credentials (implement your authentication logic)</span>
+<a href="#__codelineno-11-50" id="__codelineno-11-50" name="__codelineno-11-50"></a><span class="w">    </span><span class="c1">// ...</span>
+<a href="#__codelineno-11-51" id="__codelineno-11-51" name="__codelineno-11-51"></a>
+<a href="#__codelineno-11-52" id="__codelineno-11-52" name="__codelineno-11-52"></a><span class="w">    </span><span class="c1">// Return authentication result (format is plugin-specific)</span>
+<a href="#__codelineno-11-53" id="__codelineno-11-53" name="__codelineno-11-53"></a><span class="w">    </span><span class="c1">// Example: JSON format</span>
+<a href="#__codelineno-11-54" id="__codelineno-11-54" name="__codelineno-11-54"></a><span class="w">    </span><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span><span class="p">{</span><span class="s">"user"</span><span class="p">:</span><span class="w"> </span><span class="s">"alice"</span><span class="p">,</span><span class="w"> </span><span class="s">"role"</span><span class="p">:</span><span class="w"> </span><span class="s">"admin"</span><span class="p">}</span>
+<a href="#__codelineno-11-55" id="__codelineno-11-55" name="__codelineno-11-55"></a><span class="w">    </span><span class="nx">resultJSON</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">result</span><span class="p">)</span>
+<a href="#__codelineno-11-56" id="__codelineno-11-56" name="__codelineno-11-56"></a>
+<a href="#__codelineno-11-57" id="__codelineno-11-57" name="__codelineno-11-57"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthenticateResponse</span><span class="p">{</span>
+<a href="#__codelineno-11-58" id="__codelineno-11-58" name="__codelineno-11-58"></a><span class="w">        </span><span class="nx">Authenticated</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a href="#__codelineno-11-59" id="__codelineno-11-59" name="__codelineno-11-59"></a><span class="w">        </span><span class="nx">ResultJson</span><span class="p">:</span><span class="w">    </span><span class="nx">stringPtr</span><span class="p">(</span><span class="nb">string</span><span class="p">(</span><span class="nx">resultJSON</span><span class="p">)),</span>
+<a href="#__codelineno-11-60" id="__codelineno-11-60" name="__codelineno-11-60"></a><span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<a href="#__codelineno-11-61" id="__codelineno-11-61" name="__codelineno-11-61"></a><span class="p">}</span>
+<a href="#__codelineno-11-62" id="__codelineno-11-62" name="__codelineno-11-62"></a>
+<a href="#__codelineno-11-63" id="__codelineno-11-63" name="__codelineno-11-63"></a><span class="c1">// Authorize checks if authenticated principal is permitted</span>
+<a href="#__codelineno-11-64" id="__codelineno-11-64" name="__codelineno-11-64"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">YourAuthHandler</span><span class="p">)</span><span class="w"> </span><span class="nx">Authorize</span><span class="p">(</span>
+<a href="#__codelineno-11-65" id="__codelineno-11-65" name="__codelineno-11-65"></a><span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span>
+<a href="#__codelineno-11-66" id="__codelineno-11-66" name="__codelineno-11-66"></a><span class="w">    </span><span class="nx">req</span><span class="w"> </span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthorizeRequest</span><span class="p">,</span>
+<a href="#__codelineno-11-67" id="__codelineno-11-67" name="__codelineno-11-67"></a><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthorizeResponse</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-68" id="__codelineno-11-68" name="__codelineno-11-68"></a><span class="w">    </span><span class="c1">// Parse authentication result (same format you returned from Authenticate)</span>
+<a href="#__codelineno-11-69" id="__codelineno-11-69" name="__codelineno-11-69"></a><span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">authResult</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span>
+<a href="#__codelineno-11-70" id="__codelineno-11-70" name="__codelineno-11-70"></a><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Unmarshal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="nx">req</span><span class="p">.</span><span class="nx">ResultJson</span><span class="p">),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">authResult</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-71" id="__codelineno-11-71" name="__codelineno-11-71"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthorizeResponse</span><span class="p">{</span>
+<a href="#__codelineno-11-72" id="__codelineno-11-72" name="__codelineno-11-72"></a><span class="w">            </span><span class="nx">Authorized</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a href="#__codelineno-11-73" id="__codelineno-11-73" name="__codelineno-11-73"></a><span class="w">        </span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<a href="#__codelineno-11-74" id="__codelineno-11-74" name="__codelineno-11-74"></a><span class="w">    </span><span class="p">}</span>
+<a href="#__codelineno-11-75" id="__codelineno-11-75" name="__codelineno-11-75"></a>
+<a href="#__codelineno-11-76" id="__codelineno-11-76" name="__codelineno-11-76"></a><span class="w">    </span><span class="c1">// Check permissions based on:</span>
+<a href="#__codelineno-11-77" id="__codelineno-11-77" name="__codelineno-11-77"></a><span class="w">    </span><span class="c1">// - Authentication result (req.ResultJson)</span>
+<a href="#__codelineno-11-78" id="__codelineno-11-78" name="__codelineno-11-78"></a><span class="w">    </span><span class="c1">// - RPC method (req.Method)</span>
+<a href="#__codelineno-11-79" id="__codelineno-11-79" name="__codelineno-11-79"></a><span class="w">    </span><span class="c1">// - Request payload (req.PayloadJson)</span>
+<a href="#__codelineno-11-80" id="__codelineno-11-80" name="__codelineno-11-80"></a><span class="w">    </span><span class="c1">// ...</span>
+<a href="#__codelineno-11-81" id="__codelineno-11-81" name="__codelineno-11-81"></a>
+<a href="#__codelineno-11-82" id="__codelineno-11-82" name="__codelineno-11-82"></a><span class="w">    </span><span class="c1">// Return authorization decision</span>
+<a href="#__codelineno-11-83" id="__codelineno-11-83" name="__codelineno-11-83"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">prototk</span><span class="p">.</span><span class="nx">AuthorizeResponse</span><span class="p">{</span>
+<a href="#__codelineno-11-84" id="__codelineno-11-84" name="__codelineno-11-84"></a><span class="w">        </span><span class="nx">Authorized</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a href="#__codelineno-11-85" id="__codelineno-11-85" name="__codelineno-11-85"></a><span class="w">    </span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<a href="#__codelineno-11-86" id="__codelineno-11-86" name="__codelineno-11-86"></a><span class="p">}</span>
+<a href="#__codelineno-11-87" id="__codelineno-11-87" name="__codelineno-11-87"></a>
+<a href="#__codelineno-11-88" id="__codelineno-11-88" name="__codelineno-11-88"></a><span class="kd">func</span><span class="w"> </span><span class="nx">stringPtr</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-11-89" id="__codelineno-11-89" name="__codelineno-11-89"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">s</span>
+<a href="#__codelineno-11-90" id="__codelineno-11-90" name="__codelineno-11-90"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Key Points</strong>:
+- The authentication result format is entirely plugin-specific (JSON, plain string, etc.)
+- The same result string returned from <code>Authenticate()</code> is passed to <code>Authorize()</code> unchanged
+- <code>Authenticate()</code> returns only <code>authenticated</code> (bool) and optionally <code>result_json</code> (when authenticated=true)
+- <code>Authorize()</code> returns only <code>authorized</code> (bool)
+- Authentication failures return native HTTP 401 responses (not JSON-RPC errors)
+- Authorization failures in WebSocket messages return JSON-RPC error responses</p>
+<h4 id="step-3-create-main-entry-point">Step 3: Create Main Entry Point<a class="headerlink" href="#step-3-create-main-entry-point" title="Permanent link">¶</a></h4>
+<p>Create the main entry point with C exports for the plugin loader:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-12-1" id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="kn">package</span><span class="w"> </span><span class="nx">main</span>
+<a href="#__codelineno-12-2" id="__codelineno-12-2" name="__codelineno-12-2"></a>
+<a href="#__codelineno-12-3" id="__codelineno-12-3" name="__codelineno-12-3"></a><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<a href="#__codelineno-12-4" id="__codelineno-12-4" name="__codelineno-12-4"></a><span class="w">    </span><span class="s">"C"</span>
+<a href="#__codelineno-12-5" id="__codelineno-12-5" name="__codelineno-12-5"></a>
+<a href="#__codelineno-12-6" id="__codelineno-12-6" name="__codelineno-12-6"></a><span class="w">    </span><span class="s">"github.com/LFDT-Paladin/paladin/rpcauth/yourplugin/internal/yourplugin"</span>
+<a href="#__codelineno-12-7" id="__codelineno-12-7" name="__codelineno-12-7"></a><span class="w">    </span><span class="s">"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"</span>
+<a href="#__codelineno-12-8" id="__codelineno-12-8" name="__codelineno-12-8"></a><span class="p">)</span>
+<a href="#__codelineno-12-9" id="__codelineno-12-9" name="__codelineno-12-9"></a>
+<a href="#__codelineno-12-10" id="__codelineno-12-10" name="__codelineno-12-10"></a><span class="kd">var</span><span class="w"> </span><span class="nx">ple</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">NewPluginLibraryEntrypoint</span><span class="p">(</span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">PluginBase</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-12-11" id="__codelineno-12-11" name="__codelineno-12-11"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">NewRPCAuthPlugin</span><span class="p">(</span><span class="kd">func</span><span class="p">(</span><span class="nx">callbacks</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">RPCAuthCallbacks</span><span class="p">)</span><span class="w"> </span><span class="nx">plugintk</span><span class="p">.</span><span class="nx">RPCAuthAPI</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-12-12" id="__codelineno-12-12" name="__codelineno-12-12"></a><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">yourplugin</span><span class="p">.</span><span class="nx">YourAuthHandler</span><span class="p">{}</span>
+<a href="#__codelineno-12-13" id="__codelineno-12-13" name="__codelineno-12-13"></a><span class="w">    </span><span class="p">})</span>
+<a href="#__codelineno-12-14" id="__codelineno-12-14" name="__codelineno-12-14"></a><span class="p">})</span>
+<a href="#__codelineno-12-15" id="__codelineno-12-15" name="__codelineno-12-15"></a>
+<a href="#__codelineno-12-16" id="__codelineno-12-16" name="__codelineno-12-16"></a><span class="c1">//export Run</span>
+<a href="#__codelineno-12-17" id="__codelineno-12-17" name="__codelineno-12-17"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Run</span><span class="p">(</span><span class="nx">grpcTargetPtr</span><span class="p">,</span><span class="w"> </span><span class="nx">pluginUUIDPtr</span><span class="w"> </span><span class="o">*</span><span class="nx">C</span><span class="p">.</span><span class="nx">char</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-12-18" id="__codelineno-12-18" name="__codelineno-12-18"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">ple</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span>
+<a href="#__codelineno-12-19" id="__codelineno-12-19" name="__codelineno-12-19"></a><span class="w">        </span><span class="nx">C</span><span class="p">.</span><span class="nx">GoString</span><span class="p">(</span><span class="nx">grpcTargetPtr</span><span class="p">),</span>
+<a href="#__codelineno-12-20" id="__codelineno-12-20" name="__codelineno-12-20"></a><span class="w">        </span><span class="nx">C</span><span class="p">.</span><span class="nx">GoString</span><span class="p">(</span><span class="nx">pluginUUIDPtr</span><span class="p">),</span>
+<a href="#__codelineno-12-21" id="__codelineno-12-21" name="__codelineno-12-21"></a><span class="w">    </span><span class="p">)</span>
+<a href="#__codelineno-12-22" id="__codelineno-12-22" name="__codelineno-12-22"></a><span class="p">}</span>
+<a href="#__codelineno-12-23" id="__codelineno-12-23" name="__codelineno-12-23"></a>
+<a href="#__codelineno-12-24" id="__codelineno-12-24" name="__codelineno-12-24"></a><span class="c1">//export Stop</span>
+<a href="#__codelineno-12-25" id="__codelineno-12-25" name="__codelineno-12-25"></a><span class="kd">func</span><span class="w"> </span><span class="nx">Stop</span><span class="p">(</span><span class="nx">pluginUUIDPtr</span><span class="w"> </span><span class="o">*</span><span class="nx">C</span><span class="p">.</span><span class="nx">char</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-12-26" id="__codelineno-12-26" name="__codelineno-12-26"></a><span class="w">    </span><span class="nx">ple</span><span class="p">.</span><span class="nx">Stop</span><span class="p">(</span><span class="nx">C</span><span class="p">.</span><span class="nx">GoString</span><span class="p">(</span><span class="nx">pluginUUIDPtr</span><span class="p">))</span>
+<a href="#__codelineno-12-27" id="__codelineno-12-27" name="__codelineno-12-27"></a><span class="p">}</span>
+<a href="#__codelineno-12-28" id="__codelineno-12-28" name="__codelineno-12-28"></a>
+<a href="#__codelineno-12-29" id="__codelineno-12-29" name="__codelineno-12-29"></a><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{}</span>
+</code></pre></div>
+<h4 id="step-4-configure-build-integration">Step 4: Configure Build Integration<a class="headerlink" href="#step-4-configure-build-integration" title="Permanent link">¶</a></h4>
+<p>Add your plugin to the Paladin build system:</p>
+<p><strong>In <code>build.gradle</code></strong> (root):
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-13-1" id="__codelineno-13-1" name="__codelineno-13-1"></a><span class="kt">def</span><span class="w"> </span><span class="n">rpcAuths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">[</span>
+<a href="#__codelineno-13-2" id="__codelineno-13-2" name="__codelineno-13-2"></a><span class="w">    </span><span class="s1">'rpcauth/basicauth/build/libs'</span><span class="o">,</span>
+<a href="#__codelineno-13-3" id="__codelineno-13-3" name="__codelineno-13-3"></a><span class="w">    </span><span class="s1">'rpcauth/yourplugin/build/libs'</span><span class="o">,</span><span class="w">  </span><span class="c1">// Add your plugin</span>
+<a href="#__codelineno-13-4" id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="o">]</span>
+<a href="#__codelineno-13-5" id="__codelineno-13-5" name="__codelineno-13-5"></a>
+<a href="#__codelineno-13-6" id="__codelineno-13-6" name="__codelineno-13-6"></a><span class="kt">def</span><span class="w"> </span><span class="n">assembleSubprojects</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">[</span>
+<a href="#__codelineno-13-7" id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="w">    </span><span class="c1">// ...</span>
+<a href="#__codelineno-13-8" id="__codelineno-13-8" name="__codelineno-13-8"></a><span class="w">    </span><span class="s1">':rpcauth:yourplugin'</span><span class="o">,</span><span class="w">  </span><span class="c1">// Add your plugin</span>
+<a href="#__codelineno-13-9" id="__codelineno-13-9" name="__codelineno-13-9"></a><span class="o">]</span>
+</code></pre></div></p>
+<p><strong>In <code>Dockerfile</code></strong>:
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-14-1" id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="k">FROM</span><span class="w"> </span><span class="s">base-builder</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="s">full-builder</span>
+<a href="#__codelineno-14-2" id="__codelineno-14-2" name="__codelineno-14-2"></a>...
+<a href="#__codelineno-14-3" id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="k">COPY</span><span class="w"> </span>rpcauth/yourplugin<span class="w"> </span>rpcauth/yourplugin
+<a href="#__codelineno-14-4" id="__codelineno-14-4" name="__codelineno-14-4"></a>...
+</code></pre></div></p>
+<p><strong>Create <code>build.gradle</code></strong> in your plugin directory:
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-15-1" id="__codelineno-15-1" name="__codelineno-15-1"></a><span class="n">ext</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-2" id="__codelineno-15-2" name="__codelineno-15-2"></a><span class="w">    </span><span class="n">goFiles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">fileTree</span><span class="o">(</span><span class="s1">'.'</span><span class="o">)</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-3" id="__codelineno-15-3" name="__codelineno-15-3"></a><span class="w">        </span><span class="n">include</span><span class="w"> </span><span class="s1">'internal/**/*.go'</span>
+<a href="#__codelineno-15-4" id="__codelineno-15-4" name="__codelineno-15-4"></a><span class="w">        </span><span class="n">include</span><span class="w"> </span><span class="s1">'yourplugin.go'</span>
+<a href="#__codelineno-15-5" id="__codelineno-15-5" name="__codelineno-15-5"></a><span class="w">    </span><span class="o">}</span>
+<a href="#__codelineno-15-6" id="__codelineno-15-6" name="__codelineno-15-6"></a><span class="o">}</span>
+<a href="#__codelineno-15-7" id="__codelineno-15-7" name="__codelineno-15-7"></a>
+<a href="#__codelineno-15-8" id="__codelineno-15-8" name="__codelineno-15-8"></a><span class="n">configurations</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-9" id="__codelineno-15-9" name="__codelineno-15-9"></a><span class="w">    </span><span class="n">toolkitGo</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-10" id="__codelineno-15-10" name="__codelineno-15-10"></a><span class="w">        </span><span class="n">canBeConsumed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a href="#__codelineno-15-11" id="__codelineno-15-11" name="__codelineno-15-11"></a><span class="w">        </span><span class="n">canBeResolved</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a href="#__codelineno-15-12" id="__codelineno-15-12" name="__codelineno-15-12"></a><span class="w">    </span><span class="o">}</span>
+<a href="#__codelineno-15-13" id="__codelineno-15-13" name="__codelineno-15-13"></a><span class="w">    </span><span class="n">goSource</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-14" id="__codelineno-15-14" name="__codelineno-15-14"></a><span class="w">        </span><span class="n">canBeConsumed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a href="#__codelineno-15-15" id="__codelineno-15-15" name="__codelineno-15-15"></a><span class="w">        </span><span class="n">canBeResolved</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a href="#__codelineno-15-16" id="__codelineno-15-16" name="__codelineno-15-16"></a><span class="w">    </span><span class="o">}</span>
+<a href="#__codelineno-15-17" id="__codelineno-15-17" name="__codelineno-15-17"></a><span class="w">    </span><span class="n">yourplugin</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-18" id="__codelineno-15-18" name="__codelineno-15-18"></a><span class="w">        </span><span class="n">canBeConsumed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a href="#__codelineno-15-19" id="__codelineno-15-19" name="__codelineno-15-19"></a><span class="w">        </span><span class="n">canBeResolved</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+<a href="#__codelineno-15-20" id="__codelineno-15-20" name="__codelineno-15-20"></a><span class="w">    </span><span class="o">}</span>
+<a href="#__codelineno-15-21" id="__codelineno-15-21" name="__codelineno-15-21"></a><span class="o">}</span>
+<a href="#__codelineno-15-22" id="__codelineno-15-22" name="__codelineno-15-22"></a>
+<a href="#__codelineno-15-23" id="__codelineno-15-23" name="__codelineno-15-23"></a><span class="n">dependencies</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-24" id="__codelineno-15-24" name="__codelineno-15-24"></a><span class="w">    </span><span class="n">toolkitGo</span><span class="w"> </span><span class="n">project</span><span class="o">(</span><span class="nl">path:</span><span class="w"> </span><span class="s1">':toolkit:go'</span><span class="o">,</span><span class="w"> </span><span class="nl">configuration:</span><span class="w"> </span><span class="s1">'goSource'</span><span class="o">)</span>
+<a href="#__codelineno-15-25" id="__codelineno-15-25" name="__codelineno-15-25"></a><span class="o">}</span>
+<a href="#__codelineno-15-26" id="__codelineno-15-26" name="__codelineno-15-26"></a>
+<a href="#__codelineno-15-27" id="__codelineno-15-27" name="__codelineno-15-27"></a><span class="n">task</span><span class="w"> </span><span class="nf">buildGo</span><span class="o">(</span><span class="nl">type:</span><span class="w"> </span><span class="n">GoLib</span><span class="o">,</span><span class="w"> </span><span class="nl">dependsOn:</span><span class="w"> </span><span class="o">[</span><span class="s1">':toolkit:go:protoc'</span><span class="o">])</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-28" id="__codelineno-15-28" name="__codelineno-15-28"></a><span class="w">    </span><span class="n">inputs</span><span class="o">.</span><span class="na">files</span><span class="o">(</span><span class="n">configurations</span><span class="o">.</span><span class="na">toolkitGo</span><span class="o">)</span>
+<a href="#__codelineno-15-29" id="__codelineno-15-29" name="__codelineno-15-29"></a><span class="w">    </span><span class="n">baseName</span><span class="w"> </span><span class="s1">'yourplugin'</span>
+<a href="#__codelineno-15-30" id="__codelineno-15-30" name="__codelineno-15-30"></a><span class="w">    </span><span class="n">sources</span><span class="w"> </span><span class="n">goFiles</span>
+<a href="#__codelineno-15-31" id="__codelineno-15-31" name="__codelineno-15-31"></a><span class="w">    </span><span class="n">mainFile</span><span class="w"> </span><span class="s1">'yourplugin.go'</span>
+<a href="#__codelineno-15-32" id="__codelineno-15-32" name="__codelineno-15-32"></a><span class="o">}</span>
+<a href="#__codelineno-15-33" id="__codelineno-15-33" name="__codelineno-15-33"></a>
+<a href="#__codelineno-15-34" id="__codelineno-15-34" name="__codelineno-15-34"></a><span class="n">task</span><span class="w"> </span><span class="n">assemble</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-35" id="__codelineno-15-35" name="__codelineno-15-35"></a><span class="w">    </span><span class="n">dependsOn</span><span class="w"> </span><span class="n">buildGo</span>
+<a href="#__codelineno-15-36" id="__codelineno-15-36" name="__codelineno-15-36"></a><span class="o">}</span>
+<a href="#__codelineno-15-37" id="__codelineno-15-37" name="__codelineno-15-37"></a>
+<a href="#__codelineno-15-38" id="__codelineno-15-38" name="__codelineno-15-38"></a><span class="n">dependencies</span><span class="w"> </span><span class="o">{</span>
+<a href="#__codelineno-15-39" id="__codelineno-15-39" name="__codelineno-15-39"></a><span class="w">    </span><span class="n">yourplugin</span><span class="w"> </span><span class="n">files</span><span class="o">(</span><span class="n">buildGo</span><span class="o">)</span>
+<a href="#__codelineno-15-40" id="__codelineno-15-40" name="__codelineno-15-40"></a><span class="w">    </span><span class="n">goSource</span><span class="w"> </span><span class="n">files</span><span class="o">(</span><span class="n">goFiles</span><span class="o">)</span>
+<a href="#__codelineno-15-41" id="__codelineno-15-41" name="__codelineno-15-41"></a><span class="o">}</span>
+</code></pre></div></p>
+<h4 id="step-5-configure-and-use-your-plugin">Step 5: Configure and Use Your Plugin<a class="headerlink" href="#step-5-configure-and-use-your-plugin" title="Permanent link">¶</a></h4>
+<p>Add your plugin to the Paladin configuration:</p>
+<div class="highlight"><pre><span></span><code><a href="#__codelineno-16-1" id="__codelineno-16-1" name="__codelineno-16-1"></a><span class="p">{</span>
+<a href="#__codelineno-16-2" id="__codelineno-16-2" name="__codelineno-16-2"></a><span class="w">  </span><span class="nt">"rpcAuthorizers"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-16-3" id="__codelineno-16-3" name="__codelineno-16-3"></a><span class="w">    </span><span class="nt">"yourplugin"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-16-4" id="__codelineno-16-4" name="__codelineno-16-4"></a><span class="w">      </span><span class="nt">"plugin"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-16-5" id="__codelineno-16-5" name="__codelineno-16-5"></a><span class="w">        </span><span class="nt">"library"</span><span class="p">:</span><span class="w"> </span><span class="s2">"yourplugin.so"</span><span class="p">,</span>
+<a href="#__codelineno-16-6" id="__codelineno-16-6" name="__codelineno-16-6"></a><span class="w">        </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"c-shared"</span>
+<a href="#__codelineno-16-7" id="__codelineno-16-7" name="__codelineno-16-7"></a><span class="w">      </span><span class="p">},</span>
+<a href="#__codelineno-16-8" id="__codelineno-16-8" name="__codelineno-16-8"></a><span class="w">      </span><span class="nt">"config"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{\"yourConfigKey\": \"yourConfigValue\"}"</span>
+<a href="#__codelineno-16-9" id="__codelineno-16-9" name="__codelineno-16-9"></a><span class="w">    </span><span class="p">}</span>
+<a href="#__codelineno-16-10" id="__codelineno-16-10" name="__codelineno-16-10"></a><span class="w">  </span><span class="p">},</span>
+<a href="#__codelineno-16-11" id="__codelineno-16-11" name="__codelineno-16-11"></a><span class="w">  </span><span class="nt">"rpcServer"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a href="#__codelineno-16-12" id="__codelineno-16-12" name="__codelineno-16-12"></a><span class="w">    </span><span class="nt">"authorizers"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"yourplugin"</span><span class="p">]</span>
+<a href="#__codelineno-16-13" id="__codelineno-16-13" name="__codelineno-16-13"></a><span class="w">  </span><span class="p">}</span>
+<a href="#__codelineno-16-14" id="__codelineno-16-14" name="__codelineno-16-14"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="reference-implementation">Reference Implementation<a class="headerlink" href="#reference-implementation" title="Permanent link">¶</a></h3>
+<p>The <code>rpcauth/basicauth/</code> directory provides a complete reference implementation:</p>
+<ul>
+<li><code>basicauth.go</code>: Main entry point</li>
+<li><code>internal/basicauth/handler.go</code>: Implements <code>RPCAuthAPI</code> interface</li>
+<li><code>internal/basicauth/config.go</code>: Configuration parsing</li>
+<li><code>internal/basicauth/authenticator.go</code>: Credential management</li>
+</ul>
+</article>
+</div>
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+</div>
+</main>
+<footer class="md-footer">
+<nav aria-label="Footer" class="md-footer__inner md-grid">
+<a aria-label="Previous: Administering Peers" class="md-footer__link md-footer__link--prev" href="../administering_peers/">
+<div class="md-footer__button md-icon">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+</div>
+<div class="md-footer__title">
+<span class="md-footer__direction">
+                Previous
+              </span>
+<div class="md-ellipsis">
+                Administering Peers
+              </div>
+</div>
+</a>
+<a aria-label="Next: Certificate Management" class="md-footer__link md-footer__link--next" href="../certificate_management/">
+<div class="md-footer__title">
+<span class="md-footer__direction">
+                Next
+              </span>
+<div class="md-ellipsis">
+                Certificate Management
+              </div>
+</div>
+<div class="md-footer__button md-icon">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+</div>
+</a>
+</nav>
+<div class="md-footer-meta md-typeset">
+<div class="md-footer-meta__inner md-grid">
+<div class="md-copyright">
+</div>
+</div>
+</div>
+</footer>
+</div>
+<div class="md-dialog" data-md-component="dialog">
+<div class="md-dialog__inner md-typeset"></div>
+</div>
+<script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "navigation.expand", "navigation.footer", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.sidebar", "navigation.tracking", "navigation.path", "navigation.indexes"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+<script src="../../assets/javascripts/bundle.83f73b43.min.js"></script>
+<script src="../../assets/javascripts/panzoom.min.js"></script><script src="../../assets/javascripts/zoompan.js"></script></body>
+</html>
