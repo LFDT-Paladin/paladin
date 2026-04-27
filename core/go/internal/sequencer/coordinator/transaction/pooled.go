@@ -25,20 +25,6 @@ import (
 	"github.com/google/uuid"
 )
 
-func (t *coordinatorTransaction) hasDependenciesNotAssembled(ctx context.Context) bool {
-	// PreAssemble.DependsOn can only be set when transactions have arrived in the same delegation request.
-	// It is cleared when the dependent transaction is selected for assembly which means there is no way
-	// that this can be cleared if a dependency has not yet been assembled.
-	if len(t.dependencyTracker.GetPreassemblyDeps().GetPrerequisites(t.pt.ID)) > 0 {
-		return true
-	}
-	return t.hasUnassembledChainedDependencies(ctx)
-}
-
-func (t *coordinatorTransaction) hasUnassembledChainedDependencies(_ context.Context) bool {
-	return len(t.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(t.pt.ID)) > 0
-}
-
 func action_InitializeForNewAssembly(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
 	return txn.initializeForNewAssembly(ctx)
 }
@@ -68,7 +54,8 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 }
 
 func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.hasDependenciesNotAssembled(ctx)
+	return txn.dependencyTracker.GetPreassemblyDeps().HasPrerequisites(txn.pt.ID) ||
+		txn.dependencyTracker.GetChainedDeps().HasUnassembledDependencies(txn.pt.ID)
 }
 
 func action_MarkChainedDependencyAssembled(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
@@ -129,7 +116,7 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		t.queueEventForCoordinator(ctx, &DependencyResetEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
@@ -201,12 +188,6 @@ func validator_IsPreAssembleDependency(_ context.Context, txn *coordinatorTransa
 
 func action_RemovePreAssembleDependency(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	txn.dependencyTracker.GetPreassemblyDeps().ClearPrerequisites(txn.pt.ID)
-	return nil
-}
-
-func action_AddPreAssemblePrereqOf(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
-	e := event.(*NewPreAssembleDependencyEvent)
-	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(e.PrereqTransactionID, txn.pt.ID)
 	return nil
 }
 

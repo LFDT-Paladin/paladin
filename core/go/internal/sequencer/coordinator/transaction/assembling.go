@@ -119,7 +119,6 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err
 		}
-		log.L(ctx).Debugf("grapher state locks: %s", string(grapherStatesAndLocks))
 
 		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
 		if err != nil {
@@ -162,7 +161,7 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	dependentIDs = append(dependentIDs, chainedDependents...)
 
 	for _, dependentID := range dependentIDs {
-		t.queueEventForCoordinator(ctx, &DependencySelectedForAssemblyEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencySelectedForAssemblyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},

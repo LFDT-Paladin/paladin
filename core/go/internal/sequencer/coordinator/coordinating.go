@@ -48,14 +48,50 @@ func action_TransactionsDelegated(ctx context.Context, c *coordinator, event com
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
 }
 
+func (c *coordinator) coordinatorTransactionHandleEvent(ctx context.Context, txID uuid.UUID, event common.Event) error {
+	txn := c.transactionsByID[txID]
+	if txn == nil {
+		return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, txID)
+	}
+	return txn.HandleEvent(ctx, event)
+}
+
+func (c *coordinator) getCoordinatorTransactionState(ctx context.Context, id uuid.UUID) (transaction.State, bool) {
+	txn := c.transactionsByID[id]
+	if txn == nil {
+		return transaction.State(0), false
+	}
+	return txn.GetCurrentState(), true
+}
+
 func (c *coordinator) newCoordinatorTransaction(ctx context.Context, originator string, originatorNode string, nodeName string, pt *components.PrivateTransaction, coordinatorSigningIdentity string) transaction.CoordinatorTransaction {
-	return transaction.NewTransaction(ctx, originator, originatorNode, nodeName, pt, coordinatorSigningIdentity, c.transportWriter, c.clock, c.queueEventInternal, func(ctx context.Context, id uuid.UUID) (transaction.State, bool) {
-		txn := c.transactionsByID[id]
-		if txn == nil {
-			return transaction.State(0), false
-		}
-		return txn.GetCurrentState(), true
-	}, c.engineIntegration, c.syncPoints, c.components, c.domainAPI, c.dCtx, c.requestTimeout, c.stateTimeout, c.closingGracePeriod, c.confirmedLockRetentionGracePeriod, c.baseLedgerRevertRetryThreshold, c.assembleErrorRetryThreshhold, c.grapher, c.dependencyTracker, c.metrics)
+	return transaction.NewTransaction(
+		ctx,
+		originator,
+		originatorNode,
+		nodeName,
+		pt,
+		coordinatorSigningIdentity,
+		c.transportWriter,
+		c.clock,
+		c.queueEventInternal,
+		c.coordinatorTransactionHandleEvent,
+		c.getCoordinatorTransactionState,
+		c.engineIntegration,
+		c.syncPoints,
+		c.components,
+		c.domainAPI,
+		c.dCtx,
+		c.requestTimeout,
+		c.stateTimeout,
+		c.closingGracePeriod,
+		c.confirmedLockRetentionGracePeriod,
+		c.baseLedgerRevertRetryThreshold,
+		c.assembleErrorRetryThreshhold,
+		c.grapher,
+		c.dependencyTracker,
+		c.metrics,
+	)
 }
 
 // originator must be a fully qualified identity locator otherwise an error will be returned
@@ -137,6 +173,7 @@ func (c *coordinator) addToDelegatedTransactions(
 			switch previousTransaction.GetCurrentState() {
 			case transaction.State_Initial, transaction.State_PreAssembly_Blocked, transaction.State_Pooled:
 				txID := previousTransaction.GetID()
+				// New delegated transaction depends on the previous one while both are in pre-assembly flow.
 				// There is an incredibly slim possibility that the transaction has actually been repooled, so we are past first assembly,
 				// but since we have no way of checking this it causes no issues to establish the dependency, since the already pooled transaction
 				// will be selected for assembly ahead of this new transaction anyway.
@@ -144,18 +181,6 @@ func (c *coordinator) addToDelegatedTransactions(
 				// This would only be possible if
 				// - the coordinator has been rejecting delegated transaction after reaching its max inflight limit
 				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
-				err := previousTransaction.HandleEvent(ctx, &transaction.NewPreAssembleDependencyEvent{
-					BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
-						TransactionID: txID,
-					},
-					PrereqTransactionID: txn.ID,
-				})
-				if err != nil {
-					txnHandlingError = err
-					delegateAcknowledgementErrors[i] = int64(DelegationAcknowledgementError_CoordinatorError)
-					continue
-				}
-				// New delegated transaction depends on the previous one while both are in pre-assembly flow.
 				c.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(txn.ID, txID)
 			}
 		}
@@ -315,9 +340,8 @@ func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common
 	c.removeTransactionFromPool(e.TransactionID)
 	c.metrics.DecCoordinatingTransactions()
 	c.grapher.Forget(e.TransactionID)
+	c.dependencyTracker.Delete(e.TransactionID)
 
-	// MRW TODO - Clean up the chained-child grapher instance here
-	// c.chainedChildStore.ForgetChainedChild(e.TransactionID)
 	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
 	return nil
 }

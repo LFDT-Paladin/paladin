@@ -566,12 +566,12 @@ func Test_action_NotifyDependantsOfRevertedConfirmation_SendsRevertedEvent(t *te
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(dependentTx).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			dependentTx.GetPrivateTransaction().ID: dependentTx,
+		}).
 		Build()
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, txn.pt.ID)
-	WireCoordinatorLookupsForTesting(txn, dependentTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(txn, dependentTx)
 
 	mockGrapher.EXPECT().Forget(txn.pt.ID)
 	mockGrapher.EXPECT().Forget(dependentTx.pt.ID)
@@ -614,11 +614,11 @@ func Test_notifyDependentsOfRevertedConfirmation_QueuesForDelivery(t *testing.T)
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(dependentTxn).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+		}).
 		Build()
 	depTracker.GetPostAssemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
-	WireCoordinatorLookupsForTesting(txn, dependentTxn)
-	WireCoordinatorTransactionEventDeliveryForTesting(txn, dependentTxn)
 
 	err := txn.notifyDependentsOfRevertedConfirmation(ctx)
 	require.NoError(t, err)
@@ -703,20 +703,21 @@ func TestDependsOn_CascadeFailure_SendsEventToDependentWhichFinalizesItself(t *t
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
+	sharedTransactions := map[uuid.UUID]CoordinatorTransaction{}
 
 	revertedTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
+	sharedTransactions[revertedTx.pt.ID] = revertedTx
 
 	dependentTx, depMocks := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(revertedTx).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
-
-	WireCoordinatorLookupsForTesting(revertedTx, dependentTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(revertedTx, dependentTx)
+	sharedTransactions[dependentTx.pt.ID] = dependentTx
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, revertedTx.pt.ID)
 
@@ -734,7 +735,7 @@ func TestDependsOn_CascadeFailure_SendsEventToDependentWhichFinalizesItself(t *t
 	err := action_CascadeChainedDependencyFailure(ctx, revertedTx, nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, State_Reverted, dependentTx.stateMachine.CurrentState)
+	assert.Equal(t, State_Reverted, dependentTx.stateMachine.GetCurrentState())
 }
 
 func TestDependsOn_FinalizeOnChainedDependencyFailure(t *testing.T) {
@@ -786,26 +787,28 @@ func TestDependsOn_CascadeEviction_SendsEventToDependentWhichEvictsItself(t *tes
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
+	sharedTransactions := map[uuid.UUID]CoordinatorTransaction{}
 
 	evictedTx, _ := NewTransactionBuilderForTesting(t, State_Evicted).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
+	sharedTransactions[evictedTx.GetPrivateTransaction().ID] = evictedTx
 
 	dependentTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(evictedTx).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
+	sharedTransactions[dependentTx.GetPrivateTransaction().ID] = dependentTx
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, evictedTx.pt.ID)
-	WireCoordinatorLookupsForTesting(evictedTx, dependentTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(evictedTx, dependentTx)
 
 	err := action_CascadeChainedDependencyEviction(ctx, evictedTx, nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, State_Evicted, dependentTx.stateMachine.CurrentState)
+	assert.Equal(t, State_Evicted, dependentTx.stateMachine.GetCurrentState())
 }
 
 func TestDependsOn_CascadeEviction_QueuesWhenDependentMissing(t *testing.T) {
@@ -913,21 +916,23 @@ func Test_action_NotifyPreAssembleDependentOfTermination_SendsEventToDependent(t
 	ctx := context.Background()
 	mockGrapher := grapher.NewMockGrapher(t)
 	depTracker := dependencytracker.NewDependencyTracker()
+	sharedTransactions := map[uuid.UUID]CoordinatorTransaction{}
 
 	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
+	sharedTransactions[prereqTx.GetPrivateTransaction().ID] = prereqTx
 
 	dependentTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(prereqTx).
+		CoordinatorTransactions(sharedTransactions).
 		Build()
+	sharedTransactions[dependentTx.GetPrivateTransaction().ID] = dependentTx
 
 	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentTx.pt.ID, prereqTx.pt.ID)
-	WireCoordinatorLookupsForTesting(prereqTx, dependentTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(prereqTx, dependentTx)
 
 	mockGrapher.EXPECT().Forget(dependentTx.pt.ID)
 
@@ -951,20 +956,23 @@ func Test_action_NotifyPreAssembleDependentOfTermination_StaysBlockedWithChained
 	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(chainedDepTx).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			chainedDepTx.GetPrivateTransaction().ID: chainedDepTx,
+		}).
 		Build()
 
 	dependentTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(mockGrapher).
 		DependencyTracker(depTracker).
-		CoordinatorTransactions(prereqTx, chainedDepTx).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			prereqTx.GetPrivateTransaction().ID:     prereqTx,
+			chainedDepTx.GetPrivateTransaction().ID: chainedDepTx,
+		}).
 		Build()
 
 	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentTx.pt.ID, prereqTx.pt.ID)
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, chainedDepTx.pt.ID)
 	depTracker.GetChainedDeps().AddUnassembledDependencies(dependentTx.pt.ID, chainedDepTx.pt.ID)
-	WireCoordinatorLookupsForTesting(prereqTx, dependentTx, chainedDepTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(prereqTx, dependentTx, chainedDepTx)
 
 	err := action_NotifyPreAssembleDependentOfTermination(ctx, prereqTx, nil)
 	require.NoError(t, err)

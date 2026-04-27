@@ -777,9 +777,9 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t 
 	require.NoError(t, err)
 	require.Len(t, batch.PrivateDispatches, 1)
 	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
-	gotChild := depTracker.GetChainedDeps().GetChainedChild(txn.pt.ID)
-	require.NotNil(t, gotChild)
-	assert.Equal(t, childTxID, *gotChild)
+	gotChild, ok := depTracker.GetChainedDeps().GetChainedChild(txn.pt.ID)
+	require.True(t, ok)
+	assert.Equal(t, childTxID, gotChild)
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {

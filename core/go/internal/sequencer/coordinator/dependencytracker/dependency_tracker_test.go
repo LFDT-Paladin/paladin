@@ -253,39 +253,127 @@ func TestChained_AddUnassembledDependencies_SecondTx(t *testing.T) {
 	assert.Len(t, cd.GetUnassembledDependencies(tx1), 1)
 }
 
+func TestChained_HasUnassembledDependencies(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	tx := uuid.New()
+	dep := uuid.New()
+
+	assert.False(t, cd.HasUnassembledDependencies(tx))
+	cd.AddUnassembledDependencies(tx, dep)
+	assert.True(t, cd.HasUnassembledDependencies(tx))
+	cd.DeleteUnassembledDependencies(tx, dep)
+	assert.False(t, cd.HasUnassembledDependencies(tx))
+}
+
 func TestChained_GetChainedChild_UnknownParent(t *testing.T) {
 	cd := NewDependencyTracker().GetChainedDeps()
-	assert.Nil(t, cd.GetChainedChild(uuid.New()))
+	got, ok := cd.GetChainedChild(uuid.New())
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
 }
 
 func TestChained_GetChainedChild_NilWhenChildUnsetOrZero(t *testing.T) {
 	cd := NewDependencyTracker().GetChainedDeps()
 	parent := uuid.New()
 	cd.SetChainedChild(parent, uuid.Nil)
-	assert.Nil(t, cd.GetChainedChild(parent))
+	got, ok := cd.GetChainedChild(parent)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
 }
 
 func TestChained_SetGetForgetChainedChild(t *testing.T) {
 	cd := NewDependencyTracker().GetChainedDeps()
 	parent, child := uuid.New(), uuid.New()
-	assert.Nil(t, cd.GetChainedChild(parent))
+	got, ok := cd.GetChainedChild(parent)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
 
 	cd.SetChainedChild(parent, child)
-	got := cd.GetChainedChild(parent)
-	require.NotNil(t, got)
-	assert.Equal(t, child, *got)
-	// Returned UUID is a copy; mutating the pointer does not change stored child.
-	other := uuid.New()
-	*got = other
-	assert.Equal(t, child, *cd.GetChainedChild(parent))
+	got, ok = cd.GetChainedChild(parent)
+	require.True(t, ok)
+	assert.Equal(t, child, got)
 
 	cd.ForgetChainedChild(parent)
-	assert.Nil(t, cd.GetChainedChild(parent))
+	got, ok = cd.GetChainedChild(parent)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, got)
 }
 
 func TestChained_ForgetChainedChild_NoOpWhenUnknownParent(t *testing.T) {
 	cd := NewDependencyTracker().GetChainedDeps()
 	cd.ForgetChainedChild(uuid.New())
+}
+
+func TestChained_Delete_RemovesMetadataAndDependencyLinks(t *testing.T) {
+	cd := NewDependencyTracker().GetChainedDeps()
+	parent := uuid.New()
+	prereq := uuid.New()
+	dependent := uuid.New()
+	child := uuid.New()
+	unassembled := uuid.New()
+
+	cd.AddPrerequisites(parent, prereq)
+	cd.AddPrerequisites(dependent, parent)
+	cd.SetChainedChild(parent, child)
+	cd.AddUnassembledDependencies(parent, unassembled)
+
+	cd.Delete(parent)
+
+	gotChild, ok := cd.GetChainedChild(parent)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, gotChild)
+	assert.Nil(t, cd.GetUnassembledDependencies(parent))
+	assert.Empty(t, cd.GetPrerequisites(dependent))
+	assert.Empty(t, cd.GetDependents(prereq))
+}
+
+func TestDependencyTracker_Delete_RemovesAcrossAllChains(t *testing.T) {
+	dt := NewDependencyTracker().(*dependencyTracker)
+	txID := uuid.New()
+	preReq := uuid.New()
+	postReq := uuid.New()
+	chainedReq := uuid.New()
+	chainedChild := uuid.New()
+	unassembled := uuid.New()
+
+	dt.preAssembly.AddPrerequisites(txID, preReq)
+	dt.postAssembly.AddPrerequisites(txID, postReq)
+	dt.chained.AddPrerequisites(txID, chainedReq)
+	dt.chained.SetChainedChild(txID, chainedChild)
+	dt.chained.AddUnassembledDependencies(txID, unassembled)
+
+	dt.Delete(txID)
+
+	assert.Empty(t, dt.preAssembly.GetPrerequisites(txID))
+	assert.Empty(t, dt.preAssembly.GetDependents(preReq))
+	assert.Empty(t, dt.postAssembly.GetPrerequisites(txID))
+	assert.Empty(t, dt.postAssembly.GetDependents(postReq))
+	assert.Empty(t, dt.chained.GetPrerequisites(txID))
+	assert.Empty(t, dt.chained.GetDependents(chainedReq))
+	gotChild, ok := dt.chained.GetChainedChild(txID)
+	assert.False(t, ok)
+	assert.Equal(t, uuid.Nil, gotChild)
+	assert.Nil(t, dt.chained.GetUnassembledDependencies(txID))
+}
+
+func TestHasPrerequisitesAndHasDependents(t *testing.T) {
+	d := NewDependencyTracker().GetPostAssemblyDeps()
+	tx := uuid.New()
+	prereq := uuid.New()
+	unknown := uuid.New()
+
+	assert.False(t, d.HasPrerequisites(tx))
+	assert.False(t, d.HasDependents(prereq))
+	assert.False(t, d.HasPrerequisites(unknown))
+	assert.False(t, d.HasDependents(unknown))
+
+	d.AddPrerequisites(tx, prereq)
+	assert.True(t, d.HasPrerequisites(tx))
+	assert.True(t, d.HasDependents(prereq))
+
+	d.ClearPrerequisites(tx)
+	assert.False(t, d.HasPrerequisites(tx))
+	assert.False(t, d.HasDependents(prereq))
 }
 
 func TestConcurrentAddPrerequisites(t *testing.T) {

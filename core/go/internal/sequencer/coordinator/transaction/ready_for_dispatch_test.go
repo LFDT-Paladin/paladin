@@ -31,30 +31,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDependentsMustWait_TrueWhenNotReadyForDispatchDispatchedOrConfirmed(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	assert.True(t, txn.DependentsMustWait(ctx), "dependents should wait until TX reaches ready-for-dispatch, dispatched, or confirmed")
-}
-
-func TestDependentsMustWait_FalseWhenReadyForDispatch(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).Build()
-	assert.False(t, txn.DependentsMustWait(ctx))
-}
-
-func TestDependentsMustWait_FalseWhenDispatched(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
-	assert.False(t, txn.DependentsMustWait(ctx))
-}
-
-func TestDependentsMustWait_FalseWhenConfirmed(t *testing.T) {
-	ctx := context.Background()
-	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-	assert.False(t, txn.DependentsMustWait(ctx))
-}
-
 func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -195,10 +171,10 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
-	txn1.stateMachine.CurrentState = State_Assembling
+	txn1.stateMachine.SetCurrentState(State_Assembling)
 
 	txn2, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
-	txn2.stateMachine.CurrentState = State_Assembling
+	txn2.stateMachine.SetCurrentState(State_Assembling)
 	txn2.pt.PreAssembly = nil
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return([]uuid.UUID{txn1.pt.ID})
@@ -313,16 +289,16 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txn1.pt.ID).Return([]uuid.UUID{txn2.pt.ID})
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txn2.pt.ID).Return(nil).Maybe()
 
-	WireCoordinatorLookupsForTesting(txn1, txn2)
-	txn1.queueEventForCoordinator = func(ctx context.Context, ev common.Event) {
+	txn1.coordinatorTransactionHandleEvent = func(ctx context.Context, id uuid.UUID, ev common.Event) error {
 		if e, ok := ev.(*DependencyReadyEvent); ok {
 			_ = txn2.HandleEvent(ctx, e)
 		}
+		return nil
 	}
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.CurrentState,
+	assert.Equal(t, State_Confirming_Dispatchable, txn2.stateMachine.GetCurrentState(),
 		"DependencyReadyEvent should transition txn2 from State_Blocked to State_Confirming_Dispatchable")
 }
 
@@ -370,7 +346,6 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	// Dependent in State_Blocked: DependencyReady transitions to Confirming_Dispatchable and runs sendPreDispatchRequest,
 	// which fails to hash when PostAssembly is nil (attestation guard still allows the transition).
 	dependentID := uuid.New()
-	// mainTxnID := uuid.New()
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(mockGrapher).
@@ -394,22 +369,9 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 	stateLookup := coordinatorTransactionStateLookup(txByID)
 	txn1.getCoordinatorTransactionState = stateLookup
 	dependentTxn.getCoordinatorTransactionState = stateLookup
-	var deliveryErr error
-	txn1.queueEventForCoordinator = func(ctx context.Context, ev common.Event) {
-		te, ok := ev.(Event)
-		if !ok {
-			return
-		}
-		target, ok := txByID[te.GetTransactionID()].(*coordinatorTransaction)
-		if !ok {
-			return
-		}
-		deliveryErr = target.HandleEvent(ctx, ev)
-	}
 
 	err := txn1.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)
-	require.Error(t, deliveryErr)
 }
 
 func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
@@ -603,8 +565,6 @@ func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 		Build()
 
 	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, depTx.pt.ID)
-	WireCoordinatorLookupsForTesting(depTx, dependentTx)
-	WireCoordinatorTransactionEventDeliveryForTesting(depTx, dependentTx)
 
 	err := depTx.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)

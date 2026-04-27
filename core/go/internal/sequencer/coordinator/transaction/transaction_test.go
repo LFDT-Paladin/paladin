@@ -174,8 +174,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
-	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.CurrentState)
-	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.CurrentState)
+	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.GetCurrentState())
 
 	//move both dependencies forward
 	err = transaction1.HandleEvent(ctx, transaction1Builder.BuildEndorsedEvent(2))
@@ -184,8 +184,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	require.NoError(t, err)
 
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
-	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.CurrentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.CurrentState)
+	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//move one dependency to ready to dispatch
@@ -198,8 +198,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	require.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
-	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.CurrentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
 	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 	//finally move the last dependency to ready to dispatch
@@ -212,8 +212,8 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	require.NoError(t, err)
 
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
-	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.CurrentState)
-	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.CurrentState)
+	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
+	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.GetCurrentState())
 	assert.False(t, transaction3.hasDependenciesNotReady(context.Background()))
 
 }
@@ -251,6 +251,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
@@ -298,6 +299,7 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		transport.NewMockTransportWriter(t),
 		clock,
 		func(ctx context.Context, event common.Event) {},
+		nil,
 		func(ctx context.Context, id uuid.UUID) (State, bool) { return State(0), false },
 		common.NewMockEngineIntegration(t),
 		&syncpoints.MockSyncPoints{},
@@ -425,7 +427,9 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyN
 		TransactionID(txID).
 		Grapher(grapher).
 		ChainedDependencies(depID).
-		CoordinatorTransactions(depTx).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			depTx.GetPrivateTransaction().ID: depTx,
+		}).
 		Build()
 
 	ch := txn.dependencyTracker.GetChainedDeps()
@@ -448,7 +452,9 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqOnlyWhenDependencyPastUnassem
 		TransactionID(txID).
 		Grapher(grapher).
 		ChainedDependencies(depID).
-		CoordinatorTransactions(depTx).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			depTx.GetPrivateTransaction().ID: depTx,
+		}).
 		Build()
 
 	ch := txn.dependencyTracker.GetChainedDeps()

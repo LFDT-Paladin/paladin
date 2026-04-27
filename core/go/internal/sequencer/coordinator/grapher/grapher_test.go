@@ -17,7 +17,6 @@ package grapher
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -259,12 +258,10 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
-	var exp exportableStates
-	require.NoError(t, json.Unmarshal(data, &exp))
-	require.Len(t, exp.LockedState, 1)
-	assert.True(t, exp.LockedState[0].State.Equals(stateID))
-	assert.Equal(t, txID, exp.LockedState[0].Transaction)
-	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), exp.LockedState[0].Type)
+	require.Len(t, data.LockedState, 1)
+	assert.True(t, data.LockedState[0].State.Equals(stateID))
+	assert.Equal(t, txID, data.LockedState[0].Transaction)
+	assert.Equal(t, pldapi.StateLockTypeCreate.Enum(), data.LockedState[0].Type)
 }
 
 func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
@@ -279,9 +276,7 @@ func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
 
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
-	var exp exportableStates
-	require.NoError(t, json.Unmarshal(data, &exp))
-	assert.Empty(t, exp.LockedState)
+	assert.Empty(t, data.LockedState)
 }
 
 func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
@@ -301,10 +296,8 @@ func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
 
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
-	var exp exportableStates
-	require.NoError(t, json.Unmarshal(data, &exp))
-	require.Len(t, exp.LockedState, 1)
-	assert.True(t, exp.LockedState[0].State.Equals(s2))
+	require.Len(t, data.LockedState, 1)
+	assert.True(t, data.LockedState[0].State.Equals(s2))
 }
 
 func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
@@ -320,12 +313,10 @@ func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
-	var exp exportableStates
-	require.NoError(t, json.Unmarshal(data, &exp))
-	require.Len(t, exp.OutputState, 1)
-	assert.True(t, exp.OutputState[0].ID.Equals(stateID))
-	require.Len(t, exp.LockedState, 1)
-	assert.True(t, exp.LockedState[0].State.Equals(stateID))
+	require.Len(t, data.OutputState, 1)
+	assert.True(t, data.OutputState[0].ID.Equals(stateID))
+	require.Len(t, data.LockedState, 1)
+	assert.True(t, data.LockedState[0].State.Equals(stateID))
 }
 
 func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
@@ -333,10 +324,8 @@ func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
 	g := testGrapher(t)
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
-	var exp exportableStates
-	require.NoError(t, json.Unmarshal(data, &exp))
-	assert.Empty(t, exp.OutputState)
-	assert.Empty(t, exp.LockedState)
+	assert.Empty(t, data.OutputState)
+	assert.Empty(t, data.LockedState)
 }
 
 func TestForget_UnknownTransaction_RemoveAllDependencyLinksEarlyReturn(t *testing.T) {

@@ -144,9 +144,9 @@ func (t *coordinatorTransaction) buildDispatchBatch(ctx context.Context) (*syncp
 			seen := make(map[uuid.UUID]bool)
 			var chainedDeps []uuid.UUID
 			for _, depID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetPrerequisites(t.pt.ID), t.dependencyTracker.GetChainedDeps().GetPrerequisites(t.pt.ID)...) {
-				if depChildID := t.dependencyTracker.GetChainedDeps().GetChainedChild(depID); depChildID != nil && !seen[*depChildID] {
-					seen[*depChildID] = true
-					chainedDeps = append(chainedDeps, *depChildID)
+				if depChildID, ok := t.dependencyTracker.GetChainedDeps().GetChainedChild(depID); ok && !seen[depChildID] {
+					seen[depChildID] = true
+					chainedDeps = append(chainedDeps, depChildID)
 				}
 			}
 			if len(chainedDeps) > 0 {

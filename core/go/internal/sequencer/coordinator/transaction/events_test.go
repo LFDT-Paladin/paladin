@@ -812,41 +812,6 @@ func TestStateTransitionEvent_Fields(t *testing.T) {
 	assert.Equal(t, toState, event.ToState)
 }
 
-func TestNewPreAssembleDependencyEvent_Type(t *testing.T) {
-	event := &NewPreAssembleDependencyEvent{}
-	assert.Equal(t, Event_NewPreAssembleDependency, event.Type())
-}
-
-func TestNewPreAssembleDependencyEvent_TypeString(t *testing.T) {
-	event := &NewPreAssembleDependencyEvent{}
-	assert.Equal(t, "Event_NewPreAssembleDependency", event.TypeString())
-}
-
-func TestNewPreAssembleDependencyEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &NewPreAssembleDependencyEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestNewPreAssembleDependencyEvent_Fields(t *testing.T) {
-	txID := uuid.New()
-	prereqTxID := uuid.New()
-
-	event := &NewPreAssembleDependencyEvent{
-		BaseCoordinatorEvent: BaseCoordinatorEvent{
-			TransactionID: txID,
-		},
-		PrereqTransactionID: prereqTxID,
-	}
-
-	assert.Equal(t, txID, event.GetTransactionID())
-	assert.Equal(t, prereqTxID, event.PrereqTransactionID)
-}
-
 func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseCoordinatorEvent implement the Event interface
 	txID := uuid.New()
@@ -967,11 +932,6 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 			},
 		},
 		&TransactionUnknownByOriginatorEvent{
-			BaseCoordinatorEvent: BaseCoordinatorEvent{
-				TransactionID: txID,
-			},
-		},
-		&NewPreAssembleDependencyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: txID,
 			},

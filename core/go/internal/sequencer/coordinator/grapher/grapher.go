@@ -17,7 +17,6 @@ package grapher
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
@@ -46,7 +45,7 @@ import (
 //   - A base-ledger confirmation has occurred so consumed states should be removed
 type Grapher interface {
 	AddMinter(ctx context.Context, state []*components.FullState, txID uuid.UUID) error
-	ExportStatesAndLocks(ctx context.Context) ([]byte, error)
+	ExportStatesAndLocks(ctx context.Context) (ExportableStates, error)
 	Forget(transactionID uuid.UUID)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
@@ -89,6 +88,9 @@ type exportableStates struct {
 	OutputState []*components.StateUpsert `json:"states"`
 	LockedState []*stateLock              `json:"locks"`
 }
+
+type ExportableStates = exportableStates
+type StateLock = stateLock
 
 // Record (idempotently) the existence of a transaction that consumes at least one state.
 // Caller must hold g.mu write lock.
@@ -232,7 +234,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 	}
 }
 
-func (g *grapher) ExportStatesAndLocks(ctx context.Context) ([]byte, error) {
+func (g *grapher) ExportStatesAndLocks(_ context.Context) (ExportableStates, error) {
 	g.mu.RLock()
 	exportableStates := exportableStates{}
 	exportableStates.OutputState = make([]*components.StateUpsert, 0, len(g.outputStatesByMinter))
@@ -244,6 +246,5 @@ func (g *grapher) ExportStatesAndLocks(ctx context.Context) ([]byte, error) {
 		exportableStates.LockedState = append(exportableStates.LockedState, locks...)
 	}
 	g.mu.RUnlock()
-	jsonStr, err := json.Marshal(exportableStates)
-	return jsonStr, err
+	return exportableStates, nil
 }

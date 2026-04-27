@@ -50,20 +50,6 @@ func (t *coordinatorTransaction) updateSigningIdentity() {
 	}
 }
 
-func (t *coordinatorTransaction) DependentsMustWait(ctx context.Context) bool {
-	// The return value of this function is based on whether it has progress far enough that it is safe for its dependents to be dispatched.
-	log.L(ctx).Tracef("Checking if TX %s has progressed to dispatch state and unblocks it dependents", t.pt.ID.String())
-	// Safe to dispatch as soon as the dependency TX is dispatched
-	notReady := t.stateMachine.CurrentState != State_Confirmed &&
-		t.stateMachine.CurrentState != State_Dispatched &&
-		t.stateMachine.CurrentState != State_Ready_For_Dispatch
-	if notReady {
-		log.L(ctx).Tracef("TX %s not dispatched, dependents remain blocked", t.pt.ID.String())
-	}
-	return notReady
-
-}
-
 func guard_HasDependenciesNotReady(ctx context.Context, txn *coordinatorTransaction) bool {
 	return txn.hasDependenciesNotReady(ctx)
 }
@@ -118,7 +104,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		t.queueEventForCoordinator(ctx, &DependencyReadyEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},

@@ -39,7 +39,6 @@ type CoordinatorTransaction interface {
 	HasDispatchedPublicTransaction() bool
 	GetSnapshot(ctx context.Context) (*common.SnapshotPooledTransaction, *common.SnapshotDispatchedTransaction, *common.SnapshotConfirmedTransaction)
 	GetPrivateTransaction() *components.PrivateTransaction
-	DependentsMustWait(ctx context.Context) bool
 }
 
 // coordinatorTransaction represents a transaction that is being coordinated by a contract sequencer agent in Coordinator state.
@@ -88,18 +87,19 @@ type coordinatorTransaction struct {
 	assembleErrorRetryThreshhold      int // this is for rare errors (not assembly reverts, but assemble outright failed at the originator)
 
 	// Dependencies
-	clock                          common.Clock
-	transportWriter                transport.TransportWriter
-	grapher                        grapher.Grapher
-	dependencyTracker              dependencytracker.DependencyTracker
-	engineIntegration              common.EngineIntegration
-	syncPoints                     syncpoints.SyncPoints
-	components                     components.AllComponents
-	domainAPI                      components.DomainSmartContract
-	dCtx                           components.DomainContext
-	queueEventForCoordinator       func(context.Context, common.Event)
-	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool)
-	metrics                        metrics.DistributedSequencerMetrics
+	clock                             common.Clock
+	transportWriter                   transport.TransportWriter
+	grapher                           grapher.Grapher
+	dependencyTracker                 dependencytracker.DependencyTracker
+	engineIntegration                 common.EngineIntegration
+	syncPoints                        syncpoints.SyncPoints
+	components                        components.AllComponents
+	domainAPI                         components.DomainSmartContract
+	dCtx                              components.DomainContext
+	queueEventForCoordinator          func(context.Context, common.Event)
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error
+	getCoordinatorTransactionState    func(context.Context, uuid.UUID) (State, bool)
+	metrics                           metrics.DistributedSequencerMetrics
 }
 
 func NewTransaction(ctx context.Context,
@@ -111,6 +111,7 @@ func NewTransaction(ctx context.Context,
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
@@ -137,6 +138,7 @@ func NewTransaction(ctx context.Context,
 		transportWriter,
 		clock,
 		queueEventForCoordinator,
+		coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState,
 		engineIntegration,
 		syncPoints,
@@ -165,6 +167,7 @@ func newTransaction(
 	transportWriter transport.TransportWriter,
 	clock common.Clock,
 	queueEventForCoordinator func(context.Context, common.Event),
+	coordinatorTransactionHandleEvent func(context.Context, uuid.UUID, common.Event) error,
 	getCoordinatorTransactionState func(context.Context, uuid.UUID) (State, bool),
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
@@ -191,6 +194,7 @@ func newTransaction(
 		transportWriter:                   transportWriter,
 		clock:                             clock,
 		queueEventForCoordinator:          queueEventForCoordinator,
+		coordinatorTransactionHandleEvent: coordinatorTransactionHandleEvent,
 		getCoordinatorTransactionState:    getCoordinatorTransactionState,
 		engineIntegration:                 engineIntegration,
 		syncPoints:                        syncPoints,
@@ -243,8 +247,8 @@ func newTransaction(
 }
 
 func (t *coordinatorTransaction) GetCurrentState() State {
-	t.RLock()
-	defer t.RUnlock()
+	// t.RLock() TODO AM: replace with a state specific lock on the state machine
+	// defer t.RUnlock()
 	return t.stateMachine.GetCurrentState()
 }
 

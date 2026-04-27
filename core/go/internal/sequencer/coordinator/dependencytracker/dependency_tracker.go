@@ -40,6 +40,7 @@ type DependencyTracker interface {
 	GetPreassemblyDeps() DependencyChain
 	GetPostAssemblyDeps() DependencyChain
 	GetChainedDeps() ChainedTransactionDependencyChain
+	Delete(txID uuid.UUID)
 }
 
 // DependencyChain records, for each transaction ID, which other transactions it depends on
@@ -53,6 +54,8 @@ type DependencyChain interface {
 	Delete(transactionID uuid.UUID)                       // Remove the TX entirely, so it has no pre-reqs or dependents and any it did have their respective lists updated
 	GetPrerequisites(txID uuid.UUID) []uuid.UUID
 	GetDependents(txID uuid.UUID) []uuid.UUID
+	HasPrerequisites(txID uuid.UUID) bool
+	HasDependents(txID uuid.UUID) bool
 }
 
 type ChainedTransactionDependencyChain interface {
@@ -60,8 +63,9 @@ type ChainedTransactionDependencyChain interface {
 	AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
 	DeleteUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
 	GetUnassembledDependencies(txID uuid.UUID) map[uuid.UUID]struct{}
+	HasUnassembledDependencies(txID uuid.UUID) bool
 	SetChainedChild(parentID uuid.UUID, childID uuid.UUID)
-	GetChainedChild(parentID uuid.UUID) *uuid.UUID
+	GetChainedChild(parentID uuid.UUID) (uuid.UUID, bool)
 	ForgetChainedChild(parentID uuid.UUID)
 }
 
@@ -74,12 +78,12 @@ type dependencyChain struct {
 type nodeLinks struct {
 	dependsOn []uuid.UUID
 	prereqOf  []uuid.UUID
-	child     uuid.UUID // Optional for dependency chains tracking chained transactions
 }
 
 type chainedDependencies struct {
 	*dependencyChain
 	unassembledDependencies map[uuid.UUID]map[uuid.UUID]struct{}
+	children                map[uuid.UUID]uuid.UUID
 }
 
 type dependencyTracker struct {
@@ -102,6 +106,7 @@ func NewDependencyTracker() DependencyTracker {
 		chained: &chainedDependencies{
 			dependencyChain:         newDependencyChain(true),
 			unassembledDependencies: make(map[uuid.UUID]map[uuid.UUID]struct{}),
+			children:                make(map[uuid.UUID]uuid.UUID),
 		},
 	}
 }
@@ -116,6 +121,12 @@ func (dt *dependencyTracker) GetPostAssemblyDeps() DependencyChain {
 
 func (dt *dependencyTracker) GetChainedDeps() ChainedTransactionDependencyChain {
 	return dt.chained
+}
+
+func (dt *dependencyTracker) Delete(txID uuid.UUID) {
+	dt.chained.Delete(txID)
+	dt.postAssembly.Delete(txID)
+	dt.preAssembly.Delete(txID)
 }
 
 func (cd *chainedDependencies) AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
@@ -151,32 +162,40 @@ func (cd *chainedDependencies) GetUnassembledDependencies(txID uuid.UUID) map[uu
 	return out
 }
 
+func (cd *chainedDependencies) HasUnassembledDependencies(txID uuid.UUID) bool {
+	cd.mu.RLock()
+	defer cd.mu.RUnlock()
+	return len(cd.unassembledDependencies[txID]) > 0
+}
+
 // Functions that manage the (optional) child node for a given chained transaction
 func (cd *chainedDependencies) SetChainedChild(parentID uuid.UUID, childID uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
-	cd.ensure(parentID).child = childID
+	cd.children[parentID] = childID
 }
 
-func (cd *chainedDependencies) GetChainedChild(parentID uuid.UUID) *uuid.UUID {
+func (cd *chainedDependencies) GetChainedChild(parentID uuid.UUID) (uuid.UUID, bool) {
 	cd.mu.RLock()
 	defer cd.mu.RUnlock()
-	n := cd.nodes[parentID]
-	if n == nil || n.child == uuid.Nil {
-		return nil
+	if childID, ok := cd.children[parentID]; ok && childID != uuid.Nil {
+		return childID, true
 	}
-	c := n.child
-	return &c
+	return uuid.Nil, false
 }
 
 func (cd *chainedDependencies) ForgetChainedChild(parentID uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
-	n := cd.nodes[parentID]
-	if n == nil {
-		return
-	}
-	n.child = uuid.Nil
+	delete(cd.children, parentID)
+}
+
+func (cd *chainedDependencies) Delete(id uuid.UUID) {
+	cd.mu.Lock()
+	defer cd.mu.Unlock()
+	delete(cd.children, id)
+	delete(cd.unassembledDependencies, id)
+	cd.dependencyChain.delete(id)
 }
 
 func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {
@@ -194,11 +213,6 @@ func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {
 // AddPrerequisites records that txID depends on each prerequisite (prerequisite IDs must
 // complete before txID). Updates both sides of each edge.
 func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) {
-	if d.singleChainOnly {
-		if len(prereq) > 1 {
-			panic("singleChainOnly dependency chain does not support multiple prerequisites")
-		}
-	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx := d.ensure(txID)
@@ -209,6 +223,10 @@ func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) 
 		prereqNode := d.ensure(preReq)
 		tx.dependsOn = appendUnique(tx.dependsOn, preReq)
 		prereqNode.prereqOf = appendUnique(prereqNode.prereqOf, txID)
+		// TODO AM: are we certain we want to panic here?
+		if d.singleChainOnly && (len(prereqNode.prereqOf) > 1 || len(tx.dependsOn) > 1) {
+			panic("singleChainOnly dependency chain does not support multiple prerequisites")
+		}
 	}
 }
 
@@ -249,6 +267,10 @@ func (d *dependencyChain) ClearDependents(txID uuid.UUID) {
 func (d *dependencyChain) Delete(transactionID uuid.UUID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.delete(transactionID)
+}
+
+func (d *dependencyChain) delete(transactionID uuid.UUID) {
 	tx := d.nodes[transactionID]
 	if tx == nil {
 		return
@@ -287,6 +309,26 @@ func (d *dependencyChain) GetPrerequisites(txID uuid.UUID) []uuid.UUID {
 		return nil
 	}
 	return slices.Clone(tx.dependsOn)
+}
+
+func (d *dependencyChain) HasDependents(txID uuid.UUID) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	tx := d.nodes[txID]
+	if tx == nil {
+		return false
+	}
+	return len(tx.prereqOf) > 0
+}
+
+func (d *dependencyChain) HasPrerequisites(txID uuid.UUID) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	tx := d.nodes[txID]
+	if tx == nil {
+		return false
+	}
+	return len(tx.dependsOn) > 0
 }
 
 func appendUnique(ids []uuid.UUID, add uuid.UUID) []uuid.UUID {

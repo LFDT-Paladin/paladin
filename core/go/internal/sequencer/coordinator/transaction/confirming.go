@@ -151,7 +151,7 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID)
 	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range append(dependents, chainedDependents...) {
-		t.queueEventForCoordinator(ctx, &DependencyConfirmedRevertedEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
@@ -168,7 +168,7 @@ func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorT
 	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
-		t.queueEventForCoordinator(ctx, &ChainedDependencyFailedEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
@@ -207,7 +207,7 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
-		t.queueEventForCoordinator(ctx, &ChainedDependencyEvictedEvent{
+		t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
@@ -227,7 +227,7 @@ func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coor
 	}
 	dependentID := dependents[0] // Preassemble chain cannot have multiple dependents
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
-	t.queueEventForCoordinator(ctx, &PreAssembleDependencyTerminatedEvent{
+	t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: dependentID,
 		},

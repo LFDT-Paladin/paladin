@@ -289,7 +289,9 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToBlocked_OnEndorsed_IfAtt
 
 	builder2 := transaction.NewTransactionBuilderForTesting(t, transaction.State_Endorsement_Gathering).
 		Grapher(mockGrapher).
-		CoordinatorTransactions(txn1).
+		CoordinatorTransactions(map[uuid.UUID]transaction.CoordinatorTransaction{
+			txn1.GetPrivateTransaction().ID: txn1,
+		}).
 		NumberOfRequiredEndorsers(3).
 		NumberOfEndorsements(2).
 		AddPendingEndorsementRequest(2)
@@ -376,6 +378,7 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 	// triggering a transition for A to move from blocked to confirming dispatch
 
 	mockGrapher := grapher.NewMockGrapher(t)
+	sharedTransactions := map[uuid.UUID]transaction.CoordinatorTransaction{}
 
 	txAID := uuid.New()
 	txBID := uuid.New()
@@ -383,37 +386,34 @@ func TestCoordinatorTransaction_Blocked_ToConfirmingDispatch_OnDependencyReady_I
 
 	txnB, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).
 		Grapher(mockGrapher).
+		CoordinatorTransactions(sharedTransactions).
 		TransactionID(txBID).
 		Build()
+	sharedTransactions[txnB.GetPrivateTransaction().ID] = txnB
 
 	builderC := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirming_Dispatchable).
 		Grapher(mockGrapher).
+		CoordinatorTransactions(sharedTransactions).
 		TransactionID(txCID).
 		AddPendingPreDispatchRequest()
 	txnC, _ := builderC.Build()
+	sharedTransactions[txnC.GetPrivateTransaction().ID] = txnC
 
 	builderA := transaction.NewTransactionBuilderForTesting(t, transaction.State_Blocked).
 		Grapher(mockGrapher).
+		CoordinatorTransactions(sharedTransactions).
 		TransactionID(txAID)
 	txnA, _ := builderA.Build()
+	sharedTransactions[txnA.GetPrivateTransaction().ID] = txnA
 
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txAID).Return([]uuid.UUID{txBID, txCID}).Maybe()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txCID).Return([]uuid.UUID{txAID}).Once()
-
-	transaction.WireCoordinatorLookupsForTesting(txnA, txnB, txnC)
-	txByID := map[uuid.UUID]transaction.CoordinatorTransaction{
-		txnA.GetID(): txnA,
-		txnB.GetID(): txnB,
-		txnC.GetID(): txnC,
-	}
-	waitDeliveries := transaction.WireCoordinatorQueueDeliveryFrom(txnC, txByID)
 
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing C to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
 	err := txnC.HandleEvent(ctx, builderC.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
-	waitDeliveries()
 	assert.Equal(t, transaction.State_Confirming_Dispatchable, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 }
 
@@ -448,19 +448,11 @@ func TestCoordinatorTransaction_BlockedNoTransition_OnDependencyReady_IfHasDepen
 	mockGrapher.EXPECT().GetDependencies(mock.Anything, txAID).Return([]uuid.UUID{txBID, txCID}).Maybe()
 	mockGrapher.EXPECT().GetDependents(mock.Anything, txBID).Return([]uuid.UUID{txAID}).Once()
 
-	transaction.WireCoordinatorLookupsForTesting(txnA, txnB)
-	txByID := map[uuid.UUID]transaction.CoordinatorTransaction{
-		txnA.GetID(): txnA,
-		txnB.GetID(): txnB,
-	}
-	waitDeliveries := transaction.WireCoordinatorQueueDeliveryFrom(txnB, txByID)
-
 	//Was in 2 minds whether to a) trigger transaction A indirectly by causing B to become ready via a dispatch confirmation event or b) trigger it directly by sending a dependency ready event
 	// decided on (a) as it is slightly less white box and less brittle to future refactoring of the implementation
 
 	err := txnB.HandleEvent(ctx, builderB.BuildDispatchRequestApprovedEvent())
 	require.NoError(t, err)
-	waitDeliveries()
 
 	assert.Equal(t, transaction.State_Blocked, txnA.GetCurrentState(), "current state is %s", txnA.GetCurrentState().String())
 
