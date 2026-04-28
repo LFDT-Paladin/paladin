@@ -50,6 +50,7 @@ func (gm *groupManager) initRPC() {
 		Add("pgroup_sendMessage", gm.rpcSendMessage()).
 		Add("pgroup_getMessageById", gm.rpcGetMessageByID()).
 		Add("pgroup_queryMessages", gm.rpcQueryMessages()).
+		Add("pgroup_invokeRPC", gm.rpcInvokeRPC()).
 		AddAsync(gm.rpcEventStreams)
 }
 
@@ -201,5 +202,21 @@ func (gm *groupManager) rpcDeleteMessageListener() rpcserver.RPCHandler {
 		ctx = log.WithComponent(ctx, "groupmanager")
 		gm.metrics.IncRpc("deleteMessageListener")
 		return true, gm.DeleteMessageListener(ctx, name)
+	})
+}
+
+func (gm *groupManager) rpcInvokeRPC() rpcserver.RPCHandler {
+	return rpcserver.RPCMethod4(func(ctx context.Context,
+		domainName string,
+		groupID pldtypes.HexBytes,
+		stateQualifier pldapi.StateStatusQualifier,
+		rpcCall pldapi.DomainInvokeRPC,
+	) (pldtypes.RawJSON, error) {
+		ctx = log.WithComponent(ctx, "groupmanager")
+		resultJSON, err := gm.invokeRPC(ctx, gm.p.NOTX(), domainName, groupID, stateQualifier, rpcCall)
+		if err != nil {
+			return nil, err
+		}
+		return pldtypes.RawJSON(resultJSON), nil
 	})
 }

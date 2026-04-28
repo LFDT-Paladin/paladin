@@ -85,3 +85,4 @@ export interface IPrivacyGroupMessage extends IPrivacyGroupMessageInput {
   received: string;
   node: string;
 }
+

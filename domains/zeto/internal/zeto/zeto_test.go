@@ -899,6 +899,14 @@ func TestUnimplementedMethods(t *testing.T) {
 	z := &Zeto{}
 	_, err := z.BuildReceipt(context.Background(), nil)
 	assert.ErrorContains(t, err, "PD210102: Not implemented")
+	_, err = z.ConfigurePrivacyGroup(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InitPrivacyGroup(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.WrapPrivacyGroupEVMTX(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
+	_, err = z.InvokeRPC(context.Background(), nil)
+	assert.ErrorContains(t, err, "PD210085: Not implemented")
 }
 
 func TestGetStateSchemas(t *testing.T) {

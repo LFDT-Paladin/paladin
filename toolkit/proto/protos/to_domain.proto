@@ -258,6 +258,16 @@ message WrapPrivacyGroupEVMTXResponse {
   PreparedTransaction transaction = 1; // The transaction that will result from this against the domain
 }
 
+message InvokeRPCRequest {
+  string state_query_context = 1; // handle to supply to state queries performed during this call
+  string method = 2; // the name of the custom RPC method to invoke
+  string params_json = 3; // JSON-encoded array of parameters (per the domain's contract for this method)
+}
+
+message InvokeRPCResponse {
+  string result_json = 1; // JSON-encoded result (per the domain's contract for this method)
+}
+
 message UnavailableStates {
   optional string first_unavailable_id = 1; // convenience check - set in the order info, input, output, read
   repeated string input_state_ids = 2; // unavailable input state ids

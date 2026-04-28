@@ -136,4 +136,9 @@ public class TestDomain extends DomainInstance {
             IsBaseLedgerRevertRetryableResponse.newBuilder().setRetryable(false).build()
         );
     }
+
+    @Override
+    protected CompletableFuture<InvokeRPCResponse> invokeRPC(InvokeRPCRequest request) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+    }
 }
