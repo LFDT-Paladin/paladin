@@ -46,7 +46,7 @@ import (
 type Grapher interface {
 	AddMinter(ctx context.Context, state []*components.FullState, txID uuid.UUID) error
 	ExportStatesAndLocks(ctx context.Context) (ExportableStates, error)
-	Forget(transactionID uuid.UUID)
+	Forget(ctx context.Context, transactionID uuid.UUID)
 	GetDependencies(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	GetDependents(ctx context.Context, transactionID uuid.UUID) []uuid.UUID
 	LockMintsOnCreate(ctx context.Context, upserts []*components.StateUpsert, states []*components.FullState, transactionID uuid.UUID)
@@ -67,7 +67,7 @@ type grapherTX struct {
 	ID uuid.UUID
 }
 
-func NewGrapher(ctx context.Context, dependencyTracker dependencytracker.DependencyTracker) Grapher {
+func NewGrapher(dependencyTracker dependencytracker.DependencyTracker) Grapher {
 	return &grapher{
 		dependencyChain:           dependencyTracker.GetPostAssemblyDeps(), // The grapher only updates post-assembly dependencies in the tracker
 		transactionByOutputState:  make(map[string]*grapherTX),
@@ -130,11 +130,11 @@ func (g *grapher) AddMinter(ctx context.Context, states []*components.FullState,
 }
 
 // Forget about a transaction from the grapher, including any states it produced, any locks it held, and any dependency chain it is part of
-func (g *grapher) Forget(transactionID uuid.UUID) {
+func (g *grapher) Forget(ctx context.Context, transactionID uuid.UUID) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	g.dependencyChain.Delete(transactionID)
+	g.dependencyChain.Delete(ctx, transactionID)
 	g.forgetMints(transactionID)
 	g.forgetLocks(transactionID)
 	delete(g.transactionByID, transactionID)
@@ -160,7 +160,7 @@ func (g *grapher) GetDependencies(ctx context.Context, transactionID uuid.UUID) 
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	if _, ok := g.transactionByID[transactionID]; ok {
-		return g.dependencyChain.GetPrerequisites(transactionID)
+		return g.dependencyChain.GetPrerequisites(ctx, transactionID)
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func (g *grapher) GetDependents(ctx context.Context, transactionID uuid.UUID) []
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	if _, ok := g.transactionByID[transactionID]; ok {
-		return g.dependencyChain.GetDependents(transactionID)
+		return g.dependencyChain.GetDependents(ctx, transactionID)
 	}
 	return nil
 }
@@ -218,7 +218,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
-			g.dependencyChain.AddPrerequisites(transactionID, mintedBy.ID)
+			g.dependencyChain.AddPrerequisites(ctx, transactionID, mintedBy.ID)
 		}
 	}
 
@@ -229,7 +229,7 @@ func (g *grapher) LockMintsOnReadAndSpend(ctx context.Context, readStates []*com
 
 		// We can spend something the grapher isn't aware of. If the grapher doesn't recognise this state this TX has no dependecies.
 		if mintedBy != nil {
-			g.dependencyChain.AddPrerequisites(transactionID, mintedBy.ID)
+			g.dependencyChain.AddPrerequisites(ctx, transactionID, mintedBy.ID)
 		}
 	}
 }

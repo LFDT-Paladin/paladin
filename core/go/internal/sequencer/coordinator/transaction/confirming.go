@@ -148,8 +148,8 @@ func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coo
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
-	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID)
-	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
+	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID)
+	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
 	for _, dependentId := range append(dependents, chainedDependents...) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -168,7 +168,7 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 // when a transaction reaches State_Reverted. Each dependent handles the event via its own
 // state machine, performing its own finalization (downward pruning of the dependency chain).
 func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
@@ -210,7 +210,7 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 // not yet been assembled, its dependents cannot have been either — so they must be in Pooled
 // or PreAssembly_Blocked.
 func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
@@ -230,11 +230,10 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 // to the pre-assemble dependent (if any) when this transaction reaches a terminal state.
 // This severs the FIFO ordering link so the dependent is not stuck waiting forever.
 func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	dependents := t.dependencyTracker.GetPreassemblyDeps().GetDependents(t.pt.ID)
-	if len(dependents) == 0 {
+	dependentID, hasDependent := t.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, t.pt.ID)
+	if !hasDependent {
 		return nil
 	}
-	dependentID := dependents[0] // Preassemble chain cannot have multiple dependents
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
 	err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{

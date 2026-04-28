@@ -34,15 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// assemblingSharedGrapher returns a grapher backed by a single dependency tracker so multiple
-// test transactions share consistent pre-/chained-assembly edges.
-func assemblingSharedGrapher(ctx context.Context) (grapher.Grapher, dependencytracker.DependencyTracker) {
-	dt := newTestDependencyTracker(ctx)
-	return grapher.NewGrapher(ctx, dt), dt
-}
-
 func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 
 	revertReason := "test revert reason"
@@ -59,7 +52,7 @@ func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 }
 
 func Test_applyPostAssembly_RevertResult(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 
 	revertReason := "test revert"
@@ -84,7 +77,7 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 }
 
 func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 	revertReason := "assembler reverted"
 	postAssembly := &components.TransactionPostAssembly{
@@ -113,7 +106,7 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 }
 
 func Test_applyPostAssembly_ParkResult(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 	postAssembly := &components.TransactionPostAssembly{
 		AssemblyResult: prototk.AssembleTransactionResponse_PARK,
@@ -125,7 +118,7 @@ func Test_applyPostAssembly_ParkResult(t *testing.T) {
 }
 
 func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var capturedEvent common.Event
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		Domain("test-domain").
@@ -158,7 +151,7 @@ func Test_applyPostAssembly_Success_WriteLockStatesError(t *testing.T) {
 }
 
 func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	stateID := pldtypes.HexBytes(uuid.New().String())
 	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(errors.New("add minter error"))
@@ -179,7 +172,7 @@ func Test_applyPostAssembly_Success_AddMinterError(t *testing.T) {
 }
 
 func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -200,7 +193,7 @@ func Test_applyPostAssembly_Success_MapPotentialStatesError(t *testing.T) {
 }
 
 func Test_applyPostAssembly_Success_Complete(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration to succeed
@@ -218,7 +211,7 @@ func Test_applyPostAssembly_Success_Complete(t *testing.T) {
 }
 
 func Test_sendAssembleRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -238,7 +231,7 @@ func Test_sendAssembleRequest_Success(t *testing.T) {
 }
 
 func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	// Mock engine integration
@@ -249,7 +242,7 @@ func Test_sendAssembleRequest_GetBlockHeightError(t *testing.T) {
 }
 
 func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().ExportStatesAndLocks(mock.Anything).Return(grapher.ExportableStates{}, errors.New("export states and locks failed"))
 
@@ -262,7 +255,7 @@ func Test_sendAssembleRequest_ExportStatesAndLocksError(t *testing.T) {
 }
 
 func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).UseMockTransportWriter().Build()
 
 	// Mock engine integration
@@ -278,7 +271,7 @@ func Test_sendAssembleRequest_SendAssembleRequestError(t *testing.T) {
 }
 
 func Test_nudgeAssembleRequest_NilPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	err := txn.nudgeAssembleRequest(ctx)
@@ -286,7 +279,7 @@ func Test_nudgeAssembleRequest_NilPendingRequest(t *testing.T) {
 }
 
 func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		PreAssembly(&components.TransactionPreAssembly{}).
@@ -312,7 +305,7 @@ func Test_nudgeAssembleRequest_WithPendingRequest(t *testing.T) {
 }
 
 func Test_writeLockStates_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(nil)
@@ -322,7 +315,7 @@ func Test_writeLockStates_Success(t *testing.T) {
 }
 
 func Test_writeLockStates_Error(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, txn.pt).Return(errors.New("write error"))
@@ -332,7 +325,7 @@ func Test_writeLockStates_Error(t *testing.T) {
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -357,7 +350,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_Match(t *
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -381,7 +374,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NoMatch(t
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NilPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	event := &AssembleSuccessEvent{
@@ -394,7 +387,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleSuccessEvent_NilPendin
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Match(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -419,7 +412,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleRevertResponseEvent_Ma
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_Match(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -445,7 +438,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_Mat
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NoMatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -470,7 +463,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NoM
 }
 
 func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_NilPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	event := &AssembleErrorResponseEvent{
@@ -484,7 +477,7 @@ func Test_validator_MatchesPendingAssembleRequest_AssembleErrorResponseEvent_Nil
 }
 
 func Test_validator_MatchesPendingAssembleRequest_OtherEventType(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	event := &SelectedEvent{}
@@ -495,7 +488,7 @@ func Test_validator_MatchesPendingAssembleRequest_OtherEventType(t *testing.T) {
 }
 
 func Test_action_SendAssembleRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -513,7 +506,7 @@ func Test_action_SendAssembleRequest_Success(t *testing.T) {
 }
 
 func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
 		Build()
@@ -538,7 +531,7 @@ func Test_action_NudgeAssembleRequest_Success(t *testing.T) {
 }
 
 func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		Domain("test-domain").
 		Build()
@@ -560,7 +553,7 @@ func Test_revertTransactionFailedAssembly_OnCommitCallback(t *testing.T) {
 }
 
 func Test_revertTransactionFailedAssembly_OnRollbackRetry(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
 	revertReason := "test revert reason"
 
@@ -586,7 +579,7 @@ func Test_revertTransactionFailedAssembly_OnRollbackRetry(t *testing.T) {
 }
 
 func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	timeoutEventReceived := false
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockTransportWriter().
@@ -616,7 +609,7 @@ func Test_sendAssembleRequest_schedulesTimer(t *testing.T) {
 }
 
 func Test_guard_CanRetryErroredAssemble_WhenBelowThreshold(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		AssembleErrorCount(0).
 		AssembleErrorRetryThreshold(3).
@@ -626,7 +619,7 @@ func Test_guard_CanRetryErroredAssemble_WhenBelowThreshold(t *testing.T) {
 }
 
 func Test_guard_CanRetryErroredAssemble_WhenAtThreshold(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		AssembleErrorCount(4). // 4 errors, 3 retries allowed
 		AssembleErrorRetryThreshold(3).
@@ -636,7 +629,7 @@ func Test_guard_CanRetryErroredAssemble_WhenAtThreshold(t *testing.T) {
 }
 
 func Test_guard_CanRetryErroredAssemble_WhenAboveThreshold(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		AssembleErrorCount(5).
 		AssembleErrorRetryThreshold(3).
@@ -646,7 +639,7 @@ func Test_guard_CanRetryErroredAssemble_WhenAboveThreshold(t *testing.T) {
 }
 
 func Test_action_AssembleError_IncrementsCountAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 	event := &AssembleErrorResponseEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -659,7 +652,7 @@ func Test_action_AssembleError_IncrementsCountAndReturnsNil(t *testing.T) {
 }
 
 func Test_action_AssembleError_MultipleCallsIncrementCount(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 	event := &AssembleErrorResponseEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -674,7 +667,7 @@ func Test_action_AssembleError_MultipleCallsIncrementCount(t *testing.T) {
 }
 
 func Test_notifyDependentsOfSelection_NoDependents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	err := txn.notifyDependentsOfSelection(ctx)
@@ -682,20 +675,20 @@ func Test_notifyDependentsOfSelection_NoDependents(t *testing.T) {
 }
 
 func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	dependentID := uuid.New()
 	depTracker := dependencytracker.NewDependencyTracker()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).DependencyTracker(depTracker).Build()
-	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
+	depTracker.GetPreassemblyDeps().AddPrerequisite(ctx, dependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
 }
 
 func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(g).DependencyTracker(dt).
@@ -708,15 +701,15 @@ func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 		}).
 		Build()
 
-	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
+	dt.GetPreassemblyDeps().AddPrerequisite(ctx, dependentTxn.pt.ID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
 }
 
 func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(g).DependencyTracker(dt).
@@ -729,15 +722,15 @@ func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 		}).
 		Build()
 
-	dt.GetChainedDeps().AddPrerequisites(depTx.pt.ID, txn.pt.ID)
+	dt.GetChainedDeps().AddPrerequisites(ctx, depTx.pt.ID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.NoError(t, err)
 }
 
 func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNotReady(t *testing.T) {
-	ctx := context.Background()
-	g, _ := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, _ := newTestGrapher()
 
 	dependency, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(g).
@@ -762,8 +755,8 @@ func Test_AssembleSuccess_TransitionsToBlocked_WhenAttestationFulfilledButDepsNo
 }
 
 func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).DependencyTracker(dt).
@@ -772,7 +765,7 @@ func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
 		Build()
-	dt.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	dt.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -780,13 +773,13 @@ func Test_Assembling_DependencyReset_TransitionsToPreAssemblyBlocked(t *testing.
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
-	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID)[depTx.pt.ID]
+	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID)[depTx.pt.ID]
 	assert.True(t, marked)
 }
 
 func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).DependencyTracker(dt).
@@ -795,7 +788,7 @@ func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
 		Build()
-	dt.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	dt.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -803,13 +796,13 @@ func Test_Assembling_DependencyConfirmedReverted_TransitionsToPreAssemblyBlocked
 	})
 	require.NoError(t, err)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
-	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID)[depTx.pt.ID]
+	_, marked := txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID)[depTx.pt.ID]
 	assert.True(t, marked)
 }
 
 func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	depID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -830,8 +823,8 @@ func Test_Assembling_ChainedDependencyFailed_TransitionsToReverted(t *testing.T)
 }
 
 func Test_Assembling_ChainedDependencyEvicted_TransitionsToEvicted(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	depID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -847,22 +840,22 @@ func Test_Assembling_ChainedDependencyEvicted_TransitionsToEvicted(t *testing.T)
 }
 
 func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).DependencyTracker(dt).
 		Build()
 	missingDependentID := uuid.New()
-	dt.GetChainedDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
+	dt.GetChainedDeps().AddPrerequisites(ctx, missingDependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
 	require.Error(t, err)
 }
 
 func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
-	ctx := context.Background()
-	g, dt := assemblingSharedGrapher(ctx)
+	ctx := t.Context()
+	g, dt := newTestGrapher()
 
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Grapher(g).DependencyTracker(dt).
@@ -875,7 +868,7 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 		}).
 		Build()
 
-	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
+	dt.GetPreassemblyDeps().AddPrerequisite(ctx, dependentTxn.pt.ID, txn.pt.ID)
 
 	err := action_NotifyDependentsOfSelection(ctx, txn, nil)
 	require.NoError(t, err)

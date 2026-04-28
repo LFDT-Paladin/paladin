@@ -16,7 +16,6 @@
 package transaction
 
 import (
-	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -740,16 +739,16 @@ func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(g).
 		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	depTracker.GetChainedDeps().SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -762,7 +761,7 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t 
 			},
 		}).
 		Build()
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, dep.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -777,22 +776,22 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t 
 	require.NoError(t, err)
 	require.Len(t, batch.PrivateDispatches, 1)
 	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
-	gotChild, ok := depTracker.GetChainedDeps().GetChainedChild(txn.pt.ID)
+	gotChild, ok := depTracker.GetChainedDeps().GetChainedChild(ctx, txn.pt.ID)
 	require.True(t, ok)
 	assert.Equal(t, childTxID, gotChild)
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(g).
 		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	depTracker.GetChainedDeps().SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -805,7 +804,7 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *test
 			},
 		}).
 		Build()
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, dep.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -823,16 +822,16 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *test
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(g).
 		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	depTracker.GetChainedDeps().SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -845,8 +844,8 @@ func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testin
 			},
 		}).
 		Build()
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, dep.pt.ID)
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, dep.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -865,9 +864,9 @@ func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testin
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(g).
@@ -886,7 +885,7 @@ func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
 			},
 		}).
 		Build()
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, dep.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -904,10 +903,10 @@ func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_SkipsDepNotInGrapher(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	missingDepID := uuid.New()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -920,7 +919,7 @@ func Test_buildDispatchBatch_ChainedPrivate_SkipsDepNotInGrapher(t *testing.T) {
 			},
 		}).
 		Build()
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, missingDepID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, missingDepID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{

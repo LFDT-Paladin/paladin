@@ -16,7 +16,6 @@
 package grapher
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -30,19 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCtx(t *testing.T) context.Context {
-	t.Helper()
-	return context.Background()
-}
-
 func testGrapher(t *testing.T) Grapher {
 	t.Helper()
-	return NewGrapher(testCtx(t), dependencytracker.NewDependencyTracker())
+	return NewGrapher(dependencytracker.NewDependencyTracker())
 }
 
 func testGrapherUnlocked(t *testing.T) *grapher {
 	t.Helper()
-	return NewGrapher(testCtx(t), dependencytracker.NewDependencyTracker()).(*grapher)
+	return NewGrapher(dependencytracker.NewDependencyTracker()).(*grapher)
 }
 
 func TestGrapher_NewGrapher(t *testing.T) {
@@ -51,7 +45,7 @@ func TestGrapher_NewGrapher(t *testing.T) {
 }
 
 func TestAddMinter_Success(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("aa", 32))
@@ -68,7 +62,7 @@ func TestAddMinter_Success(t *testing.T) {
 }
 
 func TestAddMinter_MultipleStates_AppendsToOutputStatesByMinter(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("01", 32))
@@ -84,7 +78,7 @@ func TestAddMinter_MultipleStates_AppendsToOutputStatesByMinter(t *testing.T) {
 }
 
 func TestAddMinter_RegistersSameGrapherTXInTransactionByIDAndTransactionByOutputState(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("c0", 32))
@@ -104,7 +98,7 @@ func TestAddMinter_RegistersSameGrapherTXInTransactionByIDAndTransactionByOutput
 }
 
 func TestAddMinter_AlreadyExists(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	firstMinter := uuid.New()
 	secondMinter := uuid.New()
@@ -128,7 +122,7 @@ func TestAddConsumer_Idempotent(t *testing.T) {
 }
 
 func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
@@ -142,7 +136,7 @@ func TestLockMintsOnSpend_DependsOnMinter(t *testing.T) {
 }
 
 func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	minterID := uuid.New()
 	readerID := uuid.New()
@@ -156,19 +150,19 @@ func TestLockMintsOnRead_DependsOnMinter(t *testing.T) {
 }
 
 func TestGetDependencies_UnknownTransaction_ReturnsNil(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	assert.Nil(t, g.GetDependencies(ctx, uuid.New()))
 }
 
 func TestGetDependents_UnknownTransaction_ReturnsNil(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	assert.Nil(t, g.GetDependents(ctx, uuid.New()))
 }
 
 func TestGetDependents_ConsumerWithNoReadPrereqs_ReturnsEmptySlice(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
@@ -178,7 +172,7 @@ func TestGetDependents_ConsumerWithNoReadPrereqs_ReturnsEmptySlice(t *testing.T)
 }
 
 func TestGetDependents_ConsumerWithNoSpendPrereqs_ReturnsEmptySlice(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("b1", 32))
@@ -188,7 +182,7 @@ func TestGetDependents_ConsumerWithNoSpendPrereqs_ReturnsEmptySlice(t *testing.T
 }
 
 func TestGetDependents_ReturnsDependentsViaPrerequisiteEdges(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	prereqID := uuid.New()
 	dependentA := uuid.New()
@@ -198,15 +192,15 @@ func TestGetDependents_ReturnsDependentsViaPrerequisiteEdges(t *testing.T) {
 	g.addConsumer(prereqID)
 	g.addConsumer(dependentA)
 	g.addConsumer(dependentB)
-	g.dependencyChain.AddPrerequisites(dependentA, prereqID)
-	g.dependencyChain.AddPrerequisites(dependentB, prereqID)
+	g.dependencyChain.AddPrerequisites(ctx, dependentA, prereqID)
+	g.dependencyChain.AddPrerequisites(ctx, dependentB, prereqID)
 	g.mu.Unlock()
 
 	assert.ElementsMatch(t, []uuid.UUID{dependentA, dependentB}, g.GetDependents(ctx, prereqID))
 }
 
 func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
@@ -217,7 +211,7 @@ func TestLockMintsOnSpend_UnknownReadState_NoDependency(t *testing.T) {
 }
 
 func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	consumerID := uuid.New()
 	unknown := pldtypes.MustParseHexBytes("0x" + strings.Repeat("33", 32))
@@ -228,7 +222,7 @@ func TestLockMintsOnSpend_UnknownSpendState_NoDependency(t *testing.T) {
 }
 
 func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	s1 := pldtypes.MustParseHexBytes("0x" + strings.Repeat("de", 32))
@@ -244,7 +238,7 @@ func TestLockMintsOnSpend_MultipleStates_AppendsSpendLocks(t *testing.T) {
 }
 
 func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
 	createdBy := uuid.New()
@@ -265,7 +259,7 @@ func TestLockMintsOnCreate_LocksPotentialStates(t *testing.T) {
 }
 
 func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
 	stateID := pldtypes.MustParseHexBytes("0x" + strings.Repeat("90", 32))
@@ -280,7 +274,7 @@ func TestLockMintsOnCreate_NoCreatedBy_NoLocks(t *testing.T) {
 }
 
 func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	txID := uuid.New()
 	createdBy := uuid.New()
@@ -301,7 +295,7 @@ func TestLockMintsOnCreate_MixedCreatedBy_AppendsOnlyPotential(t *testing.T) {
 }
 
 func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
@@ -320,7 +314,7 @@ func TestExportStatesAndLocks_OutputAndLocks(t *testing.T) {
 }
 
 func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	data, err := g.ExportStatesAndLocks(ctx)
 	require.NoError(t, err)
@@ -329,15 +323,15 @@ func TestExportStatesAndLocks_EmptyGrapher(t *testing.T) {
 }
 
 func TestForget_UnknownTransaction_RemoveAllDependencyLinksEarlyReturn(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapher(t)
 	unknown := uuid.New()
-	g.Forget(unknown)
+	g.Forget(ctx, unknown)
 	assert.Nil(t, g.GetDependencies(ctx, unknown))
 }
 
 func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	ghostDependent := uuid.New()
 	realDependent := uuid.New()
@@ -350,16 +344,16 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingDependent(t *testing.T) {
 
 	g.mu.Lock()
 	g.addConsumer(ghostDependent)
-	g.dependencyChain.AddPrerequisites(ghostDependent, minterID)
+	g.dependencyChain.AddPrerequisites(ctx, ghostDependent, minterID)
 	g.mu.Unlock()
 
-	g.Forget(minterID)
+	g.Forget(ctx, minterID)
 
 	assert.Empty(t, g.GetDependencies(ctx, realDependent))
 }
 
 func TestForget_RemoveAllDependencyLinks_SkipsMissingPrerequisite(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	ghostPrereq := uuid.New()
@@ -372,16 +366,16 @@ func TestForget_RemoveAllDependencyLinks_SkipsMissingPrerequisite(t *testing.T) 
 	g.mu.Lock()
 	g.addConsumer(ghostPrereq)
 	g.addConsumer(txID)
-	g.dependencyChain.AddPrerequisites(txID, minterID, ghostPrereq)
+	g.dependencyChain.AddPrerequisites(ctx, txID, minterID, ghostPrereq)
 	g.mu.Unlock()
 
-	g.Forget(txID)
+	g.Forget(ctx, txID)
 
 	assert.NotContains(t, g.GetDependents(ctx, minterID), txID)
 }
 
 func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
@@ -393,13 +387,13 @@ func TestForget_ClearsPrereqOnMinterWhenConsumerForgotten(t *testing.T) {
 
 	require.Contains(t, g.GetDependents(ctx, minterID), consumerID)
 
-	g.Forget(consumerID)
+	g.Forget(ctx, consumerID)
 
 	assert.NotContains(t, g.GetDependents(ctx, minterID), consumerID)
 }
 
 func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	minterID := uuid.New()
 	consumerID := uuid.New()
@@ -408,7 +402,7 @@ func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 
 	require.NoError(t, g.AddMinter(ctx, []*components.FullState{state}, minterID))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{}, []*components.FullState{state}, consumerID)
-	g.Forget(minterID)
+	g.Forget(ctx, minterID)
 	_, ok := g.transactionByOutputState[stateID.String()]
 	assert.False(t, ok)
 	_, ok = g.outputStatesByMinter[minterID]
@@ -416,19 +410,19 @@ func TestForget_ClearsMinterConsumerAndLocks(t *testing.T) {
 }
 
 func TestForget_ClearsLocksForTransaction(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	g := testGrapherUnlocked(t)
 	txID := uuid.New()
 	s := pldtypes.MustParseHexBytes("0x" + strings.Repeat("ab", 32))
 	g.LockMintsOnReadAndSpend(ctx, []*components.FullState{{ID: s}}, []*components.FullState{}, txID)
 	require.Contains(t, g.lockedStatesByTransaction, txID)
-	g.Forget(txID)
+	g.Forget(ctx, txID)
 	_, ok := g.lockedStatesByTransaction[txID]
 	assert.False(t, ok)
 }
 
 func TestLockMints_InitializesNilLockedStatesMap(t *testing.T) {
-	ctx := testCtx(t)
+	ctx := t.Context()
 	deps := dependencytracker.NewDependencyTracker()
 	g := &grapher{
 		dependencyChain:           deps.GetPostAssemblyDeps(),

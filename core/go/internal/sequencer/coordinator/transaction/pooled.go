@@ -35,10 +35,10 @@ func (t *coordinatorTransaction) initializeForNewAssembly(ctx context.Context) e
 	// and only time we pool & assemble this transaction but if we're re-pooling for any reason we must clear the post-assembly and any post-assembly
 	// dependencies from a previous version of the grapher.
 	t.pt.CleanUpPostAssemblyData()
-	t.dependencyTracker.GetChainedDeps().ForgetChainedChild(t.pt.ID)
+	t.dependencyTracker.GetChainedDeps().ForgetChainedChild(ctx, t.pt.ID)
 	// Clear post-assembly dependencies. Chained dependencies are tracked separately and persist.
 	t.pendingPreDispatchRequest = nil
-	t.grapher.Forget(t.pt.ID)
+	t.grapher.Forget(ctx, t.pt.ID)
 	t.clearTimeoutSchedules()
 	t.resetEndorsementRequests(ctx)
 
@@ -49,23 +49,23 @@ func action_ResetTransactionLocks(ctx context.Context, txn *coordinatorTransacti
 	log.L(ctx).Debugf("resetting transaction locks for %s", txn.pt.ID.String())
 	// Clear minted-state index immediately when resetting in-memory transaction state to avoid
 	// later assembles binding to stale minters that have already been reset/reverted.
-	txn.grapher.Forget(txn.pt.ID)
+	txn.grapher.Forget(ctx, txn.pt.ID)
 	return nil
 }
 
 func guard_HasUnassembledDependencies(ctx context.Context, txn *coordinatorTransaction) bool {
-	return txn.dependencyTracker.GetPreassemblyDeps().HasPrerequisites(txn.pt.ID) ||
-		txn.dependencyTracker.GetChainedDeps().HasUnassembledDependencies(txn.pt.ID)
+	return txn.dependencyTracker.GetPreassemblyDeps().HasPrerequisite(ctx, txn.pt.ID) ||
+		txn.dependencyTracker.GetChainedDeps().HasUnassembledDependencies(ctx, txn.pt.ID)
 }
 
 func action_MarkChainedDependencyAssembled(ctx context.Context, txn *coordinatorTransaction, event common.Event) error {
 	e := event.(*DependencySelectedForAssemblyEvent)
 	log.L(ctx).Debugf("marking chained dependency %s as assembled for TX %s", e.SourceTransactionID, txn.pt.ID)
-	txn.dependencyTracker.GetChainedDeps().DeleteUnassembledDependencies(txn.pt.ID, e.SourceTransactionID)
+	txn.dependencyTracker.GetChainedDeps().DeleteUnassembledDependencies(ctx, txn.pt.ID, e.SourceTransactionID)
 	return nil
 }
 
-func validator_IsChainedDependency(_ context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+func validator_IsChainedDependency(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
 	var sourceID uuid.UUID
 	switch e := event.(type) {
 	case *DependencySelectedForAssemblyEvent:
@@ -77,7 +77,7 @@ func validator_IsChainedDependency(_ context.Context, txn *coordinatorTransactio
 	default:
 		return false, nil
 	}
-	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID) {
+	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, txn.pt.ID) {
 		if depID == sourceID {
 			return true, nil
 		}
@@ -96,7 +96,7 @@ func action_MarkChainedDependencyUnassembled(ctx context.Context, txn *coordinat
 		return nil
 	}
 	log.L(ctx).Debugf("marking chained dependency %s as unassembled for TX %s", sourceID, txn.pt.ID)
-	txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, sourceID)
+	txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, sourceID)
 	return nil
 }
 
@@ -110,12 +110,12 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 	// Once dependents have been notified of reset, remove ourselves from the grapher (and indirectly
 	// clear post-assemble dependencies) so repeated reset events while dispatched are no-ops and stale
 	// dependency links are dropped.
-	txn.grapher.Forget(txn.pt.ID)
+	txn.grapher.Forget(ctx, txn.pt.ID)
 	return nil
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
-	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
+	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)...) {
 		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
@@ -132,7 +132,7 @@ func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 // Used on Event_Delegated to short-circuit directly to State_Reverted when a dependency has already
 // failed by the time this transaction is created.
 func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
-	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID) {
+	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, txn.pt.ID) {
 		state, ok := txn.getCoordinatorTransactionState(ctx, depID)
 		if ok && state == State_Reverted {
 			return true
@@ -145,7 +145,7 @@ func guard_HasRevertedChainedDependency(ctx context.Context, txn *coordinatorTra
 // Used on Event_Delegated to short-circuit directly to State_Evicted when a dependency has already
 // been evicted by the time this transaction is created.
 func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTransaction) bool {
-	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID) {
+	for _, depID := range txn.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, txn.pt.ID) {
 		state, ok := txn.getCoordinatorTransactionState(ctx, depID)
 		if ok && state == State_Evicted {
 			return true
@@ -158,7 +158,7 @@ func guard_HasEvictedChainedDependency(ctx context.Context, txn *coordinatorTran
 // reverted one and queues a finalization with the appropriate failure message. This handles the race
 // where a chained dependency has already reverted by the time this transaction is delegated.
 func action_FinalizeOnRevertedChainedDependencyAtCreation(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, depID := range t.dependencyTracker.GetChainedDeps().GetPrerequisites(t.pt.ID) {
+	for _, depID := range t.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, t.pt.ID) {
 		state, ok := t.getCoordinatorTransactionState(ctx, depID)
 		if ok && state == State_Reverted {
 			log.L(ctx).Infof("finalizing TX %s at creation due to chained dependency %s already reverted", t.pt.ID, depID)
@@ -183,18 +183,18 @@ func action_FinalizeOnRevertedChainedDependencyAtCreation(ctx context.Context, t
 	return nil
 }
 
-func validator_IsPreAssembleDependency(_ context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
+func validator_IsPreAssembleDependency(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {
 	e := event.(*DependencySelectedForAssemblyEvent)
-	pre := txn.dependencyTracker.GetPreassemblyDeps().GetPrerequisites(txn.pt.ID)
-	return len(pre) > 0 && pre[0] == e.SourceTransactionID, nil
+	pre, ok := txn.dependencyTracker.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
+	return ok && pre == e.SourceTransactionID, nil
 }
 
 func action_RemovePreAssembleDependency(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.dependencyTracker.GetPreassemblyDeps().ClearPrerequisites(txn.pt.ID)
+	txn.dependencyTracker.GetPreassemblyDeps().ClearPrerequisite(ctx, txn.pt.ID)
 	return nil
 }
 
-func action_RemovePreAssemblePrereqOf(_ context.Context, txn *coordinatorTransaction, _ common.Event) error {
-	txn.dependencyTracker.GetPreassemblyDeps().ClearDependents(txn.pt.ID)
+func action_RemovePreAssemblePrereqOf(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+	txn.dependencyTracker.GetPreassemblyDeps().ClearDependent(ctx, txn.pt.ID)
 	return nil
 }

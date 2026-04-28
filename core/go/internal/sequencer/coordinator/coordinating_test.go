@@ -36,7 +36,7 @@ import (
 )
 
 func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -53,7 +53,7 @@ func Test_addToDelegatedTransactions_NewTransactionError_ReturnsError(t *testing
 }
 
 func Test_addToDelegatedTransactions_AddsTransactionInPreDispatchFlowState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -85,7 +85,7 @@ func Test_addToDelegatedTransactions_AddsTransactionInPreDispatchFlowState(t *te
 }
 
 func Test_addToDelegatedTransactions_AddsTransactionInPooledFlowState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -114,7 +114,7 @@ func Test_addToDelegatedTransactions_AddsTransactionInPooledFlowState(t *testing
 }
 
 func Test_addToDelegatedTransactions_DuplicateTransaction_SkipsAndReturnsNoError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -147,7 +147,7 @@ func Test_addToDelegatedTransactions_DuplicateTransaction_SkipsAndReturnsNoError
 }
 
 func Test_coordinatorTransactionHandleEvent_TxnNotFound_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	c := &coordinator{
 		transactionsByID: map[uuid.UUID]transaction.CoordinatorTransaction{},
@@ -159,7 +159,7 @@ func Test_coordinatorTransactionHandleEvent_TxnNotFound_ReturnsError(t *testing.
 }
 
 func Test_coordinatorTransactionHandleEvent_DelegatesToTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	handleErr := fmt.Errorf("handle failed")
 	mockTxn := transaction.NewMockCoordinatorTransaction(t)
@@ -176,7 +176,7 @@ func Test_coordinatorTransactionHandleEvent_DelegatesToTransaction(t *testing.T)
 }
 
 func Test_getCoordinatorTransactionState_TxnNotFound_ReturnsFalse(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	c := &coordinator{
 		transactionsByID: map[uuid.UUID]transaction.CoordinatorTransaction{},
 	}
@@ -187,7 +187,7 @@ func Test_getCoordinatorTransactionState_TxnNotFound_ReturnsFalse(t *testing.T) 
 }
 
 func Test_getCoordinatorTransactionState_TxnFound_ReturnsState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txID := uuid.New()
 	mockTxn := transaction.NewMockCoordinatorTransaction(t)
 	mockTxn.EXPECT().GetCurrentState().Return(transaction.State_Confirming_Dispatchable).Once()
@@ -203,7 +203,7 @@ func Test_getCoordinatorTransactionState_TxnFound_ReturnsState(t *testing.T) {
 }
 
 func Test_addTransactionToBackOfPool_WhenNotInPool_Appends(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -216,7 +216,7 @@ func Test_addTransactionToBackOfPool_WhenNotInPool_Appends(t *testing.T) {
 }
 
 func Test_addTransactionToBackOfPool_WhenAlreadyInPool_DoesNotDuplicate(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -230,7 +230,7 @@ func Test_addTransactionToBackOfPool_WhenAlreadyInPool_DoesNotDuplicate(t *testi
 }
 
 func Test_action_PoolTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -247,7 +247,7 @@ func Test_action_PoolTransaction(t *testing.T) {
 }
 
 func Test_action_QueueTransactionForDispatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -262,7 +262,7 @@ func Test_action_QueueTransactionForDispatch(t *testing.T) {
 }
 
 func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -279,7 +279,7 @@ func Test_action_CleanUpTransaction_RemovesFromMap(t *testing.T) {
 }
 
 func Test_action_CleanUpTransaction_RemovesFromPool(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -326,7 +326,7 @@ func Test_removeTransactionFromPool_NoOpIfNotInPool(t *testing.T) {
 }
 
 func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -343,7 +343,7 @@ func Test_action_CleanUpTransaction_GrapherForgetError_LogsButReturnsNil(t *test
 }
 
 func Test_validator_TransactionStateTransitionFrom(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testCases := []struct {
 		name       string
 		states     []transaction.State
@@ -395,7 +395,7 @@ func Test_validator_TransactionStateTransitionFrom(t *testing.T) {
 }
 
 func Test_validator_TransactionStateTransitionTo(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testCases := []struct {
 		name       string
 		states     []transaction.State
@@ -447,7 +447,7 @@ func Test_validator_TransactionStateTransitionTo(t *testing.T) {
 }
 
 func Test_addToDelegatedTransactions_WhenMaxInflightReached_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	config := builder.GetSequencerConfig()
@@ -515,7 +515,7 @@ func assertPooledTransactionsIncreasingByDelegationIndex(t *testing.T, c *coordi
 // Rounds 0-6 return max-inflight error (tail txns rejected); rounds 7-9 fit entirely under the cap.
 // After each addToDelegatedTransactions, the in-flight set is exactly txns[round:round+wantLen] (e.g. round 1 => txns 2,3,4).
 func Test_addToDelegatedTransactions_MaxInflightThree_SlidingWindowKeepsOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -561,7 +561,7 @@ func Test_addToDelegatedTransactions_MaxInflightThree_SlidingWindowKeepsOrder(t 
 }
 
 func Test_addToDelegatedTransactions_HandleEventError_ContinuesAndReturnsNoError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -586,7 +586,7 @@ func Test_addToDelegatedTransactions_HandleEventError_ContinuesAndReturnsNoError
 }
 
 func Test_addToDelegatedTransactions_SendDelegationRequestAcknowledgmentError_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -616,7 +616,7 @@ func Test_addToDelegatedTransactions_SendDelegationRequestAcknowledgmentError_Re
 }
 
 func Test_action_SelectTransaction_WhenNoPooledTransaction_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -627,7 +627,7 @@ func Test_action_SelectTransaction_WhenNoPooledTransaction_ReturnsNil(t *testing
 }
 
 func Test_action_cancelCurrentlyAssemblingTransaction_NoAssemblingTransaction_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -637,14 +637,14 @@ func Test_action_cancelCurrentlyAssemblingTransaction_NoAssemblingTransaction_Re
 }
 
 func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_CancelsIt(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
 
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Grapher(mockGrapher).Build()
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 	c.transactionsByID[txn.GetID()] = txn
 
 	err := action_cancelCurrentlyAssemblingTransaction(ctx, c, nil)
@@ -654,7 +654,7 @@ func Test_action_cancelCurrentlyAssemblingTransaction_WithAssemblingTransaction_
 }
 
 func Test_action_PoolTransaction_WhenTxnNotInMap_NoOp(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -668,7 +668,7 @@ func Test_action_PoolTransaction_WhenTxnNotInMap_NoOp(t *testing.T) {
 }
 
 func Test_action_QueueTransactionForDispatch_WhenContextDone_DoesNotBlock(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -686,7 +686,7 @@ func Test_action_QueueTransactionForDispatch_WhenContextDone_DoesNotBlock(t *tes
 }
 
 func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_EstablishesDependency(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -723,7 +723,7 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_Estab
 }
 
 func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_DoesNotRequireHandleEvent(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -759,7 +759,7 @@ func Test_addToDelegatedTransactions_PreviousTransactionInPreAssemblyState_DoesN
 }
 
 func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -799,7 +799,7 @@ func Test_addToDelegatedTransactions_MockTransactionHandleEventReturnsError(t *t
 }
 
 func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactionError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -852,7 +852,7 @@ func Test_addToDelegatedTransactions_SubsequentTransactionGetsPreviousTransactio
 }
 
 func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccepted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -923,7 +923,7 @@ func Test_addToDelegatedTransactions_ErrorStopsSubsequentTransactionsBeingAccept
 }
 
 func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourAndAcceptsRestInOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -1068,7 +1068,7 @@ func Test_addToDelegatedTransactions_FifthFailsThenFullRetry_PreservesFirstFourA
 }
 
 func Test_addToDelegatedTransactions_PreviousTransactionNotInPreAssemblyState_NoDependencyEstablished(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)

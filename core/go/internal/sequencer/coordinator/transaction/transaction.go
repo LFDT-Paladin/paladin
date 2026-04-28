@@ -234,9 +234,9 @@ func newTransaction(
 				log.L(txCtx).Warnf("Dependency %s not found in grapher for TX %s, assuming finalized", depID, pt.ID)
 				continue
 			}
-			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(pt.ID, depID)
+			txn.dependencyTracker.GetChainedDeps().AddPrerequisites(txCtx, pt.ID, depID)
 			if state == State_Initial || state == State_PreAssembly_Blocked || state == State_Pooled {
-				txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(pt.ID, depID)
+				txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(txCtx, pt.ID, depID)
 			}
 		}
 	}

@@ -16,7 +16,6 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -25,7 +24,7 @@ import (
 )
 
 func TestGetSnapshot_PooledStates_StateBlocked(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Originator(originator).
@@ -40,7 +39,7 @@ func TestGetSnapshot_PooledStates_StateBlocked(t *testing.T) {
 }
 
 func TestGetSnapshot_PooledStates_StateConfirmingDispatchable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		Originator(originator).
@@ -55,7 +54,7 @@ func TestGetSnapshot_PooledStates_StateConfirmingDispatchable(t *testing.T) {
 }
 
 func TestGetSnapshot_PooledStates_StateEndorsementGathering(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Originator(originator).
@@ -70,7 +69,7 @@ func TestGetSnapshot_PooledStates_StateEndorsementGathering(t *testing.T) {
 }
 
 func TestGetSnapshot_PooledStates_StatePreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_PreAssembly_Blocked).
 		Originator(originator).
@@ -85,7 +84,7 @@ func TestGetSnapshot_PooledStates_StatePreAssemblyBlocked(t *testing.T) {
 }
 
 func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Originator(originator).
@@ -100,7 +99,7 @@ func TestGetSnapshot_PooledStates_StateAssembling(t *testing.T) {
 }
 
 func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Originator(originator).
@@ -115,7 +114,7 @@ func TestGetSnapshot_PooledStates_StatePooled(t *testing.T) {
 }
 
 func TestGetSnapshot_DispatchedStates_WithSigner_StateReadyForDispatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	nonce := uint64(42)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -140,7 +139,7 @@ func TestGetSnapshot_DispatchedStates_WithSigner_StateReadyForDispatch(t *testin
 }
 
 func TestGetSnapshot_DispatchedStates_WithSigner_StateDispatched(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	nonce := uint64(42)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -165,7 +164,7 @@ func TestGetSnapshot_DispatchedStates_WithSigner_StateDispatched(t *testing.T) {
 }
 
 func TestGetSnapshot_DispatchedState_WithoutSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	nonce := uint64(99)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
 
@@ -184,7 +183,7 @@ func TestGetSnapshot_DispatchedState_WithoutSigner(t *testing.T) {
 }
 
 func TestGetSnapshot_Confirmed_WithSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@node1"
 	nonce := uint64(11)
 	submissionHash := pldtypes.Bytes32(pldtypes.RandBytes(32))
@@ -211,7 +210,7 @@ func TestGetSnapshot_Confirmed_WithSigner(t *testing.T) {
 }
 
 func TestGetSnapshot_Confirmed_WithoutSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		SignerAddress(nil).
 		Build()
@@ -224,7 +223,7 @@ func TestGetSnapshot_Confirmed_WithoutSigner(t *testing.T) {
 }
 
 func TestGetSnapshot_ExcludedStates_StateInitial(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
 	assert.Nil(t, pooledSnapshot)
@@ -233,7 +232,7 @@ func TestGetSnapshot_ExcludedStates_StateInitial(t *testing.T) {
 }
 
 func TestGetSnapshot_ExcludedStates_StateReverted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Reverted).Build()
 	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
 	assert.Nil(t, pooledSnapshot)
@@ -242,7 +241,7 @@ func TestGetSnapshot_ExcludedStates_StateReverted(t *testing.T) {
 }
 
 func TestGetSnapshot_ExcludedStates_StateFinal(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Final).Build()
 	pooledSnapshot, dispatchedSnapshot, confirmedSnapshot := txn.GetSnapshot(ctx)
 	assert.Nil(t, pooledSnapshot)

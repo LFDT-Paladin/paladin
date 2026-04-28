@@ -21,6 +21,8 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
@@ -34,14 +36,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTestGrapher() (grapher.Grapher, dependencytracker.DependencyTracker) {
+	dt := dependencytracker.NewDependencyTracker()
+	return grapher.NewGrapher(dt), dt
+}
+
 func TestTransaction_HasDependenciesNotReady_FalseIfNoDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	transaction, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 	assert.False(t, transaction.hasDependenciesNotReady(ctx))
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
-	grapher := newTestGrapher(t.Context())
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -68,7 +76,7 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction2.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction2.pt.ID,
 		},
@@ -77,11 +85,12 @@ func TestTransaction_HasDependenciesNotReady_TrueOK(t *testing.T) {
 		RequestID:    transaction2.pendingAssembleRequest.IdempotencyKey(),
 	})
 	require.NoError(t, err)
-	assert.True(t, transaction2.hasDependenciesNotReady(context.Background()))
+	assert.True(t, transaction2.hasDependenciesNotReady(ctx))
 }
 
 func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testing.T) {
-	grapher := newTestGrapher(context.Background())
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -107,7 +116,7 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 	transaction2Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction2Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-	err := transaction2.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction2.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction2.pt.ID,
 		},
@@ -116,13 +125,13 @@ func TestTransaction_HasDependenciesNotReady_TrueWhenStatesAreReadOnly(t *testin
 		RequestID:    transaction2.pendingAssembleRequest.IdempotencyKey(),
 	})
 	require.NoError(t, err)
-	assert.True(t, transaction2.hasDependenciesNotReady(context.Background()))
+	assert.True(t, transaction2.hasDependenciesNotReady(ctx))
 
 }
 
 func TestTransaction_HasDependenciesNotReady(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	transaction1Builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).
@@ -162,7 +171,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	transaction3Mocks.EngineIntegration.EXPECT().WriteStatesForTransaction(mock.Anything, mock.Anything).Return(nil)
 	transaction3Mocks.EngineIntegration.EXPECT().MapPotentialStates(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
-	err := transaction3.HandleEvent(context.Background(), &AssembleSuccessEvent{
+	err := transaction3.HandleEvent(ctx, &AssembleSuccessEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: transaction3.pt.ID,
 		},
@@ -172,7 +181,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
+	assert.True(t, transaction3.hasDependenciesNotReady(ctx))
 
 	assert.Equal(t, State_Endorsement_Gathering, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Endorsement_Gathering, transaction2.stateMachine.GetCurrentState())
@@ -186,7 +195,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	//Should still be blocked because dependencies have not been confirmed for dispatch yet
 	assert.Equal(t, State_Confirming_Dispatchable, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
-	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
+	assert.True(t, transaction3.hasDependenciesNotReady(ctx))
 
 	//move one dependency to ready to dispatch
 	err = transaction1.HandleEvent(ctx, &DispatchRequestApprovedEvent{
@@ -200,7 +209,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Confirming_Dispatchable, transaction2.stateMachine.GetCurrentState())
-	assert.True(t, transaction3.hasDependenciesNotReady(context.Background()))
+	assert.True(t, transaction3.hasDependenciesNotReady(ctx))
 
 	//finally move the last dependency to ready to dispatch
 	err = transaction2.HandleEvent(ctx, &DispatchRequestApprovedEvent{
@@ -214,7 +223,7 @@ func TestTransaction_HasDependenciesNotReady(t *testing.T) {
 	//Should still be blocked because not all dependencies have been confirmed for dispatch yet
 	assert.Equal(t, State_Ready_For_Dispatch, transaction1.stateMachine.GetCurrentState())
 	assert.Equal(t, State_Ready_For_Dispatch, transaction2.stateMachine.GetCurrentState())
-	assert.False(t, transaction3.hasDependenciesNotReady(context.Background()))
+	assert.False(t, transaction3.hasDependenciesNotReady(ctx))
 
 }
 
@@ -222,11 +231,11 @@ func TestTransaction_HasDependenciesNotReady_FalseIfHasNoDependencies(t *testing
 	transaction1, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Build()
 
-	assert.False(t, transaction1.hasDependenciesNotReady(context.Background()))
+	assert.False(t, transaction1.hasDependenciesNotReady(t.Context()))
 }
 
 func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	pt := &components.PrivateTransaction{ID: uuid.New()}
 	allComponents := componentsmocks.NewAllComponents(t)
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
@@ -264,8 +273,8 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 		0,
 		3,
 		3,
-		newTestGrapher(ctx),
-		newTestDependencyTracker(ctx),
+		nil,
+		nil,
 		metrics.InitMetrics(ctx, reg),
 	)
 	require.NotNil(t, txn)
@@ -274,7 +283,7 @@ func TestNewTransaction_Success_ReturnsTransaction(t *testing.T) {
 }
 
 func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	pt := &components.PrivateTransaction{ID: uuid.New()}
 	allComponents := componentsmocks.NewAllComponents(t)
 	domainAPI := componentsmocks.NewDomainSmartContract(t)
@@ -312,8 +321,8 @@ func TestNewTransaction_PublicAPI_ReturnsTransaction(t *testing.T) {
 		0,
 		3,
 		3,
-		newTestGrapher(ctx),
-		newTestDependencyTracker(ctx),
+		nil,
+		nil,
 		metrics.InitMetrics(ctx, reg),
 	)
 	require.NotNil(t, txn)
@@ -377,8 +386,8 @@ func TestTransaction_HasDispatchedPublicTransaction_FalseWhenNil(t *testing.T) {
 }
 
 func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 
 	depID := uuid.New()
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
@@ -394,7 +403,7 @@ func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
 		}).
 		Build()
 
-	assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID), depID)
+	assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(ctx, txn.pt.ID), depID)
 }
 
 func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
@@ -404,12 +413,12 @@ func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
 		ChainedDependencies(unknownID).
 		Build()
 
-	assert.Empty(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID))
+	assert.Empty(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(t.Context(), txn.pt.ID))
 }
 
 func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyNotReady(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 	depID := uuid.New()
 	txID := uuid.New()
 
@@ -428,13 +437,13 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyN
 		Build()
 
 	ch := txn.dependencyTracker.GetChainedDeps()
-	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(txn.pt.ID))
-	assert.Contains(t, ch.GetUnassembledDependencies(txn.pt.ID), depID)
+	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(ctx, txn.pt.ID))
+	assert.Contains(t, ch.GetUnassembledDependencies(ctx, txn.pt.ID), depID)
 }
 
 func TestNewTransaction_ChainedDependsOn_AddsPrereqOnlyWhenDependencyPastUnassembledStates(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, _ := newTestGrapher()
 	depID := uuid.New()
 	txID := uuid.New()
 
@@ -453,6 +462,6 @@ func TestNewTransaction_ChainedDependsOn_AddsPrereqOnlyWhenDependencyPastUnassem
 		Build()
 
 	ch := txn.dependencyTracker.GetChainedDeps()
-	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(txn.pt.ID))
-	assert.Nil(t, ch.GetUnassembledDependencies(txn.pt.ID))
+	assert.Equal(t, []uuid.UUID{depID}, ch.GetPrerequisites(ctx, txn.pt.ID))
+	assert.Nil(t, ch.GetUnassembledDependencies(ctx, txn.pt.ID))
 }

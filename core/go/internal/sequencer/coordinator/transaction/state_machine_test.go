@@ -15,7 +15,6 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
@@ -61,7 +60,7 @@ func Test_State_String_Unknown(t *testing.T) {
 }
 
 func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		HeartbeatIntervalsSinceStateChange(2).
 		Build()
@@ -72,14 +71,14 @@ func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t
 }
 
 func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(mockGrapher).
 		ConfirmedLockRetentionGracePeriod(2).
 		FinalizingGracePeriod(10).
 		Build()
-	mockGrapher.EXPECT().Forget(txn.pt.ID).Once()
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID).Once()
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
@@ -100,7 +99,7 @@ func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing
 }
 
 func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		ConfirmedLockRetentionGracePeriod(100).
 		FinalizingGracePeriod(2).
@@ -116,7 +115,7 @@ func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testi
 }
 
 func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	states := []State{
@@ -149,7 +148,7 @@ func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
 }
 
 func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -171,7 +170,7 @@ func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) 
 			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).
 				DependencyTracker(depTracker).
 				Build()
-			depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depID)
+			depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
 
 			err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -179,13 +178,13 @@ func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) 
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.toState, txn.GetCurrentState())
-			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID), depID)
+			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID), depID)
 		})
 	}
 }
 
 func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -207,7 +206,7 @@ func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
 			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).
 				DependencyTracker(depTracker).
 				Build()
-			depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depID)
+			depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
 
 			err := txn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -215,13 +214,13 @@ func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.toState, txn.GetCurrentState())
-			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(txn.pt.ID), depID)
+			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID), depID)
 		})
 	}
 }
 
 func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -252,7 +251,7 @@ func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
 }
 
 func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -283,7 +282,7 @@ func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testin
 }
 
 func Test_ChainedDependencyEvicted_AllStates_TransitionToEvicted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	states := []State{

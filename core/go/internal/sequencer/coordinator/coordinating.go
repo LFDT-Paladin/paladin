@@ -182,7 +182,7 @@ func (c *coordinator) addToDelegatedTransactions(
 				// This would only be possible if
 				// - the coordinator has been rejecting delegated transaction after reaching its max inflight limit
 				// - the originator has missed the assembly request for the previous transaction, causing it to be repooled
-				c.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(txn.ID, txID)
+				c.dependencyTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.ID, txID)
 			}
 		}
 
@@ -339,8 +339,8 @@ func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common
 	// this is a no-op if the transaction is not in the pool
 	c.removeTransactionFromPool(e.TransactionID)
 	c.metrics.DecCoordinatingTransactions()
-	c.grapher.Forget(e.TransactionID)
-	c.dependencyTracker.Delete(e.TransactionID)
+	c.grapher.Forget(ctx, e.TransactionID)
+	c.dependencyTracker.Delete(ctx, e.TransactionID)
 
 	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
 	return nil

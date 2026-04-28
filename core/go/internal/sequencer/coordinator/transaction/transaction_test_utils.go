@@ -44,14 +44,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestGrapher(ctx context.Context) grapher.Grapher {
-	return grapher.NewGrapher(ctx, dependencytracker.NewDependencyTracker())
-}
-
-func newTestDependencyTracker(ctx context.Context) dependencytracker.DependencyTracker {
-	return dependencytracker.NewDependencyTracker()
-}
-
 // pendingEndorsementRequestAddition is used by the builder to add one pending endorsement request (builder creates IdempotentRequest from clock/requestTimeout).
 type pendingEndorsementRequestAddition struct {
 	attName string
@@ -671,12 +663,12 @@ type transactionDependencyMocks struct {
 }
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
-	ctx := context.Background()
-	if b.grapher == nil {
-		b.grapher = newTestGrapher(ctx)
-	}
+	ctx := b.t.Context()
 	if b.dependencyTracker == nil {
-		b.dependencyTracker = newTestDependencyTracker(ctx)
+		b.dependencyTracker = dependencytracker.NewDependencyTracker()
+	}
+	if b.grapher == nil {
+		b.grapher = grapher.NewGrapher(b.dependencyTracker)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()

@@ -29,18 +29,20 @@
 package dependencytracker
 
 import (
+	"context"
 	"slices"
 	"sync"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/google/uuid"
 )
 
 // DependencyTracker holds three independent dependency chains: pre-assembly, post-assembly, and chained.
 type DependencyTracker interface {
-	GetPreassemblyDeps() DependencyChain
+	GetPreassemblyDeps() SingleDependencyChain
 	GetPostAssemblyDeps() DependencyChain
 	GetChainedDeps() ChainedTransactionDependencyChain
-	Delete(txID uuid.UUID)
+	Delete(ctx context.Context, txID uuid.UUID)
 }
 
 // DependencyChain records, for each transaction ID, which other transactions it depends on
@@ -48,31 +50,45 @@ type DependencyTracker interface {
 // via AddPrerequisites() which updates all the pre-req and depends-on lists. There are getters for the
 // individual lists, and functions to remove from just one of the lists.
 type DependencyChain interface {
-	AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) // Updates both the pre-req-of and depends-on lists
-	ClearPrerequisites(txID uuid.UUID)                    // Remove all depends-on entries for this transaction for the transaction, updating their pre-req-of chains as well
-	ClearDependents(txID uuid.UUID)                       // Remove all pre-req of entries for this transaction, updating their depends-on chains as well
-	Delete(transactionID uuid.UUID)                       // Remove the TX entirely, so it has no pre-reqs or dependents and any it did have their respective lists updated
-	GetPrerequisites(txID uuid.UUID) []uuid.UUID
-	GetDependents(txID uuid.UUID) []uuid.UUID
-	HasPrerequisites(txID uuid.UUID) bool
-	HasDependents(txID uuid.UUID) bool
+	AddPrerequisites(ctx context.Context, txID uuid.UUID, prereq ...uuid.UUID) // Updates both the pre-req-of and depends-on lists
+	ClearPrerequisites(ctx context.Context, txID uuid.UUID)                    // Remove all depends-on entries for this transaction for the transaction, updating their pre-req-of chains as well
+	ClearDependents(ctx context.Context, txID uuid.UUID)                       // Remove all pre-req of entries for this transaction, updating their depends-on chains as well
+	Delete(ctx context.Context, txID uuid.UUID)                                // Remove the TX entirely, so it has no pre-reqs or dependents and any it did have their respective lists updated
+	GetPrerequisites(ctx context.Context, txID uuid.UUID) []uuid.UUID
+	GetDependents(ctx context.Context, txID uuid.UUID) []uuid.UUID
+	HasPrerequisites(ctx context.Context, txID uuid.UUID) bool
+	HasDependents(ctx context.Context, txID uuid.UUID) bool
+}
+
+type SingleDependencyChain interface {
+	ClearPrerequisite(ctx context.Context, txID uuid.UUID) // Remove all depends-on entries for this transaction for the transaction, updating their pre-req-of chains as well
+	ClearDependent(ctx context.Context, txID uuid.UUID)    // Remove all pre-req of entries for this transaction, updating their depends-on chains as well
+	Delete(ctx context.Context, txID uuid.UUID)            // Remove the TX entirely, so it has no pre-reqs or dependents and any it did have their respective lists updated
+	GetPrerequisite(ctx context.Context, txID uuid.UUID) (uuid.UUID, bool)
+	GetDependent(ctx context.Context, txID uuid.UUID) (uuid.UUID, bool)
+	HasPrerequisite(ctx context.Context, txID uuid.UUID) bool
+	HasDependent(ctx context.Context, txID uuid.UUID) bool
+	AddPrerequisite(ctx context.Context, txID uuid.UUID, prereq uuid.UUID) // Updates both the pre-req-of and depends-on lists
 }
 
 type ChainedTransactionDependencyChain interface {
 	DependencyChain
-	AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
-	DeleteUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
-	GetUnassembledDependencies(txID uuid.UUID) map[uuid.UUID]struct{}
-	HasUnassembledDependencies(txID uuid.UUID) bool
-	SetChainedChild(parentID uuid.UUID, childID uuid.UUID)
-	GetChainedChild(parentID uuid.UUID) (uuid.UUID, bool)
-	ForgetChainedChild(parentID uuid.UUID)
+	AddUnassembledDependencies(ctx context.Context, txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
+	DeleteUnassembledDependencies(ctx context.Context, txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID)
+	GetUnassembledDependencies(ctx context.Context, txID uuid.UUID) map[uuid.UUID]struct{}
+	HasUnassembledDependencies(ctx context.Context, txID uuid.UUID) bool
+	SetChainedChild(ctx context.Context, parentID uuid.UUID, childID uuid.UUID)
+	GetChainedChild(ctx context.Context, parentID uuid.UUID) (uuid.UUID, bool)
+	ForgetChainedChild(ctx context.Context, parentID uuid.UUID)
 }
 
 type dependencyChain struct {
-	mu              sync.RWMutex
-	nodes           map[uuid.UUID]*nodeLinks
-	singleChainOnly bool // Specifies if the chain supports multiple pre-reqs and dependents or not. Allows for stricter runtime checks based on the chain type
+	mu    sync.RWMutex
+	nodes map[uuid.UUID]*nodeLinks
+}
+
+type singleDependencyChain struct {
+	*dependencyChain
 }
 
 type nodeLinks struct {
@@ -87,31 +103,36 @@ type chainedDependencies struct {
 }
 
 type dependencyTracker struct {
-	preAssembly  *dependencyChain
+	preAssembly  *singleDependencyChain
 	postAssembly *dependencyChain
 	chained      *chainedDependencies
 }
 
-func newDependencyChain(singleChainOnly bool) *dependencyChain {
+func newDependencyChain() *dependencyChain {
 	return &dependencyChain{
-		nodes:           make(map[uuid.UUID]*nodeLinks),
-		singleChainOnly: singleChainOnly,
+		nodes: make(map[uuid.UUID]*nodeLinks),
+	}
+}
+
+func newSingleDependencyChain() *singleDependencyChain {
+	return &singleDependencyChain{
+		dependencyChain: newDependencyChain(),
 	}
 }
 
 func NewDependencyTracker() DependencyTracker {
 	return &dependencyTracker{
-		preAssembly:  newDependencyChain(true),
-		postAssembly: newDependencyChain(false),
+		preAssembly:  newSingleDependencyChain(),
+		postAssembly: newDependencyChain(),
 		chained: &chainedDependencies{
-			dependencyChain:         newDependencyChain(false),
+			dependencyChain:         newDependencyChain(),
 			unassembledDependencies: make(map[uuid.UUID]map[uuid.UUID]struct{}),
 			children:                make(map[uuid.UUID]uuid.UUID),
 		},
 	}
 }
 
-func (dt *dependencyTracker) GetPreassemblyDeps() DependencyChain {
+func (dt *dependencyTracker) GetPreassemblyDeps() SingleDependencyChain {
 	return dt.preAssembly
 }
 
@@ -123,13 +144,13 @@ func (dt *dependencyTracker) GetChainedDeps() ChainedTransactionDependencyChain 
 	return dt.chained
 }
 
-func (dt *dependencyTracker) Delete(txID uuid.UUID) {
-	dt.chained.Delete(txID)
-	dt.postAssembly.Delete(txID)
-	dt.preAssembly.Delete(txID)
+func (dt *dependencyTracker) Delete(ctx context.Context, txID uuid.UUID) {
+	dt.chained.Delete(ctx, txID)
+	dt.postAssembly.Delete(ctx, txID)
+	dt.preAssembly.Delete(ctx, txID)
 }
 
-func (cd *chainedDependencies) AddUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
+func (cd *chainedDependencies) AddUnassembledDependencies(_ context.Context, txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 	for _, unassembledDependencyID := range unassembledDependencyIDs {
@@ -140,7 +161,7 @@ func (cd *chainedDependencies) AddUnassembledDependencies(txID uuid.UUID, unasse
 	}
 }
 
-func (cd *chainedDependencies) DeleteUnassembledDependencies(txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
+func (cd *chainedDependencies) DeleteUnassembledDependencies(_ context.Context, txID uuid.UUID, unassembledDependencyIDs ...uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 	for _, unassembledDependencyID := range unassembledDependencyIDs {
@@ -148,7 +169,7 @@ func (cd *chainedDependencies) DeleteUnassembledDependencies(txID uuid.UUID, una
 	}
 }
 
-func (cd *chainedDependencies) GetUnassembledDependencies(txID uuid.UUID) map[uuid.UUID]struct{} {
+func (cd *chainedDependencies) GetUnassembledDependencies(_ context.Context, txID uuid.UUID) map[uuid.UUID]struct{} {
 	cd.mu.RLock()
 	defer cd.mu.RUnlock()
 	m := cd.unassembledDependencies[txID]
@@ -162,20 +183,20 @@ func (cd *chainedDependencies) GetUnassembledDependencies(txID uuid.UUID) map[uu
 	return out
 }
 
-func (cd *chainedDependencies) HasUnassembledDependencies(txID uuid.UUID) bool {
+func (cd *chainedDependencies) HasUnassembledDependencies(_ context.Context, txID uuid.UUID) bool {
 	cd.mu.RLock()
 	defer cd.mu.RUnlock()
 	return len(cd.unassembledDependencies[txID]) > 0
 }
 
 // Functions that manage the (optional) child node for a given chained transaction
-func (cd *chainedDependencies) SetChainedChild(parentID uuid.UUID, childID uuid.UUID) {
+func (cd *chainedDependencies) SetChainedChild(_ context.Context, parentID uuid.UUID, childID uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 	cd.children[parentID] = childID
 }
 
-func (cd *chainedDependencies) GetChainedChild(parentID uuid.UUID) (uuid.UUID, bool) {
+func (cd *chainedDependencies) GetChainedChild(_ context.Context, parentID uuid.UUID) (uuid.UUID, bool) {
 	cd.mu.RLock()
 	defer cd.mu.RUnlock()
 	if childID, ok := cd.children[parentID]; ok && childID != uuid.Nil {
@@ -184,13 +205,13 @@ func (cd *chainedDependencies) GetChainedChild(parentID uuid.UUID) (uuid.UUID, b
 	return uuid.Nil, false
 }
 
-func (cd *chainedDependencies) ForgetChainedChild(parentID uuid.UUID) {
+func (cd *chainedDependencies) ForgetChainedChild(_ context.Context, parentID uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 	delete(cd.children, parentID)
 }
 
-func (cd *chainedDependencies) Delete(id uuid.UUID) {
+func (cd *chainedDependencies) Delete(_ context.Context, id uuid.UUID) {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
 	delete(cd.children, id)
@@ -210,12 +231,65 @@ func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {
 	return n
 }
 
+// AddPrerequisite records that txID depends on prerequisite (single prerequisite only).
+// Existing links for txID are replaced to preserve pre-assembly single-chain semantics.
+func (d *singleDependencyChain) AddPrerequisite(ctx context.Context, txID uuid.UUID, prereq uuid.UUID) {
+	if prereq == txID {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	tx := d.ensure(txID)
+	prereqNode := d.ensure(prereq)
+	// TODO: this mirrors the behaviour of preassembly dependencies before this new grapher
+	// where a new dependency would overwrite the old one, if it existed. This doesn't quite
+	// feel right as in principle why should there be an old one? I'm choosing to preserve
+	// the old tested behaviour until we have time to think about this more.
+	if len(tx.dependsOn) > 0 && tx.dependsOn[0] != prereq {
+		log.L(ctx).Warnf("overwriting existing single prerequisite for TX %s from %s to %s", txID, tx.dependsOn[0], prereq)
+	}
+	if len(prereqNode.prereqOf) > 0 && prereqNode.prereqOf[0] != txID {
+		log.L(ctx).Warnf("overwriting existing singledependent for TX %s from %s to %s", prereq, prereqNode.prereqOf[0], txID)
+	}
+	tx.dependsOn = []uuid.UUID{prereq}
+	prereqNode.prereqOf = []uuid.UUID{txID}
+}
+
+func (d *singleDependencyChain) ClearPrerequisite(ctx context.Context, txID uuid.UUID) {
+	d.ClearPrerequisites(ctx, txID)
+}
+
+func (d *singleDependencyChain) ClearDependent(ctx context.Context, txID uuid.UUID) {
+	d.ClearDependents(ctx, txID)
+}
+
+func (d *singleDependencyChain) GetPrerequisite(ctx context.Context, txID uuid.UUID) (uuid.UUID, bool) {
+	prereqs := d.GetPrerequisites(ctx, txID)
+	if len(prereqs) == 0 {
+		return uuid.Nil, false
+	}
+	return prereqs[0], true
+}
+
+func (d *singleDependencyChain) GetDependent(ctx context.Context, txID uuid.UUID) (uuid.UUID, bool) {
+	dependents := d.GetDependents(ctx, txID)
+	if len(dependents) == 0 {
+		return uuid.Nil, false
+	}
+	return dependents[0], true
+}
+
+func (d *singleDependencyChain) HasPrerequisite(ctx context.Context, txID uuid.UUID) bool {
+	return d.HasPrerequisites(ctx, txID)
+}
+
+func (d *singleDependencyChain) HasDependent(ctx context.Context, txID uuid.UUID) bool {
+	return d.HasDependents(ctx, txID)
+}
+
 // AddPrerequisites records that txID depends on each prerequisite (prerequisite IDs must
 // complete before txID). Updates both sides of each edge.
-func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) {
-	if d.singleChainOnly && len(prereq) > 1 {
-		panic("singleChainOnly dependency chain does not support multiple prerequisites")
-	}
+func (d *dependencyChain) AddPrerequisites(_ context.Context, txID uuid.UUID, prereq ...uuid.UUID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx := d.ensure(txID)
@@ -224,21 +298,12 @@ func (d *dependencyChain) AddPrerequisites(txID uuid.UUID, prereq ...uuid.UUID) 
 			continue
 		}
 		prereqNode := d.ensure(preReq)
-		if d.singleChainOnly {
-			// TODO: this mirrors the behaviour of preassembly dependencies before this new grapher
-			// where a new dependency would overwrite the old one, if it existed. This doesn't quite
-			// feel right as in principle why should there be an old one? I'm choosing to preserve
-			// the old tested behaviour until we have time to think about this more.
-			tx.dependsOn = []uuid.UUID{preReq}
-			prereqNode.prereqOf = []uuid.UUID{txID}
-		} else {
-			tx.dependsOn = appendUnique(tx.dependsOn, preReq)
-			prereqNode.prereqOf = appendUnique(prereqNode.prereqOf, txID)
-		}
+		tx.dependsOn = appendUnique(tx.dependsOn, preReq)
+		prereqNode.prereqOf = appendUnique(prereqNode.prereqOf, txID)
 	}
 }
 
-func (d *dependencyChain) ClearPrerequisites(txID uuid.UUID) {
+func (d *dependencyChain) ClearPrerequisites(_ context.Context, txID uuid.UUID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx := d.nodes[txID]
@@ -254,7 +319,7 @@ func (d *dependencyChain) ClearPrerequisites(txID uuid.UUID) {
 	tx.dependsOn = make([]uuid.UUID, 0)
 }
 
-func (d *dependencyChain) ClearDependents(txID uuid.UUID) {
+func (d *dependencyChain) ClearDependents(_ context.Context, txID uuid.UUID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx := d.nodes[txID]
@@ -272,7 +337,7 @@ func (d *dependencyChain) ClearDependents(txID uuid.UUID) {
 }
 
 // Delete removes all bidirectional links for the transaction and deletes its node from the chain.
-func (d *dependencyChain) Delete(transactionID uuid.UUID) {
+func (d *dependencyChain) Delete(_ context.Context, transactionID uuid.UUID) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.delete(transactionID)
@@ -298,7 +363,7 @@ func (d *dependencyChain) delete(transactionID uuid.UUID) {
 }
 
 // Return a copy of the dependents for the given transaction ID
-func (d *dependencyChain) GetDependents(txID uuid.UUID) []uuid.UUID {
+func (d *dependencyChain) GetDependents(_ context.Context, txID uuid.UUID) []uuid.UUID {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	tx := d.nodes[txID]
@@ -309,7 +374,7 @@ func (d *dependencyChain) GetDependents(txID uuid.UUID) []uuid.UUID {
 }
 
 // Return a copy of the prerequisites for the given transaction ID
-func (d *dependencyChain) GetPrerequisites(txID uuid.UUID) []uuid.UUID {
+func (d *dependencyChain) GetPrerequisites(_ context.Context, txID uuid.UUID) []uuid.UUID {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	tx := d.nodes[txID]
@@ -319,7 +384,7 @@ func (d *dependencyChain) GetPrerequisites(txID uuid.UUID) []uuid.UUID {
 	return slices.Clone(tx.dependsOn)
 }
 
-func (d *dependencyChain) HasDependents(txID uuid.UUID) bool {
+func (d *dependencyChain) HasDependents(_ context.Context, txID uuid.UUID) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	tx := d.nodes[txID]
@@ -329,7 +394,7 @@ func (d *dependencyChain) HasDependents(txID uuid.UUID) bool {
 	return len(tx.prereqOf) > 0
 }
 
-func (d *dependencyChain) HasPrerequisites(txID uuid.UUID) bool {
+func (d *dependencyChain) HasPrerequisites(_ context.Context, txID uuid.UUID) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	tx := d.nodes[txID]

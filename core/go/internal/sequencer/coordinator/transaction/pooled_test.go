@@ -20,8 +20,6 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/google/uuid"
@@ -30,20 +28,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// pooledTestGrapher returns a grapher backed by the same dependency tracker instance
-// transactions must use via DependencyTracker(...) so post-/chained-/pre-assembly edges stay consistent.
-func pooledTestGrapher(ctx context.Context) (g grapher.Grapher, dt dependencytracker.DependencyTracker) {
-	dt = newTestDependencyTracker(ctx)
-	g = grapher.NewGrapher(ctx, dt)
-	return g, dt
-}
-
-func removeFromDependencyPrereqOf(_ context.Context, txn *coordinatorTransaction) {
-	txn.dependencyTracker.GetPostAssemblyDeps().ClearPrerequisites(txn.pt.ID)
+func removeFromDependencyPrereqOf(ctx context.Context, txn *coordinatorTransaction) {
+	txn.dependencyTracker.GetPostAssemblyDeps().ClearPrerequisites(ctx, txn.pt.ID)
 }
 
 func Test_action_ResetTransactionLocks(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Dispatched).Build()
 
 	err := action_ResetTransactionLocks(ctx, txn, nil)
@@ -51,8 +41,8 @@ func Test_action_ResetTransactionLocks(t *testing.T) {
 }
 
 func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -68,8 +58,8 @@ func Test_action_InitializeForNewAssembly_Success(t *testing.T) {
 }
 
 func Test_guard_HasDependenciesNotReady(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 	sharedTransactions := map[uuid.UUID]CoordinatorTransaction{}
 
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).
@@ -130,8 +120,8 @@ func Test_guard_HasDependenciesNotReady(t *testing.T) {
 }
 
 func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
-	ctx := context.Background()
-	g, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
 
 	dep2, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(g).DependencyTracker(depTracker).
@@ -162,8 +152,8 @@ func Test_guard_HasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 }
 
 func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T) {
-	ctx := context.Background()
-	g, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	g, depTracker := newTestGrapher()
 
 	dep3, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(g).DependencyTracker(depTracker).
@@ -194,8 +184,8 @@ func Test_guard_HasDependenciesNotReady_DependencyReadyForDispatch(t *testing.T)
 }
 
 func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	dependentID := uuid.New()
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -213,7 +203,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(dependentTxn.pt.ID, mainTxn.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, dependentTxn.pt.ID, mainTxn.pt.ID)
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.NoError(t, err)
@@ -222,7 +212,7 @@ func Test_action_NotifyDependentsOfReset_WithDependents(t *testing.T) {
 }
 
 func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		PreAssembly(&components.TransactionPreAssembly{}).
 		Build()
@@ -232,8 +222,8 @@ func Test_action_NotifyDependentsOfReset_InitialTransitionHasNoDependents(t *tes
 }
 
 func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 	dependentID := uuid.New()
 	dependentTxn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		TransactionID(dependentID).
@@ -248,15 +238,15 @@ func Test_notifyDependentsOfRepool_WithDependenciesFromPreAssembly(t *testing.T)
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, dependentTxn.pt.ID, txn.pt.ID)
 
 	txn.notifyDependentsOfReset(ctx)
 	assert.Equal(t, State_PreAssembly_Blocked, dependentTxn.GetCurrentState())
 }
 
 func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	mockDependentID := uuid.New()
 
@@ -272,15 +262,15 @@ func Test_notifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
 		QueueEventForCoordinator(func(context.Context, common.Event) { queued++ }).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(mockDependentID, mainTxn.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, mockDependentID, mainTxn.pt.ID)
 
 	mainTxn.notifyDependentsOfReset(ctx)
 	assert.Equal(t, 0, queued)
 }
 
 func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	mockDependentID := uuid.New()
 
@@ -296,7 +286,7 @@ func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.
 		QueueEventForCoordinator(func(context.Context, common.Event) { queued++ }).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(mockDependentID, mainTxn.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, mockDependentID, mainTxn.pt.ID)
 
 	err := action_NotifyDependentsOfReset(ctx, mainTxn, nil)
 	require.NoError(t, err)
@@ -304,21 +294,24 @@ func Test_action_NotifyDependentsOfReset_QueuesWithoutExistenceCheck(t *testing.
 }
 
 func Test_action_RemovePreAssembleDependency(t *testing.T) {
-	ctx := context.Background()
-	dt := newTestDependencyTracker(ctx)
+	ctx := t.Context()
+	_, dt := newTestGrapher()
 	dependencyID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).DependencyTracker(dt).Build()
-	dt.GetPreassemblyDeps().AddPrerequisites(txn.pt.ID, dependencyID)
-	require.Equal(t, []uuid.UUID{dependencyID}, dt.GetPreassemblyDeps().GetPrerequisites(txn.pt.ID))
+	dt.GetPreassemblyDeps().AddPrerequisite(ctx, txn.pt.ID, dependencyID)
+	prereq, ok := dt.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
+	require.True(t, ok)
+	require.Equal(t, dependencyID, prereq)
 
 	err := action_RemovePreAssembleDependency(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Empty(t, dt.GetPreassemblyDeps().GetPrerequisites(txn.pt.ID))
+	_, ok = dt.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
+	assert.False(t, ok)
 }
 
 func Test_action_RemovePreAssembleDependency_AlreadyNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
 
 	err := action_RemovePreAssembleDependency(ctx, txn, nil)
@@ -326,20 +319,23 @@ func Test_action_RemovePreAssembleDependency_AlreadyNil(t *testing.T) {
 }
 
 func Test_action_RemovePreAssemblePrereqOf(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	prereqID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
-	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(prereqID, txn.pt.ID)
-	require.Contains(t, txn.dependencyTracker.GetPreassemblyDeps().GetDependents(txn.pt.ID), prereqID)
+	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisite(ctx, prereqID, txn.pt.ID)
+	dependent, ok := txn.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, txn.pt.ID)
+	require.True(t, ok)
+	require.Equal(t, prereqID, dependent)
 
 	err := action_RemovePreAssemblePrereqOf(ctx, txn, nil)
 	require.NoError(t, err)
-	assert.Empty(t, txn.dependencyTracker.GetPreassemblyDeps().GetDependents(txn.pt.ID))
+	_, ok = txn.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, txn.pt.ID)
+	assert.False(t, ok)
 }
 
 func Test_action_RemovePreAssemblePrereqOf_AlreadyNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).Build()
 
 	err := action_RemovePreAssemblePrereqOf(ctx, txn, nil)
@@ -347,24 +343,24 @@ func Test_action_RemovePreAssemblePrereqOf_AlreadyNil(t *testing.T) {
 }
 
 func Test_guard_HasUnassembledDependencies_False(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
 
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
 }
 
 func Test_guard_HasUnassembledDependencies_True(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	dependencyID := uuid.New()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).Build()
-	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(txn.pt.ID, dependencyID)
+	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.pt.ID, dependencyID)
 
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
 }
 
 func TestDependsOn_SurviveRepool_InitializeForNewAssembly(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -377,18 +373,18 @@ func TestDependsOn_SurviveRepool_InitializeForNewAssembly(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.initializeForNewAssembly(ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, []uuid.UUID{depTx.pt.ID}, depTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID))
-	assert.Empty(t, depTracker.GetPostAssemblyDeps().GetPrerequisites(txn.pt.ID))
+	assert.Equal(t, []uuid.UUID{depTx.pt.ID}, depTracker.GetChainedDeps().GetPrerequisites(ctx, txn.pt.ID))
+	assert.Empty(t, depTracker.GetPostAssemblyDeps().GetPrerequisites(ctx, txn.pt.ID))
 }
 
 func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -401,7 +397,7 @@ func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := action_NotifyDependentsOfReset(ctx, txn, nil)
 	require.NoError(t, err)
@@ -410,39 +406,39 @@ func TestDependsOn_SurviveRepool_ActionNotifyDependentsOfReset(t *testing.T) {
 }
 
 func Test_guard_HasUnassembledDependencies_WithUnassembledChainedDep(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	txn.dependencyTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depID)
-	txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depID)
+	txn.dependencyTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
+	txn.dependencyTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depID)
 
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
 }
 
 func Test_guard_HasUnassembledDependencies_NoUnassembledChainedDeps(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	txn.dependencyTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depID)
+	txn.dependencyTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
 
 	assert.False(t, guard_HasUnassembledDependencies(ctx, txn))
 }
 
 func Test_guard_HasUnassembledDependencies_PreAssembleDep(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
-	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisites(txn.pt.ID, depID)
+	txn.dependencyTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.pt.ID, depID)
 
 	assert.True(t, guard_HasUnassembledDependencies(ctx, txn))
 }
 
 func Test_ChainedDep_DelegatedGoesToPreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -455,8 +451,8 @@ func Test_ChainedDep_DelegatedGoesToPreAssemblyBlocked(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DelegatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -466,8 +462,8 @@ func Test_ChainedDep_DelegatedGoesToPreAssemblyBlocked(t *testing.T) {
 }
 
 func Test_ChainedDep_SelectionEventUnblocksPreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -480,8 +476,8 @@ func Test_ChainedDep_SelectionEventUnblocksPreAssemblyBlocked(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -492,8 +488,8 @@ func Test_ChainedDep_SelectionEventUnblocksPreAssemblyBlocked(t *testing.T) {
 }
 
 func Test_ChainedDep_SelectionEventStaysBlockedIfOtherDepsNotSelected(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTxSelected, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -510,9 +506,9 @@ func Test_ChainedDep_SelectionEventStaysBlockedIfOtherDepsNotSelected(t *testing
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTxSelected.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTxSelected.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTxNotSelected.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTxSelected.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTxSelected.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTxNotSelected.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -523,8 +519,8 @@ func Test_ChainedDep_SelectionEventStaysBlockedIfOtherDepsNotSelected(t *testing
 }
 
 func Test_Pooled_DependencyResetBlocksIfChainedDepUnassembled(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -537,7 +533,7 @@ func Test_Pooled_DependencyResetBlocksIfChainedDepUnassembled(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -548,8 +544,8 @@ func Test_Pooled_DependencyResetBlocksIfChainedDepUnassembled(t *testing.T) {
 }
 
 func Test_DependencyResetToPreAssemblyBlocked_ForgetsMints(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -563,8 +559,8 @@ func Test_DependencyResetToPreAssemblyBlocked_ForgetsMints(t *testing.T) {
 		AddPendingAssembleRequest().
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -575,8 +571,8 @@ func Test_DependencyResetToPreAssemblyBlocked_ForgetsMints(t *testing.T) {
 }
 
 func Test_Pooled_DependencyResetFromChainedDepAlwaysBlocks(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -589,8 +585,8 @@ func Test_Pooled_DependencyResetFromChainedDepAlwaysBlocks(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -601,8 +597,8 @@ func Test_Pooled_DependencyResetFromChainedDepAlwaysBlocks(t *testing.T) {
 }
 
 func Test_Pooled_DependencyResetFromNonChainedDepStaysPooled(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -615,7 +611,7 @@ func Test_Pooled_DependencyResetFromNonChainedDepStaysPooled(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -626,8 +622,8 @@ func Test_Pooled_DependencyResetFromNonChainedDepStaysPooled(t *testing.T) {
 }
 
 func Test_Pooled_DependencyConfirmedRevertedBlocksIfChainedDepUnassembled(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -640,7 +636,7 @@ func Test_Pooled_DependencyConfirmedRevertedBlocksIfChainedDepUnassembled(t *tes
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -651,8 +647,8 @@ func Test_Pooled_DependencyConfirmedRevertedBlocksIfChainedDepUnassembled(t *tes
 }
 
 func Test_Pooled_DependencyConfirmedRevertedFromChainedDepBlocks(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -665,8 +661,8 @@ func Test_Pooled_DependencyConfirmedRevertedFromChainedDepBlocks(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -677,8 +673,8 @@ func Test_Pooled_DependencyConfirmedRevertedFromChainedDepBlocks(t *testing.T) {
 }
 
 func Test_Pooled_DependencyConfirmedRevertedFromNonChainedDepStaysPooled(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -691,7 +687,7 @@ func Test_Pooled_DependencyConfirmedRevertedFromNonChainedDepStaysPooled(t *test
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -702,8 +698,8 @@ func Test_Pooled_DependencyConfirmedRevertedFromNonChainedDepStaysPooled(t *test
 }
 
 func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepUnassembled(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -716,7 +712,7 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepUnassembled(t *te
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -727,8 +723,8 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepUnassembled(t *te
 }
 
 func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepResets(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -741,8 +737,8 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepResets(t *testing
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -753,8 +749,8 @@ func Test_ChainedDep_RepoolGoesToPreAssemblyBlockedIfChainedDepResets(t *testing
 }
 
 func Test_ChainedDep_RepoolGoesToPooledIfNonChainedDepResets(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -767,7 +763,7 @@ func Test_ChainedDep_RepoolGoesToPooledIfNonChainedDepResets(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DependencyResetEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -778,8 +774,8 @@ func Test_ChainedDep_RepoolGoesToPooledIfNonChainedDepResets(t *testing.T) {
 }
 
 func Test_guard_HasRevertedChainedDependency_True(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -792,14 +788,14 @@ func Test_guard_HasRevertedChainedDependency_True(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	assert.True(t, guard_HasRevertedChainedDependency(ctx, txn))
 }
 
 func Test_guard_HasRevertedChainedDependency_False(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -812,28 +808,28 @@ func Test_guard_HasRevertedChainedDependency_False(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	assert.False(t, guard_HasRevertedChainedDependency(ctx, txn))
 }
 
 func Test_guard_HasRevertedChainedDependency_MissingDep(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		Grapher(grapher).DependencyTracker(depTracker).
 		Build()
 
 	missing := uuid.New()
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, missing)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, missing)
 
 	assert.False(t, guard_HasRevertedChainedDependency(ctx, txn))
 }
 
 func Test_guard_HasEvictedChainedDependency_True(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Evicted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -846,14 +842,14 @@ func Test_guard_HasEvictedChainedDependency_True(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	assert.True(t, guard_HasEvictedChainedDependency(ctx, txn))
 }
 
 func Test_guard_HasEvictedChainedDependency_False(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -866,13 +862,13 @@ func Test_guard_HasEvictedChainedDependency_False(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	assert.False(t, guard_HasEvictedChainedDependency(ctx, txn))
 }
 
 func Test_guard_HasEvictedChainedDependency_NoDeps(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
@@ -880,8 +876,8 @@ func Test_guard_HasEvictedChainedDependency_NoDeps(t *testing.T) {
 }
 
 func Test_action_FinalizeOnRevertedChainedDependencyAtCreation(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -894,7 +890,7 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
@@ -914,8 +910,8 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation(t *testing.T) {
 }
 
 func Test_action_FinalizeOnRevertedChainedDependencyAtCreation_NoRevertedDependency(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -928,7 +924,7 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation_NoRevertedDepende
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := action_FinalizeOnRevertedChainedDependencyAtCreation(ctx, txn, nil)
 	require.NoError(t, err)
@@ -936,7 +932,7 @@ func Test_action_FinalizeOnRevertedChainedDependencyAtCreation_NoRevertedDepende
 }
 
 func Test_validator_IsChainedDependency_UnknownEventType(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	ok, err := validator_IsChainedDependency(ctx, txn, &DelegatedEvent{
@@ -947,7 +943,7 @@ func Test_validator_IsChainedDependency_UnknownEventType(t *testing.T) {
 }
 
 func Test_action_MarkChainedDependencyUnassembled_UnknownEventType(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).Build()
 
 	err := action_MarkChainedDependencyUnassembled(ctx, txn, &DelegatedEvent{
@@ -957,8 +953,8 @@ func Test_action_MarkChainedDependencyUnassembled_UnknownEventType(t *testing.T)
 }
 
 func Test_ChainedDep_DelegatedGoesToRevertedIfDepReverted(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -971,7 +967,7 @@ func Test_ChainedDep_DelegatedGoesToRevertedIfDepReverted(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
@@ -985,8 +981,8 @@ func Test_ChainedDep_DelegatedGoesToRevertedIfDepReverted(t *testing.T) {
 }
 
 func Test_ChainedDep_DelegatedGoesToEvictedIfDepEvicted(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Evicted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -999,7 +995,7 @@ func Test_ChainedDep_DelegatedGoesToEvictedIfDepEvicted(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &DelegatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -1009,8 +1005,8 @@ func Test_ChainedDep_DelegatedGoesToEvictedIfDepEvicted(t *testing.T) {
 }
 
 func Test_RemoveFromDependencyPrereqOf_CleansReverseLinks(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -1024,16 +1020,16 @@ func Test_RemoveFromDependencyPrereqOf_CleansReverseLinks(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
-	require.Contains(t, depTracker.GetPostAssemblyDeps().GetDependents(depTx.pt.ID), txn.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
+	require.Contains(t, depTracker.GetPostAssemblyDeps().GetDependents(ctx, depTx.pt.ID), txn.pt.ID)
 
 	removeFromDependencyPrereqOf(ctx, txn)
-	assert.NotContains(t, depTracker.GetPostAssemblyDeps().GetDependents(depTx.pt.ID), txn.pt.ID)
+	assert.NotContains(t, depTracker.GetPostAssemblyDeps().GetDependents(ctx, depTx.pt.ID), txn.pt.ID)
 }
 
 func Test_RemoveFromDependencyPrereqOf_PreservesOtherPrereqs(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	otherID := uuid.New()
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -1048,29 +1044,29 @@ func Test_RemoveFromDependencyPrereqOf_PreservesOtherPrereqs(t *testing.T) {
 		}).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(otherID, depTx.pt.ID)
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, depTx.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, otherID, depTx.pt.ID)
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, depTx.pt.ID)
 
 	removeFromDependencyPrereqOf(ctx, txn)
-	assert.ElementsMatch(t, []uuid.UUID{otherID}, depTracker.GetPostAssemblyDeps().GetDependents(depTx.pt.ID))
+	assert.ElementsMatch(t, []uuid.UUID{otherID}, depTracker.GetPostAssemblyDeps().GetDependents(ctx, depTx.pt.ID))
 }
 
 func Test_RemoveFromDependencyPrereqOf_DependencyNotInGrapher(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Blocked).
 		Grapher(grapher).DependencyTracker(depTracker).
 		Build()
 
-	depTracker.GetPostAssemblyDeps().AddPrerequisites(txn.pt.ID, uuid.New())
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, uuid.New())
 
 	removeFromDependencyPrereqOf(ctx, txn)
 }
 
 func Test_PreAssembleDependencyFinalized_UnblocksPreAssemblyBlocked(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Reverted).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -1083,19 +1079,20 @@ func Test_PreAssembleDependencyFinalized_UnblocksPreAssemblyBlocked(t *testing.T
 		}).
 		Build()
 
-	depTracker.GetPreassemblyDeps().AddPrerequisites(txn.pt.ID, prereqTx.pt.ID)
+	depTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.pt.ID, prereqTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, depTracker.GetPreassemblyDeps().GetPrerequisites(txn.pt.ID))
+	_, ok := depTracker.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
+	assert.False(t, ok)
 	assert.Equal(t, State_Pooled, txn.GetCurrentState())
 }
 
 func Test_PreAssembleDependencyFinalized_StaysBlockedWithChainedDeps(t *testing.T) {
-	ctx := context.Background()
-	grapher, depTracker := pooledTestGrapher(ctx)
+	ctx := t.Context()
+	grapher, depTracker := newTestGrapher()
 
 	prereqTx, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		Grapher(grapher).DependencyTracker(depTracker).
@@ -1113,14 +1110,15 @@ func Test_PreAssembleDependencyFinalized_StaysBlockedWithChainedDeps(t *testing.
 		}).
 		Build()
 
-	depTracker.GetPreassemblyDeps().AddPrerequisites(txn.pt.ID, prereqTx.pt.ID)
-	depTracker.GetChainedDeps().AddPrerequisites(txn.pt.ID, chainedDepTx.pt.ID)
-	depTracker.GetChainedDeps().AddUnassembledDependencies(txn.pt.ID, chainedDepTx.pt.ID)
+	depTracker.GetPreassemblyDeps().AddPrerequisite(ctx, txn.pt.ID, prereqTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, chainedDepTx.pt.ID)
+	depTracker.GetChainedDeps().AddUnassembledDependencies(ctx, txn.pt.ID, chainedDepTx.pt.ID)
 
 	err := txn.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, depTracker.GetPreassemblyDeps().GetPrerequisites(txn.pt.ID))
+	_, ok := depTracker.GetPreassemblyDeps().GetPrerequisite(ctx, txn.pt.ID)
+	assert.False(t, ok)
 	assert.Equal(t, State_PreAssembly_Blocked, txn.GetCurrentState())
 }

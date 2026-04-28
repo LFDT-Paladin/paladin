@@ -32,7 +32,7 @@ import (
 )
 
 func Test_action_UpdateSigningIdentity_CallsUpdateSigningIdentity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		PostAssembly(&components.TransactionPostAssembly{
 			Endorsements: []*prototk.AttestationResult{
@@ -56,7 +56,7 @@ func Test_updateSigningIdentity_NoPostAssembly(t *testing.T) {
 		Build()
 	txn.pt.PostAssembly = nil
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(t.Context())
 
 	assert.Empty(t, txn.pt.Signer)
 }
@@ -69,7 +69,7 @@ func Test_updateSigningIdentity_NoEndorsements(t *testing.T) {
 		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
 		Build()
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(t.Context())
 
 	assert.Empty(t, txn.pt.Signer)
 }
@@ -93,7 +93,7 @@ func Test_updateSigningIdentity_EndorsementWithConstraint(t *testing.T) {
 		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
 		Build()
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(t.Context())
 
 	assert.Equal(t, verifierLookup, txn.pt.Signer)
 }
@@ -111,7 +111,7 @@ func Test_updateSigningIdentity_EndorsementWithoutConstraint(t *testing.T) {
 		SubmitterSelection(prototk.ContractConfig_SUBMITTER_COORDINATOR).
 		Build()
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(t.Context())
 
 	assert.Empty(t, txn.pt.Signer)
 }
@@ -133,13 +133,13 @@ func Test_updateSigningIdentity_NonCoordinatorSubmitter(t *testing.T) {
 		SubmitterSelection(999). // Invalid value to test the condition
 		Build()
 
-	txn.updateSigningIdentity()
+	txn.updateSigningIdentity(t.Context())
 
 	assert.Empty(t, txn.pt.Signer)
 }
 
 func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
@@ -152,7 +152,7 @@ func Test_hasDependenciesNotReady_NoDependencies(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	missingID := uuid.New()
 	mockGrapher := grapher.NewMockGrapher(t)
@@ -167,7 +167,7 @@ func Test_hasDependenciesNotReady_DependencyNotInMemory(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Initial).Grapher(mockGrapher).Build()
@@ -191,7 +191,7 @@ func Test_hasDependenciesNotReady_DependencyNotReady(t *testing.T) {
 }
 
 func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn1, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
@@ -216,7 +216,7 @@ func Test_hasDependenciesNotReady_DependencyReady(t *testing.T) {
 }
 
 func Test_traceDispatch_WithPostAssembly(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		PostAssembly(&components.TransactionPostAssembly{
@@ -242,7 +242,7 @@ func Test_traceDispatch_WithPostAssembly(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -256,7 +256,7 @@ func Test_notifyDependentsOfReadiness_NoDependents(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	missingID := uuid.New()
 	mockGrapher := grapher.NewMockGrapher(t)
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
@@ -270,7 +270,7 @@ func Test_notifyDependentsOfReadiness_DependentNotInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 	tx1ID := uuid.New()
@@ -303,7 +303,7 @@ func Test_notifyDependentsOfReadiness_DependentInMemory(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Enable trace logging to cover the traceDispatch path
 	log.EnsureInit()
@@ -339,7 +339,7 @@ func Test_notifyDependentsOfReadiness_WithTraceEnabled(t *testing.T) {
 }
 
 func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mockGrapher := grapher.NewMockGrapher(t)
 
@@ -375,7 +375,7 @@ func Test_notifyDependentsOfReadiness_DependentHandleEventError(t *testing.T) {
 }
 
 func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		DomainSigningIdentity("domain-signer").
@@ -387,7 +387,7 @@ func Test_allocateSigningIdentity_WithDomainSigningIdentity(t *testing.T) {
 }
 
 func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		CoordinatorSigningIdentity("coordinator-signer").
@@ -399,7 +399,7 @@ func Test_allocateSigningIdentity_WithoutDomainSigningIdentity(t *testing.T) {
 }
 
 func Test_action_AllocateSigningIdentity_WithExistingSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Signer("existing-signer").
@@ -411,7 +411,7 @@ func Test_action_AllocateSigningIdentity_WithExistingSigner(t *testing.T) {
 }
 
 func Test_action_AllocateSigningIdentity_WithoutSigner(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		CoordinatorSigningIdentity("coordinator-signer").
@@ -423,7 +423,7 @@ func Test_action_AllocateSigningIdentity_WithoutSigner(t *testing.T) {
 }
 
 func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Assembling).
@@ -448,7 +448,7 @@ func TestDependsOn_HasDependenciesNotReady_BlockedByDep(t *testing.T) {
 }
 
 func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
@@ -473,7 +473,7 @@ func TestDependsOn_HasDependenciesNotReady_UnblockedWhenDepDispatched(t *testing
 }
 
 func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 
 	unknownID := uuid.New()
@@ -488,7 +488,7 @@ func TestDependsOn_HasDependenciesNotReady_UnknownDepBlocksDispatch(t *testing.T
 }
 
 func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
@@ -519,7 +519,7 @@ func Test_Blocked_DependencyReady_TransitionsToConfirmingDispatchable(t *testing
 }
 
 func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	mockGrapher.EXPECT().AddMinter(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
@@ -550,9 +550,9 @@ func Test_Blocked_DependencyReady_StaysBlocked_WhenDepsNotReady(t *testing.T) {
 }
 
 func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depTracker := dependencytracker.NewDependencyTracker()
-	g := grapher.NewGrapher(ctx, depTracker)
+	g := grapher.NewGrapher(depTracker)
 
 	depTx, _ := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
 		Grapher(g).
@@ -564,7 +564,7 @@ func TestDependsOn_NotifyDependentsOfReadiness(t *testing.T) {
 		DependencyTracker(depTracker).
 		Build()
 
-	depTracker.GetChainedDeps().AddPrerequisites(dependentTx.pt.ID, depTx.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, dependentTx.pt.ID, depTx.pt.ID)
 
 	err := depTx.notifyDependentsOfReadiness(ctx)
 	require.NoError(t, err)

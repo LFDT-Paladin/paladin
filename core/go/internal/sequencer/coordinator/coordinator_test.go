@@ -119,7 +119,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 	// by inspecting the coordinator output messages and by sending events that would normally be triggered by those components sending messages to the coordinator.
 	// At each stage, we inspect the state of the coordinator by checking the snapshot it produces on heartbeat messages
 
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	mockDomain := componentsmocks.NewDomain(t)
@@ -323,7 +323,7 @@ func TestCoordinator_SingleTransactionLifecycle(t *testing.T) {
 }
 
 func TestCoordinator_MaxInflightTransactions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	originator := "sender@senderNode"
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	config := builder.GetSequencerConfig()
@@ -353,7 +353,7 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 }
 
 func TestCoordinator_GetTransactionsInStates_EmptyMapReturnsEmpty(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -364,7 +364,7 @@ func TestCoordinator_GetTransactionsInStates_EmptyMapReturnsEmpty(t *testing.T) 
 }
 
 func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsMatching(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -380,7 +380,7 @@ func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsMatching(t
 }
 
 func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsEmptyWhenNoMatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -394,7 +394,7 @@ func TestCoordinator_GetTransactionsInStates_SingleStateFilter_ReturnsEmptyWhenN
 }
 
 func TestCoordinator_GetTransactionsInStates_MultipleStatesFilter_ReturnsAllMatching(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -423,7 +423,7 @@ func TestCoordinator_GetTransactionsInStates_MultipleStatesFilter_ReturnsAllMatc
 }
 
 func TestCoordinator_GetTransactionsInStates_MultipleTransactionsInSameState(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -449,7 +449,7 @@ func TestCoordinator_GetTransactionsInStates_MultipleTransactionsInSameState(t *
 }
 
 func TestCoordinator_GetTransactionsInStates_EmptyStatesFilter_ReturnsEmpty(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -465,7 +465,7 @@ func TestCoordinator_GetTransactionsInStates_EmptyStatesFilter_ReturnsEmpty(t *t
 }
 
 func TestCoordinator_NewCoordinator_EndorserMode_AllowsNoConfiguredCandidates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_ENDORSER,
@@ -476,7 +476,7 @@ func TestCoordinator_NewCoordinator_EndorserMode_AllowsNoConfiguredCandidates(t 
 }
 
 func TestCoordinator_NewCoordinator_EndorserMode_FailsOnInvalidConfiguredCandidate(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection:          prototk.ContractConfig_COORDINATOR_ENDORSER,
@@ -488,7 +488,7 @@ func TestCoordinator_NewCoordinator_EndorserMode_FailsOnInvalidConfiguredCandida
 }
 
 func TestCoordinator_NewCoordinator_EndorserMode_InitializesPoolFromConfiguredCandidates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	builder.GetDomainAPI().On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection:          prototk.ContractConfig_COORDINATOR_ENDORSER,
@@ -500,7 +500,7 @@ func TestCoordinator_NewCoordinator_EndorserMode_InitializesPoolFromConfiguredCa
 }
 
 func TestCoordinator_CancelContext_StopsEventLoopAndDispatchLoop(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 
@@ -536,7 +536,7 @@ func TestCoordinator_CancelContext_StopsEventLoopAndDispatchLoop(t *testing.T) {
 }
 
 func TestCoordinator_CancelContext_WaitsForTransportShutdown(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	mockTransport := transport.NewMockTransportWriter(t)
@@ -553,7 +553,7 @@ func TestCoordinator_CancelContext_WaitsForTransportShutdown(t *testing.T) {
 }
 
 func TestCoordinator_CancelContext_CompletesSuccessfullyWhenCalledOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 
@@ -571,7 +571,7 @@ func TestCoordinator_CancelContext_CompletesSuccessfullyWhenCalledOnce(t *testin
 }
 
 func TestCoordinator_CancelContext_StopsLoopsEvenWhenProcessingEvents(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 
@@ -594,7 +594,7 @@ func TestCoordinator_CancelContext_StopsLoopsEvenWhenProcessingEvents(t *testing
 }
 
 func TestCoordinator_CancelContext_WhenAlreadyCancelled_ReturnsImmediately(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 
@@ -607,7 +607,7 @@ func TestCoordinator_CancelContext_WhenAlreadyCancelled_ReturnsImmediately(t *te
 }
 
 func Test_propagateEventToTransaction_UnknownTransaction_ReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -623,7 +623,7 @@ func Test_propagateEventToTransaction_UnknownTransaction_ReturnsNil(t *testing.T
 }
 
 func TestCoordinator_SendHandoverRequest_SuccessfullySendsHandoverRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks, done := builder.Build(ctx)
 	defer done()
@@ -639,7 +639,7 @@ func TestCoordinator_SendHandoverRequest_SuccessfullySendsHandoverRequest(t *tes
 }
 
 func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectActiveCoordinatorNode(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -662,7 +662,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectActiveCo
 }
 
 func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectContractAddress(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	contractAddress := pldtypes.RandAddress()
 	builder.ContractAddress(contractAddress)
@@ -686,7 +686,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestWithCorrectContract
 }
 
 func TestCoordinator_SendHandoverRequest_HandlesErrorFromSendHandoverRequestGracefully(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -709,7 +709,7 @@ func TestCoordinator_SendHandoverRequest_HandlesErrorFromSendHandoverRequestGrac
 }
 
 func TestCoordinator_SendHandoverRequest_HandlesEmptyActiveCoordinatorNode(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -732,7 +732,7 @@ func TestCoordinator_SendHandoverRequest_HandlesEmptyActiveCoordinatorNode(t *te
 }
 
 func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node1(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -755,7 +755,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node1(t *testing.T)
 }
 
 func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node2ExampleCom(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -778,7 +778,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_node2ExampleCom(t *
 }
 
 func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_coordinatorNode123(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -801,7 +801,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_coordinatorNode123(
 }
 
 func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_VeryLongCoordinatorNodeName(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -824,7 +824,7 @@ func TestCoordinator_SendHandoverRequest_WithCoordinatorNode_VeryLongCoordinator
 }
 
 func TestCoordinator_SendHandoverRequest_SendsHandoverRequestMultipleTimes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, mocks, done := builder.Build(ctx)
 	defer done()
@@ -842,7 +842,7 @@ func TestCoordinator_SendHandoverRequest_SendsHandoverRequestMultipleTimes(t *te
 }
 
 func TestCoordinator_SendHandoverRequest_HandlesContextCancellation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -869,7 +869,7 @@ func TestCoordinator_SendHandoverRequest_HandlesContextCancellation(t *testing.T
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransactionsExist(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -884,7 +884,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsNilWhenNoTransaction
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEventToSingleTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -904,7 +904,7 @@ func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEvent
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEventToMultipleTransactions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -932,7 +932,7 @@ func TestCoordinator_PropagateEventToAllTransactions_SuccessfullyPropagatesEvent
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorWhenSingleTransactionFailsToHandleEvent(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -954,7 +954,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorWhenSingleTrans
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_StopsAtFirstErrorWhenMultipleTransactionsExist(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -982,7 +982,7 @@ func TestCoordinator_PropagateEventToAllTransactions_StopsAtFirstErrorWhenMultip
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_HandlesEventPropagationWithManyTransactions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1006,7 +1006,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesEventPropagationWith
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_HandlesDifferentEventTypes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1024,7 +1024,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesDifferentEventTypes(
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_HandlesContextCancellationGracefully(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1048,7 +1048,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandlesContextCancellationG
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ProcessesTransactionsInMapIterationOrder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1070,7 +1070,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ProcessesTransactionsInMapI
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhenTransactionHandleEventFails(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1094,7 +1094,7 @@ func TestCoordinator_PropagateEventToAllTransactions_ReturnsErrorImmediatelyWhen
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForConfirmedTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
@@ -1105,7 +1105,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 	txBuilder := transaction.NewTransactionBuilderForTesting(t, transaction.State_Confirmed).
 		HeartbeatIntervalsSinceStateChange(4).Grapher(mockGrapher)
 	txn, _ := txBuilder.Build()
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 
 	// Add transaction to coordinator
 	c.transactionsByID[txn.GetID()] = txn
@@ -1121,7 +1121,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterForRevertedTransaction(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1145,7 +1145,7 @@ func TestCoordinator_PropagateEventToAllTransactions_IncrementsHeartbeatCounterF
 }
 
 func TestCoordinator_PropagateEventToAllTransactions_HandleEventReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
@@ -1169,7 +1169,7 @@ func TestCoordinator_PropagateEventToAllTransactions_HandleEventReturnsError(t *
 }
 
 func TestCoordinator_WaitForDone_ReturnsEarlyWhenContextCancelled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()

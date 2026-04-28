@@ -31,7 +31,7 @@ import (
 )
 
 func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
 		Build()
@@ -44,7 +44,7 @@ func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testin
 }
 
 func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_InitializesPendingRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
 			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
@@ -68,7 +68,7 @@ func Test_action_NudgeEndorsementRequests_WithUnfulfilledRequirements_Initialize
 }
 
 func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndContinues(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	sendErr := errors.New("transport send failed")
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
@@ -92,7 +92,7 @@ func Test_sendEndorsementRequests_SendEndorsementRequestReturnsError_LogsAndCont
 }
 
 func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFire(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var timeoutEventReceived bool
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		UseMockClock().
@@ -117,7 +117,7 @@ func Test_sendEndorsementRequests_WhenPendingNil_SchedulesTimerAndQueueEventOnFi
 }
 
 func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{
 			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}, {Name: "att2", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party2"}}},
@@ -146,7 +146,7 @@ func Test_sendEndorsementRequests_TwoAttestationNames_CreatesMapPerName(t *testi
 }
 
 func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		Build()
@@ -163,7 +163,7 @@ func Test_applyEndorsement_NoPendingRequestForAttestationName_IgnoresAndReturnsN
 }
 
 func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -185,7 +185,7 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_IgnoresAndReturnsNil(t *testin
 // We use the same attestation name and party as the pending request so we find the request,
 // then pass a requestID that does not match the pending request's IdempotencyKey.
 func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -207,7 +207,7 @@ func Test_applyEndorsement_IdempotencyKeyMismatch_WithMatchingParty_IgnoresAndRe
 }
 
 func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		PostAssembly(&components.TransactionPostAssembly{Endorsements: []*prototk.AttestationResult{}}).
 		AddPendingEndorsementRequest(0).
@@ -225,7 +225,7 @@ func Test_applyEndorsement_NoPendingRequestForParty_IgnoresAndReturnsNil(t *test
 }
 
 func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	cancelCalled := false
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		AddPendingEndorsementRequest(0).
@@ -239,7 +239,7 @@ func Test_resetEndorsementRequests_WhenPendingNotNull_CancelsAndClears(t *testin
 }
 
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	builder := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
 		AddPendingEndorsementRequest(2).
 		NumberOfRequiredEndorsers(3).
@@ -255,7 +255,7 @@ func Test_EndorsementCompletion_ResetsRequests_OnTransitionToConfirmingDispatch(
 }
 
 func Test_EndorsementCompletion_ResetsRequests_OnTransitionToBlocked(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	grapher := grapher.NewMockGrapher(t)
 
 	blockingTXID := uuid.New()

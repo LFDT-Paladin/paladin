@@ -132,7 +132,7 @@ func TestCoordinatorTransaction_Assembling_ToPooled_OnStateTimeout_IfStateTimeou
 		Grapher(mockGrapher).
 		StateTimeout(1).
 		Build()
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -156,7 +156,7 @@ func TestCoordinatorTransaction_Assembling_ToReverted_OnAssembleRevertResponse(t
 	txn, mocks := txnBuilder.Build()
 
 	mocks.SyncPoints.On("QueueTransactionFinalize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 
 	err := txn.HandleEvent(ctx, txnBuilder.BuildAssembleRevertEvent())
 	require.NoError(t, err)
@@ -315,7 +315,7 @@ func TestCoordinatorTransaction_Endorsement_Gathering_ToPooled_OnEndorseRejected
 		AddPendingEndorsementRequest(2)
 
 	txn, _ := builder.Build()
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 
 	err := txn.HandleEvent(ctx, builder.BuildEndorseRejectedEvent(2))
 	require.NoError(t, err)
@@ -520,7 +520,7 @@ func TestCoordinatorTransaction_Dispatched_ToPooled_OnConfirmedRevert_IfRetryabl
 		BaseLedgerRevertRetryThreshold(3).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 
 	err := txn.HandleEvent(ctx, &transaction.ConfirmedRevertedEvent{
 		BaseCoordinatorEvent: transaction.BaseCoordinatorEvent{
@@ -540,7 +540,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfNonRet
 		Grapher(mockGrapher).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(false, "decoded error", nil)
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()
@@ -565,7 +565,7 @@ func TestCoordinatorTransaction_Dispatched_ToReverted_OnConfirmedRevert_IfThresh
 		RevertCount(1).
 		Build()
 	mocks.DomainAPI.EXPECT().IsBaseLedgerRevertRetryable(mock.Anything, []byte(revertReason)).Return(true, "", nil)
-	mockGrapher.EXPECT().Forget(txn.GetID())
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.GetID())
 	mocks.SyncPoints.EXPECT().QueueTransactionFinalize(
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return()

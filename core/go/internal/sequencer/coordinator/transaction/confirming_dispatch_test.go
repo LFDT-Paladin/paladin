@@ -28,7 +28,7 @@ import (
 )
 
 func Test_action_NudgePreDispatchRequest_NilPendingRequest_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 
 	err := action_NudgePreDispatchRequest(ctx, txn, nil)
@@ -36,7 +36,7 @@ func Test_action_NudgePreDispatchRequest_NilPendingRequest_ReturnsError(t *testi
 }
 
 func Test_action_NudgePreDispatchRequest_WithPendingRequest_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().
 		Build()
@@ -46,7 +46,7 @@ func Test_action_NudgePreDispatchRequest_WithPendingRequest_Success(t *testing.T
 }
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Match(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().
 		Build()
@@ -63,7 +63,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Mat
 }
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NoMatch_WrongRequestID(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().
 		Build()
@@ -79,7 +79,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NoM
 }
 
 func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_NilPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 
 	event := &DispatchRequestApprovedEvent{
@@ -93,7 +93,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_DispatchRequestApproved_Nil
 }
 
 func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().
 		Build()
@@ -108,7 +108,7 @@ func Test_validator_MatchesPendingPreDispatchRequest_OtherEventType_ReturnsFalse
 }
 
 func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	var cancelRequest, cancelStateTimeout bool
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequestWithCallback(func(context.Context, uuid.UUID) error { return nil }).
@@ -130,13 +130,13 @@ func Test_action_DispatchRequestRejected_ClearsPendingRequestAndTimers(t *testin
 }
 
 func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	mockGrapher := grapher.NewMockGrapher(t)
 	builder := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).
 		AddPendingPreDispatchRequest().Grapher(mockGrapher)
 	txn, _ := builder.Build()
 	require.NotNil(t, txn.pendingPreDispatchRequest)
-	mockGrapher.EXPECT().Forget(txn.pt.ID)
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID)
 
 	err := txn.HandleEvent(ctx, &StateTimeoutIntervalEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
@@ -149,7 +149,7 @@ func Test_ConfirmingDispatch_Timeout_TransitionsToPooled_AndClearsPendingRequest
 }
 
 func Test_hash_NilPrivateTransaction_ReturnsError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).Build()
 	txn.pt = nil
 
@@ -161,7 +161,7 @@ func Test_hash_NilPrivateTransaction_ReturnsError(t *testing.T) {
 }
 
 func Test_sendPreDispatchRequest_RequestTimeoutSchedulesTimer_QueueEventCalled(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	timeoutEventReceived := false
 
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirming_Dispatchable).

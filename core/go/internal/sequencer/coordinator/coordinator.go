@@ -151,7 +151,7 @@ func NewCoordinator(
 		transportWriter:                    transportWriter,
 		contractAddress:                    contractAddress,
 		dependencyTracker:                  dependencyTracker,
-		grapher:                            grapher.NewGrapher(coordCtx, dependencyTracker),
+		grapher:                            grapher.NewGrapher(dependencyTracker),
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
