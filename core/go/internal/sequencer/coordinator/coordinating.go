@@ -17,6 +17,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -43,7 +44,7 @@ const (
 // included in this list depends on whether it is an intitial attempt or a scheduled retry, and whether individual delegation timeouts have
 // been exceeded. This means that the coordinator cannot infer any dependency or ordering between transactions based on the list of transactions
 // in the request.
-func action_TransactionsDelegated(ctx context.Context, c *coordinator, event common.Event) error {
+func action_ProcessDelegatedTransactions(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*TransactionsDelegatedEvent)
 	c.updateOriginatorNodePool(e.FromNode)
 	return c.addToDelegatedTransactions(ctx, e.Originator, e.Transactions, e.DelegationID, c.newCoordinatorTransaction)
@@ -226,14 +227,18 @@ func (c *coordinator) addToDelegatedTransactions(
 	return nil
 }
 
-func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
-	// Take the opportunity to inform the sequencer lifecycle manager that we have become active so it can decide if that has
-	// casued us to reach the node's limit on active coordinators.
-	if c.activeCoordinatorNode != c.nodeName {
-		c.activeCoordinatorNode = c.nodeName
-		c.coordinatorActive(c.contractAddress, c.nodeName)
-	}
+func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.signingIdentity = fmt.Sprintf("domains.%s.submit.%s", c.contractAddress.String(), uuid.New())
+	log.L(ctx).Debugf("new signing identity: %s", c.signingIdentity)
+	return nil
+}
 
+func action_NotifyCoordinatorActive(ctx context.Context, c *coordinator, _ common.Event) error {
+	c.coordinatorActive(c.contractAddress, c.nodeName)
+	return nil
+}
+
+func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
 	return c.selectNextTransactionToAssemble(ctx)
 }
@@ -333,17 +338,36 @@ func action_QueueTransactionForDispatch(ctx context.Context, c *coordinator, eve
 	return nil
 }
 
+func action_CleanUpTransactionsNotYetDispatched(ctx context.Context, c *coordinator, _ common.Event) error {
+	txns := c.getTransactionsNotInStates(ctx, []transaction.State{
+		transaction.State_Ready_For_Dispatch,
+		transaction.State_Dispatched,
+		transaction.State_Confirmed,
+		transaction.State_Reverted,
+	})
+	for _, txn := range txns {
+		c.cleanUpTransaction(ctx, txn.GetID())
+	}
+	return nil
+}
+
 func action_CleanUpTransaction(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*common.TransactionStateTransitionEvent[transaction.State])
-	delete(c.transactionsByID, e.TransactionID)
-	// this is a no-op if the transaction is not in the pool
-	c.removeTransactionFromPool(e.TransactionID)
-	c.metrics.DecCoordinatingTransactions()
-	c.grapher.Forget(ctx, e.TransactionID)
-	c.dependencyTracker.Delete(ctx, e.TransactionID)
-
-	log.L(ctx).Debugf("transaction %s cleaned up", e.TransactionID.String())
+	c.cleanUpTransaction(ctx, e.TransactionID)
 	return nil
+}
+
+func (c *coordinator) cleanUpTransaction(ctx context.Context, txID uuid.UUID) {
+	txn := c.transactionsByID[txID]
+	if txn != nil {
+		delete(c.transactionsByID, txID)
+		// this is a no-op if the transaction is not in the pool
+		c.removeTransactionFromPool(txID)
+		c.metrics.DecCoordinatingTransactions()
+		c.grapher.Forget(ctx, txID)
+		c.dependencyTracker.Delete(ctx, txID)
+		log.L(ctx).Debugf("transaction %s cleaned up", txID.String())
+	}
 }
 
 func action_cancelCurrentlyAssemblingTransaction(ctx context.Context, c *coordinator, _ common.Event) error {

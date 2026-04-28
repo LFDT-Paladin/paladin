@@ -39,16 +39,6 @@ func TestState_String_Elect(t *testing.T) {
 	assert.Equal(t, "Elect", result, "State.String() should return the correct string representation")
 }
 
-func TestState_String_Standby(t *testing.T) {
-	result := State_Standby.String()
-	assert.Equal(t, "Standby", result, "State.String() should return the correct string representation")
-}
-
-func TestState_String_Prepared(t *testing.T) {
-	result := State_Prepared.String()
-	assert.Equal(t, "Prepared", result, "State.String() should return the correct string representation")
-}
-
 func TestState_String_Active(t *testing.T) {
 	result := State_Active.String()
 	assert.Equal(t, "Active", result, "State.String() should return the correct string representation")
@@ -62,6 +52,11 @@ func TestState_String_Flush(t *testing.T) {
 func TestState_String_Closing(t *testing.T) {
 	result := State_Closing.String()
 	assert.Equal(t, "Closing", result, "State.String() should return the correct string representation")
+}
+
+func TestState_String_Error(t *testing.T) {
+	result := State_Error.String()
+	assert.Equal(t, "Error", result, "State.String() should return the correct string representation")
 }
 
 func TestState_String_InvalidState(t *testing.T) {

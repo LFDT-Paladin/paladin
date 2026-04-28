@@ -17,7 +17,6 @@ package coordinator
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -32,7 +31,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence/mockpersistence"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -74,19 +72,12 @@ func (r *SentMessageRecorder) HasSentHeartbeat() bool {
 type CoordinatorBuilderForTesting struct {
 	t                                        *testing.T
 	state                                    State
-	originatorIdentityPool                   []string
 	domainAPI                                *componentsmocks.DomainSmartContract
 	txManager                                *componentsmocks.TXManager
 	sequencerManager                         *componentsmocks.SequencerManager
 	contractAddress                          *pldtypes.EthAddress
 	currentBlockHeight                       *uint64
-	activeCoordinatorBlockHeight             *uint64
 	activeCoordinator                        *string
-	flushPointTransactionID                  *uuid.UUID
-	flushPointHash                           *pldtypes.Bytes32
-	flushPointNonce                          *uint64
-	flushPointSignerAddress                  *pldtypes.EthAddress
-	emitFunction                             func(event common.Event)
 	transactions                             []transaction.CoordinatorTransaction
 	heartbeatsUntilClosingGracePeriodExpires *int
 	metrics                                  metrics.DistributedSequencerMetrics
@@ -97,7 +88,6 @@ type CoordinatorDependencyMocks struct {
 	SentMessageRecorder *SentMessageRecorder
 	EngineIntegration   *common.FakeEngineIntegrationForTesting
 	SyncPoints          syncpoints.SyncPoints
-	emittedEvents       []common.Event
 }
 
 // copySequencerDefaultsForTest returns a deep copy of SequencerDefaults so tests that mutate
@@ -198,11 +188,6 @@ func NewCoordinatorBuilderForTesting(t *testing.T, state State) *CoordinatorBuil
 	}
 }
 
-func (b *CoordinatorBuilderForTesting) OriginatorIdentityPool(originatorIdentityPool ...string) *CoordinatorBuilderForTesting {
-	b.originatorIdentityPool = originatorIdentityPool
-	return b
-}
-
 func (b *CoordinatorBuilderForTesting) ContractAddress(contractAddress *pldtypes.EthAddress) *CoordinatorBuilderForTesting {
 	b.contractAddress = contractAddress
 	return b
@@ -217,31 +202,9 @@ func (b *CoordinatorBuilderForTesting) CurrentBlockHeight(currentBlockHeight uin
 	return b
 }
 
-func (b *CoordinatorBuilderForTesting) ActiveCoordinatorBlockHeight(activeCoordinatorBlockHeight uint64) *CoordinatorBuilderForTesting {
-	b.activeCoordinatorBlockHeight = &activeCoordinatorBlockHeight
-	return b
-}
-
 func (b *CoordinatorBuilderForTesting) Transactions(transactions ...transaction.CoordinatorTransaction) *CoordinatorBuilderForTesting {
 	b.transactions = transactions
 	return b
-}
-
-func (b *CoordinatorBuilderForTesting) HeartbeatsUntilClosingGracePeriodExpires(heartbeatsUntilClosingGracePeriodExpires int) *CoordinatorBuilderForTesting {
-	b.heartbeatsUntilClosingGracePeriodExpires = &heartbeatsUntilClosingGracePeriodExpires
-	return b
-}
-
-func (b *CoordinatorBuilderForTesting) GetFlushPointNonce() uint64 {
-	return *b.flushPointNonce
-}
-
-func (b *CoordinatorBuilderForTesting) GetFlushPointSignerAddress() *pldtypes.EthAddress {
-	return b.flushPointSignerAddress
-}
-
-func (b *CoordinatorBuilderForTesting) GetFlushPointHash() pldtypes.Bytes32 {
-	return *b.flushPointHash
 }
 
 func (b *CoordinatorBuilderForTesting) GetDomainAPI() *componentsmocks.DomainSmartContract {
@@ -291,10 +254,6 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		SyncPoints:          &syncpoints.MockSyncPoints{},
 	}
 
-	b.emitFunction = func(event common.Event) {
-		mocks.emittedEvents = append(mocks.emittedEvents, event)
-	}
-
 	b.domainAPI.On("ContractConfig").Return(&prototk.ContractConfig{
 		CoordinatorSelection: prototk.ContractConfig_COORDINATOR_SENDER,
 	}).Maybe()
@@ -325,7 +284,6 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		common.RealClock(),
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
-		b.originatorIdentityPool,
 		b.sequencerConfig,
 		"node1",
 		b.metrics,
@@ -346,19 +304,15 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 	}
 
 	// Reset activeCoordinatorNode which action_SelectActiveCoordinator may have set during startup.
+	// TODO AM: this can have a big rethink with the new state machine
 	coordinator.activeCoordinatorNode = ""
 	coordinator.stateMachineEventLoop.StateMachine().SetCurrentState(b.state)
 	switch b.state {
 	case State_Observing:
 		fallthrough
-	case State_Standby:
-		fallthrough
 	case State_Elect:
 		if b.currentBlockHeight == nil {
 			b.currentBlockHeight = ptrTo(uint64(0))
-		}
-		if b.activeCoordinatorBlockHeight == nil {
-			b.activeCoordinatorBlockHeight = ptrTo(uint64(0))
 		}
 
 		if b.activeCoordinator == nil {
@@ -366,41 +320,13 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		}
 
 		coordinator.currentBlockHeight = *b.currentBlockHeight
-		coordinator.activeCoordinatorBlockHeight = *b.activeCoordinatorBlockHeight
 		coordinator.activeCoordinatorNode = *b.activeCoordinator
-	case State_Prepared:
-		if b.flushPointTransactionID == nil {
-			b.flushPointTransactionID = ptrTo(uuid.New())
-		}
-		if b.flushPointHash == nil {
-			b.flushPointHash = ptrTo(pldtypes.Bytes32(pldtypes.RandBytes(32)))
-		}
-		if b.flushPointNonce == nil {
-			b.flushPointNonce = ptrTo(uint64(42))
-		}
-		if b.flushPointSignerAddress == nil {
-			b.flushPointSignerAddress = pldtypes.RandAddress()
-		}
-
-		coordinator.activeCoordinatorsFlushPointsBySignerNonce = map[string]*common.SnapshotFlushPoint{
-			fmt.Sprintf("%s:%d", b.flushPointSignerAddress.String(), *b.flushPointNonce): {
-				TransactionID: *b.flushPointTransactionID,
-				Hash:          *b.flushPointHash,
-				Nonce:         *b.flushPointNonce,
-				From:          *b.flushPointSignerAddress,
-			},
-		}
 	case State_Closing:
 		if b.heartbeatsUntilClosingGracePeriodExpires == nil {
 			b.heartbeatsUntilClosingGracePeriodExpires = ptrTo(5)
 		}
 		coordinator.heartbeatIntervalsSinceStateChange = 5 - *b.heartbeatsUntilClosingGracePeriodExpires
 
-	}
-
-	// Actions like action_HeartbeatReceived write to this map; ensure it is never nil
-	if coordinator.activeCoordinatorsFlushPointsBySignerNonce == nil {
-		coordinator.activeCoordinatorsFlushPointsBySignerNonce = make(map[string]*common.SnapshotFlushPoint)
 	}
 
 	done := func() {

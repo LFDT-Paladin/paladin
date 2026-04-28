@@ -54,3 +54,15 @@ func ValidatorOr[E any](validators ...Validator[E]) Validator[E] {
 		return false, nil
 	}
 }
+
+// ValidatorNot negates the result of a validator.
+// Errors from the inner validator are propagated unchanged.
+func ValidatorNot[E any](validator Validator[E]) Validator[E] {
+	return func(ctx context.Context, entity E, event common.Event) (bool, error) {
+		valid, err := validator(ctx, entity, event)
+		if err != nil {
+			return false, err
+		}
+		return !valid, nil
+	}
+}

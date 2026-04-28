@@ -792,9 +792,9 @@
 | confirmedLockRetentionGracePeriod | Heartbeat grace period before clearing confirmed transaction state locks from coordinator snapshots | `int` | `2` |
 | coordinatorEventQueueSize | Queue size for coordinator state machine events | `int` | `100` |
 | coordinatorPriorityEventQueueSize | Queue size for coordinator priority events | `int` | `500` |
+| heartbeatGracePeriod | Number of heartbeat intervals without activity before a previously active coordinator is considered inactive | `int` | `10` |
 | heartbeatInterval | Heartbeat interval for coordinators | `string` | `"10s"` |
 | idleSequencerCleanupInterval | Interval for proactively removing sequencers where both the coordinator and originator are in idle state | `string` | `"1m"` |
-| inactiveToIdleGracePeriod | Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle | `int` | `10` |
 | maxDispatchAhead | Maximum number of transactions to dispatch ahead | `int` | `50` |
 | maxInflightTransactions | Maximum number of inflight transactions | `int` | `500` |
 | originatorEventQueueSize | Queue size for originator state machine events | `int` | `50` |

@@ -38,8 +38,7 @@ func TestGetSnapshot_OK(t *testing.T) {
 
 func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	ctx := context.Background()
-	originator := "sender@senderNode"
-	c, _, done := NewCoordinatorForUnitTest(t, ctx, []string{originator})
+	c, _, done := NewCoordinatorForUnitTest(t)
 	defer done()
 
 	pooledTxn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
@@ -59,16 +58,6 @@ func TestGetSnapshot_AggregatesTransactionsBySnapshotType(t *testing.T) {
 	assert.Equal(t, pooledTxn.GetID(), snapshot.PooledTransactions[0].ID)
 	assert.Equal(t, dispatchedTxn.GetID(), snapshot.DispatchedTransactions[0].ID)
 	assert.Equal(t, confirmedTxn.GetID(), snapshot.ConfirmedTransactions[0].ID)
-}
-
-func TestGetSnapshot_IncludesFlushPoints(t *testing.T) {
-	ctx := context.Background()
-	c, _, done := NewCoordinatorBuilderForTesting(t, State_Prepared).Build(ctx)
-	defer done()
-
-	snapshot := c.getSnapshot(ctx)
-	require.NotNil(t, snapshot)
-	assert.Greater(t, len(snapshot.FlushPoints), 0)
 }
 
 func TestGetSnapshot_IncludesCoordinatorStateAndBlockHeight(t *testing.T) {
@@ -169,7 +158,7 @@ func Test_action_PropagateHeartbeatToTransactions_NoTransactions(t *testing.T) {
 	defer done()
 	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
 
-	err := action_PropagateHeartbeatToTransactions(ctx, c, nil)
+	err := action_PropagateHeartbeatIntervalToTransactions(ctx, c, nil)
 	require.NoError(t, err)
 }
 
@@ -180,7 +169,6 @@ func Test_action_PropagateHeartbeatToTransactions_WithTransactions(t *testing.T)
 	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
 	c.transactionsByID[txn.GetID()] = txn
 
-	err := action_PropagateHeartbeatToTransactions(ctx, c, nil)
+	err := action_PropagateHeartbeatIntervalToTransactions(ctx, c, nil)
 	require.NoError(t, err)
 }
-

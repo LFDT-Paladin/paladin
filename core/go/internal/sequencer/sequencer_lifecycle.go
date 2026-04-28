@@ -200,14 +200,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				return nil, err
 			}
 
-			// Start by populating the pool of originators with the endorsers of this transaction. At this point
-			// we don't have anything else to use to determine who our candidate coordinators are.
-			initialOriginatorNodes, err := sMgr.getOriginatorNodesFromTx(seqCtx, tx)
-			if err != nil {
-				cancelCtx()
-				return nil, err
-			}
-
 			coordinator, err := coordinator.NewCoordinator(seqCtx,
 				&contractAddr,
 				domainAPI,
@@ -219,7 +211,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				common.RealClock(),
 				engineIntegration,
 				sMgr.syncPoints,
-				initialOriginatorNodes,
 				sMgr.config,
 				sMgr.nodeName,
 				sMgr.metrics,
@@ -260,24 +251,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			log.L(ctx).Debugf("sqncr      | %s | started", contractAddr.String()[0:8])
 		}
 	}
-	// TODO AM: clean up when confident this is replaced
-	//  else {
-	// 	seq := sMgr.sequencers[contractAddr.String()]
-	// 	// When the sequencer already existed, it may have been created with tx=nil (e.g. on first
-	// 	// AssembleRequest) and have an empty originator pool. Queue an event so the coordinator
-	// 	// updates its pool with this transaction's endorsers and, if still in State_Initial, can
-	// 	// select an active coordinator.
-	// 	originatorNodes, err := sMgr.getOriginatorNodesFromTx(ctx, tx)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	if len(originatorNodes) > 0 {
-	// 		seq.GetCoordinator().QueueEvent(ctx, &coordinator.OriginatorNodePoolUpdateRequestedEvent{
-	// 			BaseEvent: common.BaseEvent{EventTime: time.Now()},
-	// 			Nodes:     originatorNodes,
-	// 		})
-	// 	}
-	// }
 
 	if tx != nil {
 		sMgr.sequencers[contractAddr.String()].lastTXTime = time.Now()
@@ -292,22 +265,6 @@ func (sMgr *sequencerManager) StopAllSequencers(ctx context.Context) {
 	for _, sequencer := range sMgr.sequencers {
 		sequencer.shutdown(ctx)
 	}
-}
-
-func (sMgr *sequencerManager) getOriginatorNodesFromTx(ctx context.Context, tx *components.PrivateTransaction) ([]string, error) {
-	if tx == nil || tx.PreAssembly == nil || tx.PreAssembly.RequiredVerifiers == nil {
-		return nil, nil
-	}
-	log.L(ctx).Debugf("setting initial coordinator, updating originator node pool to include required verifiers of transaction %s", tx.ID.String())
-	nodes := make([]string, 0, len(tx.PreAssembly.RequiredVerifiers))
-	for _, verifier := range tx.PreAssembly.RequiredVerifiers {
-		_, node, err := pldtypes.PrivateIdentityLocator(verifier.Lookup).Validate(ctx, sMgr.nodeName, false)
-		if err != nil {
-			return nil, err
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes, nil
 }
 
 // Must be called within the sequencer's write lock

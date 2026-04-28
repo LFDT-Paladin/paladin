@@ -738,6 +738,7 @@ var (
 	SequencerConfigBaseLedgerRevertRetryThreshold    = pdm("SequencerConfig.baseLedgerRevertRetryThreshold", "Maximum number of times a transaction can be retried after a retryable base ledger revert before it is finalized as failed")
 	SequencerConfigDelegateTimeout                   = pdm("SequencerConfig.delegateTimeout", "Timeout for re-delegating transactions")
 	SequencerConfigHeartbeatInterval                 = pdm("SequencerConfig.heartbeatInterval", "Heartbeat interval for coordinators")
+	SequencerConfigHeartbeatGracePeriod              = pdm("SequencerConfig.heartbeatGracePeriod", "Number of heartbeat intervals without activity before a previously active coordinator is considered inactive")
 	SequencerConfigMaxInflightTransactions           = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
 	SequencerConfigMaxDispatchAhead                  = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
 	SequencerConfigRedelegateGracePeriod             = pdm("SequencerConfig.redelegateGracePeriod", "Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions")
@@ -746,7 +747,6 @@ var (
 	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
 	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")
 	SequencerConfigTransactionResumeMaxTransactions  = pdm("SequencerConfig.transactionResumeMaxTransactions", "Maximum number of pending transactions to resume")
-	SequencerConfigInactiveToIdleGracePeriod         = pdm("SequencerConfig.inactiveToIdleGracePeriod", "Number of heartbeat intervals without activity before a coordinator or originator transitions from inactive to idle")
 	SequencerConfigIdleSequencerCleanupInterval      = pdm("SequencerConfig.idleSequencerCleanupInterval", "Interval for proactively removing sequencers where both the coordinator and originator are in idle state")
 	SequencerConfigWriter                            = pdm("SequencerConfig.writer", "Writer configuration")
 

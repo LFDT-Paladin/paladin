@@ -35,7 +35,6 @@ func TestParseCoordinatorHeartbeatNotification_Success(t *testing.T) {
 	snapshot := common.CoordinatorSnapshot{
 		CoordinatorState:       "Idle",
 		BlockHeight:            100,
-		FlushPoints:            []*common.SnapshotFlushPoint{},
 		PooledTransactions:     []*common.SnapshotPooledTransaction{},
 		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
 		ConfirmedTransactions:  []*common.SnapshotConfirmedTransaction{},
@@ -58,48 +57,6 @@ func TestParseCoordinatorHeartbeatNotification_Success(t *testing.T) {
 	assert.Equal(t, contractAddress.HexString(), parsed.ContractAddress.HexString())
 	assert.Equal(t, snapshot.CoordinatorState, parsed.CoordinatorState)
 	assert.Equal(t, snapshot.BlockHeight, parsed.BlockHeight)
-}
-
-func TestParseCoordinatorHeartbeatNotification_WithFlushPoints(t *testing.T) {
-	from := "coordinator-node"
-	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
-	flushPointAddr := pldtypes.MustEthAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
-	flushPointHash := pldtypes.MustParseBytes32("0x00000000000000000000000000000000000000000000000000000000000000ab")
-	txID := uuid.New()
-
-	flushPoint := &common.SnapshotFlushPoint{
-		From:          *flushPointAddr,
-		Nonce:         42,
-		TransactionID: txID,
-		Hash:          flushPointHash,
-		Confirmed:     true,
-	}
-
-	snapshot := common.CoordinatorSnapshot{
-		CoordinatorState:       "Active",
-		BlockHeight:            200,
-		FlushPoints:            []*common.SnapshotFlushPoint{flushPoint},
-		PooledTransactions:     []*common.SnapshotPooledTransaction{},
-		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
-		ConfirmedTransactions:  []*common.SnapshotConfirmedTransaction{},
-	}
-
-	notification := CoordinatorHeartbeatNotification{
-		From:                from,
-		ContractAddress:     contractAddress,
-		CoordinatorSnapshot: snapshot,
-	}
-
-	bytes, err := json.Marshal(notification)
-	require.NoError(t, err)
-
-	parsed, err := ParseCoordinatorHeartbeatNotification(bytes)
-	require.NoError(t, err)
-	assert.NotNil(t, parsed)
-	assert.Equal(t, 1, len(parsed.FlushPoints))
-	assert.Equal(t, flushPointAddr.HexString(), parsed.FlushPoints[0].From.HexString())
-	assert.Equal(t, uint64(42), parsed.FlushPoints[0].Nonce)
-	assert.Equal(t, txID, parsed.FlushPoints[0].TransactionID)
 }
 
 func TestParseCoordinatorHeartbeatNotification_InvalidJSON(t *testing.T) {

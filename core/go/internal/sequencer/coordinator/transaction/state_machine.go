@@ -32,7 +32,7 @@ const (
 	State_Pooled                               // waiting in the pool to be assembled - TODO should rename to "Selectable" or "Selectable_Pooled".  Related to potential rename of `State_PreAssembly_Blocked`
 	State_PreAssembly_Blocked                  // has not been assembled yet and cannot be assembled because a dependency never got assembled successfully - i.e. it was either Parked or Reverted is also blocked
 	State_Assembling                           // an assemble request has been sent but we are waiting for the response
-	State_Reverted                             // the transaction has been reverted by the assembler/originator
+	State_Reverted                             // the transaction has been reverted by the assembler/originator or on the base ledger
 	State_Endorsement_Gathering                // assembled and waiting for endorsement
 	State_Blocked                              // is fully endorsed but cannot proceed due to dependencies not being ready for dispatch
 	State_Confirming_Dispatchable              // endorsed and waiting for confirmation that were are OK to dispatch. The originator can still request not to proceed at this point.

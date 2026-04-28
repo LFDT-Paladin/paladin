@@ -23,25 +23,15 @@ import (
 
 // Guard type is defined as a type alias in state_machine.go using statemachine.Guard[*coordinator]
 
-func guard_Not(guard Guard) Guard {
-	return func(ctx context.Context, c *coordinator) bool {
-		return !guard(ctx, c)
-	}
-}
-
-func guard_Behind(ctx context.Context, c *coordinator) bool {
-	//Return true if the current block height that our indexer has reached is behind the current coordinator
-	// there is a configured tolerance so if we are within this tolerance we are not considered behind
-	return c.currentBlockHeight < c.activeCoordinatorBlockHeight-c.blockHeightTolerance
-}
+// TODO AM: get rid of this but need to think more about how tolerance comes in elsewhere
+// func guard_Behind(ctx context.Context, c *coordinator) bool {
+// 	//Return true if the current block height that our indexer has reached is behind the current coordinator
+// 	// there is a configured tolerance so if we are within this tolerance we are not considered behind
+// 	return c.currentBlockHeight < c.activeCoordinatorBlockHeight-c.blockHeightTolerance
+// }
 
 func guard_ActiveCoordinatorFlushComplete(ctx context.Context, c *coordinator) bool {
-	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
-		if !flushPoint.Confirmed {
-			return false
-		}
-	}
-	return true
+	return c.activeCoordinatorState != State_Flush
 }
 
 // Function flushComplete returns true if there are no transactions past the point of no return that haven't been confirmed yet
@@ -60,10 +50,6 @@ func guard_FlushComplete(ctx context.Context, c *coordinator) bool {
 // and since removed from memory
 func guard_HasTransactionsInflight(ctx context.Context, c *coordinator) bool {
 	return len(c.transactionsByID) > 0
-}
-
-func guard_ClosingGracePeriodExpired(ctx context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceStateChange >= c.closingGracePeriod
 }
 
 func guard_HasTransactionAssembling(ctx context.Context, c *coordinator) bool {

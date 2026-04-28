@@ -35,12 +35,11 @@ const (
 	State_Initial   State = iota // Coordinator created but not yet selected an active coordinator
 	State_Idle                   // Not acting as a coordinator and not aware of any other active coordinators
 	State_Observing              // Not acting as a coordinator but aware of another node acting as a coordinator
-	State_Elect                  // Elected to take over from another coordinator and waiting for handover information
-	State_Standby                // Going to be coordinator on the next block range but local indexer is not at that block yet.
-	State_Prepared               // Have received the handover response but haven't seen the flush point confirmed
+	State_Elect                  // Selected to take over from another coordinator but waiting to see the previous coordinator's flush point
 	State_Active                 // Have seen the flush point or have reason to believe the old coordinator has become unavailable and am now assembling transactions based on available knowledge of the state of the base ledger and submitting transactions to the base ledger.
 	State_Flush                  // Stopped assembling and dispatching transactions but continue to submit transactions that are already dispatched
-	State_Closing                // Have flushed and am continuing to sent closing status for `x` heartbeats.
+	State_Closing                // Have flushed and are continuing to sent closing status for `x` heartbeats.
+	State_Error                  // Unrecoverable error state
 )
 
 const (
@@ -54,12 +53,22 @@ const (
 type (
 	Action           = statemachine.Action[*coordinator]
 	Guard            = statemachine.Guard[*coordinator]
+	Validator        = statemachine.Validator[*coordinator]
 	ActionRule       = statemachine.ActionRule[*coordinator]
 	Transition       = statemachine.Transition[State, *coordinator]
 	EventHandler     = statemachine.EventHandler[State, *coordinator]
 	StateDefinition  = statemachine.StateDefinition[State, *coordinator]
 	StateDefinitions = statemachine.StateDefinitions[State, *coordinator]
 )
+
+func guard_IsActiveCoordinator(ctx context.Context, c *coordinator) bool {
+	return c.nodeName == c.activeCoordinatorNode
+}
+
+// TODO AM: something to think about
+// does a node who is endorsing in a privacy group but not submitting need a way to understand that the preferred active
+// coordinator has become unavailable?
+// I think the simplest way is to endorse everything that comes in? Are there knock on implications for this?
 
 var stateDefinitionsMap = StateDefinitions{
 	State_Initial: {
@@ -68,19 +77,9 @@ var stateDefinitionsMap = StateDefinitions{
 				Actions: []ActionRule{{Action: action_SelectActiveCoordinator}},
 				Transitions: []Transition{
 					{To: State_Idle, If: guard_HasActiveCoordinator},
+					// TODO AM: add this state to garbage collection and priority for removal
+					{To: State_Error, If: statemachine.GuardNot(guard_HasActiveCoordinator)},
 				},
-			},
-			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-				Transitions: []Transition{{
-					To: State_Active,
-				}},
-			},
-			Event_HeartbeatReceived: {
-				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
-				Transitions: []Transition{{
-					To: State_Observing,
-				}},
 			},
 		},
 	},
@@ -88,35 +87,48 @@ var stateDefinitionsMap = StateDefinitions{
 		OnTransitionTo: []ActionRule{{Action: action_Idle}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
+				Actions: []ActionRule{{
+					If:     guard_IsActiveCoordinator,
+					Action: action_ProcessDelegatedTransactions,
+				}, {
+					If:     statemachine.GuardNot(guard_IsActiveCoordinator),
+					Action: action_RejectDelegatedTransactions,
+				}},
 				Transitions: []Transition{{
+					If: guard_IsActiveCoordinator,
 					To: State_Active,
 				}},
 			},
 			Event_HeartbeatReceived: {
-				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
+				Validator: validator_IsHeartbeatFromActiveCoordinator,
+				Actions:   []ActionRule{{Action: action_HeartbeatReceived}},
 				Transitions: []Transition{{
 					To: State_Observing,
 				}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateBlockHeight,
+					},
+					{
+						// If we have entered a new block range and we are the new coordinator, we stay in State_Idle
+						// since as far as we can see there is no active work for this domain instance. If we receive
+						// delegated transactions, we will now move to State_Active and process rather than reject them.
+						If:     guard_IsNewBlockRange,
+						Action: action_SelectActiveCoordinator,
+					},
+				},
 			},
 		},
 	},
 	State_Observing: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-				Transitions: []Transition{
-					{
-						To: State_Standby,
-						If: guard_Behind,
-					},
-					{
-						To: State_Elect,
-						If: guard_Not(guard_Behind),
-					},
-				},
+				Actions: []ActionRule{{Action: action_RejectDelegatedTransactions}},
 			},
 			Event_HeartbeatReceived: {
+				Validator: validator_IsHeartbeatFromActiveCoordinator,
 				Actions: []ActionRule{
 					{Action: action_HeartbeatReceived},
 					{Action: action_ResetHeartbeatIntervalsSinceLastReceive},
@@ -128,76 +140,115 @@ var stateDefinitionsMap = StateDefinitions{
 				},
 				Transitions: []Transition{{
 					To: State_Idle,
-					If: guard_ObservingIdleThresholdExceeded,
+					If: guard_HeartbeatThresholdExceeded,
 				}},
 			},
-		},
-	},
-	State_Standby: {
-		Events: map[EventType]EventHandler{
-			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-			},
 			Event_NewBlock: {
-				Actions: []ActionRule{{Action: action_NewBlock}},
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateBlockHeight,
+					},
+					{
+						If:     guard_IsNewBlockRange,
+						Action: action_SelectActiveCoordinator,
+					},
+				},
 				Transitions: []Transition{{
 					To: State_Elect,
-					If: guard_Not(guard_Behind),
+					If: guard_IsActiveCoordinator,
 				}},
 			},
 		},
 	},
 	State_Elect: {
-		// OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
-		// Events: map[EventType]EventHandler{
-		// 	Event_TransactionsDelegated: {
-		// 		Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-		// 	},
-		// 	Event_HandoverReceived: {
-		// 		Transitions: []Transition{{
-		// 			To: State_Prepared,
-		// 		}},
-		// 	},
-		// },
-	},
-	State_Prepared: {
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
+				Actions: []ActionRule{{Action: action_RejectDelegatedTransactions}},
 			},
 			Event_HeartbeatReceived: {
-				Actions: []ActionRule{{Action: action_HeartbeatReceived}},
+				Validator: validator_IsHeartbeatFromActiveCoordinator,
+				Actions: []ActionRule{
+					{Action: action_HeartbeatReceived},
+					{Action: action_ResetHeartbeatIntervalsSinceLastReceive},
+				},
 				Transitions: []Transition{{
 					To: State_Active,
 					If: guard_ActiveCoordinatorFlushComplete,
 				}},
 			},
+			common.Event_TransactionStateTransition: {
+				Actions: []ActionRule{
+					{
+						// There is a small chance we have come here from State_Closing and still have transactions in terminal
+						// states from the previous block range that we haven't cleaned up from memory yet, so we handle that here.
+						// We need to keep heartbeating if we have these transactions in memory.
+						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
+						Action:    action_CleanUpTransaction,
+					},
+				},
+			},
+			common.Event_HeartbeatInterval: {
+				Actions: []ActionRule{
+					{Action: action_IncrementHeartbeatIntervalsSinceLastReceive},
+					{
+						// Sending a heartbeat only if we have in memory transactions from a previous block range which hadn't yet
+						// been cleaned up when we moved from State_Closing to State_Selected. This is very unlikely to occur, but
+						// it is technically possible if we are configured with a small block range but a long closing grace period.
+						Action: action_SendHeartbeat,
+						If:     guard_HasTransactionsInflight,
+					},
+				},
+				// If we stop receiving heartbeats from the previously active coordinator, we move to State_Active
+				// without confirming that the flush is complete. There is a risk that the previous coordinator is actually
+				// still submitting transactions and it is network issues causing us to not receive heartbeats. In this case
+				// we will have state contention on the base ledger, but this should eventually be resolved with retries.
+				Transitions: []Transition{{
+					To: State_Active,
+					If: guard_HeartbeatThresholdExceeded,
+				}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateBlockHeight,
+					},
+					{
+						If:     guard_IsNewBlockRange,
+						Action: action_SelectActiveCoordinator,
+					},
+				},
+				// This transition should only happen if we have either a very short block range, or the previous active
+				// coordinator is taking a very long time to flush (e.g. dispatched transactions but base ledger is unavailble).
+				Transitions: []Transition{{
+					To: State_Observing,
+					If: statemachine.GuardNot(guard_IsActiveCoordinator),
+				}},
+			},
 		},
 	},
 	State_Active: {
-		OnTransitionTo: []ActionRule{{Action: action_SelectTransaction}},
+		OnTransitionTo: []ActionRule{
+			{Action: action_NewSigningIdentity},
+			{Action: action_NotifyCoordinatorActive},
+			{Action: action_SelectTransaction},
+		},
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
+					{Action: action_PropagateHeartbeatIntervalToTransactions},
 					{Action: action_SendHeartbeat},
-					{Action: action_PropagateHeartbeatToTransactions},
 				},
 				Transitions: []Transition{{
 					To: State_Idle,
-					If: guard_Not(guard_HasTransactionsInflight),
+					If: statemachine.GuardNot(guard_HasTransactionsInflight),
 				}},
 			},
 			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
 				// don't select a transaction here since events must to move into pooled state before
 				// they can be selected and there is a separate event for that
+				Actions: []ActionRule{{Action: action_ProcessDelegatedTransactions}},
 			},
-			// Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
-			// 	Transitions: []Transition{{
-			// 		To: State_Flush,
-			// 	}},
-			// },
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
@@ -233,77 +284,157 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 					{
 						Action: action_SelectTransaction,
-						If:     guard_Not(guard_HasTransactionAssembling),
+						If:     statemachine.GuardNot(guard_HasTransactionAssembling),
 					},
 				},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{Action: action_UpdateBlockHeight},
+					{Action: action_SelectActiveCoordinator},
+				},
+				// We have entered a new block range. Regardless of whether or not we are the preferred active coordinator for
+				// this block range, we still need to flush all the dispatched transactions from the previous block range.
+				Transitions: []Transition{{
+					To: State_Flush,
+					If: guard_IsNewBlockRange,
+				}},
 			},
 		},
 	},
 	State_Flush: {
-		//TODO: should the dispatch loop stop dispatching transactions while in flush? TODO AM- yes
-		//TODO should we move to active if we get delegated transactions while in flush? TODO AM: no, but we might be selected as the alternate
+		OnTransitionTo: []ActionRule{{
+			// Clean up transactions that have not reached point of no return. They will disappear from heartbeats which means that the
+			// the originator will start trying to redelegate to the new active coordinator. The new coordinator should be rejecting
+			// these delegations while it waits for the flush to complete. If it doesn't, the base ledger still protects against duplicate
+			// submissions and double spends; we tolerate the inefficiency this causes in the protocol.
+			Action: action_CleanUpTransactionsNotYetDispatched,
+		}},
 		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				Actions: []ActionRule{{Action: action_RejectDelegatedTransactions}},
+			},
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
 					{Action: action_SendHeartbeat},
-					{Action: action_PropagateHeartbeatToTransactions},
+					{Action: action_PropagateHeartbeatIntervalToTransactions},
+				},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateBlockHeight,
+					},
+					{
+						If:     guard_IsNewBlockRange,
+						Action: action_SelectActiveCoordinator,
+					},
 				},
 			},
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
-						Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
-						Action:    action_PoolTransaction,
-					},
-					{
-						Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-						Action:    action_QueueTransactionForDispatch,
-					},
-					{
 						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
 						Action:    action_CleanUpTransaction,
+					}, {
+						// A transaction was dispatched and has been reverted on chain but the revert reason has been considered
+						// retryable. The next coordinator will be able to assemble and submit this transaction again. We just
+						// need to clean it up from memory.
+						Validator: statemachine.ValidatorAnd(
+							validator_TransactionStateTransitionFrom(transaction.State_Dispatched),
+							statemachine.ValidatorNot(
+								validator_TransactionStateTransitionTo(transaction.State_Confirmed, transaction.State_Reverted),
+							),
+						),
+						Action: action_CleanUpTransaction,
 					},
 				},
 				Transitions: []Transition{{
+					// There is a new preferred active coordinator for the new block range. We move to State_Closing so we can
+					// continue to send heartbeats with our confirmed transactions until they have all reached the end of their
+					// grace period.
 					To: State_Closing,
-					If: guard_FlushComplete,
+					If: statemachine.GuardAnd(guard_FlushComplete, statemachine.GuardNot(guard_IsActiveCoordinator)),
+				}, {
+					// We are still the preferred active coordinator for the new block range. We move back to State_Active
+					// so we can start accepting delegated transactions again, and submitting them using our new signing identity.
+					To: State_Active,
+					If: statemachine.GuardAnd(guard_FlushComplete, guard_IsActiveCoordinator),
 				}},
 			},
 		},
 	},
 	State_Closing: {
-		//TODO should we move to active if we get delegated transactions while in closing? TODO AM: no
+		// TODO AM: send a heartbeat here so that the new coordinator can see we're in closing immediately. This heartbeat
+		// should include our state locks so the new coordinator can start assembling immediately even if they haven't yet
+		// indexed the transaction(s) that have just been confirmed.
 		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				Actions: []ActionRule{{Action: action_RejectDelegatedTransactions}},
+			},
+			Event_HeartbeatReceived: {
+				Validator: validator_IsHeartbeatFromActiveCoordinator,
+				Actions: []ActionRule{
+					{Action: action_HeartbeatReceived},
+					{Action: action_ResetHeartbeatIntervalsSinceLastReceive},
+				},
+			},
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceStateChange},
 					{Action: action_SendHeartbeat},
-					{Action: action_PropagateHeartbeatToTransactions},
+					{Action: action_PropagateHeartbeatIntervalToTransactions},
 				},
 				Transitions: []Transition{{
 					To: State_Idle,
-					If: guard_ClosingGracePeriodExpired,
+					If: statemachine.GuardAnd(
+						statemachine.GuardNot(guard_HasTransactionsInflight),
+						guard_HeartbeatThresholdExceeded,
+					),
+				}, {
+					To: State_Observing,
+					If: statemachine.GuardAnd(
+						statemachine.GuardNot(guard_HasTransactionsInflight),
+						statemachine.GuardNot(guard_HeartbeatThresholdExceeded),
+					),
 				}},
 			},
 			common.Event_TransactionStateTransition: {
-				// TODO: these actions probably shouldn't be necessary in Closing state
-				// but this is closely related to many of the other TODO questions in this
-				// state machine definition and they need to be addressed together
 				Actions: []ActionRule{
-					{
-						Validator: validator_TransactionStateTransitionTo(transaction.State_Pooled),
-						Action:    action_PoolTransaction,
-					},
-					{
-						Validator: validator_TransactionStateTransitionTo(transaction.State_Ready_For_Dispatch),
-						Action:    action_QueueTransactionForDispatch,
-					},
 					{
 						Validator: validator_TransactionStateTransitionTo(transaction.State_Final),
 						Action:    action_CleanUpTransaction,
 					},
 				},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{
+						Action: action_UpdateBlockHeight,
+					},
+					{
+						If:     guard_IsNewBlockRange,
+						Action: action_SelectActiveCoordinator,
+					},
+				},
+				Transitions: []Transition{{
+					// If we're now the preferred active coordinator again but we haven't been receiving heartbeats
+					// then we don't need to make a transition here, we can just wait until we move to State_Idle
+					// once we have no transactions in memory.
+					To: State_Elect,
+					If: statemachine.GuardAnd(
+						guard_IsActiveCoordinator,
+						statemachine.GuardNot(guard_HeartbeatThresholdExceeded),
+					),
+				}},
+			},
+		},
+	},
+	State_Error: {
+		Events: map[EventType]EventHandler{
+			Event_TransactionsDelegated: {
+				Actions: []ActionRule{{Action: action_RejectDelegatedTransactions}},
 			},
 		},
 	},
@@ -365,16 +496,14 @@ func (s State) String() string {
 		return "Observing"
 	case State_Elect:
 		return "Elect"
-	case State_Standby:
-		return "Standby"
-	case State_Prepared:
-		return "Prepared"
 	case State_Active:
 		return "Active"
 	case State_Flush:
 		return "Flush"
 	case State_Closing:
 		return "Closing"
+	case State_Error:
+		return "Error"
 	}
 	return "Unknown"
 }

@@ -95,7 +95,7 @@ func NewOriginator(
 		contractAddress:     contractAddress,
 		engineIntegration:   engineIntegration,
 		metrics:             metrics,
-		idleThreshold:       confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod),
+		idleThreshold:       confutil.IntMin(configuration.HeartbeatGracePeriod, pldconf.SequencerMinimum.HeartbeatGracePeriod, *pldconf.SequencerDefaults.HeartbeatGracePeriod),
 		redelegateThreshold: confutil.IntMin(configuration.RedelegateGracePeriod, pldconf.SequencerMinimum.RedelegateGracePeriod, *pldconf.SequencerDefaults.RedelegateGracePeriod),
 	}
 

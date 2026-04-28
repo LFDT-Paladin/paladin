@@ -69,24 +69,23 @@ type coordinator struct {
 	signingIdentity string
 
 	/* State machine - using generic statemachine.StateMachineEventLoop */
-	stateMachineEventLoop                      *statemachine.StateMachineEventLoop[State, *coordinator]
-	activeCoordinatorNode                      string
-	activeCoordinatorBlockHeight               uint64
-	heartbeatIntervalsSinceStateChange         int
-	heartbeatIntervalsSinceLastReceive         int
-	transactionsByID                           map[uuid.UUID]transaction.CoordinatorTransaction
-	pooledTransactions                         []transaction.CoordinatorTransaction
-	currentBlockHeight                         uint64
-	activeCoordinatorsFlushPointsBySignerNonce map[string]*common.SnapshotFlushPoint
-	dependencyTracker                          dependencytracker.DependencyTracker
-	grapher                                    grapher.Grapher
-	originatorNodePool                         []string // The (possibly changing) list of originator nodes
+	stateMachineEventLoop              *statemachine.StateMachineEventLoop[State, *coordinator]
+	activeCoordinatorNode              string
+	activeCoordinatorState             State // only used when we are not the active coordinator
+	heartbeatIntervalsSinceStateChange int
+	heartbeatIntervalsSinceLastReceive int
+	transactionsByID                   map[uuid.UUID]transaction.CoordinatorTransaction
+	pooledTransactions                 []transaction.CoordinatorTransaction
+	currentBlockHeight                 uint64
+	dependencyTracker                  dependencytracker.DependencyTracker
+	grapher                            grapher.Grapher
+	originatorNodePool                 []string // The (possibly changing) list of originator nodes
 
 	/* Config */
 	contractAddress                   *pldtypes.EthAddress
 	blockHeightTolerance              uint64
 	closingGracePeriod                int // expressed as a multiple of heartbeat intervals
-	inactiveToIdleGracePeriod         int // expressed as a multiple of heartbeat intervals
+	heartbeatGracePeriod              int // expressed as a multiple of heartbeat intervals
 	confirmedLockRetentionGracePeriod int // expressed as a multiple of heartbeat intervals
 	baseLedgerRevertRetryThreshold    int
 	assembleErrorRetryThreshhold      int
@@ -130,7 +129,6 @@ func NewCoordinator(
 	clock common.Clock,
 	engineIntegration common.EngineIntegration,
 	syncPoints syncpoints.SyncPoints,
-	initialOriginatorNodePool []string,
 	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
@@ -161,10 +159,6 @@ func NewCoordinator(
 		metrics:                            metrics,
 		dispatchLoopStopped:                make(chan struct{}),
 	}
-	c.originatorNodePool = make([]string, 0, len(initialOriginatorNodePool))
-	for _, node := range initialOriginatorNodePool {
-		c.updateOriginatorNodePool(node)
-	}
 
 	// Configuration
 	coordinatorEventQueueSize := confutil.IntMin(configuration.CoordinatorEventQueueSize, pldconf.SequencerMinimum.CoordinatorEventQueueSize, *pldconf.SequencerDefaults.CoordinatorEventQueueSize)
@@ -175,7 +169,7 @@ func NewCoordinator(
 	c.stateTimeout = confutil.DurationMin(configuration.StateTimeout, pldconf.SequencerMinimum.StateTimeout, *pldconf.SequencerDefaults.StateTimeout)
 	c.blockHeightTolerance = confutil.Uint64Min(configuration.BlockHeightTolerance, pldconf.SequencerMinimum.BlockHeightTolerance, *pldconf.SequencerDefaults.BlockHeightTolerance)
 	c.closingGracePeriod = confutil.IntMin(configuration.ClosingGracePeriod, pldconf.SequencerMinimum.ClosingGracePeriod, *pldconf.SequencerDefaults.ClosingGracePeriod)
-	c.inactiveToIdleGracePeriod = confutil.IntMin(configuration.InactiveToIdleGracePeriod, pldconf.SequencerMinimum.InactiveToIdleGracePeriod, *pldconf.SequencerDefaults.InactiveToIdleGracePeriod)
+	c.heartbeatGracePeriod = confutil.IntMin(configuration.HeartbeatGracePeriod, pldconf.SequencerMinimum.HeartbeatGracePeriod, *pldconf.SequencerDefaults.HeartbeatGracePeriod)
 	c.confirmedLockRetentionGracePeriod = confutil.IntMin(configuration.ConfirmedLockRetentionGracePeriod, pldconf.SequencerMinimum.ConfirmedLockRetentionGracePeriod, *pldconf.SequencerDefaults.ConfirmedLockRetentionGracePeriod)
 	c.baseLedgerRevertRetryThreshold = confutil.IntMin(configuration.BaseLedgerRevertRetryThreshold, pldconf.SequencerMinimum.BaseLedgerRevertRetryThreshold, *pldconf.SequencerDefaults.BaseLedgerRevertRetryThreshold)
 	c.assembleErrorRetryThreshhold = confutil.IntMin(configuration.AssembleErrorRetryThreshold, pldconf.SequencerMinimum.AssembleErrorRetryThreshold, *pldconf.SequencerDefaults.AssembleErrorRetryThreshold)
@@ -219,9 +213,7 @@ func NewCoordinator(
 }
 
 // GetCurrentState returns the current state of the coordinator.
-// TODO This method cannot acquire a lock because this method may be called from callbacks during event processing when the
-// coordinator's mutex is already held, which would cause a deadlock with RLock(). Currently it is always called in a thread
-// safe way, but as it is not guaranteed to be in the future this needs more refactoring.
+// The state machine has its own mutex for protecting the current state variable.
 func (c *coordinator) GetCurrentState() State {
 	return c.stateMachineEventLoop.GetCurrentState()
 }
@@ -298,6 +290,25 @@ func (c *coordinator) getTransactionsInStates(ctx context.Context, states []tran
 		}
 	}
 	log.L(ctx).Tracef("%d transactions in states: %+v", len(matchingTxns), states)
+	return matchingTxns
+}
+
+func (c *coordinator) getTransactionsNotInStates(ctx context.Context, states []transaction.State) []transaction.CoordinatorTransaction {
+	log.L(ctx).Debugf("getting transactions not in states: %+v", states)
+	excludedStates := make(map[transaction.State]bool)
+	for _, state := range states {
+		excludedStates[state] = true
+	}
+
+	log.L(ctx).Tracef("checking %d transactions for those not in states: %+v", len(c.transactionsByID), states)
+	matchingTxns := make([]transaction.CoordinatorTransaction, 0, len(c.transactionsByID))
+	for _, txn := range c.transactionsByID {
+		if !excludedStates[txn.GetCurrentState()] {
+			log.L(ctx).Debugf("found transaction %s in state %s", txn.GetID().String(), txn.GetCurrentState())
+			matchingTxns = append(matchingTxns, txn)
+		}
+	}
+	log.L(ctx).Tracef("%d transactions not in states: %+v", len(matchingTxns), states)
 	return matchingTxns
 }
 

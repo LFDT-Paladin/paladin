@@ -34,7 +34,6 @@ func (f *SnapshotFlushPoint) GetSignerNonce() string {
 }
 
 type CoordinatorSnapshot struct {
-	FlushPoints            []*SnapshotFlushPoint            `json:"flushPoints"`
 	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
 	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
 	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`

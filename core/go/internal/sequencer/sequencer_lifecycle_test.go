@@ -892,50 +892,6 @@ func TestSequencerManager_stopLowestPrioritySequencer_LowestPriority(t *testing.
 // 	mocks1.metrics.AssertExpectations(t)
 // }
 
-func TestSequencerManager_getOriginatorNodesFromTx_InvalidVerifierLookup(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a transaction with an invalid verifier lookup (too many @ symbols)
-	tx := &components.PrivateTransaction{
-		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
-			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-				{Lookup: "invalid@format@too@many"}, // Invalid format - too many @ symbols
-			},
-		},
-	}
-
-	_, err := sm.getOriginatorNodesFromTx(ctx, tx)
-
-	// Verify that an error is returned
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PD020006") // Error code for invalid private identity locator format
-}
-
-func TestSequencerManager_getOriginatorNodesFromTx_ReturnsNodes(t *testing.T) {
-	ctx := context.Background()
-	mocks := newSequencerLifecycleTestMocks(t)
-	sm := newSequencerManagerForTesting(t, mocks)
-
-	// Create a transaction with valid required verifiers
-	tx := &components.PrivateTransaction{
-		ID: uuid.New(),
-		PreAssembly: &components.TransactionPreAssembly{
-			RequiredVerifiers: []*prototk.ResolveVerifierRequest{
-				{Lookup: "verifier1@node1"},
-			},
-		},
-	}
-
-	nodes, err := sm.getOriginatorNodesFromTx(ctx, tx)
-
-	require.NoError(t, err)
-	require.Len(t, nodes, 1)
-	assert.Equal(t, "node1", nodes[0])
-}
-
 func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)

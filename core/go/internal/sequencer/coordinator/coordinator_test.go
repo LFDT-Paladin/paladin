@@ -43,7 +43,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIdentityPool []string) (*coordinator, *coordinatorDependencyMocks, func()) {
+func NewCoordinatorForUnitTest(t *testing.T) (*coordinator, *coordinatorDependencyMocks, func()) {
 
 	metrics := metrics.InitMetrics(context.Background(), prometheus.NewRegistry())
 	mocks := &coordinatorDependencyMocks{
@@ -73,7 +73,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 	mocks.transportWriter.On("StartLoopbackWriter", mock.Anything).Return(nil)
 	mocks.transportWriter.On("StopLoopbackWriter").Return().Maybe()
 	mocks.transportWriter.On("WaitForDone", mock.Anything).Return().Maybe()
-	buildCtx, cancel := context.WithCancel(ctx)
+	buildCtx, cancel := context.WithCancel(t.Context())
 
 	config := &pldconf.SequencerConfig{
 		HeartbeatInterval:        confutil.P("10s"),
@@ -88,7 +88,7 @@ func NewCoordinatorForUnitTest(t *testing.T, ctx context.Context, originatorIden
 		TargetActiveSequencers:   confutil.P(50),
 	}
 
-	coordinator, err := NewCoordinator(buildCtx, pldtypes.RandAddress(), mockDomainAPI, nil, allComponents, nil, nil, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, originatorIdentityPool, config, "node1",
+	coordinator, err := NewCoordinator(buildCtx, pldtypes.RandAddress(), mockDomainAPI, nil, allComponents, nil, nil, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, config, "node1",
 		metrics,
 		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
 			// Not used
@@ -462,6 +462,108 @@ func TestCoordinator_GetTransactionsInStates_EmptyStatesFilter_ReturnsEmpty(t *t
 	assert.Empty(t, result)
 	result = c.getTransactionsInStates(ctx, []transaction.State{})
 	assert.Empty(t, result)
+}
+
+func TestCoordinator_GetTransactionsNotInStates_EmptyMapReturnsEmpty(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
+
+	result := c.getTransactionsNotInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	assert.Empty(t, result)
+}
+
+func TestCoordinator_GetTransactionsNotInStates_SingleStateFilter_ReturnsNonMatching(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txReady, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txPooled, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txReady.GetID():  txReady,
+		txPooled.GetID(): txPooled,
+	}
+
+	result := c.getTransactionsNotInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	require.Len(t, result, 1)
+	assert.Equal(t, txPooled.GetID(), result[0].GetID())
+	assert.Equal(t, transaction.State_Pooled, result[0].GetCurrentState())
+}
+
+func TestCoordinator_GetTransactionsNotInStates_SingleStateFilter_ReturnsAllWhenNoMatch(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txn.GetID(): txn,
+	}
+
+	result := c.getTransactionsNotInStates(ctx, []transaction.State{transaction.State_Ready_For_Dispatch})
+	require.Len(t, result, 1)
+	assert.Equal(t, txn.GetID(), result[0].GetID())
+}
+
+func TestCoordinator_GetTransactionsNotInStates_MultipleStatesFilter_ExcludesAllMatching(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txReady, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	txDispatched, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Dispatched).Build()
+	txPooled, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txReady.GetID():      txReady,
+		txDispatched.GetID(): txDispatched,
+		txPooled.GetID():     txPooled,
+	}
+
+	result := c.getTransactionsNotInStates(ctx, []transaction.State{
+		transaction.State_Ready_For_Dispatch,
+		transaction.State_Dispatched,
+	})
+	require.Len(t, result, 1)
+	assert.Equal(t, txPooled.GetID(), result[0].GetID())
+}
+
+func TestCoordinator_GetTransactionsNotInStates_MultipleTransactionsExcluded(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	tx1, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx2, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Assembling).Build()
+	tx3, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		tx1.GetID(): tx1,
+		tx2.GetID(): tx2,
+		tx3.GetID(): tx3,
+	}
+
+	result := c.getTransactionsNotInStates(ctx, []transaction.State{transaction.State_Assembling})
+	require.Len(t, result, 1)
+	assert.Equal(t, tx3.GetID(), result[0].GetID())
+	assert.Equal(t, transaction.State_Pooled, result[0].GetCurrentState())
+}
+
+func TestCoordinator_GetTransactionsNotInStates_EmptyStatesFilter_ReturnsAll(t *testing.T) {
+	ctx := t.Context()
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
+	c, _, done := builder.Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Ready_For_Dispatch).Build()
+	c.transactionsByID = map[uuid.UUID]transaction.CoordinatorTransaction{
+		txn.GetID(): txn,
+	}
+
+	result := c.getTransactionsNotInStates(ctx, nil)
+	require.Len(t, result, 1)
+	result = c.getTransactionsNotInStates(ctx, []transaction.State{})
+	require.Len(t, result, 1)
 }
 
 func TestCoordinator_NewCoordinator_EndorserMode_AllowsNoConfiguredCandidates(t *testing.T) {

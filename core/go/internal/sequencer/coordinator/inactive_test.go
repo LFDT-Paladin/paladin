@@ -19,24 +19,23 @@ import (
 	"context"
 	"testing"
 
-	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_action_NewBlock_SetsCurrentBlockHeight(t *testing.T) {
+func Test_action_UpdateBlockHeight_SetsCurrentBlockHeight(t *testing.T) {
 	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Standby)
+	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
 	c, _, done := builder.Build(ctx)
 	defer done()
 
-	err := action_NewBlock(ctx, c, &NewBlockEvent{BlockHeight: 1000})
+	err := action_UpdateBlockHeight(ctx, c, &NewBlockEvent{BlockHeight: 1000})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1000), c.currentBlockHeight)
 }
 
-func Test_action_HeartbeatReceived_SetsActiveCoordinatorBlockHeightAndUpdatesPool(t *testing.T) {
+func Test_action_HeartbeatReceived_SetsActiveCoordinatorState(t *testing.T) {
 	ctx := context.Background()
 	addr := pldtypes.RandAddress()
 	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
@@ -52,32 +51,9 @@ func Test_action_HeartbeatReceived_SetsActiveCoordinatorBlockHeightAndUpdatesPoo
 	err := action_HeartbeatReceived(ctx, c, event)
 	require.NoError(t, err)
 	assert.Equal(t, "node1", c.activeCoordinatorNode)
-	assert.Equal(t, uint64(2000), c.activeCoordinatorBlockHeight)
 	assert.Contains(t, c.originatorNodePool, "node1")
 }
 
-func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
-	ctx := context.Background()
-	addr := pldtypes.RandAddress()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial).ContractAddress(addr)
-	contractAddress := builder.GetContractAddress()
-	c, _, done := builder.Build(ctx)
-	defer done()
-	event := &HeartbeatReceivedEvent{}
-	event.From = "node1"
-	event.ContractAddress = &contractAddress
-	event.BlockHeight = 2000
-	signerAddr := pldtypes.RandAddress()
-	event.FlushPoints = []*common.SnapshotFlushPoint{
-		{From: *signerAddr, Nonce: 42, Hash: pldtypes.Bytes32{}},
-	}
-
-	err := action_HeartbeatReceived(ctx, c, event)
-	require.NoError(t, err)
-	key := event.FlushPoints[0].GetSignerNonce()
-	assert.NotEmpty(t, key)
-	assert.Equal(t, event.FlushPoints[0], c.activeCoordinatorsFlushPointsBySignerNonce[key])
-}
 func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
@@ -116,10 +92,10 @@ func Test_guard_ObservingIdleThresholdExceeded_NotExceeded(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 5
 
-	assert.False(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.False(t, guard_HeartbeatThresholdExceeded(ctx, c))
 }
 
 func Test_guard_ObservingIdleThresholdExceeded_ExactlyMet(t *testing.T) {
@@ -127,10 +103,10 @@ func Test_guard_ObservingIdleThresholdExceeded_ExactlyMet(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 10
 
-	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.True(t, guard_HeartbeatThresholdExceeded(ctx, c))
 }
 
 func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
@@ -138,8 +114,8 @@ func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
 	c, _, done := builder.Build(ctx)
 	defer done()
-	c.inactiveToIdleGracePeriod = 10
+	c.heartbeatGracePeriod = 10
 	c.heartbeatIntervalsSinceLastReceive = 15
 
-	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
+	assert.True(t, guard_HeartbeatThresholdExceeded(ctx, c))
 }

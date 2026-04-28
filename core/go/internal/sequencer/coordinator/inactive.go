@@ -21,31 +21,44 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
-func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
+func action_RejectDelegatedTransactions(ctx context.Context, c *coordinator, event common.Event) error {
+	// TODO AM: implement accordinging to spec
+	// Is there a nuance between not active and waiting for flush?
+	return nil
+}
+
+// TODO AM: this needs to go somewhere more generic now
+func action_UpdateBlockHeight(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*NewBlockEvent)
 	c.currentBlockHeight = e.BlockHeight
+	// TODO AM: have we entered a new block range?
 	return nil
+}
+
+func guard_IsNewBlockRange(_ context.Context, c *coordinator) bool {
+	// TODO AM: implement
+	return false
+}
+
+func validator_IsHeartbeatFromActiveCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
+	e := event.(*HeartbeatReceivedEvent)
+	return c.activeCoordinatorNode == e.From, nil
 }
 
 func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*HeartbeatReceivedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	}
-	c.activeCoordinatorBlockHeight = e.BlockHeight
-	for _, flushPoint := range e.FlushPoints {
-		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
-	}
+	// TODO AM: fix the typing
+	// e := event.(*HeartbeatReceivedEvent)
+	// c.activeCoordinatorState = e.CoordinatorState
 	return nil
 }
 
+// TODO AM: make the name more descriptive - is it even needed if we're not tracking active coordinators?
 func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
 	return nil
 }
 
+// TODO AM: move everything about heartbeats to a new file
 func action_ResetHeartbeatIntervalsSinceLastReceive(_ context.Context, c *coordinator, _ common.Event) error {
 	c.heartbeatIntervalsSinceLastReceive = 0
 	return nil
@@ -56,6 +69,6 @@ func action_IncrementHeartbeatIntervalsSinceLastReceive(_ context.Context, c *co
 	return nil
 }
 
-func guard_ObservingIdleThresholdExceeded(_ context.Context, c *coordinator) bool {
-	return c.heartbeatIntervalsSinceLastReceive >= c.inactiveToIdleGracePeriod
+func guard_HeartbeatThresholdExceeded(_ context.Context, c *coordinator) bool {
+	return c.heartbeatIntervalsSinceLastReceive >= c.heartbeatGracePeriod
 }

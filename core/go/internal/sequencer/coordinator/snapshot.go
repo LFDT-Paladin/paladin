@@ -67,15 +67,11 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 			confirmedTransactions = append(confirmedTransactions, confirmedTransaction)
 		}
 	}
-	flushPoints := make([]*common.SnapshotFlushPoint, 0, len(c.activeCoordinatorsFlushPointsBySignerNonce))
-	for _, flushPoint := range c.activeCoordinatorsFlushPointsBySignerNonce {
-		flushPoints = append(flushPoints, flushPoint)
-	}
+
 	log.L(ctx).Debugf("created snapshot for sequencer %s with %d transactions (%d pooled transactions, %d dispatched transactions, , %d confirmed transactions)",
 		c.contractAddress.String(), len(pooledTransactions)+len(dispatchedTransactions)+len(confirmedTransactions),
 		len(pooledTransactions), len(dispatchedTransactions), len(confirmedTransactions))
 	return &common.CoordinatorSnapshot{
-		FlushPoints:            flushPoints,
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
@@ -89,6 +85,6 @@ func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, c *
 	return nil
 }
 
-func action_PropagateHeartbeatToTransactions(ctx context.Context, c *coordinator, _ common.Event) error {
+func action_PropagateHeartbeatIntervalToTransactions(ctx context.Context, c *coordinator, _ common.Event) error {
 	return c.propagateEventToAllTransactions(ctx, &common.HeartbeatIntervalEvent{})
 }
