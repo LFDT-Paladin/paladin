@@ -28,7 +28,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 type mintHandler struct {
@@ -192,31 +191,24 @@ func (h *mintHandler) baseLedgerInvoke(ctx context.Context, tx *types.ParsedTran
 		return nil, err
 	}
 
-	var interfaceABI abi.ABI
-	var functionName string
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	functionName := "mint"
 	var paramsJSON []byte
 
-	switch tx.DomainConfig.Variant {
-	case types.NotoVariantDefault:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "mint"
-		params := &NotoMintParams{
-			TxId:    req.Transaction.TransactionId,
-			Outputs: endorsableStateIDs(req.OutputStates),
-			Proof:   sender.Payload,
-			Data:    data,
-		}
-		paramsJSON, err = json.Marshal(params)
-	default:
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
-		functionName = "mint"
-		params := &NotoMint_V0_Params{
+	if tx.DomainConfig.IsV0() {
+		paramsJSON, err = json.Marshal(&NotoMint_V0_Params{
 			TxId:      req.Transaction.TransactionId,
 			Outputs:   endorsableStateIDs(req.OutputStates),
 			Signature: sender.Payload,
 			Data:      data,
-		}
-		paramsJSON, err = json.Marshal(params)
+		})
+	} else {
+		paramsJSON, err = json.Marshal(&NotoMintParams{
+			TxId:    req.Transaction.TransactionId,
+			Outputs: endorsableStateIDs(req.OutputStates),
+			Proof:   sender.Payload,
+			Data:    data,
+		})
 	}
 	if err != nil {
 		return nil, err

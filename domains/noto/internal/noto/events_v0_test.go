@@ -31,7 +31,7 @@ func sampleV0Data(t *testing.T, n *Noto) (txID pldtypes.Bytes32, data pldtypes.H
 	txID = pldtypes.RandBytes32()
 	data, err := n.encodeTransactionData(
 		context.Background(),
-		&types.NotoParsedConfig{Variant: types.NotoVariantLegacy},
+		&types.NotoParsedConfig{Variant: types.NotoVariantV0},
 		&prototk.TransactionSpecification{
 			TransactionId: txID.String(),
 		}, []*prototk.EndorsableState{

@@ -30,7 +30,7 @@ import (
 func sampleV1Data(t *testing.T, n *Noto) (data pldtypes.HexBytes) {
 	data, err := n.encodeTransactionData(
 		context.Background(),
-		&types.NotoParsedConfig{Variant: types.NotoVariantDefault},
+		&types.NotoParsedConfig{Variant: types.NotoVariantV2},
 		&prototk.TransactionSpecification{
 			TransactionId: pldtypes.RandBytes32().String(), // not used
 		}, []*prototk.EndorsableState{
@@ -47,7 +47,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -73,7 +73,7 @@ func TestHandleEventBatch_NotoTransfer(t *testing.T) {
 		},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -94,7 +94,7 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -106,7 +106,7 @@ func TestHandleEventBatch_NotoTransferBadData(t *testing.T) {
 			}},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -124,7 +124,7 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -144,7 +144,7 @@ func TestHandleEventBatch_NotoTransferBadTransactionData(t *testing.T) {
 			}},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -159,7 +159,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -193,7 +193,7 @@ func TestHandleEventBatch_NotoLock(t *testing.T) {
 		},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -216,7 +216,7 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -229,7 +229,7 @@ func TestHandleEventBatch_NotoLockBadData(t *testing.T) {
 		},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -247,7 +247,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -275,7 +275,7 @@ func TestHandleEventBatch_NotoLockBadTransactionData(t *testing.T) {
 			}},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}
@@ -290,7 +290,7 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := n.ConfigureDomain(context.Background(), &prototk.ConfigureDomainRequest{
-		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantDefault}),
+		ConfigJson: mustParseJSON(types.NotoParsedConfig{Variant: types.NotoVariantV2}),
 	})
 	require.NoError(t, err)
 
@@ -326,7 +326,7 @@ func TestHandleEventBatch_LockSpent(t *testing.T) {
 		},
 		ContractInfo: &prototk.ContractInfo{
 			ContractConfigJson: mustParseJSON(&types.NotoParsedConfig{
-				Variant: types.NotoVariantDefault,
+				Variant: types.NotoVariantV2,
 			}),
 		},
 	}

@@ -269,12 +269,8 @@ func (h *prepareMintUnlockHandler) baseLedgerInvoke(ctx context.Context, tx *typ
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	interfaceABI := h.noto.getInterfaceABI(types.NotoVariantDefault)
-	lockParams, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
-	var paramsJSON []byte
-	if err == nil {
-		paramsJSON, err = json.Marshal(lockParams)
-	}
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	paramsJSON, err := h.buildPrepareUnlockParams(ctx, tx, lockTransition, sender.Payload, []*prototk.EndorsableState{}, spendOutputs, []*prototk.EndorsableState{}, req.InfoStates)
 	if err != nil {
 		return nil, err
 	}

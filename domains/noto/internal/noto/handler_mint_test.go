@@ -170,7 +170,7 @@ func TestMint(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceV1Build.ABI.Functions()["mint"])
+	expectedFunction := mustParseJSON(interfaceV2Build.ABI.Functions()["mint"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{
@@ -191,7 +191,7 @@ func TestMint(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),

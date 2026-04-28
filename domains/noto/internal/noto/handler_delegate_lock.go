@@ -29,7 +29,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/signpayloads"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/verifiers"
-	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 )
 
@@ -253,33 +252,11 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 		}
 	}
 
-	var interfaceABI abi.ABI
-	var functionName string
+	interfaceABI := h.noto.getInterfaceABI(tx.DomainConfig.Variant)
+	functionName := "delegateLock"
 	var paramsJSON []byte
 
-	if tx.DomainConfig.IsV1() {
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
-		functionName = "delegateLock"
-
-		var delegateInputsEncoded pldtypes.HexBytes
-		delegateInputsEncoded, err = h.noto.encodeNotoDelegateOperation(ctx, &types.NotoDelegateOperation{
-			TxId:         req.Transaction.TransactionId,
-			OldLockState: lt.prevLockStateID,
-			NewLockState: lt.newLockStateID,
-			Proof:        signature.Payload,
-		})
-		if err == nil {
-			params := &DelegateLockParams{
-				LockID:         inParams.LockID,
-				DelegateInputs: delegateInputsEncoded,
-				NewSpender:     inParams.Delegate,
-				Data:           txData,
-			}
-			paramsJSON, err = json.Marshal(params)
-		}
-	} else {
-		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantLegacy)
-		functionName = "delegateLock"
+	if tx.DomainConfig.IsV0() {
 		// V0: delegateLock requires unlockHash
 		var unlockHash ethtypes.HexBytes0xPrefix
 		unlockHash, err = h.noto.unlockHashFromIDs_V0(ctx, tx.ContractAddress, inParams.Unlock.LockedInputs, inParams.Unlock.LockedOutputs, inParams.Unlock.Outputs, inParams.Unlock.Data)
@@ -287,14 +264,29 @@ func (h *delegateLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.Pa
 			return nil, err
 		}
 		unlockHashBytes32 := pldtypes.Bytes32(unlockHash)
-		params := &NotoDelegateLock_V0_Params{
+		paramsJSON, err = json.Marshal(&NotoDelegateLock_V0_Params{
 			TxId:       req.Transaction.TransactionId,
 			UnlockHash: &unlockHashBytes32,
 			Delegate:   inParams.Delegate,
 			Signature:  signature.Payload,
 			Data:       txData,
+		})
+	} else {
+		var delegateInputsEncoded pldtypes.HexBytes
+		delegateInputsEncoded, err = h.noto.encodeNotoDelegateLockArgs(ctx, &types.NotoDelegateLockArgs{
+			TxId:         req.Transaction.TransactionId,
+			OldLockState: lt.prevLockStateID,
+			NewLockState: lt.newLockStateID,
+			Proof:        signature.Payload,
+		})
+		if err == nil {
+			paramsJSON, err = json.Marshal(&DelegateLockParams{
+				LockID:       inParams.LockID,
+				DelegateArgs: delegateInputsEncoded,
+				NewSpender:   inParams.Delegate,
+				Data:         txData,
+			})
 		}
-		paramsJSON, err = json.Marshal(params)
 	}
 	if err != nil {
 		return nil, err

@@ -38,7 +38,7 @@ var pTrue = true
 var notoBasicConfigV1 = &types.NotoParsedConfig{
 	NotaryMode:   types.NotaryModeBasic.Enum(),
 	NotaryLookup: "notary@node1",
-	Variant:      types.NotoVariantDefault,
+	Variant:      types.NotoVariantV2,
 	Options: types.NotoOptions{
 		Basic: &types.NotoBasicOptions{
 			RestrictMint: &pTrue,
@@ -262,7 +262,7 @@ func TestTransfer(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	expectedFunction := mustParseJSON(interfaceV1Build.ABI.Functions()["transfer"])
+	expectedFunction := mustParseJSON(interfaceV2Build.ABI.Functions()["transfer"])
 	assert.JSONEq(t, expectedFunction, prepareRes.Transaction.FunctionAbiJson)
 	assert.Nil(t, prepareRes.Transaction.ContractAddress)
 	assert.JSONEq(t, fmt.Sprintf(`{
@@ -284,7 +284,7 @@ func TestTransfer(t *testing.T) {
 	tx.ContractInfo.ContractConfigJson = mustParseJSON(&types.NotoParsedConfig{
 		NotaryLookup: "notary@node1",
 		NotaryMode:   types.NotaryModeHooks.Enum(),
-		Variant:      types.NotoVariantDefault,
+		Variant:      types.NotoVariantV2,
 		Options: types.NotoOptions{
 			Hooks: &types.NotoHooksOptions{
 				PublicAddress:     pldtypes.MustEthAddress(hookAddress),

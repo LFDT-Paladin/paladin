@@ -52,6 +52,9 @@ var notoFactoryV1JSON []byte
 var notoFactoryV0JSON []byte
 
 //go:embed abis/INoto.json
+var notoInterfaceV2JSON []byte
+
+//go:embed abis/INoto_V1.json
 var notoInterfaceV1JSON []byte
 
 //go:embed abis/INoto_V0.json
@@ -66,6 +69,7 @@ var notoHooksJSON []byte
 var (
 	factoryV1Build   = solutils.MustLoadBuild(notoFactoryV1JSON)
 	factoryV0Build   = solutils.MustLoadBuild(notoFactoryV0JSON)
+	interfaceV2Build = solutils.MustLoadBuild(notoInterfaceV2JSON)
 	interfaceV1Build = solutils.MustLoadBuild(notoInterfaceV1JSON)
 	interfaceV0Build = solutils.MustLoadBuild(notoInterfaceV0JSON)
 	errorsBuild      = solutils.MustLoadBuild(notoErrorsJSON)
@@ -111,8 +115,9 @@ var allEventsV0 = []string{
 	EventNotoLockDelegated,
 }
 
-var allEventsJSON = mustBuildEventsJSON(interfaceV1Build.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
-var eventSignatures = mustLoadEventSignatures(interfaceV1Build.ABI, allEvents)
+// Note: no event differences between V1 and V2
+var allEventsJSON = mustBuildEventsJSON(interfaceV2Build.ABI, interfaceV0Build.ABI, errorsBuild.ABI)
+var eventSignatures = mustLoadEventSignatures(interfaceV2Build.ABI, allEvents)
 var eventSignaturesV0 = mustLoadEventSignatures(interfaceV0Build.ABI, allEventsV0)
 
 var allSchemas = []*abi.Parameter{
@@ -170,48 +175,57 @@ type NotoTransferParams struct {
 	Data    pldtypes.HexBytes `json:"data"`
 }
 
-type NotoBurnParams struct {
-	TxId    string            `json:"txId"`
-	Inputs  []string          `json:"inputs"`
-	Outputs []string          `json:"outputs"`
-	Proof   pldtypes.HexBytes `json:"proof"`
-	Data    pldtypes.HexBytes `json:"data"`
-}
-
-// ILockableCapability.LockParams
-type LockParams struct {
+// INoto_V1.LockParams
+type LockParams_V1 struct {
 	SpendHash  pldtypes.Bytes32  `json:"spendHash"`
 	CancelHash pldtypes.Bytes32  `json:"cancelHash"`
 	Options    pldtypes.HexBytes `json:"options"`
 }
 
+// INoto_V1.createLock()
+type CreateLockParams_V1 struct {
+	CreateArgs pldtypes.HexBytes `json:"createArgs"`
+	Params     LockParams_V1     `json:"params"`
+	Data       pldtypes.HexBytes `json:"data"`
+}
+
+// INoto_V1.updateLock()
+type UpdateLockParams_V1 struct {
+	LockID     pldtypes.Bytes32  `json:"lockId"`
+	UpdateArgs pldtypes.HexBytes `json:"updateArgs"`
+	Params     LockParams_V1     `json:"params"`
+	Data       pldtypes.HexBytes `json:"data"`
+}
+
 // ILockableCapability.createLock()
 type CreateLockParams struct {
-	CreateInputs pldtypes.HexBytes `json:"createInputs"`
-	Params       LockParams        `json:"params"`
-	Data         pldtypes.HexBytes `json:"data"`
+	CreateArgs       pldtypes.HexBytes `json:"createArgs"`
+	SpendCommitment  pldtypes.Bytes32  `json:"spendCommitment"`
+	CancelCommitment pldtypes.Bytes32  `json:"cancelCommitment"`
+	Data             pldtypes.HexBytes `json:"data"`
 }
 
 // ILockableCapability.updateLock()
 type UpdateLockParams struct {
-	LockID       pldtypes.Bytes32  `json:"lockId"`
-	UpdateInputs pldtypes.HexBytes `json:"updateInputs"`
-	Params       LockParams        `json:"params"`
-	Data         pldtypes.HexBytes `json:"data"`
+	LockID           pldtypes.Bytes32  `json:"lockId"`
+	UpdateArgs       pldtypes.HexBytes `json:"updateArgs"`
+	SpendCommitment  pldtypes.Bytes32  `json:"spendCommitment"`
+	CancelCommitment pldtypes.Bytes32  `json:"cancelCommitment"`
+	Data             pldtypes.HexBytes `json:"data"`
 }
 
 // ILockableCapability.spendLock()
 type SpendLockParams struct {
-	LockID      pldtypes.Bytes32  `json:"lockId"`
-	SpendInputs pldtypes.HexBytes `json:"spendInputs"`
-	Data        pldtypes.HexBytes `json:"data"`
+	LockID    pldtypes.Bytes32  `json:"lockId"`
+	SpendArgs pldtypes.HexBytes `json:"spendArgs"`
+	Data      pldtypes.HexBytes `json:"data"`
 }
 
 // ILockableCapability.cancelLock()
 type CancelLockParams struct {
-	LockID       pldtypes.Bytes32  `json:"lockId"`
-	CancelInputs pldtypes.HexBytes `json:"cancelInputs"`
-	Data         pldtypes.HexBytes `json:"data"`
+	LockID     pldtypes.Bytes32  `json:"lockId"`
+	CancelArgs pldtypes.HexBytes `json:"cancelArgs"`
+	Data       pldtypes.HexBytes `json:"data"`
 }
 
 type NotoUpdateLockParams struct {
@@ -229,10 +243,10 @@ var UpdateLockParamsABI = &abi.ParameterArray{
 }
 
 type DelegateLockParams struct {
-	LockID         pldtypes.Bytes32     `json:"lockId"`
-	DelegateInputs pldtypes.HexBytes    `json:"delegateInputs"`
-	NewSpender     *pldtypes.EthAddress `json:"newSpender"`
-	Data           pldtypes.HexBytes    `json:"data"`
+	LockID       pldtypes.Bytes32     `json:"lockId"`
+	DelegateArgs pldtypes.HexBytes    `json:"delegateArgs"`
+	NewSpender   *pldtypes.EthAddress `json:"newSpender"`
+	Data         pldtypes.HexBytes    `json:"data"`
 }
 
 type DelegateLockData struct {
@@ -295,7 +309,7 @@ type NotoLockSpentOrCancelled_Event struct {
 type NotoLockUpdated_Event struct {
 	TxId         pldtypes.Bytes32     `json:"txId"`
 	LockID       pldtypes.Bytes32     `json:"lockId"`
-	Operator     *pldtypes.EthAddress `json:"operator"`
+	Owner        *pldtypes.EthAddress `json:"owner"`
 	Contents     []pldtypes.Bytes32   `json:"contents"`
 	OldLockState pldtypes.Bytes32     `json:"oldLockState"`
 	NewLockState pldtypes.Bytes32     `json:"newLockState"`
@@ -988,40 +1002,51 @@ func (n *Noto) parseCoinList(ctx context.Context, label string, states []*protot
 	return result, nil
 }
 
-func (n *Noto) encodeNotoCreateLockOperation(ctx context.Context, lockOp *types.NotoCreateLockOperation) (abiData pldtypes.HexBytes, err error) {
-	dataJSON, err := json.Marshal([]any{lockOp})
+func (n *Noto) encodeNotoCreateLockArgs(ctx context.Context, createArgs *types.NotoCreateLockArgs) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{createArgs})
 	if err == nil {
-		abiData, err = types.NotoCreateLockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+		abiData, err = types.NotoCreateLockArgsABI.EncodeABIDataJSONCtx(ctx, dataJSON)
 	}
 	return abiData, err
 }
 
-func (n *Noto) encodeNotoUpdateLockOperation(ctx context.Context, lockOp *types.NotoUpdateLockOperation) (abiData pldtypes.HexBytes, err error) {
-	dataJSON, err := json.Marshal([]any{lockOp})
+func (n *Noto) encodeNotoCreateLockArgsV1(ctx context.Context, createArgs *types.NotoCreateLockArgs_V1) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{createArgs})
 	if err == nil {
-		abiData, err = types.NotoUpdateLockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+		abiData, err = types.NotoCreateLockArgsABI_V1.EncodeABIDataJSONCtx(ctx, dataJSON)
 	}
 	return abiData, err
 }
 
-func (n *Noto) encodeNotoUnlockOperation(ctx context.Context, lockID pldtypes.Bytes32, unlockOp *types.NotoUnlockOperation) (abiData pldtypes.HexBytes, err error) {
-	dataJSON, err := json.Marshal([]any{unlockOp})
+func (n *Noto) encodeNotoUpdateLockArgs(ctx context.Context, updateArgs *types.NotoUpdateLockArgs) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{updateArgs})
 	if err == nil {
-		abiData, err = types.NotoUnlockOperationABI.EncodeABIDataJSONCtx(ctx, dataJSON)
+		abiData, err = types.NotoUpdateLockArgsABI.EncodeABIDataJSONCtx(ctx, dataJSON)
 	}
+	return abiData, err
+}
+
+func (n *Noto) encodeNotoUpdateLockArgsV1(ctx context.Context, updateArgs *types.NotoUpdateLockArgs_V1) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{updateArgs})
 	if err == nil {
-		jsonUnlock, _ := json.Marshal(unlockOp)
-		log.L(ctx).Infof("Unlock operation %s: %s", lockID, jsonUnlock)
+		abiData, err = types.NotoUpdateLockArgsABI_V1.EncodeABIDataJSONCtx(ctx, dataJSON)
+	}
+	return abiData, err
+}
+
+func (n *Noto) encodeNotoSpendLockArgs(ctx context.Context, spendLockArgs *types.NotoSpendLockArgs) (abiData pldtypes.HexBytes, err error) {
+	dataJSON, err := json.Marshal([]any{spendLockArgs})
+	if err == nil {
+		abiData, err = types.NotoSpendLockArgsABI.EncodeABIDataJSONCtx(ctx, dataJSON)
 	}
 	return abiData, err
 }
 
 func (n *Noto) encodeTransactionData(ctx context.Context, domainConfig *types.NotoParsedConfig, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
-	if domainConfig.IsV1() {
-		return n.encodeTransactionDataV1(ctx, infoStates)
-	} else {
+	if domainConfig.IsV0() {
 		return n.encodeTransactionDataV0(ctx, transaction, infoStates)
 	}
+	return n.encodeTransactionDataV1(ctx, infoStates)
 }
 
 func (n *Noto) encodeTransactionDataV0(ctx context.Context, transaction *prototk.TransactionSpecification, infoStates []*prototk.EndorsableState) (pldtypes.HexBytes, error) {
@@ -1295,10 +1320,13 @@ func (n *Noto) CheckStateCompletion(ctx context.Context, req *prototk.CheckState
 
 // getInterfaceABI returns the appropriate interface ABI based on the variant
 func (n *Noto) getInterfaceABI(variant pldtypes.HexUint64) abi.ABI {
-	if variant == types.NotoVariantLegacy {
+	if variant == types.NotoVariantV0 {
 		return interfaceV0Build.ABI
 	}
-	return interfaceV1Build.ABI
+	if variant == types.NotoVariantV1 {
+		return interfaceV1Build.ABI
+	}
+	return interfaceV2Build.ABI
 }
 
 // computeLockId computes the lockId the same way the contract does:
@@ -1352,10 +1380,10 @@ func (n *Noto) encodeNotoLockOptions(ctx context.Context, notoLockOptions *types
 	return encoded, err
 }
 
-func (n *Noto) encodeNotoDelegateOperation(ctx context.Context, notoDelegateOp *types.NotoDelegateOperation) (encoded pldtypes.HexBytes, err error) {
+func (n *Noto) encodeNotoDelegateLockArgs(ctx context.Context, notoDelegateOp *types.NotoDelegateLockArgs) (encoded pldtypes.HexBytes, err error) {
 	lockOptionsJSON, err := json.Marshal([]any{notoDelegateOp})
 	if err == nil {
-		encoded, err = types.NotoDelegateOperationABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
+		encoded, err = types.NotoDelegateLockArgsABI.EncodeABIDataJSONCtx(ctx, lockOptionsJSON)
 	}
 	return encoded, err
 }

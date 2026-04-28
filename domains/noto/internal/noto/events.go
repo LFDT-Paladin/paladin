@@ -40,14 +40,14 @@ func (n *Noto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	}
 
 	for _, ev := range req.Events {
-		if variant == types.NotoVariantDefault {
-			if err := n.handleV1Event(ctx, ev, &res, req); err != nil {
-				log.L(ctx).Warnf("Error handling V1 event: %s", err)
+		if variant == types.NotoVariantV0 {
+			if err := n.handleV0Event(ctx, ev, &res, req); err != nil {
+				log.L(ctx).Warnf("Error handling V0 event: %s", err)
 				return nil, err
 			}
 		} else {
-			if err := n.handleV0Event(ctx, ev, &res, req); err != nil {
-				log.L(ctx).Warnf("Error handling V0 event: %s", err)
+			if err := n.handleV1Event(ctx, ev, &res, req); err != nil {
+				log.L(ctx).Warnf("Error handling V1 event: %s", err)
 				return nil, err
 			}
 		}
