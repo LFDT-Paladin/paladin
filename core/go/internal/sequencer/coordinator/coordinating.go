@@ -233,11 +233,6 @@ func action_NewSigningIdentity(ctx context.Context, c *coordinator, _ common.Eve
 	return nil
 }
 
-func action_NotifyCoordinatorActive(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.coordinatorActive(c.contractAddress, c.nodeName)
-	return nil
-}
-
 func action_SelectTransaction(ctx context.Context, c *coordinator, _ common.Event) error {
 	// Select our next transaction. May return nothing if a different transaction is currently being assembled.
 	return c.selectNextTransactionToAssemble(ctx)

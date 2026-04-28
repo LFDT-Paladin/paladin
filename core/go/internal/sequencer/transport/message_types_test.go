@@ -33,7 +33,7 @@ func TestParseCoordinatorHeartbeatNotification_Success(t *testing.T) {
 	from := "coordinator-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	snapshot := common.CoordinatorSnapshot{
-		CoordinatorState:       "Idle",
+		CoordinatorState:       1, // coordinator.State_Idle
 		BlockHeight:            100,
 		PooledTransactions:     []*common.SnapshotPooledTransaction{},
 		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
@@ -80,7 +80,7 @@ func TestParseCoordinatorHeartbeatNotification_EmptyJSON(t *testing.T) {
 func TestParseCoordinatorHeartbeatNotification_NilContractAddress(t *testing.T) {
 	from := "coordinator-node"
 	snapshot := common.CoordinatorSnapshot{
-		CoordinatorState: "Idle",
+		CoordinatorState: 1, // coordinator.State_Idle
 		BlockHeight:      100,
 	}
 

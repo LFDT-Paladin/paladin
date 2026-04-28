@@ -54,15 +54,6 @@ func Test_action_HeartbeatReceived_SetsActiveCoordinatorState(t *testing.T) {
 	assert.Contains(t, c.originatorNodePool, "node1")
 }
 
-func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	err := action_Idle(ctx, c, nil)
-	require.NoError(t, err)
-}
-
 func Test_action_ResetHeartbeatIntervalsSinceLastReceive(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)

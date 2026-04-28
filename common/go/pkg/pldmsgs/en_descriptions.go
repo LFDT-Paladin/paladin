@@ -742,7 +742,6 @@ var (
 	SequencerConfigMaxInflightTransactions           = pdm("SequencerConfig.maxInflightTransactions", "Maximum number of inflight transactions")
 	SequencerConfigMaxDispatchAhead                  = pdm("SequencerConfig.maxDispatchAhead", "Maximum number of transactions to dispatch ahead")
 	SequencerConfigRedelegateGracePeriod             = pdm("SequencerConfig.redelegateGracePeriod", "Number of heartbeat intervals without receiving a heartbeast, before re-delegating pending transactions")
-	SequencerConfigTargetActiveCoordinators          = pdm("SequencerConfig.targetActiveCoordinators", "Target number of active coordinators")
 	SequencerConfigTargetActiveSequencers            = pdm("SequencerConfig.targetActiveSequencers", "Target number of active sequencers")
 	SequencerConfigTransactionResumePollInterval     = pdm("SequencerConfig.transactionResumePollInterval", "Poll interval for resuming transactions")
 	SequencerConfigTransactionResumePageSize         = pdm("SequencerConfig.transactionResumePageSize", "Page size for reading pending transactions to resume")

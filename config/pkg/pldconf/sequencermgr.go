@@ -38,7 +38,6 @@ type SequencerConfig struct {
 	MaxInflightTransactions           *int              `json:"maxInflightTransactions"`
 	MaxDispatchAhead                  *int              `json:"maxDispatchAhead"`
 	RedelegateGracePeriod             *int              `json:"redelegateGracePeriod"`
-	TargetActiveCoordinators          *int              `json:"targetActiveCoordinators"`
 	TargetActiveSequencers            *int              `json:"targetActiveSequencers"`
 	TransactionResumePollInterval     *string           `json:"transactionResumePollInterval"`
 	TransactionResumePageSize         *int              `json:"transactionResumePageSize"`
@@ -65,7 +64,6 @@ type SequencerMinimumConfig struct {
 	MaxInflightTransactions           int
 	MaxDispatchAhead                  int
 	RedelegateGracePeriod             int
-	TargetActiveCoordinators          int
 	TargetActiveSequencers            int
 	TransactionResumePollInterval     time.Duration
 	TransactionResumePageSize         int
@@ -96,7 +94,6 @@ var SequencerDefaults = SequencerConfig{
 	MaxInflightTransactions:           confutil.P(500),
 	MaxDispatchAhead:                  confutil.P(50),
 	RedelegateGracePeriod:             confutil.P(2),
-	TargetActiveCoordinators:          confutil.P(50),
 	TargetActiveSequencers:            confutil.P(50),
 	TransactionResumePollInterval:     confutil.P("5m"),
 	TransactionResumePageSize:         confutil.P(1000),
@@ -122,7 +119,6 @@ var SequencerMinimum = SequencerMinimumConfig{
 	MaxInflightTransactions:           1,
 	MaxDispatchAhead:                  1,
 	RedelegateGracePeriod:             1,
-	TargetActiveCoordinators:          10,
 	TargetActiveSequencers:            10,
 	TransactionResumePollInterval:     10 * time.Second,
 	TransactionResumePageSize:         1,

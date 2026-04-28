@@ -37,7 +37,7 @@ type CoordinatorSnapshot struct {
 	DispatchedTransactions []*SnapshotDispatchedTransaction `json:"dispatchedTransactions"`
 	PooledTransactions     []*SnapshotPooledTransaction     `json:"pooledTransactions"`
 	ConfirmedTransactions  []*SnapshotConfirmedTransaction  `json:"confirmedTransactions"`
-	CoordinatorState       string                           `json:"coordinatorState"`
+	CoordinatorState       int                              `json:"coordinatorState"`
 	BlockHeight            uint64                           `json:"blockHeight"`
 }
 

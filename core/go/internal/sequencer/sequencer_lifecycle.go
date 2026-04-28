@@ -214,23 +214,6 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 				sMgr.config,
 				sMgr.nodeName,
 				sMgr.metrics,
-				func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
-					// A new coordinator became active or was confirmed as active. It might be us or it might be another node.
-					// Update metrics and check if we need to stop one to stay within the configured max active coordinators
-					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
-					// sMgr.updateActiveCoordinators(sMgr.ctx)
-
-					// The originator needs to know to delegate transactions to the active coordinator
-					seqOriginator.QueueEvent(sMgr.ctx, &originator.ActiveCoordinatorUpdatedEvent{
-						BaseEvent:   common.BaseEvent{EventTime: time.Now()},
-						Coordinator: coordinatorNode,
-					})
-				},
-				func(contractAddress *pldtypes.EthAddress) {
-					// A new coordinator became idle, perform any lifecycle tidy up
-					// TODO: renable this when we've worked out a locking model that doesn't result in a deadlock
-					// sMgr.updateActiveCoordinators(sMgr.ctx)
-				},
 			)
 			if err != nil {
 				cancelCtx()
@@ -346,51 +329,3 @@ func (sMgr *sequencerManager) removeIdleSequencers(ctx context.Context) {
 		seq.shutdown(ctx)
 	}
 }
-
-// func (sMgr *sequencerManager) updateActiveCoordinators(ctx context.Context) {
-// 	log.L(ctx).Debugf("checking if max concurrent coordinators limit reached")
-
-// 	readlock := true
-// 	sMgr.sequencersLock.RLock()
-// 	defer func() {
-// 		if readlock {
-// 			sMgr.sequencersLock.RUnlock()
-// 		}
-// 	}()
-
-// 	activeCoordinators := 0
-// 	// If any sequencers are already closing we can wait for them to close instead of stopping a different one
-// 	for _, sequencer := range sMgr.sequencers {
-// 		log.L(log.WithLogField(ctx, common.SEQUENCER_LOG_CATEGORY_FIELD, common.CATEGORY_STATE)).Debugf("coord    | %s   | %s", sequencer.contractAddress[0:8], sequencer.coordinator.GetCurrentState())
-// 		if sequencer.coordinator.GetCurrentState() == coordinator.State_Active {
-// 			activeCoordinators++
-// 		}
-// 	}
-
-// 	sMgr.metrics.SetActiveCoordinators(activeCoordinators)
-
-// 	if activeCoordinators >= sMgr.targetActiveCoordinatorsLimit {
-// 		log.L(ctx).Debugf("%d coordinators currently active, max concurrent coordinators reached, asking the lowest priority coordinator to hand over to another node", activeCoordinators)
-// 		// Order existing sequencers by LRU time
-// 		sequencers := make([]*sequencer, 0)
-// 		for _, sequencer := range sMgr.sequencers {
-// 			sequencers = append(sequencers, sequencer)
-// 		}
-// 		sort.Slice(sequencers, func(i, j int) bool {
-// 			return sequencers[i].lastTXTime.Before(sequencers[j].lastTXTime)
-// 		})
-
-// 		// swap the read lock for a write lock
-// 		sMgr.sequencersLock.RUnlock()
-// 		readlock = false
-// 		sMgr.sequencersLock.Lock()
-// 		defer sMgr.sequencersLock.Unlock()
-
-// 		// Stop the lowest priority coordinator by emitting an event asking it to handover to another coordinator
-// 		log.L(ctx).Debugf("stopping coordinator %s", sequencers[0].contractAddress)
-// 		sequencers[0].shutdown(ctx)
-// 		delete(sMgr.sequencers, sequencers[0].contractAddress)
-// 	} else {
-// 		log.L(ctx).Debugf("%d coordinators within max coordinator limit %d", activeCoordinators, sMgr.targetActiveCoordinatorsLimit)
-// 	}
-// }

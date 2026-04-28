@@ -86,15 +86,14 @@ func newSequencerManagerForTransportClientTesting(t *testing.T, mocks *transport
 	config := &pldconf.SequencerConfig{}
 
 	sm := &sequencerManager{
-		ctx:                           ctx,
-		config:                        config,
-		components:                    mocks.components,
-		nodeName:                      "test-node",
-		sequencersLock:                sync.RWMutex{},
-		sequencers:                    make(map[string]*sequencer),
-		metrics:                       mocks.metrics,
-		targetActiveCoordinatorsLimit: 2,
-		targetActiveSequencersLimit:   2,
+		ctx:                         ctx,
+		config:                      config,
+		components:                  mocks.components,
+		nodeName:                    "test-node",
+		sequencersLock:              sync.RWMutex{},
+		sequencers:                  make(map[string]*sequencer),
+		metrics:                     mocks.metrics,
+		targetActiveSequencersLimit: 2,
 	}
 
 	return sm

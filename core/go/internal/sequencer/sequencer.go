@@ -47,20 +47,19 @@ import (
 )
 
 type sequencerManager struct {
-	ctx                           context.Context
-	cancelCtx                     func()
-	config                        *pldconf.SequencerConfig
-	components                    components.AllComponents
-	nodeName                      string
-	sequencersLock                sync.RWMutex
-	syncPoints                    syncpoints.SyncPoints
-	metrics                       metrics.DistributedSequencerMetrics
-	sequencers                    map[string]*sequencer
-	blockHeight                   int64
-	blockHeightMutex              sync.RWMutex
-	heartbeatInterval             time.Duration
-	targetActiveCoordinatorsLimit int // Max number of contracts this node aims to concurrently act as coordinator for. It could still efficiently respond to dispatch requests from other coordinators because the originator will remain in memory.
-	targetActiveSequencersLimit   int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
+	ctx                         context.Context
+	cancelCtx                   func()
+	config                      *pldconf.SequencerConfig
+	components                  components.AllComponents
+	nodeName                    string
+	sequencersLock              sync.RWMutex
+	syncPoints                  syncpoints.SyncPoints
+	metrics                     metrics.DistributedSequencerMetrics
+	sequencers                  map[string]*sequencer
+	blockHeight                 int64
+	blockHeightMutex            sync.RWMutex
+	heartbeatInterval           time.Duration
+	targetActiveSequencersLimit int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
 }
 
 // Init implements Engine.
@@ -108,13 +107,12 @@ func NewDistributedSequencerManager(ctx context.Context, config *pldconf.Sequenc
 
 	dsmCtx, dsmCtxCancel := context.WithCancel(log.WithComponent(ctx, "sequencer_manager"))
 	sMgr := &sequencerManager{
-		ctx:                           dsmCtx,
-		cancelCtx:                     dsmCtxCancel,
-		config:                        config,
-		sequencers:                    make(map[string]*sequencer),
-		heartbeatInterval:             confutil.DurationMin(config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
-		targetActiveCoordinatorsLimit: confutil.IntMin(config.TargetActiveCoordinators, pldconf.SequencerMinimum.TargetActiveCoordinators, *pldconf.SequencerDefaults.TargetActiveCoordinators),
-		targetActiveSequencersLimit:   confutil.IntMin(config.TargetActiveSequencers, pldconf.SequencerMinimum.TargetActiveSequencers, *pldconf.SequencerDefaults.TargetActiveSequencers),
+		ctx:                         dsmCtx,
+		cancelCtx:                   dsmCtxCancel,
+		config:                      config,
+		sequencers:                  make(map[string]*sequencer),
+		heartbeatInterval:           confutil.DurationMin(config.HeartbeatInterval, pldconf.SequencerMinimum.HeartbeatInterval, *pldconf.SequencerDefaults.HeartbeatInterval),
+		targetActiveSequencersLimit: confutil.IntMin(config.TargetActiveSequencers, pldconf.SequencerMinimum.TargetActiveSequencers, *pldconf.SequencerDefaults.TargetActiveSequencers),
 	}
 	return sMgr
 }

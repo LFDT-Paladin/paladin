@@ -75,7 +75,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 		DispatchedTransactions: dispatchedTransactions,
 		PooledTransactions:     pooledTransactions,
 		ConfirmedTransactions:  confirmedTransactions,
-		CoordinatorState:       c.stateMachineEventLoop.GetCurrentState().String(),
+		CoordinatorState:       int(c.stateMachineEventLoop.GetCurrentState()),
 		BlockHeight:            c.currentBlockHeight,
 	}
 }

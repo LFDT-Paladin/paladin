@@ -84,7 +84,6 @@ var stateDefinitionsMap = StateDefinitions{
 		},
 	},
 	State_Idle: {
-		OnTransitionTo: []ActionRule{{Action: action_Idle}},
 		Events: map[EventType]EventHandler{
 			Event_TransactionsDelegated: {
 				Actions: []ActionRule{{
@@ -115,7 +114,7 @@ var stateDefinitionsMap = StateDefinitions{
 						// If we have entered a new block range and we are the new coordinator, we stay in State_Idle
 						// since as far as we can see there is no active work for this domain instance. If we receive
 						// delegated transactions, we will now move to State_Active and process rather than reject them.
-						If:     guard_IsNewBlockRange,
+						If:     guard_IsNewBlockRangeEpoch,
 						Action: action_SelectActiveCoordinator,
 					},
 				},
@@ -149,7 +148,7 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_UpdateBlockHeight,
 					},
 					{
-						If:     guard_IsNewBlockRange,
+						If:     guard_IsNewBlockRangeEpoch,
 						Action: action_SelectActiveCoordinator,
 					},
 				},
@@ -213,7 +212,7 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_UpdateBlockHeight,
 					},
 					{
-						If:     guard_IsNewBlockRange,
+						If:     guard_IsNewBlockRangeEpoch,
 						Action: action_SelectActiveCoordinator,
 					},
 				},
@@ -229,7 +228,6 @@ var stateDefinitionsMap = StateDefinitions{
 	State_Active: {
 		OnTransitionTo: []ActionRule{
 			{Action: action_NewSigningIdentity},
-			{Action: action_NotifyCoordinatorActive},
 			{Action: action_SelectTransaction},
 		},
 		Events: map[EventType]EventHandler{
@@ -297,7 +295,7 @@ var stateDefinitionsMap = StateDefinitions{
 				// this block range, we still need to flush all the dispatched transactions from the previous block range.
 				Transitions: []Transition{{
 					To: State_Flush,
-					If: guard_IsNewBlockRange,
+					If: guard_IsNewBlockRangeEpoch,
 				}},
 			},
 		},
@@ -327,7 +325,7 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_UpdateBlockHeight,
 					},
 					{
-						If:     guard_IsNewBlockRange,
+						If:     guard_IsNewBlockRangeEpoch,
 						Action: action_SelectActiveCoordinator,
 					},
 				},
@@ -414,7 +412,7 @@ var stateDefinitionsMap = StateDefinitions{
 						Action: action_UpdateBlockHeight,
 					},
 					{
-						If:     guard_IsNewBlockRange,
+						If:     guard_IsNewBlockRangeEpoch,
 						Action: action_SelectActiveCoordinator,
 					},
 				},

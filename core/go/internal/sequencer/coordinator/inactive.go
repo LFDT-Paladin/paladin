@@ -30,14 +30,18 @@ func action_RejectDelegatedTransactions(ctx context.Context, c *coordinator, eve
 // TODO AM: this needs to go somewhere more generic now
 func action_UpdateBlockHeight(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*NewBlockEvent)
-	c.currentBlockHeight = e.BlockHeight
-	// TODO AM: have we entered a new block range?
+	newHeight := e.BlockHeight
+	blockRange := c.coordinatorSelectionBlockRange
+
+	// integer division tells us which block range epoch we're in and allows us to compare old with new
+	c.newBlockRangeEpoch = newHeight/blockRange == c.currentBlockHeight/blockRange
+	c.currentBlockHeight = newHeight
 	return nil
 }
 
-func guard_IsNewBlockRange(_ context.Context, c *coordinator) bool {
-	// TODO AM: implement
-	return false
+func guard_IsNewBlockRangeEpoch(_ context.Context, c *coordinator) bool {
+	// This is set when we update the block height, and remains valid until the next block height update
+	return c.newBlockRangeEpoch
 }
 
 func validator_IsHeartbeatFromActiveCoordinator(_ context.Context, c *coordinator, event common.Event) (bool, error) {
@@ -46,15 +50,8 @@ func validator_IsHeartbeatFromActiveCoordinator(_ context.Context, c *coordinato
 }
 
 func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
-	// TODO AM: fix the typing
-	// e := event.(*HeartbeatReceivedEvent)
-	// c.activeCoordinatorState = e.CoordinatorState
-	return nil
-}
-
-// TODO AM: make the name more descriptive - is it even needed if we're not tracking active coordinators?
-func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
-	c.coordinatorIdle(c.contractAddress)
+	e := event.(*HeartbeatReceivedEvent)
+	c.activeCoordinatorState = State(e.CoordinatorState)
 	return nil
 }
 

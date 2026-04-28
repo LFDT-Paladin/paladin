@@ -76,26 +76,18 @@ func NewCoordinatorForUnitTest(t *testing.T) (*coordinator, *coordinatorDependen
 	buildCtx, cancel := context.WithCancel(t.Context())
 
 	config := &pldconf.SequencerConfig{
-		HeartbeatInterval:        confutil.P("10s"),
-		StateTimeout:             confutil.P("5s"),
-		RequestTimeout:           confutil.P("1s"),
-		BlockRange:               confutil.P(uint64(100)),
-		BlockHeightTolerance:     confutil.P(uint64(5)),
-		ClosingGracePeriod:       confutil.P(5),
-		MaxInflightTransactions:  confutil.P(500),
-		MaxDispatchAhead:         confutil.P(10),
-		TargetActiveCoordinators: confutil.P(50),
-		TargetActiveSequencers:   confutil.P(50),
+		HeartbeatInterval:       confutil.P("10s"),
+		StateTimeout:            confutil.P("5s"),
+		RequestTimeout:          confutil.P("1s"),
+		BlockRange:              confutil.P(uint64(100)),
+		BlockHeightTolerance:    confutil.P(uint64(5)),
+		ClosingGracePeriod:      confutil.P(5),
+		MaxInflightTransactions: confutil.P(500),
+		MaxDispatchAhead:        confutil.P(10),
+		TargetActiveSequencers:  confutil.P(50),
 	}
 
-	coordinator, err := NewCoordinator(buildCtx, pldtypes.RandAddress(), mockDomainAPI, nil, allComponents, nil, nil, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, config, "node1",
-		metrics,
-		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {
-			// Not used
-		},
-		func(contractAddress *pldtypes.EthAddress) {
-			// Not used
-		})
+	coordinator, err := NewCoordinator(buildCtx, pldtypes.RandAddress(), mockDomainAPI, nil, allComponents, nil, nil, mocks.transportWriter, mocks.clock, mocks.engineIntegration, mocks.syncPoints, config, "node1", metrics)
 	require.NoError(t, err)
 
 	done := func() {

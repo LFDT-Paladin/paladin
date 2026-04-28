@@ -28,6 +28,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 )
 
+// TODO AM: are there more transitions to error if we haven't selected an active coordinator node?
 func action_SelectActiveCoordinator(ctx context.Context, c *coordinator, _ common.Event) error {
 	selectedCoordinator, err := c.selectActiveCoordinatorNode(ctx)
 	if err != nil {
@@ -39,7 +40,6 @@ func action_SelectActiveCoordinator(ctx context.Context, c *coordinator, _ commo
 	}
 	if c.activeCoordinatorNode != selectedCoordinator {
 		c.activeCoordinatorNode = selectedCoordinator
-		c.coordinatorActive(c.contractAddress, selectedCoordinator)
 	}
 	return nil
 }

@@ -132,16 +132,15 @@ func newSequencerManagerForTesting(t *testing.T, mocks *sequencerLifecycleTestMo
 	config := &pldconf.SequencerConfig{}
 
 	sm := &sequencerManager{
-		ctx:                           ctx,
-		config:                        config,
-		components:                    mocks.components,
-		nodeName:                      "test-node",
-		sequencersLock:                sync.RWMutex{},
-		sequencers:                    make(map[string]*sequencer),
-		metrics:                       mocks.metrics,
-		heartbeatInterval:             10 * time.Second,
-		targetActiveCoordinatorsLimit: 2,
-		targetActiveSequencersLimit:   2,
+		ctx:                         ctx,
+		config:                      config,
+		components:                  mocks.components,
+		nodeName:                    "test-node",
+		sequencersLock:              sync.RWMutex{},
+		sequencers:                  make(map[string]*sequencer),
+		metrics:                     mocks.metrics,
+		heartbeatInterval:           10 * time.Second,
+		targetActiveSequencersLimit: 2,
 	}
 
 	return sm
@@ -800,98 +799,6 @@ func TestSequencerManager_stopLowestPrioritySequencer_LowestPriority(t *testing.
 	assert.Contains(t, sm.sequencers, contractAddr2.String())
 }
 
-// func TestSequencerManager_updateActiveCoordinators_NoActiveCoordinators(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr := pldtypes.RandAddress()
-// 	mocks := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks)
-
-// 	// Create a sequencer with inactive coordinator
-// 	seq := newSequencerForTesting(contractAddr, mocks)
-// 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Idle)
-// 	mocks.metrics.EXPECT().SetActiveCoordinators(0).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr.String()] = seq
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	mocks.metrics.AssertExpectations(t)
-// }
-
-// func TestSequencerManager_updateActiveCoordinators_ActiveCoordinators(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr := pldtypes.RandAddress()
-// 	mocks := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks)
-
-// 	// Create a sequencer with active coordinator
-// 	seq := newSequencerForTesting(contractAddr, mocks)
-// 	mocks.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks.metrics.EXPECT().SetActiveCoordinators(1).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr.String()] = seq
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	mocks.metrics.AssertExpectations(t)
-// }
-
-// func TestSequencerManager_updateActiveCoordinators_ExceedsLimit(t *testing.T) {
-// 	ctx := context.Background()
-// 	contractAddr1 := pldtypes.RandAddress()
-// 	contractAddr2 := pldtypes.RandAddress()
-// 	contractAddr3 := pldtypes.RandAddress()
-// 	mocks1 := newSequencerLifecycleTestMocks(t)
-// 	mocks2 := newSequencerLifecycleTestMocks(t)
-// 	mocks3 := newSequencerLifecycleTestMocks(t)
-// 	sm := newSequencerManagerForTesting(t, mocks1)
-
-// 	// Set limit to 2
-// 	sm.targetActiveCoordinatorsLimit = 2
-
-// 	// Create three sequencers with active coordinators
-// 	seq1 := newSequencerForTesting(contractAddr1, mocks1)
-// 	seq1.lastTXTime = time.Now().Add(-3 * time.Hour) // Oldest
-
-// 	seq2 := newSequencerForTesting(contractAddr2, mocks2)
-// 	seq2.lastTXTime = time.Now().Add(-2 * time.Hour) // Middle
-
-// 	seq3 := newSequencerForTesting(contractAddr3, mocks3)
-// 	seq3.lastTXTime = time.Now().Add(-1 * time.Hour) // Newest
-
-// 	// Setup expectations - all are active, seq1 should be stopped
-// 	mocks1.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks2.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks3.coordinator.EXPECT().GetCurrentState().Return(coordinator.State_Active)
-// 	mocks1.coordinator.EXPECT().WaitForDone(mock.Anything).Once()
-// 	mocks1.originator.EXPECT().WaitForDone(mock.Anything).Once()
-// 	mocks1.metrics.EXPECT().SetActiveCoordinators(3).Once()
-
-// 	sm.sequencersLock.Lock()
-// 	sm.sequencers[contractAddr1.String()] = seq1
-// 	sm.sequencers[contractAddr2.String()] = seq2
-// 	sm.sequencers[contractAddr3.String()] = seq3
-// 	sm.sequencersLock.Unlock()
-
-// 	// Call updateActiveCoordinators
-// 	sm.updateActiveCoordinators(ctx)
-
-// 	// Verify only seq1 was removed (lowest priority)
-// 	sm.sequencersLock.RLock()
-// 	defer sm.sequencersLock.RUnlock()
-// 	assert.NotContains(t, sm.sequencers, contractAddr1.String())
-// 	assert.Contains(t, sm.sequencers, contractAddr2.String())
-// 	assert.Contains(t, sm.sequencers, contractAddr3.String())
-
-// 	mocks1.metrics.AssertExpectations(t)
-// }
-
 func TestSequencerManager_StopAllSequencers_NoSequencers(t *testing.T) {
 	ctx := context.Background()
 	mocks := newSequencerLifecycleTestMocks(t)
@@ -1231,8 +1138,7 @@ func TestSequencerManager_Stop_NoSequencers(t *testing.T) {
 func TestNewDistributedSequencerManager_Success(t *testing.T) {
 	ctx := context.Background()
 	config := &pldconf.SequencerConfig{
-		TargetActiveCoordinators: confutil.P(10),
-		TargetActiveSequencers:   confutil.P(20),
+		TargetActiveSequencers: confutil.P(20),
 	}
 
 	// Call constructor
@@ -1244,7 +1150,6 @@ func TestNewDistributedSequencerManager_Success(t *testing.T) {
 	assert.Equal(t, config, sMgr.config)
 	assert.NotNil(t, sMgr.sequencers)
 	assert.Equal(t, 0, len(sMgr.sequencers))
-	assert.Equal(t, 10, sMgr.targetActiveCoordinatorsLimit)
 	assert.Equal(t, 20, sMgr.targetActiveSequencersLimit)
 	assert.Equal(t, int64(0), sMgr.blockHeight)
 }
@@ -1259,22 +1164,19 @@ func TestNewDistributedSequencerManager_DefaultLimits(t *testing.T) {
 	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
 
 	// Verify default limits are applied
-	assert.Greater(t, sMgr.targetActiveCoordinatorsLimit, 0)
 	assert.Greater(t, sMgr.targetActiveSequencersLimit, 0)
 }
 
 func TestNewDistributedSequencerManager_MinimumLimits(t *testing.T) {
 	ctx := context.Background()
 	config := &pldconf.SequencerConfig{
-		TargetActiveCoordinators: confutil.P(0), // Below minimum
-		TargetActiveSequencers:   confutil.P(0), // Below minimum
+		TargetActiveSequencers: confutil.P(0), // Below minimum
 	}
 
 	// Call constructor
 	sMgr := NewDistributedSequencerManager(ctx, config).(*sequencerManager)
 
 	// Verify minimum limits are applied
-	assert.GreaterOrEqual(t, sMgr.targetActiveCoordinatorsLimit, pldconf.SequencerMinimum.TargetActiveCoordinators)
 	assert.GreaterOrEqual(t, sMgr.targetActiveSequencersLimit, pldconf.SequencerMinimum.TargetActiveSequencers)
 }
 

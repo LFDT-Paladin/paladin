@@ -145,10 +145,6 @@ func copySequencerDefaultsForTest() *pldconf.SequencerConfig {
 		v := *def.MaxDispatchAhead
 		copy.MaxDispatchAhead = &v
 	}
-	if def.TargetActiveCoordinators != nil {
-		v := *def.TargetActiveCoordinators
-		copy.TargetActiveCoordinators = &v
-	}
 	if def.TargetActiveSequencers != nil {
 		v := *def.TargetActiveSequencers
 		copy.TargetActiveSequencers = &v
@@ -287,8 +283,6 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 		b.sequencerConfig,
 		"node1",
 		b.metrics,
-		func(contractAddress *pldtypes.EthAddress, coordinatorNode string) {}, // coordinatorStarted function, not used in tests
-		func(contractAddress *pldtypes.EthAddress) {},                         // coordinatorIdle function, not used in tests
 	)
 	if err != nil {
 		panic(err)

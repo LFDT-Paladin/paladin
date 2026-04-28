@@ -1513,7 +1513,7 @@ func TestSendHeartbeat_Success(t *testing.T) {
 	targetNode := "target-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	coordinatorSnapshot := &common.CoordinatorSnapshot{
-		CoordinatorState:       "Idle",
+		CoordinatorState:       1, // coordinator.State_Idle
 		BlockHeight:            100,
 		PooledTransactions:     []*common.SnapshotPooledTransaction{},
 		DispatchedTransactions: []*common.SnapshotDispatchedTransaction{},
@@ -1576,7 +1576,7 @@ func TestSendHeartbeat_SendError(t *testing.T) {
 	targetNode := "target-node"
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	coordinatorSnapshot := &common.CoordinatorSnapshot{
-		CoordinatorState: "Idle",
+		CoordinatorState: 1, // coordinator.State_Idle
 		BlockHeight:      100,
 	}
 
@@ -1604,7 +1604,7 @@ func TestSendHeartbeat_Loopback(t *testing.T) {
 	targetNode := "local-node" // Same as local node name
 	contractAddress := pldtypes.MustEthAddress("0x1234567890123456789012345678901234567890")
 	coordinatorSnapshot := &common.CoordinatorSnapshot{
-		CoordinatorState: "Idle",
+		CoordinatorState: 1, // coordinator.State_Idle
 		BlockHeight:      100,
 	}
 

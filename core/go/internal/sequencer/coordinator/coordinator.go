@@ -80,6 +80,7 @@ type coordinator struct {
 	dependencyTracker                  dependencytracker.DependencyTracker
 	grapher                            grapher.Grapher
 	originatorNodePool                 []string // The (possibly changing) list of originator nodes
+	newBlockRangeEpoch                 bool
 
 	/* Config */
 	contractAddress                   *pldtypes.EthAddress
@@ -106,8 +107,6 @@ type coordinator struct {
 	buildNullifiers       func(context.Context, []*components.StateDistributionWithData) ([]*components.NullifierUpsert, error)
 	newPrivateTransaction func(context.Context, []*components.ValidatedTransaction) error
 	syncPoints            syncpoints.SyncPoints
-	coordinatorActive     func(contractAddress *pldtypes.EthAddress, coordinatorNode string)
-	coordinatorIdle       func(contractAddress *pldtypes.EthAddress)
 	metrics               metrics.DistributedSequencerMetrics
 
 	/* Dispatch loop */
@@ -132,8 +131,6 @@ func NewCoordinator(
 	configuration *pldconf.SequencerConfig,
 	nodeName string,
 	metrics metrics.DistributedSequencerMetrics,
-	coordinatorActive func(contractAddress *pldtypes.EthAddress, coordinatorNode string),
-	coordinatorIdle func(contractAddress *pldtypes.EthAddress),
 ) (*coordinator, error) {
 	coordCtx := log.WithLogField(ctx, "role", "coordinator")
 	dependencyTracker := dependencytracker.NewDependencyTracker()
@@ -153,8 +150,6 @@ func NewCoordinator(
 		clock:                              clock,
 		engineIntegration:                  engineIntegration,
 		syncPoints:                         syncPoints,
-		coordinatorActive:                  coordinatorActive,
-		coordinatorIdle:                    coordinatorIdle,
 		nodeName:                           nodeName,
 		metrics:                            metrics,
 		dispatchLoopStopped:                make(chan struct{}),
