@@ -44,7 +44,6 @@ type TransportWriter interface {
 	SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error
 	SendAssembleResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error
 	SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string) error
-	SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error
 	SendNonceAssigned(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce uint64) error
 	SendTransactionSubmitted(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, txHash *pldtypes.Bytes32) error
 	SendTransactionConfirmed(ctx context.Context, txID uuid.UUID, originatorNode string, contractAddress *pldtypes.EthAddress, nonce *pldtypes.HexUint64, outcome engineProto.TransactionConfirmed_Outcome, revertReason pldtypes.HexBytes, failureMessage string, willRetry bool) error
@@ -411,34 +410,6 @@ func (tw *transportWriter) SendAssembleResponse(ctx context.Context, txID uuid.U
 	if err != nil {
 		// Log the error but continue sending to the other recipients
 		log.L(ctx).Errorf("error sending assemble response to %s: %s", recipient, err)
-	}
-
-	return err
-}
-
-func (tw *transportWriter) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-
-	log.L(ctx).Tracef("transport writer attempting to send handover request to node %s", activeCoordinator)
-
-	if contractAddress == nil {
-		err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "attempt to send handover request without specifying contract address")
-		return err
-	}
-	handoverRequest := &HandoverRequest{
-		ContractAddress: contractAddress,
-	}
-	handoverRequestBytes, err := json.Marshal(handoverRequest)
-	if err != nil {
-		log.L(ctx).Errorf("error marshalling handover request message: %s", err)
-	}
-
-	if err = tw.send(ctx, &components.FireAndForgetMessageSend{
-		MessageType: MessageType_HandoverRequest,
-		Payload:     handoverRequestBytes,
-		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Node:        activeCoordinator,
-	}); err != nil {
-		log.L(ctx).Errorf("error sending handover request message: %s", err)
 	}
 
 	return err

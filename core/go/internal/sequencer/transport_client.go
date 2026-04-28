@@ -58,8 +58,6 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 		go sMgr.handleDelegationRequestAcknowledgment(sMgr.ctx, message)
 	case transport.MessageType_Dispatched:
 		go sMgr.handleDispatchedEvent(sMgr.ctx, message)
-	case transport.MessageType_HandoverRequest:
-		go sMgr.handleHandoverRequest(sMgr.ctx, message)
 	case transport.MessageType_PreDispatchRequest:
 		go sMgr.handlePreDispatchRequest(sMgr.ctx, message)
 	case transport.MessageType_PreDispatchResponse:
@@ -269,33 +267,6 @@ func (sMgr *sequencerManager) handleCoordinatorHeartbeatNotification(ctx context
 	seq.GetOriginator().QueueEvent(ctx, heartbeatEvent)
 }
 
-func (sMgr *sequencerManager) handleHandoverRequest(ctx context.Context, message *components.ReceivedMessage) {
-
-	handoverRequest := &engineProto.HandoverRequest{}
-	err := proto.Unmarshal(message.Payload, handoverRequest)
-	if err != nil {
-		sMgr.logPaladinMessageUnmarshalError(ctx, message, err)
-		return
-	}
-
-	contractAddress := sMgr.parseContractAddressString(ctx, handoverRequest.ContractAddress, message)
-	if contractAddress == nil {
-		return
-	}
-
-	seq, err := sMgr.LoadSequencer(ctx, sMgr.components.Persistence().NOTX(), *contractAddress, nil, nil)
-	if seq == nil || err != nil {
-		log.L(ctx).Errorf("failed to obtain sequencer to pass handover request event to %v:", err)
-		return
-	}
-
-	handoverRequestEvent := &coordinator.HandoverRequestEvent{}
-	handoverRequestEvent.Requester = message.FromNode
-	handoverRequestEvent.EventTime = time.Now()
-
-	seq.GetCoordinator().QueueEvent(ctx, handoverRequestEvent)
-}
-
 func (sMgr *sequencerManager) handlePreDispatchRequest(ctx context.Context, message *components.ReceivedMessage) {
 	preDispatchRequest := &engineProto.TransactionDispatched{}
 
@@ -460,6 +431,7 @@ func (sMgr *sequencerManager) handleDelegationRequestAcknowledgment(ctx context.
 	}
 }
 
+// TODO AM: why isn't this handled in the sequencer?
 func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, message *components.ReceivedMessage) {
 	endorsementRequest := &engineProto.EndorsementRequest{}
 
@@ -648,12 +620,6 @@ func (sMgr *sequencerManager) handleEndorsementRequest(ctx context.Context, mess
 		log.L(ctx).Errorf("handleEndorsementRequest failed to obtain sequencer to pass endorsement event %v:", err)
 		return
 	}
-
-	// Take this opportunity to update the state machine that there is a currently active coordinator. Heartbeats serve the same
-	// purpose but are on a set interval, so updating whenever we are given transactions to endorse is a useful optimisation
-	seq.GetCoordinator().QueueEvent(ctx, &coordinator.EndorsementRequestedEvent{
-		From: message.FromNode,
-	})
 
 	sMgr.metrics.IncEndorsedTransactions()
 	err = seq.GetTransportWriter().SendEndorsementResponse(ctx, endorsementRequest.TransactionId, endorsementRequest.IdempotencyKey, contractAddress.String(), attResult, endorsementResult, revertReason, transactionEndorsement.Name, endorsementRequest.Party, message.FromNode)

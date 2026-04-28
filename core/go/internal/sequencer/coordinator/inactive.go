@@ -27,16 +27,6 @@ func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) er
 	return nil
 }
 
-func action_EndorsementRequested(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*EndorsementRequestedEvent)
-	if c.activeCoordinatorNode != e.From {
-		c.activeCoordinatorNode = e.From
-		c.coordinatorActive(c.contractAddress, e.From)
-		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
-	}
-	return nil
-}
-
 func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Event) error {
 	e := event.(*HeartbeatReceivedEvent)
 	if c.activeCoordinatorNode != e.From {
@@ -48,11 +38,6 @@ func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Ev
 	for _, flushPoint := range e.FlushPoints {
 		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
-	return nil
-}
-
-func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Event) error {
-	c.sendHandoverRequest(ctx)
 	return nil
 }
 

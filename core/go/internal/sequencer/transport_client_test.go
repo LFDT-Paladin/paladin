@@ -134,7 +134,6 @@ func TestHandlePaladinMsg_Routing(t *testing.T) {
 		{"DelegationRequest", transport.MessageType_DelegationRequest},
 		{"DelegationRequestAcknowledgment", transport.MessageType_DelegationRequestAcknowledgment},
 		{"Dispatched", transport.MessageType_Dispatched},
-		{"HandoverRequest", transport.MessageType_HandoverRequest},
 		{"PreDispatchRequest", transport.MessageType_PreDispatchRequest},
 		{"PreDispatchResponse", transport.MessageType_PreDispatchResponse},
 		{"EndorsementRequest", transport.MessageType_EndorsementRequest},
@@ -493,43 +492,6 @@ func TestHandleDelegationRequest_Success(t *testing.T) {
 	})).Once()
 
 	sm.handleDelegationRequest(ctx, message)
-
-	mocks.coordinator.AssertExpectations(t)
-}
-
-func TestHandleHandoverRequest_Success(t *testing.T) {
-	ctx := context.Background()
-	mocks := newTransportClientTestMocks(t)
-	sm := newSequencerManagerForTransportClientTesting(t, mocks)
-	contractAddr := pldtypes.RandAddress()
-
-	handoverRequest := &engineProto.HandoverRequest{
-		ContractAddress: contractAddr.String(),
-	}
-	payload, _ := proto.Marshal(handoverRequest)
-
-	message := &components.ReceivedMessage{
-		FromNode:    "test-node",
-		MessageID:   uuid.New(),
-		MessageType: transport.MessageType_HandoverRequest,
-		Payload:     payload,
-	}
-
-	// Setup mocks - LoadSequencer will be called
-	setupDefaultMocks(ctx, mocks, contractAddr)
-	mocks.components.EXPECT().Persistence().Return(mocks.persistence).Maybe()
-	mocks.persistence.EXPECT().NOTX().Return(nil).Maybe()
-	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Maybe()
-
-	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
-	sm.sequencers[contractAddr.String()] = seq
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinator.HandoverRequestEvent)
-		return ok && event.Requester == "test-node"
-	})).Once()
-
-	sm.handleHandoverRequest(ctx, message)
 
 	mocks.coordinator.AssertExpectations(t)
 }
@@ -1204,11 +1166,6 @@ func TestHandleEndorsementRequest_Success_Sign(t *testing.T) {
 
 	seq := newSequencerForTransportClientTesting(contractAddr, mocks)
 	sm.sequencers[contractAddr.String()] = seq
-
-	mocks.coordinator.EXPECT().QueueEvent(ctx, mock.MatchedBy(func(e interface{}) bool {
-		event, ok := e.(*coordinator.EndorsementRequestedEvent)
-		return ok && event.From == "coordinator-node"
-	})).Once()
 
 	mocks.metrics.EXPECT().IncEndorsedTransactions().Once()
 	mocks.transportWriter.EXPECT().SendEndorsementResponse(ctx, txID, idempotencyKey, contractAddr.String(), mock.Anything, endorsementResult, "", "endorsement1", party, "coordinator-node").Return(nil).Once()

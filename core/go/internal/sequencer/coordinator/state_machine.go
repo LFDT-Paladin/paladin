@@ -44,18 +44,10 @@ const (
 )
 
 const (
-	Event_Nominated EventType = iota + common.Event_TransactionStateTransition + 1
-	Event_Flushed
-	Event_Closed
-	Event_CoordinatorCreated
+	Event_CoordinatorCreated EventType = iota + common.Event_TransactionStateTransition + 1
 	Event_TransactionsDelegated
-	Event_TransactionDispatchConfirmed
 	Event_HeartbeatReceived
 	Event_NewBlock
-	Event_HandoverRequestReceived
-	Event_HandoverReceived
-	Event_EndorsementRequested // Only used to update the state machine with updated information about the active coordinator, out of band of the heartbeats
-	Event_OriginatorNodePoolUpdateRequested
 )
 
 // Type aliases for the generic statemachine types, specialized for coordinator
@@ -90,28 +82,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Observing,
 				}},
 			},
-			Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
-				Actions: []ActionRule{{Action: action_EndorsementRequested}},
-				Transitions: []Transition{{
-					To: State_Observing,
-				}},
-			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{
-					{
-						Action: action_UpdateOriginatorNodePoolFromEvent,
-					},
-					{
-						Action: action_SelectActiveCoordinator,
-					},
-				},
-				Transitions: []Transition{
-					{
-						To: State_Idle,
-						If: guard_HasActiveCoordinator,
-					},
-				},
-			},
 		},
 	},
 	State_Idle: {
@@ -128,15 +98,6 @@ var stateDefinitionsMap = StateDefinitions{
 				Transitions: []Transition{{
 					To: State_Observing,
 				}},
-			},
-			Event_EndorsementRequested: { // We can assert that someone else is actively coordinating if we're receiving these
-				Actions: []ActionRule{{Action: action_EndorsementRequested}},
-				Transitions: []Transition{{
-					To: State_Observing,
-				}},
-			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},
@@ -170,9 +131,6 @@ var stateDefinitionsMap = StateDefinitions{
 					If: guard_ObservingIdleThresholdExceeded,
 				}},
 			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
-			},
 		},
 	},
 	State_Standby: {
@@ -187,26 +145,20 @@ var stateDefinitionsMap = StateDefinitions{
 					If: guard_Not(guard_Behind),
 				}},
 			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
-			},
 		},
 	},
 	State_Elect: {
-		OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
-		Events: map[EventType]EventHandler{
-			Event_TransactionsDelegated: {
-				Actions: []ActionRule{{Action: action_TransactionsDelegated}},
-			},
-			Event_HandoverReceived: {
-				Transitions: []Transition{{
-					To: State_Prepared,
-				}},
-			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
-			},
-		},
+		// OnTransitionTo: []ActionRule{{Action: action_SendHandoverRequest}},
+		// Events: map[EventType]EventHandler{
+		// 	Event_TransactionsDelegated: {
+		// 		Actions: []ActionRule{{Action: action_TransactionsDelegated}},
+		// 	},
+		// 	Event_HandoverReceived: {
+		// 		Transitions: []Transition{{
+		// 			To: State_Prepared,
+		// 		}},
+		// 	},
+		// },
 	},
 	State_Prepared: {
 		Events: map[EventType]EventHandler{
@@ -219,9 +171,6 @@ var stateDefinitionsMap = StateDefinitions{
 					To: State_Active,
 					If: guard_ActiveCoordinatorFlushComplete,
 				}},
-			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},
@@ -244,11 +193,11 @@ var stateDefinitionsMap = StateDefinitions{
 				// don't select a transaction here since events must to move into pooled state before
 				// they can be selected and there is a separate event for that
 			},
-			Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
-				Transitions: []Transition{{
-					To: State_Flush,
-				}},
-			},
+			// Event_HandoverRequestReceived: { // MRW TODO - what if N nodes all startup in active mode simultaneously? None of them can request handover because that only happens from State_Observing
+			// 	Transitions: []Transition{{
+			// 		To: State_Flush,
+			// 	}},
+			// },
 			common.Event_TransactionStateTransition: {
 				Actions: []ActionRule{
 					{
@@ -288,14 +237,11 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
-			},
 		},
 	},
 	State_Flush: {
-		//TODO: should the dispatch loop stop dispatching transactions while in flush?
-		//TODO should we move to active if we get delegated transactions while in flush?
+		//TODO: should the dispatch loop stop dispatching transactions while in flush? TODO AM- yes
+		//TODO should we move to active if we get delegated transactions while in flush? TODO AM: no, but we might be selected as the alternate
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
@@ -324,13 +270,10 @@ var stateDefinitionsMap = StateDefinitions{
 					If: guard_FlushComplete,
 				}},
 			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
-			},
 		},
 	},
 	State_Closing: {
-		//TODO should we move to active if we get delegated transactions while in closing?
+		//TODO should we move to active if we get delegated transactions while in closing? TODO AM: no
 		Events: map[EventType]EventHandler{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
@@ -361,9 +304,6 @@ var stateDefinitionsMap = StateDefinitions{
 						Action:    action_CleanUpTransaction,
 					},
 				},
-			},
-			Event_OriginatorNodePoolUpdateRequested: {
-				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
 		},
 	},

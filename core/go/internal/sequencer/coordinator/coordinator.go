@@ -236,13 +236,6 @@ func (c *coordinator) WaitForDone(ctx context.Context) {
 	c.transportWriter.WaitForDone(ctx)
 }
 
-func (c *coordinator) sendHandoverRequest(ctx context.Context) {
-	err := c.transportWriter.SendHandoverRequest(ctx, c.activeCoordinatorNode, c.contractAddress)
-	if err != nil {
-		log.L(ctx).Errorf("error sending handover request: %v", err)
-	}
-}
-
 func (c *coordinator) initializeOriginatorNodePoolFromContractConfig(ctx context.Context) error {
 	contractConfig := c.domainAPI.ContractConfig()
 	if contractConfig.GetCoordinatorSelection() != prototk.ContractConfig_COORDINATOR_ENDORSER {

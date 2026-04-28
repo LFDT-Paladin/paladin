@@ -19,7 +19,6 @@ import (
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
-	"github.com/google/uuid"
 )
 
 type Event interface {
@@ -55,57 +54,6 @@ func (*TransactionsDelegatedEvent) TypeString() string {
 	return "Event_TransactionsDelegated"
 }
 
-type CoordinatorClosedEvent struct {
-	common.BaseEvent
-}
-
-func (*CoordinatorClosedEvent) Type() EventType {
-	return Event_Closed
-}
-
-func (*CoordinatorClosedEvent) TypeString() string {
-	return "Event_Closed"
-}
-
-type CoordinatorFlushedEvent struct{}
-
-func (*CoordinatorFlushedEvent) Type() EventType {
-	return Event_Flushed
-}
-
-func (*CoordinatorFlushedEvent) TypeString() string {
-	return "Event_Flushed"
-}
-
-type TransactionDispatchConfirmedEvent struct {
-	common.BaseEvent
-	TransactionID uuid.UUID
-}
-
-func (*TransactionDispatchConfirmedEvent) Type() EventType {
-	return Event_TransactionDispatchConfirmed
-}
-
-func (*TransactionDispatchConfirmedEvent) TypeString() string {
-	return "Event_TransactionDispatchConfirmed"
-}
-func (t *TransactionDispatchConfirmedEvent) GetTransactionID() uuid.UUID {
-	return t.TransactionID
-}
-
-type EndorsementRequestedEvent struct {
-	common.BaseEvent
-	From string
-}
-
-func (*EndorsementRequestedEvent) Type() EventType {
-	return Event_EndorsementRequested
-}
-
-func (*EndorsementRequestedEvent) TypeString() string {
-	return "Event_EndorsementRequested"
-}
-
 type HeartbeatReceivedEvent struct {
 	common.BaseEvent
 	transport.CoordinatorHeartbeatNotification
@@ -119,19 +67,6 @@ func (*HeartbeatReceivedEvent) TypeString() string {
 	return "Event_HeartbeatReceived"
 }
 
-type HandoverRequestEvent struct {
-	common.BaseEvent
-	Requester string
-}
-
-func (*HandoverRequestEvent) Type() EventType {
-	return Event_HandoverRequestReceived
-}
-
-func (*HandoverRequestEvent) TypeString() string {
-	return "Event_HandoverRequestReceived"
-}
-
 type NewBlockEvent struct {
 	common.BaseEvent
 	BlockHeight uint64
@@ -143,32 +78,4 @@ func (*NewBlockEvent) Type() EventType {
 
 func (*NewBlockEvent) TypeString() string {
 	return "Event_NewBlock"
-}
-
-type HandoverReceivedEvent struct {
-	common.BaseEvent
-}
-
-func (*HandoverReceivedEvent) Type() EventType {
-	return Event_HandoverReceived
-}
-
-func (*HandoverReceivedEvent) TypeString() string {
-	return "Event_HandoverReceived"
-}
-
-// OriginatorNodePoolUpdateRequestedEvent is queued when a sequencer is loaded and already exists,
-// so the coordinator can add the transaction's endorsers to its originator node pool (e.g. when
-// the sequencer was first created with tx=nil and had an empty pool).
-type OriginatorNodePoolUpdateRequestedEvent struct {
-	common.BaseEvent
-	Nodes []string // Node names (e.g. from tx.PreAssembly.RequiredVerifiers)
-}
-
-func (*OriginatorNodePoolUpdateRequestedEvent) Type() EventType {
-	return Event_OriginatorNodePoolUpdateRequested
-}
-
-func (*OriginatorNodePoolUpdateRequestedEvent) TypeString() string {
-	return "Event_OriginatorNodePoolUpdateRequested"
 }

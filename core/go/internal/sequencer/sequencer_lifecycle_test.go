@@ -285,12 +285,6 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer(t *testing.T) {
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
 
-	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
-	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
-		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
-		return ok && ev != nil
-	})).Return().Once()
-
 	// Create a mock private transaction
 	tx := &components.PrivateTransaction{
 		ID: uuid.New(),
@@ -329,12 +323,6 @@ func TestSequencerManager_LoadSequencer_ExistingSequencer_NoCoordinator_Success(
 	// Setup expectations for existing sequencer
 	mocks.setupDefaultExpectations(ctx, contractAddr)
 	mocks.domainManager.EXPECT().GetSmartContractByAddress(ctx, mock.Anything, *contractAddr).Return(nil, nil).Once()
-
-	// When LoadSequencer finds an existing sequencer and tx has PreAssembly, it queues OriginatorNodePoolUpdateRequestedEvent
-	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
-		ev, ok := e.(*coordinator.OriginatorNodePoolUpdateRequestedEvent)
-		return ok && ev != nil
-	})).Return().Once()
 
 	// Create a mock private transaction with required verifiers
 	tx := &components.PrivateTransaction{

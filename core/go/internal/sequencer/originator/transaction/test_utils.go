@@ -134,10 +134,6 @@ func (r *SentMessageRecorder) GetTransactionUnknownDetails() (txID uuid.UUID, co
 	return r.transactionUnknownTxID, r.transactionUnknownCoordinator
 }
 
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-	return nil
-}
-
 func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
 	return nil
 }
@@ -268,14 +264,12 @@ func (b *TransactionBuilderForTesting) BuildWithMocks() (*originatorTransaction,
 }
 
 func (b *TransactionBuilderForTesting) Build() *originatorTransaction {
-	ctx := context.Background()
 
 	privateTransaction := b.privateTransactionBuilder.Build()
 	if b.queueEventForOriginator == nil {
 		b.queueEventForOriginator = func(ctx context.Context, event common.Event) {}
 	}
-	txn := newTransaction(ctx,
-		privateTransaction,
+	txn := newTransaction(privateTransaction,
 		b.fakeEngineIntegration,
 		b.sentMessageRecorder,
 		b.queueEventForOriginator,

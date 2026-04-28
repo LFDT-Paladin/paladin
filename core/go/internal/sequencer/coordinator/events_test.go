@@ -78,92 +78,6 @@ func TestTransactionsDelegatedEvent_Fields(t *testing.T) {
 	assert.Equal(t, txID, event.Transactions[0].ID)
 }
 
-func TestCoordinatorClosedEvent_Type(t *testing.T) {
-	event := &CoordinatorClosedEvent{}
-	assert.Equal(t, Event_Closed, event.Type())
-}
-
-func TestCoordinatorClosedEvent_TypeString(t *testing.T) {
-	event := &CoordinatorClosedEvent{}
-	assert.Equal(t, "Event_Closed", event.TypeString())
-}
-
-func TestCoordinatorClosedEvent_GetEventTime(t *testing.T) {
-	event := &CoordinatorClosedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestCoordinatorFlushedEvent_Type(t *testing.T) {
-	event := &CoordinatorFlushedEvent{}
-	assert.Equal(t, Event_Flushed, event.Type())
-}
-
-func TestCoordinatorFlushedEvent_TypeString(t *testing.T) {
-	event := &CoordinatorFlushedEvent{}
-	assert.Equal(t, "Event_Flushed", event.TypeString())
-}
-
-func TestTransactionDispatchConfirmedEvent_Type(t *testing.T) {
-	event := &TransactionDispatchConfirmedEvent{}
-	assert.Equal(t, Event_TransactionDispatchConfirmed, event.Type())
-}
-
-func TestTransactionDispatchConfirmedEvent_TypeString(t *testing.T) {
-	event := &TransactionDispatchConfirmedEvent{}
-	assert.Equal(t, "Event_TransactionDispatchConfirmed", event.TypeString())
-}
-
-func TestTransactionDispatchConfirmedEvent_GetEventTime(t *testing.T) {
-	event := &TransactionDispatchConfirmedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestTransactionDispatchConfirmedEvent_GetTransactionID(t *testing.T) {
-	txID := uuid.New()
-	event := &TransactionDispatchConfirmedEvent{
-		TransactionID: txID,
-	}
-	assert.Equal(t, txID, event.GetTransactionID())
-}
-
-func TestEndorsementRequestedEvent_Type(t *testing.T) {
-	event := &EndorsementRequestedEvent{}
-	assert.Equal(t, Event_EndorsementRequested, event.Type())
-}
-
-func TestEndorsementRequestedEvent_TypeString(t *testing.T) {
-	event := &EndorsementRequestedEvent{}
-	assert.Equal(t, "Event_EndorsementRequested", event.TypeString())
-}
-
-func TestEndorsementRequestedEvent_GetEventTime(t *testing.T) {
-	event := &EndorsementRequestedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestEndorsementRequestedEvent_Fields(t *testing.T) {
-	from := "test@testNode"
-	event := &EndorsementRequestedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Now(),
-		},
-		From: from,
-	}
-	assert.Equal(t, from, event.From)
-}
-
 func TestHeartbeatReceivedEvent_Type(t *testing.T) {
 	event := &HeartbeatReceivedEvent{}
 	assert.Equal(t, Event_HeartbeatReceived, event.Type())
@@ -201,36 +115,6 @@ func TestHeartbeatReceivedEvent_EmbeddedNotification(t *testing.T) {
 	assert.Equal(t, uint64(100), event.BlockHeight)
 }
 
-func TestHandoverRequestEvent_Type(t *testing.T) {
-	event := &HandoverRequestEvent{}
-	assert.Equal(t, Event_HandoverRequestReceived, event.Type())
-}
-
-func TestHandoverRequestEvent_TypeString(t *testing.T) {
-	event := &HandoverRequestEvent{}
-	assert.Equal(t, "Event_HandoverRequestReceived", event.TypeString())
-}
-
-func TestHandoverRequestEvent_GetEventTime(t *testing.T) {
-	event := &HandoverRequestEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
-}
-
-func TestHandoverRequestEvent_Fields(t *testing.T) {
-	requester := "requester@testNode"
-	event := &HandoverRequestEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Now(),
-		},
-		Requester: requester,
-	}
-	assert.Equal(t, requester, event.Requester)
-}
-
 func TestNewBlockEvent_Type(t *testing.T) {
 	event := &NewBlockEvent{}
 	assert.Equal(t, Event_NewBlock, event.Type())
@@ -259,25 +143,6 @@ func TestNewBlockEvent_Fields(t *testing.T) {
 		BlockHeight: blockHeight,
 	}
 	assert.Equal(t, blockHeight, event.BlockHeight)
-}
-
-func TestHandoverReceivedEvent_Type(t *testing.T) {
-	event := &HandoverReceivedEvent{}
-	assert.Equal(t, Event_HandoverReceived, event.Type())
-}
-
-func TestHandoverReceivedEvent_TypeString(t *testing.T) {
-	event := &HandoverReceivedEvent{}
-	assert.Equal(t, "Event_HandoverReceived", event.TypeString())
-}
-
-func TestHandoverReceivedEvent_GetEventTime(t *testing.T) {
-	event := &HandoverReceivedEvent{
-		BaseEvent: common.BaseEvent{
-			EventTime: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-	}
-	assert.Equal(t, time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), event.GetEventTime())
 }
 
 func TestTransactionStateTransitionEvent_Type(t *testing.T) {
@@ -311,13 +176,8 @@ func TestEvent_InterfaceCompliance(t *testing.T) {
 	// Test that all events with BaseEvent implement the Event interface
 	events := []Event{
 		&TransactionsDelegatedEvent{},
-		&CoordinatorClosedEvent{},
-		&TransactionDispatchConfirmedEvent{},
-		&EndorsementRequestedEvent{},
 		&HeartbeatReceivedEvent{},
-		&HandoverRequestEvent{},
 		&NewBlockEvent{},
-		&HandoverReceivedEvent{},
 	}
 
 	for _, event := range events {
@@ -340,21 +200,8 @@ func TestCoordinatorCreatedEvent_TypeAndTypeString(t *testing.T) {
 	assert.Equal(t, "Event_CoordinatorCreated", event.TypeString())
 }
 
-func TestCoordinatorFlushedEvent_TypeAndTypeString(t *testing.T) {
-	event := &CoordinatorFlushedEvent{}
-	assert.Equal(t, Event_Flushed, event.Type())
-	assert.Equal(t, "Event_Flushed", event.TypeString())
-}
-
 func TestTransactionStateTransitionEvent_TypeAndTypeString(t *testing.T) {
 	event := &common.TransactionStateTransitionEvent[int]{}
 	assert.Equal(t, common.Event_TransactionStateTransition, event.Type())
 	assert.Equal(t, "Event_TransactionStateTransition", event.TypeString())
-}
-
-func TestOriginatorNodePoolUpdateRequestedEvent_TypeAndTypeString(t *testing.T) {
-	event := &OriginatorNodePoolUpdateRequestedEvent{Nodes: []string{"node1", "node2"}}
-	assert.Equal(t, Event_OriginatorNodePoolUpdateRequested, event.Type())
-	assert.Equal(t, "Event_OriginatorNodePoolUpdateRequested", event.TypeString())
-	assert.Len(t, event.Nodes, 2)
 }

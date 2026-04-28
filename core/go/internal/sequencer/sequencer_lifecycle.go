@@ -259,23 +259,25 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 
 			log.L(ctx).Debugf("sqncr      | %s | started", contractAddr.String()[0:8])
 		}
-	} else {
-		seq := sMgr.sequencers[contractAddr.String()]
-		// When the sequencer already existed, it may have been created with tx=nil (e.g. on first
-		// AssembleRequest) and have an empty originator pool. Queue an event so the coordinator
-		// updates its pool with this transaction's endorsers and, if still in State_Initial, can
-		// select an active coordinator.
-		originatorNodes, err := sMgr.getOriginatorNodesFromTx(ctx, tx)
-		if err != nil {
-			return nil, err
-		}
-		if len(originatorNodes) > 0 {
-			seq.GetCoordinator().QueueEvent(ctx, &coordinator.OriginatorNodePoolUpdateRequestedEvent{
-				BaseEvent: common.BaseEvent{EventTime: time.Now()},
-				Nodes:     originatorNodes,
-			})
-		}
 	}
+	// TODO AM: clean up when confident this is replaced
+	//  else {
+	// 	seq := sMgr.sequencers[contractAddr.String()]
+	// 	// When the sequencer already existed, it may have been created with tx=nil (e.g. on first
+	// 	// AssembleRequest) and have an empty originator pool. Queue an event so the coordinator
+	// 	// updates its pool with this transaction's endorsers and, if still in State_Initial, can
+	// 	// select an active coordinator.
+	// 	originatorNodes, err := sMgr.getOriginatorNodesFromTx(ctx, tx)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	if len(originatorNodes) > 0 {
+	// 		seq.GetCoordinator().QueueEvent(ctx, &coordinator.OriginatorNodePoolUpdateRequestedEvent{
+	// 			BaseEvent: common.BaseEvent{EventTime: time.Now()},
+	// 			Nodes:     originatorNodes,
+	// 		})
+	// 	}
+	// }
 
 	if tx != nil {
 		sMgr.sequencers[contractAddr.String()].lastTXTime = time.Now()

@@ -87,14 +87,6 @@ func (c *coordinator) selectActiveCoordinatorNode(ctx context.Context) (string, 
 	return coordinatorNode, nil
 }
 
-func action_UpdateOriginatorNodePoolFromEvent(_ context.Context, c *coordinator, event common.Event) error {
-	e := event.(*OriginatorNodePoolUpdateRequestedEvent)
-	for _, node := range e.Nodes {
-		c.updateOriginatorNodePool(node)
-	}
-	return nil
-}
-
 func (c *coordinator) updateOriginatorNodePool(originatorNode string) {
 	if !slices.Contains(c.originatorNodePool, originatorNode) {
 		c.originatorNodePool = append(c.originatorNodePool, originatorNode)

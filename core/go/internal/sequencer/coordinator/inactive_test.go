@@ -36,18 +36,6 @@ func Test_action_NewBlock_SetsCurrentBlockHeight(t *testing.T) {
 	assert.Equal(t, uint64(1000), c.currentBlockHeight)
 }
 
-func Test_action_EndorsementRequested_SetsActiveCoordinatorAndUpdatesPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Initial)
-	c, _, done := builder.Build(ctx)
-	defer done()
-
-	err := action_EndorsementRequested(ctx, c, &EndorsementRequestedEvent{From: "node1"})
-	require.NoError(t, err)
-	assert.Equal(t, "node1", c.activeCoordinatorNode)
-	assert.Contains(t, c.originatorNodePool, "node1")
-}
-
 func Test_action_HeartbeatReceived_SetsActiveCoordinatorBlockHeightAndUpdatesPool(t *testing.T) {
 	ctx := context.Background()
 	addr := pldtypes.RandAddress()
@@ -90,19 +78,6 @@ func Test_action_HeartbeatReceived_StoresFlushPoints(t *testing.T) {
 	assert.NotEmpty(t, key)
 	assert.Equal(t, event.FlushPoints[0], c.activeCoordinatorsFlushPointsBySignerNonce[key])
 }
-
-func Test_action_SendHandoverRequest_CallsSendHandoverRequest(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Elect)
-	c, mocks, done := builder.Build(ctx)
-	defer done()
-	c.activeCoordinatorNode = "otherNode"
-
-	err := action_SendHandoverRequest(ctx, c, nil)
-	require.NoError(t, err)
-	assert.True(t, mocks.SentMessageRecorder.HasSentHandoverRequest(), "SendHandoverRequest should be called")
-}
-
 func Test_action_Idle_CallsCoordinatorIdle(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Observing)
@@ -168,4 +143,3 @@ func Test_guard_ObservingIdleThresholdExceeded_Exceeded(t *testing.T) {
 
 	assert.True(t, guard_ObservingIdleThresholdExceeded(ctx, c))
 }
-

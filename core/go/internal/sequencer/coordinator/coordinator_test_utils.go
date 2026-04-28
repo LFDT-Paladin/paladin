@@ -54,15 +54,6 @@ func (r *SentMessageRecorder) Reset(ctx context.Context) {
 	r.SentMessageRecorder.Reset(ctx)
 }
 
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-	r.hasSentHandoverRequest = true
-	return nil
-}
-
-func (r *SentMessageRecorder) HasSentHandoverRequest() bool {
-	return r.hasSentHandoverRequest
-}
-
 func (r *SentMessageRecorder) SendHeartbeat(ctx context.Context, targetNode string, contractAddress *pldtypes.EthAddress, coordinatorSnapshot *common.CoordinatorSnapshot) error {
 	r.sentHeartbeatCount++
 	return nil

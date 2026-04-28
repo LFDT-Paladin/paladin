@@ -35,7 +35,6 @@ const (
 	MessageType_Dispatched                       = "Dispatched"
 	MessageType_EndorsementRequest               = "EndorsementRequest"
 	MessageType_EndorsementResponse              = "EndorsementResponse"
-	MessageType_HandoverRequest                  = "HandoverRequest"
 	MessageType_NonceAssigned                    = "NonceAssigned"
 	MessageType_PreDispatchRequest               = "PreDispatchRequest"
 	MessageType_PreDispatchResponse              = "PreDispatchResponse"
@@ -71,10 +70,6 @@ type TransactionRequest struct {
 	Sender          string                           `json:"sender"` //TODO this is duplicate of the ReplyTo field in the transport message.  Would it be more secure to assert that they are the same?
 	ContractAddress *pldtypes.EthAddress             `json:"contractAddress"`
 	Transactions    []*components.PrivateTransaction `json:"transactions"`
-}
-
-type HandoverRequest struct {
-	ContractAddress *pldtypes.EthAddress `json:"contractAddress"`
 }
 
 type DispatchConfirmationRequest struct {

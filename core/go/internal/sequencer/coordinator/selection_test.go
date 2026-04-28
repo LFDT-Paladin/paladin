@@ -28,23 +28,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func Test_action_UpdateOriginatorNodePoolFromEvent_AddsNodesToPool(t *testing.T) {
-	ctx := context.Background()
-	builder := NewCoordinatorBuilderForTesting(t, State_Idle)
-	c, _, done := builder.Build(ctx)
-	defer done()
-	c.originatorNodePool = []string{}
-
-	err := action_UpdateOriginatorNodePoolFromEvent(ctx, c, &OriginatorNodePoolUpdateRequestedEvent{
-		Nodes: []string{"node2", "node3"},
-	})
-	require.NoError(t, err)
-	assert.Len(t, c.originatorNodePool, 3, "pool should contain event nodes plus coordinator's own node")
-	assert.Contains(t, c.originatorNodePool, "node1", "pool should contain coordinator's own node")
-	assert.Contains(t, c.originatorNodePool, "node2", "pool should contain node2 from event")
-	assert.Contains(t, c.originatorNodePool, "node3", "pool should contain node3 from event")
-}
-
 func Test_selectActiveCoordinatorNode_StaticMode_StaticCoordinatorWithFullyQualifiedIdentity_ReturnsNode(t *testing.T) {
 	ctx := context.Background()
 	builder := NewCoordinatorBuilderForTesting(t, State_Idle)

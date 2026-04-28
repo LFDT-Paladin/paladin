@@ -196,10 +196,6 @@ func (r *SentMessageRecorder) SendPreDispatchResponse(ctx context.Context, trans
 	return nil
 }
 
-func (r *SentMessageRecorder) SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error {
-	return nil
-}
-
 func (r *SentMessageRecorder) SendNonceAssigned(ctx context.Context, txID uuid.UUID, transactionOriginator string, contractAddress *pldtypes.EthAddress, nonce uint64) error {
 	return nil
 }
