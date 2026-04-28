@@ -690,7 +690,7 @@ func Test_notifyDependentsOfSelection_PreAssembleDependentNotFound(t *testing.T)
 	depTracker.GetPreassemblyDeps().AddPrerequisites(dependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
@@ -703,6 +703,9 @@ func Test_notifyDependentsOfSelection_PreAssembleDependent(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+		}).
 		Build()
 
 	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)
@@ -721,6 +724,9 @@ func Test_notifyDependentsOfSelection_ChainedDependent(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Pooled).
 		Grapher(g).DependencyTracker(dt).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			depTx.GetPrivateTransaction().ID: depTx,
+		}).
 		Build()
 
 	dt.GetChainedDeps().AddPrerequisites(depTx.pt.ID, txn.pt.ID)
@@ -851,7 +857,7 @@ func Test_notifyDependentsOfSelection_ChainedDependentNotFound(t *testing.T) {
 	dt.GetChainedDeps().AddPrerequisites(missingDependentID, txn.pt.ID)
 
 	err := txn.notifyDependentsOfSelection(ctx)
-	require.NoError(t, err)
+	require.Error(t, err)
 }
 
 func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
@@ -864,6 +870,9 @@ func Test_action_NotifyPreAssembleDependentOfSelection_Success(t *testing.T) {
 
 	txn, _ := NewTransactionBuilderForTesting(t, State_Assembling).
 		Grapher(g).DependencyTracker(dt).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			dependentTxn.GetPrivateTransaction().ID: dependentTxn,
+		}).
 		Build()
 
 	dt.GetPreassemblyDeps().AddPrerequisites(dependentTxn.pt.ID, txn.pt.ID)

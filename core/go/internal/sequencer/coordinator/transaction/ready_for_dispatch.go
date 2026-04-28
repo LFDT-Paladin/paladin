@@ -104,11 +104,14 @@ func (t *coordinatorTransaction) notifyDependentsOfReadiness(ctx context.Context
 	//this function is called when the transaction enters the ready for dispatch state
 	// and we have a duty to inform all the transactions that are dependent on us that we are ready in case they are otherwise ready and are blocked waiting for us
 	for _, dependentId := range append(t.grapher.GetDependents(ctx, t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyReadyEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyReadyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 		})
+		if err != nil {
+			log.L(ctx).Errorf("error notifying dependents of readiness for TX %s: %s", t.pt.ID, err)
+		}
 	}
 	return nil
 }

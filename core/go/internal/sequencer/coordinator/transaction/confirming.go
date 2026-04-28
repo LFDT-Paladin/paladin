@@ -151,12 +151,15 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID)
 	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range append(dependents, chainedDependents...) {
-		t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			SourceTransactionID: t.pt.ID,
 		})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -168,12 +171,15 @@ func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorT
 	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
-		t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			FailedTxID: t.pt.ID,
 		})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -207,12 +213,15 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)
 	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
-		t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			EvictedTxID: t.pt.ID,
 		})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -227,10 +236,13 @@ func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coor
 	}
 	dependentID := dependents[0] // Preassemble chain cannot have multiple dependents
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
-	t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
+	err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: dependentID,
 		},
 	})
+	if err != nil {
+		return err
+	}
 	return nil
 }

@@ -116,12 +116,15 @@ func action_NotifyDependentsOfReset(ctx context.Context, txn *coordinatorTransac
 
 func (t *coordinatorTransaction) notifyDependentsOfReset(ctx context.Context) {
 	for _, dependentID := range append(t.dependencyTracker.GetPostAssemblyDeps().GetDependents(t.pt.ID), t.dependencyTracker.GetChainedDeps().GetDependents(t.pt.ID)...) {
-		t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencyResetEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
 			SourceTransactionID: t.pt.ID,
 		})
+		if err != nil {
+			log.L(ctx).Errorf("error notifying dependents of reset for TX %s: %s", t.pt.ID, err)
+		}
 	}
 }
 

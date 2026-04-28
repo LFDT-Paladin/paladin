@@ -161,12 +161,15 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	dependentIDs = append(dependentIDs, chainedDependents...)
 
 	for _, dependentID := range dependentIDs {
-		t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencySelectedForAssemblyEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencySelectedForAssemblyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
 			SourceTransactionID: t.pt.ID,
 		})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

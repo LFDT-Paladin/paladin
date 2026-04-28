@@ -195,7 +195,7 @@ func (cd *chainedDependencies) Delete(id uuid.UUID) {
 	defer cd.mu.Unlock()
 	delete(cd.children, id)
 	delete(cd.unassembledDependencies, id)
-	cd.dependencyChain.delete(id)
+	cd.delete(id)
 }
 
 func (d *dependencyChain) ensure(id uuid.UUID) *nodeLinks {

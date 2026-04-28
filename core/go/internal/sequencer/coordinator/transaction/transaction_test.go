@@ -386,30 +386,25 @@ func TestDependsOn_InitializedFromPrivateTransaction(t *testing.T) {
 		Grapher(grapher).
 		Build()
 
-	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		ChainedDependencies(depID).
 		Grapher(grapher).
+		CoordinatorTransactions(map[uuid.UUID]CoordinatorTransaction{
+			depTx.GetPrivateTransaction().ID: depTx,
+		}).
 		Build()
 
-	_ = depTx
-
-	// assert.NotNil(t, grapher.TransactionByID(ctx, depID))
-	// assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+	assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID), depID)
 }
 
 func TestDependsOn_UnknownDependencySkippedAtCreation(t *testing.T) {
-	ctx := context.Background()
-	grapher := newTestGrapher(ctx)
-
 	unknownID := uuid.New()
 
-	_, _ = NewTransactionBuilderForTesting(t, State_Initial).
+	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		ChainedDependencies(unknownID).
-		Grapher(grapher).
 		Build()
 
-	// assert.Empty(t, txn.dependencies.Chained.DependsOn)
-	// assert.NotNil(t, grapher.TransactionByID(ctx, txn.pt.ID))
+	assert.Empty(t, txn.dependencyTracker.GetChainedDeps().GetPrerequisites(txn.pt.ID))
 }
 
 func TestNewTransaction_ChainedDependsOn_AddsPrereqAndUnassembledWhenDependencyNotReady(t *testing.T) {
