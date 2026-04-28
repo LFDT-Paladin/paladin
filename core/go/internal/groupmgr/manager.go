@@ -24,6 +24,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/filters"
+	"github.com/LFDT-Paladin/paladin/core/internal/groupmgr/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
 	"github.com/google/uuid"
@@ -72,6 +73,7 @@ type groupManager struct {
 	messageListenersLoadPageSize int
 	messageListenerLock          sync.Mutex
 	messageListeners             map[string]*messageListener
+	metrics                      metrics.GroupManagerMetrics
 }
 
 type referencedReceipt struct {
@@ -124,6 +126,7 @@ func NewGroupManager(bgCtx context.Context, conf *pldconf.GroupManagerConfig) co
 }
 
 func (gm *groupManager) PreInit(pic components.PreInitComponents) (*components.ManagerInitResult, error) {
+	gm.metrics = metrics.InitMetrics(gm.bgCtx, pic.MetricsManager().Registry())
 	gm.initRPC()
 	return &components.ManagerInitResult{
 		RPCModules: []*rpcserver.RPCModule{gm.rpcModule},

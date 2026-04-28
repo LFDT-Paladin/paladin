@@ -84,6 +84,20 @@ func Test_guard_IdleThresholdExceeded_FalseWhenCounterBelowThreshold(t *testing.
 	assert.False(t, guard_IdleThresholdExceeded(ctx, o))
 }
 
+func Test_ProcessEvent_HeartbeatIntervalWhileObserving_IncrementsHeartbeatIntervalsSinceLastReceive(t *testing.T) {
+	ctx := context.Background()
+	builder := NewOriginatorBuilderForTesting(State_Observing).CommitteeMembers("sender@senderNode", "coordinator@coordinatorNode")
+	o, _, cleanup := builder.Build(ctx)
+	defer cleanup()
+
+	o.heartbeatIntervalsSinceLastReceive = 4
+	o.idleThreshold = 100
+
+	require.NoError(t, o.stateMachineEventLoop.ProcessEvent(ctx, &common.HeartbeatIntervalEvent{}))
+	assert.Equal(t, 5, o.heartbeatIntervalsSinceLastReceive)
+	assert.Equal(t, State_Observing, o.GetCurrentState())
+}
+
 func Test_applyHeartbeatReceived_DispatchedTransactionNotFoundLogsAndContinues(t *testing.T) {
 	ctx := context.Background()
 	originatorLocator := "sender@senderNode"

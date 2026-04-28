@@ -22,6 +22,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/transport"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -149,5 +150,37 @@ func TestAction_SendHeartbeat(t *testing.T) {
 	err := action_SendHeartbeat(ctx, c, nil)
 	assert.NoError(t, err)
 	assert.True(t, mocks.SentMessageRecorder.HasSentHeartbeat())
+}
+
+func Test_action_IncrementHeartbeatIntervalsSinceStateChange(t *testing.T) {
+	ctx := context.Background()
+	c, _, done := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	defer done()
+	c.heartbeatIntervalsSinceStateChange = 2
+
+	err := action_IncrementHeartbeatIntervalsSinceStateChange(ctx, c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3, c.heartbeatIntervalsSinceStateChange)
+}
+
+func Test_action_PropagateHeartbeatToTransactions_NoTransactions(t *testing.T) {
+	ctx := context.Background()
+	c, _, done := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	defer done()
+	c.transactionsByID = make(map[uuid.UUID]transaction.CoordinatorTransaction)
+
+	err := action_PropagateHeartbeatToTransactions(ctx, c, nil)
+	require.NoError(t, err)
+}
+
+func Test_action_PropagateHeartbeatToTransactions_WithTransactions(t *testing.T) {
+	ctx := context.Background()
+	c, _, done := NewCoordinatorBuilderForTesting(t, State_Idle).Build(ctx)
+	defer done()
+	txn, _ := transaction.NewTransactionBuilderForTesting(t, transaction.State_Pooled).Build()
+	c.transactionsByID[txn.GetID()] = txn
+
+	err := action_PropagateHeartbeatToTransactions(ctx, c, nil)
+	require.NoError(t, err)
 }
 

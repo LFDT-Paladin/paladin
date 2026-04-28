@@ -23,8 +23,12 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/syncpoints"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/testutil"
@@ -124,7 +128,7 @@ func (r *SentMessageRecorder) SendAssembleRequest(
 	transactionID uuid.UUID,
 	idempotencyKey uuid.UUID,
 	transactionPreassembly *components.TransactionPreAssembly,
-	stateLocksJSON []byte,
+	stateLocks grapher.ExportableStates,
 	blockHeight int64,
 ) error {
 	r.hasSentAssembleRequest = true
@@ -260,6 +264,7 @@ func NewSentMessageRecorder() *SentMessageRecorder {
 type TransactionBuilderForTesting struct {
 	t                                  *testing.T
 	privateTransactionBuilder          *testutil.PrivateTransactionBuilderForTesting
+	coordinatorTransactions            map[uuid.UUID]CoordinatorTransaction
 	originator                         string
 	originatorNode                     string
 	queueEventForCoordinator           func(context.Context, common.Event)
@@ -270,12 +275,11 @@ type TransactionBuilderForTesting struct {
 	nonce                              *uint64
 	revertReason                       pldtypes.HexBytes
 	errorCount                         int
-	dependencies                       *TransactionDependencies
 	state                              State
 	useMockTransportWriter             bool
 	useMockClock                       bool
-	grapher                            Grapher
-	chainedChildStore                  ChainedChildStore
+	grapher                            grapher.Grapher
+	dependencyTracker                  dependencytracker.DependencyTracker
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
@@ -348,6 +352,38 @@ func (b *TransactionBuilderForTesting) NumberOfRequiredEndorsers(num int) *Trans
 	return b
 }
 
+func (b *TransactionBuilderForTesting) CoordinatorTransactions(coordinatorTransactions map[uuid.UUID]CoordinatorTransaction) *TransactionBuilderForTesting {
+	b.coordinatorTransactions = coordinatorTransactions
+	return b
+}
+
+// coordinatorTransactionStateLookup builds getCoordinatorTransactionState from transactions indexed by ID.
+func coordinatorTransactionStateLookup(byID map[uuid.UUID]CoordinatorTransaction) func(context.Context, uuid.UUID) (State, bool) {
+	return func(_ context.Context, id uuid.UUID) (State, bool) {
+		if byID == nil {
+			return State(0), false
+		}
+		ct := byID[id]
+		if ct == nil {
+			return State(0), false
+		}
+		return ct.GetCurrentState(), true
+	}
+}
+
+func coordinatorTransactionHandleEvent(byID map[uuid.UUID]CoordinatorTransaction) func(context.Context, uuid.UUID, common.Event) error {
+	return func(ctx context.Context, id uuid.UUID, event common.Event) error {
+		if byID == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, id)
+		}
+		ct := byID[id]
+		if ct == nil {
+			return i18n.NewError(ctx, msgs.MsgSequencerTransactionNotFound, id)
+		}
+		return ct.HandleEvent(ctx, event)
+	}
+}
+
 func (b *TransactionBuilderForTesting) NumberOfEndorsements(num int) *TransactionBuilderForTesting {
 	b.privateTransactionBuilder.NumberOfEndorsements(num)
 	return b
@@ -378,13 +414,13 @@ func (b *TransactionBuilderForTesting) Reverts(revertReason string) *Transaction
 	return b
 }
 
-func (b *TransactionBuilderForTesting) ChainedChildStore(store ChainedChildStore) *TransactionBuilderForTesting {
-	b.chainedChildStore = store
+func (b *TransactionBuilderForTesting) Grapher(grapher grapher.Grapher) *TransactionBuilderForTesting {
+	b.grapher = grapher
 	return b
 }
 
-func (b *TransactionBuilderForTesting) Grapher(grapher Grapher) *TransactionBuilderForTesting {
-	b.grapher = grapher
+func (b *TransactionBuilderForTesting) DependencyTracker(dependencyTracker dependencytracker.DependencyTracker) *TransactionBuilderForTesting {
+	b.dependencyTracker = dependencyTracker
 	return b
 }
 
@@ -471,21 +507,6 @@ func (b *TransactionBuilderForTesting) RevertReason(revertReason pldtypes.HexByt
 
 func (b *TransactionBuilderForTesting) ErrorCount(errorCount int) *TransactionBuilderForTesting {
 	b.errorCount = errorCount
-	return b
-}
-
-func (b *TransactionBuilderForTesting) Dependencies(dependencies *TransactionDependencies) *TransactionBuilderForTesting {
-	b.dependencies = dependencies
-	b.privateTransactionBuilder.ChainedDependencies(dependencies.Chained.DependsOn...)
-	return b
-}
-
-func (b *TransactionBuilderForTesting) PostAssembleDependencies(deps *pldapi.TransactionDependencies) *TransactionBuilderForTesting {
-	if b.dependencies == nil {
-		b.dependencies = &TransactionDependencies{}
-	}
-	b.dependencies.PostAssemble.DependsOn = deps.DependsOn
-	b.dependencies.PostAssemble.PrereqOf = deps.PrereqOf
 	return b
 }
 
@@ -642,12 +663,12 @@ type transactionDependencyMocks struct {
 }
 
 func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transactionDependencyMocks) {
-	ctx := context.Background()
-	if b.chainedChildStore == nil {
-		b.chainedChildStore = NewChainedChildStore()
+	ctx := b.t.Context()
+	if b.dependencyTracker == nil {
+		b.dependencyTracker = dependencytracker.NewDependencyTracker()
 	}
 	if b.grapher == nil {
-		b.grapher = NewGrapher(ctx)
+		b.grapher = grapher.NewGrapher(b.dependencyTracker)
 	}
 
 	mp, err := mockpersistence.NewSQLMockProvider()
@@ -710,10 +731,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.nodeName,
 		privateTransaction,
 		b.coordinatorSigningIdentity,
-		nil,
 		transportWriter,
 		clock,
 		b.queueEventForCoordinator,
+		coordinatorTransactionHandleEvent(b.coordinatorTransactions),
+		coordinatorTransactionStateLookup(b.coordinatorTransactions),
 		mocks.EngineIntegration,
 		mocks.SyncPoints,
 		mocks.AllComponents,
@@ -726,7 +748,7 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		b.baseLedgerRevertRetryThreshold,
 		b.assembleErrorRetryThreshhold,
 		b.grapher,
-		b.chainedChildStore,
+		b.dependencyTracker,
 		metrics.InitMetrics(ctx, prometheus.NewRegistry()),
 	)
 	require.NoError(b.t, err)
@@ -739,14 +761,11 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	txn.cancelRequestTimeoutSchedule = b.cancelRequestTimeoutSchedule
 	txn.cancelStateTimeoutSchedule = b.cancelStateTimeoutSchedule
 	txn.confirmedLocksReleased = b.confirmedLocksReleased
-	txn.stateMachine.CurrentState = b.state
+	txn.stateMachine.SetCurrentState(b.state)
 	txn.revertReason = b.revertReason
 	txn.revertCount = b.revertCount
 	txn.assembleErrorCount = b.assembleErrorCount
 
-	if b.dependencies != nil {
-		txn.dependencies = *b.dependencies
-	}
 	if b.pendingAssembleRequestSend != nil {
 		txn.pendingAssembleRequest = common.NewIdempotentRequest(ctx, txn.clock, txn.requestTimeout, b.pendingAssembleRequestSend)
 	}
@@ -766,11 +785,9 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 	}
 
 	if privateTransaction.PostAssembly != nil {
-		if _, isRealGrapher := b.grapher.(*grapher); isRealGrapher {
-			for _, state := range privateTransaction.PostAssembly.OutputStates {
-				err := b.grapher.AddMinter(ctx, state.ID, txn)
-				require.NoError(b.t, err)
-			}
+		for _, state := range privateTransaction.PostAssembly.OutputStates {
+			err := b.grapher.AddMinter(ctx, []*components.FullState{state}, txn.pt.ID)
+			require.NoError(b.t, err)
 		}
 	}
 

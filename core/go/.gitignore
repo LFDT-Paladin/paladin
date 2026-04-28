@@ -3,3 +3,4 @@ libstarter.h
 mocks
 !.vscode/settings.json
 libcore.h
+**mocks.go

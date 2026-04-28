@@ -48,7 +48,6 @@ type EventType = common.EventType
 const (
 	Event_Delegated                       EventType = iota + common.Event_HeartbeatInterval + 1 // Transaction initially received by the coordinator.  Might seem redundant explicitly modeling this as an event rather than putting this logic into the constructor, but it is useful to make the initial state transition rules explicit in the state machine definitions
 	Event_DependencySelectedForAssemble                                                         // the transaction delegated immediately before the transaction from the same originator has been selected for assembly
-	Event_NewPreAssembleDependency                                                              // a new preassemble dependency has been established
 	Event_Selected                                                                              // selected from the pool as the next transaction to be assembled
 	Event_AssembleRequestSent                                                                   // assemble request sent to the assembler
 	Event_Assemble_Success                                                                      // assemble response received from the originator
@@ -128,9 +127,6 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandler{
-			Event_NewPreAssembleDependency: {
-				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
-			},
 			// Waiting for this event before we move to pooled ensures FIFO ordering for first assembly within an originator
 			// and preservers chained dependency ordering
 			Event_DependencySelectedForAssemble: {
@@ -179,9 +175,6 @@ var stateDefinitionsMap = StateDefinitions{
 			{Action: action_InitializeForNewAssembly},
 		},
 		Events: map[EventType]EventHandler{
-			Event_NewPreAssembleDependency: {
-				Actions: []ActionRule{{Action: action_AddPreAssemblePrereqOf}},
-			},
 			Event_Selected: {
 				Actions: []ActionRule{
 					// We notify dependents at the point of selection, since the outcome of assembly is irrelevant
@@ -688,7 +681,7 @@ var stateDefinitionsMap = StateDefinitions{
 						To: State_Reverted,
 						Actions: []ActionRule{
 							{Action: action_NotifyOriginatorOfNonRetryableRevert},
-							{Action: action_NotifyDependantsOfRevertedConfirmation},
+							{Action: action_NotifyDependentsOfRevertedConfirmation},
 							{Action: action_FinalizeNonRetryableRevert},
 						},
 					},
@@ -814,7 +807,7 @@ func (t *coordinatorTransaction) HandleEvent(ctx context.Context, event common.E
 }
 
 func action_IncrementHeartbeatIntervalsSinceStateChange(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.pt.ID.String(), t.stateMachine.CurrentState.String(), t.heartbeatIntervalsSinceStateChange+1)
+	log.L(ctx).Tracef("coordinator transaction %s (%s) increasing heartbeatIntervalsSinceStateChange to %d", t.pt.ID.String(), t.stateMachine.GetCurrentState().String(), t.heartbeatIntervalsSinceStateChange+1)
 	t.heartbeatIntervalsSinceStateChange++
 	return nil
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/LFDT-Paladin/paladin/config/pkg/pldconf"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/statemgr"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	"github.com/LFDT-Paladin/paladin/core/pkg/persistence"
@@ -63,6 +64,7 @@ func newMockComponents(t *testing.T, realDB bool) *mockComponents {
 	mc.c.On("TransportManager").Return(mc.transportManager).Maybe()
 	mc.c.On("RegistryManager").Return(mc.registryManager).Maybe()
 	mc.c.On("TxManager").Return(mc.txManager).Maybe()
+	mc.c.On("MetricsManager").Return(metrics.NewMetricsManager(context.Background())).Maybe()
 
 	if realDB {
 		p, cleanup, err := persistence.NewUnitTestPersistence(context.Background(), "groupmgr")

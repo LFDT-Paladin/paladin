@@ -53,7 +53,7 @@ func action_RecordConfirmation(ctx context.Context, t *coordinatorTransaction, e
 			// know will not be confirmed on the base ledger.
 			// As a general rule we should not be making sequencer logic conditional on specific error codes; however,
 			// this is acceptable since this is an error code that can originate from within the sequencer.
-			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256")
+			t.lastCanRetryRevert = strings.HasPrefix(e.FailureMessage, "PD012256") && t.revertCount <= t.baseLedgerRevertRetryThreshold
 		} else {
 			t.revertOnChain = &e.OnChain
 			retryable, decodedReason, err := t.domainAPI.IsBaseLedgerRevertRetryable(ctx, t.revertReason)
@@ -138,7 +138,7 @@ func action_FinalizeNonRetryableRevert(ctx context.Context, t *coordinatorTransa
 	return nil
 }
 
-func action_NotifyDependantsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
+func action_NotifyDependentsOfRevertedConfirmation(ctx context.Context, txn *coordinatorTransaction, _ common.Event) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s", txn.pt.ID.String())
 	if err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil); err != nil {
 		return err
@@ -148,21 +148,17 @@ func action_NotifyDependantsOfRevertedConfirmation(ctx context.Context, txn *coo
 
 func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx context.Context) error {
 	log.L(ctx).Debugf("notifying dependents of reverted confirmation for transaction %s (dependents will repool/move to preassembly blocked)", t.pt.ID.String())
-	for _, dependentId := range append(t.dependencies.PostAssemble.PrereqOf, t.dependencies.Chained.PrereqOf...) {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		} else {
-			err := dependent.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
-				BaseCoordinatorEvent: BaseCoordinatorEvent{
-					TransactionID: dependent.GetPrivateTransaction().ID,
-				},
-				SourceTransactionID: t.pt.ID,
-			})
-			if err != nil {
-				log.L(ctx).Errorf("error notifying dependent transaction %s of revert of transaction %s: %s", dependent.GetPrivateTransaction().ID, t.pt.ID, err)
-				return err
-			}
+	dependents := t.dependencyTracker.GetPostAssemblyDeps().GetDependents(ctx, t.pt.ID)
+	chainedDependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range append(dependents, chainedDependents...) {
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &DependencyConfirmedRevertedEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{
+				TransactionID: dependentId,
+			},
+			SourceTransactionID: t.pt.ID,
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -172,20 +168,16 @@ func (t *coordinatorTransaction) notifyDependentsOfRevertedConfirmation(ctx cont
 // when a transaction reaches State_Reverted. Each dependent handles the event via its own
 // state machine, performing its own finalization (downward pruning of the dependency chain).
 func action_CascadeChainedDependencyFailure(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		}
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency failure from TX %s to TX %s", t.pt.ID, dependentId)
-		err := dependent.HandleEvent(ctx, &ChainedDependencyFailedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyFailedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			FailedTxID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error sending chained dependency failure event to TX %s: %s", dependentId, err)
 			return err
 		}
 	}
@@ -218,20 +210,16 @@ func action_FinalizeOnChainedDependencyFailure(ctx context.Context, t *coordinat
 // not yet been assembled, its dependents cannot have been either — so they must be in Pooled
 // or PreAssembly_Blocked.
 func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	for _, dependentId := range t.dependencies.Chained.PrereqOf {
-		dependent := t.grapher.TransactionByID(ctx, dependentId)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentId)
-		}
+	dependents := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+	for _, dependentId := range dependents {
 		log.L(ctx).Infof("cascading dependency eviction from TX %s to TX %s", t.pt.ID, dependentId)
-		err := dependent.HandleEvent(ctx, &ChainedDependencyEvictedEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentId, &ChainedDependencyEvictedEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentId,
 			},
 			EvictedTxID: t.pt.ID,
 		})
 		if err != nil {
-			log.L(ctx).Errorf("error sending chained dependency eviction event to TX %s: %s", dependentId, err)
 			return err
 		}
 	}
@@ -242,18 +230,18 @@ func action_CascadeChainedDependencyEviction(ctx context.Context, t *coordinator
 // to the pre-assemble dependent (if any) when this transaction reaches a terminal state.
 // This severs the FIFO ordering link so the dependent is not stuck waiting forever.
 func action_NotifyPreAssembleDependentOfTermination(ctx context.Context, t *coordinatorTransaction, _ common.Event) error {
-	if t.dependencies.PreAssemble.PrereqOf == nil {
+	dependentID, hasDependent := t.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, t.pt.ID)
+	if !hasDependent {
 		return nil
 	}
-	dependentID := *t.dependencies.PreAssemble.PrereqOf
-	dependent := t.grapher.TransactionByID(ctx, dependentID)
-	if dependent == nil {
-		return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
-	}
 	log.L(ctx).Infof("notifying pre-assemble dependent TX %s that predecessor TX %s has reached a terminal state", dependentID, t.pt.ID)
-	return dependent.HandleEvent(ctx, &PreAssembleDependencyTerminatedEvent{
+	err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &PreAssembleDependencyTerminatedEvent{
 		BaseCoordinatorEvent: BaseCoordinatorEvent{
 			TransactionID: dependentID,
 		},
 	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

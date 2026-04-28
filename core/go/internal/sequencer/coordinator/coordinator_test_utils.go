@@ -356,7 +356,7 @@ func (b *CoordinatorBuilderForTesting) Build(ctx context.Context) (*coordinator,
 
 	// Reset activeCoordinatorNode which action_SelectActiveCoordinator may have set during startup.
 	coordinator.activeCoordinatorNode = ""
-	coordinator.stateMachineEventLoop.StateMachine().CurrentState = b.state
+	coordinator.stateMachineEventLoop.StateMachine().SetCurrentState(b.state)
 	switch b.state {
 	case State_Observing:
 		fallthrough

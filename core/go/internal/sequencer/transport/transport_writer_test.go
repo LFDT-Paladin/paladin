@@ -24,6 +24,7 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/core/mocks/componentsmocks"
 	engineProto "github.com/LFDT-Paladin/paladin/core/pkg/proto/engine"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
@@ -710,7 +711,7 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		},
 	}
 
-	stateLocksJSON := []byte(`{"locks": []}`)
+	stateLocks := grapher.ExportableStates{LockedState: []*grapher.StateLock{}}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
@@ -753,7 +754,7 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocksJSON, blockHeight)
+	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -772,7 +773,7 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 		},
 	}
 
-	stateLocksJSON := []byte(`{"locks": []}`)
+	stateLocks := grapher.ExportableStates{LockedState: []*grapher.StateLock{}}
 
 	mockTransportManager := componentsmocks.NewTransportManager(t)
 	mockLoopbackTransport := NewMockLoopbackTransportManager(t)
@@ -788,7 +789,7 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocksJSON, blockHeight)
+	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight)
 	require.Error(t, err)
 	assert.Equal(t, sendError, err)
 	mockTransportManager.AssertExpectations(t)

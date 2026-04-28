@@ -53,7 +53,7 @@ func (c *coordinator) getSnapshot(ctx context.Context) *common.CoordinatorSnapsh
 	//Snapshot contains a coarse grained view of transactions state.
 	// All known transactions fall into one of 3 categories
 	// 1. Pooled transactions - these are transactions that have been delegated but not yet dispatched
-	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependant on parallel processing from this point onward
+	// 2. Dispatched transactions - these are transactions that are past the point of no return, the precise status (ready for collection, dispatched, nonce assigned, submitted to a blockchain node) is dependent on parallel processing from this point onward
 	// 3. Confirmed transactions - these are transactions that have been confirmed by the network
 	for _, txn := range c.transactionsByID {
 		pooledTransaction, dispatchedTransaction, confirmedTransaction := txn.GetSnapshot(ctx)
