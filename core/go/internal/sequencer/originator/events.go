@@ -63,3 +63,16 @@ func (*ActiveCoordinatorUpdatedEvent) Type() EventType {
 func (*ActiveCoordinatorUpdatedEvent) TypeString() string {
 	return "Event_ActiveCoordinatorUpdated"
 }
+
+type NewBlockEvent struct {
+	common.BaseEvent
+	BlockHeight uint64
+}
+
+func (*NewBlockEvent) Type() EventType {
+	return Event_NewBlock
+}
+
+func (*NewBlockEvent) TypeString() string {
+	return "Event_NewBlock"
+}

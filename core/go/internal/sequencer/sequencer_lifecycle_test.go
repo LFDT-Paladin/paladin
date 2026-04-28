@@ -1869,3 +1869,105 @@ func TestHeartbeatLoop_StopsWhenContextCancelled(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestOnNewBlockHeight_StoresHeight(t *testing.T) {
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	sm.OnNewBlockHeight(context.Background(), 42)
+
+	assert.Equal(t, int64(42), sm.GetBlockHeight())
+}
+
+func TestOnNewBlockHeight_NoSequencers_NoEvents(t *testing.T) {
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// No sequencers registered — QueueEvent must not be called on any mock.
+	// Any unexpected call would cause testify to fail the test immediately.
+	sm.OnNewBlockHeight(context.Background(), 100)
+
+	// Give the goroutine time to run and confirm it exits without calling any mock.
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, int64(100), sm.GetBlockHeight())
+}
+
+func TestOnNewBlockHeight_DispatchesNewBlockToAllSequencers(t *testing.T) {
+	ctx := context.Background()
+
+	addr1 := pldtypes.RandAddress()
+	addr2 := pldtypes.RandAddress()
+
+	mocks := newSequencerLifecycleTestMocks(t)
+	sm := newSequencerManagerForTesting(t, mocks)
+
+	// Create separate mock coordinator and originator for the second sequencer.
+	coord2 := coordinator.NewMockCoordinator(t)
+	orig2 := originator.NewMockOriginator(t)
+
+	const expectedHeight = int64(999)
+
+	coordReceived := make(chan struct{}, 2)
+	origReceived := make(chan struct{}, 2)
+
+	mocks.coordinator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*coordinator.NewBlockEvent)
+		return ok && ev.BlockHeight == uint64(expectedHeight)
+	})).Run(func(_ context.Context, _ common.Event) {
+		coordReceived <- struct{}{}
+	}).Return().Once()
+
+	mocks.originator.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*originator.NewBlockEvent)
+		return ok && ev.BlockHeight == uint64(expectedHeight)
+	})).Run(func(_ context.Context, _ common.Event) {
+		origReceived <- struct{}{}
+	}).Return().Once()
+
+	coord2.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*coordinator.NewBlockEvent)
+		return ok && ev.BlockHeight == uint64(expectedHeight)
+	})).Run(func(_ context.Context, _ common.Event) {
+		coordReceived <- struct{}{}
+	}).Return().Once()
+
+	orig2.EXPECT().QueueEvent(mock.Anything, mock.MatchedBy(func(e interface{}) bool {
+		ev, ok := e.(*originator.NewBlockEvent)
+		return ok && ev.BlockHeight == uint64(expectedHeight)
+	})).Run(func(_ context.Context, _ common.Event) {
+		origReceived <- struct{}{}
+	}).Return().Once()
+
+	sm.sequencers[addr1.String()] = &sequencer{
+		contractAddress: addr1.String(),
+		coordinator:     mocks.coordinator,
+		originator:      mocks.originator,
+		cancelCtx:       func() {},
+	}
+	sm.sequencers[addr2.String()] = &sequencer{
+		contractAddress: addr2.String(),
+		coordinator:     coord2,
+		originator:      orig2,
+		cancelCtx:       func() {},
+	}
+
+	sm.OnNewBlockHeight(ctx, expectedHeight)
+
+	// Wait for all four QueueEvent calls to arrive.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-coordReceived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for coordinator NewBlockEvent dispatch")
+		}
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-origReceived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for originator NewBlockEvent dispatch")
+		}
+	}
+
+	assert.Equal(t, expectedHeight, sm.GetBlockHeight())
+}
