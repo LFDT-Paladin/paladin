@@ -15,14 +15,14 @@
 // limitations under the License.
 
 import { Button } from "@mui/material";
-import { IPaladinTransaction } from "../interfaces";
+import { IPaladinTransaction, ITransactionReceipt } from "../interfaces";
 import { getShortId } from "../utils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 type Props = {
-  paladinTransaction: IPaladinTransaction
+  paladinTransaction: IPaladinTransaction | ITransactionReceipt
 }
 
 export const PaladinTransactionChip: React.FC<Props> = ({

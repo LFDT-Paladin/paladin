@@ -203,6 +203,24 @@ export const fetchTransactionReceipt = async (
   );
 };
 
+export const fetchTransactionReceiptFull = async (
+  transactionId: string
+): Promise<ITransactionReceipt> => {
+  const payload = {
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: RpcMethods.ptx_getTransactionReceiptFull,
+    params: [transactionId],
+  };
+
+  return <Promise<ITransactionReceipt>>(
+    returnResponse(
+      () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
+      i18next.t('errorFetchingTransactionReceipt')
+    )
+  );
+};
+
 export const fetchTransactionReceipts = async (
   transactions: ITransaction[]
 ): Promise<ITransactionReceipt[]> => {

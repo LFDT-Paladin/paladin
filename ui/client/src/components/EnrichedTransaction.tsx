@@ -118,12 +118,12 @@ export const EnrichedTransaction: React.FC<Props> = ({
           }}>
             <img src={iconLight} width="12" />
             <Typography variant="body2">{t('paladin')}</Typography>
-            <Chip label={enrichedTransaction.paladinTransactions.length} sx={{ borderRadius: '4px', height: '25px' }} />
+            <Chip label={enrichedTransaction.receipts.length} sx={{ borderRadius: '4px', height: '25px' }} />
             <Box sx={{ width: '20px' }} />
-            {enrichedTransaction.paladinTransactions.map(paladinTransaction =>
+            {enrichedTransaction.receipts.map(receipt =>
               <PaladinTransactionChip 
-              key={paladinTransaction.id} 
-              paladinTransaction={paladinTransaction}
+              key={receipt.id} 
+              paladinTransaction={receipt}
                />
             )}
           </Box>
