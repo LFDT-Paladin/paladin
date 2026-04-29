@@ -43,6 +43,11 @@ on:
         required: false
         default: 'ubuntu-latest'
         type: string
+      continue-on-error:
+        description: 'Whether to allow the image build job to fail without failing the workflow'
+        required: false
+        default: false
+        type: boolean
     secrets:
       username: 
         description: 'Docker registry username'
@@ -54,6 +59,7 @@ on:
 jobs:
   docker:
     runs-on: ${{ inputs.runs-on }}
+    continue-on-error: ${{ inputs.continue-on-error }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,6 +67,7 @@ jobs:
           submodules: recursive
 
       - name: Free up disk space on runner
+        if: ${{ runner.os == 'Linux' }}
         uses: ./.github/actions/free-up-disk-space
 
       - name: Print inputs
@@ -73,9 +80,17 @@ jobs:
           echo "platforms: ${{ inputs.platforms }}"
 
       - name: Free up disk space on runner
+        if: ${{ runner.os == 'Linux' }}
         uses: ./.github/actions/free-up-disk-space
 
+      - name: Set up Docker
+        if: ${{ runner.os == 'macOS' }}
+        uses: docker/setup-docker-action@v5
+        with:
+          set-host: true
+
       - name: Set up QEMU
+        if: ${{ runner.os == 'Linux' }}
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
