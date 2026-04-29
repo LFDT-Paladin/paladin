@@ -42,6 +42,25 @@ type PrivateSmartContract struct {
 	ConfigBytes     pldtypes.HexBytes   `json:"configBytes"         gorm:"column:config_bytes"`
 }
 
+type DeployTransactionJoinCols struct {
+	ID             uuid.UUID                             `gorm:"column:id"`
+	IdempotencyKey *string                               `gorm:"column:idempotency_key"`
+	SubmitMode     pldtypes.Enum[pldapi.SubmitMode]      `gorm:"column:submit_mode"`
+	Type           pldtypes.Enum[pldapi.TransactionType] `gorm:"column:type"`
+	Created        pldtypes.Timestamp                    `gorm:"column:created"`
+	ABIReference   *pldtypes.Bytes32                     `gorm:"column:abi_ref"`
+	Function       *string                               `gorm:"column:function"`
+	Domain         *string                               `gorm:"column:domain"`
+	From           string                                `gorm:"column:from"`
+	To             *pldtypes.EthAddress                  `gorm:"column:to"`
+	Data           pldtypes.RawJSON                      `gorm:"column:data"`
+}
+
+type privateSmartContractJoinRow struct {
+	PrivateSmartContract
+	DeployTransactionJoinCols `gorm:"embedded"`
+}
+
 type domainContract struct {
 	dm     *domainManager
 	d      *domain

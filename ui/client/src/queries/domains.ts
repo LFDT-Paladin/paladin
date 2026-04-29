@@ -17,6 +17,7 @@
 import i18next from 'i18next';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
+import { IDomainContract } from '../interfaces';
 
 export const listDomains = async (): Promise<string[]> => {
   const payload = {
@@ -50,16 +51,33 @@ export const getDomainByName = async (name: string): Promise<any> => {
 };
 
 export const querySmartContractsByDomain = async (
-  domainAddress: string
-): Promise<any> => {
+  domainAddress: string,
+  sortAscending: boolean,
+  rowsPerPage: number,
+  refTimestamp?: string
+): Promise<IDomainContract[]> => {
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.domain_querySmartContracts,
     params: [
       {
-        limit: 100, // TODO: pagination
+        limit: rowsPerPage,
         equal: [{ field: 'domainAddress', value: domainAddress }],
+        sort: [`deployTxCreated ${sortAscending ? 'ASC' : 'DESC'}`],
+
+        greaterThan: refTimestamp !== undefined && sortAscending ? [
+          {
+            field: 'deployTxCreated',
+            value: refTimestamp
+          }
+        ] : undefined,
+        lessThan: refTimestamp !== undefined && !sortAscending ? [
+          {
+            field: 'deployTxCreated',
+            value: refTimestamp
+          }
+        ] : undefined
       },
     ],
   };

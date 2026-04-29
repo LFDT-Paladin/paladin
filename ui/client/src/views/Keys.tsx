@@ -337,7 +337,12 @@ export const Keys: React.FC = () => {
             setFilters={setFilters}
           />
           <Box sx={{ display: 'flex', marginBottom: '15px', alignItems: 'center' }}>
-            <ToggleButtonGroup exclusive onChange={(_event, value) => setMode(value)} value={mode}>
+            <ToggleButtonGroup exclusive onChange={(_event, value) => {
+              if (value !== null) {
+                setMode(value);
+              }
+            }
+            } value={mode}>
               <Tooltip arrow title={t('listView')}>
                 <ToggleButton color="primary" value="list">
                   <ViewListIcon fontSize="small" />

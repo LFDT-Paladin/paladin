@@ -58,8 +58,9 @@ var eventSolSig_PaladinRegisterSmartContract_V0 = mustParseEventSoliditySignatur
 // var eventSig_PaladinPrivateTransaction_V0 = mustParseEventSignature(iPaladinContractABI, "PaladinPrivateTransaction_V0")
 
 var smartContractFilters = filters.FieldMap{
-	"domainAddress": filters.HexBytesField("domain_address"),
-	"address":       filters.HexBytesField("address"),
+	"domainAddress":   filters.HexBytesField(`"private_smart_contracts"."domain_address"`),
+	"address":         filters.HexBytesField(`"private_smart_contracts"."address"`),
+	"deployTxCreated": filters.TimestampField(`"transactions"."created"`),
 }
 
 func NewDomainManager(bgCtx context.Context, conf *pldconf.DomainManagerInlineConfig) components.DomainManager {
@@ -344,27 +345,61 @@ func (dm *domainManager) populateContractConfig(result *pldapi.DomainSmartContra
 	}
 }
 
-func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.DomainSmartContract, error) {
-	qw := &filters.QueryWrapper[PrivateSmartContract, pldapi.DomainSmartContract]{
+func mapDeployTxColsToAPI(cols DeployTransactionJoinCols) *pldapi.Transaction {
+	id := cols.ID
+	return &pldapi.Transaction{
+		ID:         &id,
+		Created:    cols.Created,
+		SubmitMode: cols.SubmitMode,
+		TransactionBase: pldapi.TransactionBase{
+			IdempotencyKey: ptrStringOrEmpty(cols.IdempotencyKey),
+			Type:           cols.Type,
+			Domain:         ptrStringOrEmpty(cols.Domain),
+			Function:       ptrStringOrEmpty(cols.Function),
+			ABIReference:   cols.ABIReference,
+			From:           cols.From,
+			To:             cols.To,
+			Data:           cols.Data,
+		},
+	}
+}
+
+func ptrStringOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func (dm *domainManager) querySmartContracts(ctx context.Context, dbTX persistence.DBTX, jq *query.QueryJSON) ([]*pldapi.DomainSmartContractWithDeployTransaction, error) {
+	qw := &filters.QueryWrapper[privateSmartContractJoinRow, pldapi.DomainSmartContractWithDeployTransaction]{
 		P:           dm.persistence,
 		Table:       "private_smart_contracts",
 		DefaultSort: "domainAddress",
 		Filters:     smartContractFilters,
 		Query:       jq,
-		MapResult: func(pt *PrivateSmartContract) (result *pldapi.DomainSmartContract, err error) {
-			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, pt)
-			if err == nil {
-				result = &pldapi.DomainSmartContract{
+		Finalize: func(q *gorm.DB) *gorm.DB {
+			return q.
+				Joins(`INNER JOIN "transactions" ON "transactions"."id" = "private_smart_contracts"."deploy_tx"`).
+				Select(`"private_smart_contracts".*`, `"transactions".*`)
+		},
+		MapResult: func(pt *privateSmartContractJoinRow) (*pldapi.DomainSmartContractWithDeployTransaction, error) {
+			_, dc, err := dm.enrichContractWithDomain(ctx, dbTX, &pt.PrivateSmartContract)
+			if err != nil {
+				return nil, err
+			}
+			result := &pldapi.DomainSmartContractWithDeployTransaction{
+				DomainSmartContract: pldapi.DomainSmartContract{
 					DomainAddress: &pt.RegistryAddress,
 					Address:       pt.Address,
-				}
-				if dc != nil {
-					result.DomainName = dc.Domain().Name()
-					dm.populateContractConfig(result, dc.config)
-				}
+				},
+				DeployTransaction: mapDeployTxColsToAPI(pt.DeployTransactionJoinCols),
 			}
-			return result, err
-
+			if dc != nil {
+				result.DomainName = dc.Domain().Name()
+				dm.populateContractConfig(&result.DomainSmartContract, dc.config)
+			}
+			return result, nil
 		},
 	}
 	return qw.Run(ctx, dbTX)

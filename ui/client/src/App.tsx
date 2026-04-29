@@ -47,12 +47,16 @@ function App() {
 
   const [txRefEntries, setTxRefEntries] = useState<ITransactionPagingReference[]>([]);
   const [txPage, txSetPage] = useState(0);
-  const [txRowsPerPage, txSetRowsPerPage] = useState(10);
+  const [txRowsPerPage, setTxRowsPerPage] = useState(10);
   const [txFromBlock, setTxFromBlock] = useState<number>();
   const [submissionsSection, setSubmissionsSection] = useState<'pending' | 'failed'>('pending');
+  const [domainSortAscending, setDomainSortAscending] = useState(false);
 
-
+  const [domainsPage, txSetDomainsPage] = useState(0);
+  const [domainsRowsPerPage, SetDomainsRowsPerPage] = useState(10);
+  const [domainsRefTimestamps, setDomainsRefTimestamps] = useState<string[]>([]);
   const [submissionsRefEntries, setSubmissionsSetRefEntries] = useState<IPaladinTransactionPagingReference[]>([]);
+
   const [submissionsPage, setSubmissionsPage] = useState(0);
   const [submissionsRowsPerPage, setSubmissionsRowsPerPage] = useState(10);
 
@@ -72,7 +76,6 @@ function App() {
         setSystemTheme(event.matches ? 'dark' : 'light');
       });
   }, []);
-
 
   const theme = useMemo(() => {
     const modeFromStorage = localStorage.getItem(constants.COLOR_MODE_STORAGE_KEY);
@@ -119,7 +122,7 @@ function App() {
                   page={txPage}
                   setPage={txSetPage}
                   rowsPerPage={txRowsPerPage}
-                  setRowsPerPage={txSetRowsPerPage}
+                  setRowsPerPage={setTxRowsPerPage}
                   fromBlock={txFromBlock}
                   setFromBlock={setTxFromBlock}
                 />} />
@@ -136,7 +139,16 @@ function App() {
                 <Route path={AppRoutes.Transaction} element={<TransactionDetails />} />
                 <Route path={AppRoutes.Keys} element={<Keys />} />
                 <Route path={AppRoutes.Registry} element={<Registries />} />
-                <Route path={AppRoutes.Domains} element={<Domains />} />
+                <Route path={AppRoutes.Domains} element={<Domains
+                  sortAscending={domainSortAscending}
+                  setSortAscending={setDomainSortAscending}
+                  page={domainsPage}
+                  setPage={txSetDomainsPage}
+                  rowsPerPage={domainsRowsPerPage}
+                  setRowsPerPage={SetDomainsRowsPerPage}
+                  refTimestamps={domainsRefTimestamps}
+                  setRefTimestamps={setDomainsRefTimestamps}
+                />} />
                 <Route path="*" element={<Navigate to={AppRoutes.Transactions} replace />} />
               </Routes>
             </BrowserRouter>

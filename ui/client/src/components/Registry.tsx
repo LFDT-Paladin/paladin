@@ -1,4 +1,4 @@
-// Copyright © 2025 Kaleido, Inc.
+// Copyright © 2026 Kaleido, Inc.
 //
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -69,7 +69,12 @@ export const Registry: React.FC<Props> = ({ registryName }) => {
   return (
     <>
       <Box sx={{ margin: '10px', textAlign: 'center' }}>
-        <ToggleButtonGroup exclusive onChange={(_event, value) => setTab(value)} value={tab}>
+        <ToggleButtonGroup exclusive onChange={(_event, value) => {
+          if (value !== null) {
+            setTab(value);
+          }
+        }
+        } value={tab}>
           <ToggleButton color="primary" value="any" sx={{ width: '130px', height: '45px' }}>{t('all')}</ToggleButton>
           <ToggleButton color="primary" value="active" sx={{ width: '130px', height: '45px' }}>{t('active')}</ToggleButton>
           <ToggleButton color="primary" value="inactive" sx={{ width: '130px', height: '45px' }}>{t('inactive')}</ToggleButton>

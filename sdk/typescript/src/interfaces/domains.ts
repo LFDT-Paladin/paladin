@@ -1,3 +1,5 @@
+import type { ITransaction } from "./transaction";
+
 export interface IDomainConfig {
   signingAlgorithms?: Record<string, number>;
 }
@@ -17,4 +19,9 @@ export interface IDomainSmartContract {
   domainAddress: string;
   address: string;
   config?: IContractConfig;
-} 
+}
+
+export interface IDomainSmartContractWithDeployTransaction
+  extends IDomainSmartContract {
+  deployTransaction?: ITransaction;
+}

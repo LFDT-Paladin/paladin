@@ -26,13 +26,33 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { t } from 'i18next';
 import { Captions } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { DomainDeploy } from '../components/DomainDeploy';
 import { Hash } from '../components/Hash';
 import { SmartContractsTable } from '../components/SmartContractsTable';
 import { getDomainByName, listDomains } from '../queries/domains';
 
-export const Domains: React.FC = () => {
+type Props = {
+  sortAscending: boolean
+  setSortAscending: Dispatch<SetStateAction<boolean>>
+  page: number
+  setPage: Dispatch<SetStateAction<number>>
+  rowsPerPage: number
+  setRowsPerPage: Dispatch<SetStateAction<number>>
+  refTimestamps: string[]
+  setRefTimestamps: Dispatch<SetStateAction<string[]>>
+};
+
+export const Domains: React.FC<Props> = ({
+  sortAscending,
+  setSortAscending,
+  page,
+  setPage,
+  rowsPerPage,
+  setRowsPerPage,
+  refTimestamps,
+  setRefTimestamps
+}) => {
   const [selectedDomain, setSelectedDomain] = useState<string>();
 
   const {
@@ -154,7 +174,17 @@ export const Domains: React.FC = () => {
           </Grid2>
           <Box sx={{ height: '10px' }} />
           {domain?.registryAddress && (
-            <SmartContractsTable domainAddress={domain.registryAddress} />
+            <SmartContractsTable
+              domainAddress={domain.registryAddress}
+              sortAscending={sortAscending}
+              setSortAscending={setSortAscending}
+              page={page}
+              setPage={setPage}
+              rowsPerPage={rowsPerPage}
+              setRowsPerPage={setRowsPerPage}
+              refTimestamps={refTimestamps}
+              setRefTimestamps={setRefTimestamps}
+            />
           )}
         </Box>
       </Fade>

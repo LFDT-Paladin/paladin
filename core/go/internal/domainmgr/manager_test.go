@@ -17,7 +17,9 @@ package domainmgr
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +44,35 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func smartContractJoinQueryColumns() []string {
+	return []string{
+		"deploy_tx", "domain_address", "address", "config_bytes",
+		"id", "idempotency_key", "created", "type", "submit_mode", "abi_ref", "function", "domain", "from", "to", "data",
+	}
+}
+
+func joinRowVals(deployTx uuid.UUID, domainAddr, contractAddr string, configBytes []byte) []driver.Value {
+	abiRefHex := strings.Repeat("ab", 32)
+	toAddr := pldtypes.RandAddress().String()
+	return []driver.Value{
+		deployTx.String(),
+		domainAddr,
+		contractAddr,
+		configBytes,
+		deployTx.String(),
+		nil,
+		time.Now().UnixNano(),
+		string(pldapi.TransactionTypePrivate),
+		string(pldapi.SubmitModeAuto),
+		abiRefHex,
+		`deploy()`,
+		`test1`,
+		`signer@node1`,
+		toAddr,
+		`{}`,
+	}
+}
 
 type mockComponents struct {
 	db               sqlmock.Sqlmock
@@ -502,11 +533,11 @@ func TestQuerySmartContractsEmptyResults(t *testing.T) {
 
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()),
 	)
 	mc.db.ExpectCommit()
 
-	var results []*pldapi.DomainSmartContract
+	var results []*pldapi.DomainSmartContractWithDeployTransaction
 	var err error
 	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		results, err = dm.querySmartContracts(ctx, dbTX, jq)
@@ -535,14 +566,15 @@ func TestQuerySmartContractsDomainNotFound(t *testing.T) {
 	// Use a different domain address that's not configured
 	unknownDomainAddr := pldtypes.RandAddress()
 
+	deployTx := uuid.New()
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
-			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr.String(), []byte{}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()).
+			AddRow(joinRowVals(deployTx, unknownDomainAddr.String(), contractAddr.String(), []byte{})...),
 	)
 	mc.db.ExpectCommit()
 
-	var results []*pldapi.DomainSmartContract
+	var results []*pldapi.DomainSmartContractWithDeployTransaction
 	var err error
 	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		results, err = dm.querySmartContracts(ctx, dbTX, jq)
@@ -554,6 +586,8 @@ func TestQuerySmartContractsDomainNotFound(t *testing.T) {
 	require.NotNil(t, results[0].DomainAddress, "DomainAddress should not be nil")
 	assert.Equal(t, *unknownDomainAddr, *results[0].DomainAddress)
 	assert.Empty(t, results[0].DomainName) // Domain not found, so DomainName should be empty
+	require.NotNil(t, results[0].DeployTransaction)
+	assert.Equal(t, deployTx, *results[0].DeployTransaction.ID)
 }
 
 func TestQuerySmartContractsDomainFound(t *testing.T) {
@@ -602,15 +636,16 @@ func TestQuerySmartContractsDomainFound(t *testing.T) {
 
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
+	deployTx := uuid.New()
 
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
-			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()).
+			AddRow(joinRowVals(deployTx, domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef})...),
 	)
 	mc.db.ExpectCommit()
 
-	var results []*pldapi.DomainSmartContract
+	var results []*pldapi.DomainSmartContractWithDeployTransaction
 	var err error
 	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		results, err = dm.querySmartContracts(ctx, dbTX, jq)
@@ -621,6 +656,8 @@ func TestQuerySmartContractsDomainFound(t *testing.T) {
 	assert.Equal(t, *contractAddr, results[0].Address)
 	assert.Equal(t, domainAddr, *results[0].DomainAddress)
 	assert.Equal(t, "test1", results[0].DomainName) // Domain found, so DomainName should be set
+	require.NotNil(t, results[0].DeployTransaction)
+	assert.Equal(t, deployTx, *results[0].DeployTransaction.ID)
 }
 
 func TestQuerySmartContractsMultipleResults(t *testing.T) {
@@ -672,15 +709,16 @@ func TestQuerySmartContractsMultipleResults(t *testing.T) {
 	contractAddr2 := pldtypes.RandAddress()
 	unknownDomainAddr := pldtypes.RandAddress()
 
+	tx1, tx2 := uuid.New(), uuid.New()
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
-			AddRow(uuid.New(), domainAddr.String(), contractAddr1.String(), []byte{0xfe, 0xed, 0xbe, 0xef}).
-			AddRow(uuid.New(), unknownDomainAddr.String(), contractAddr2.String(), []byte{0xde, 0xad, 0xbe, 0xef}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()).
+			AddRow(joinRowVals(tx1, domainAddr.String(), contractAddr1.String(), []byte{0xfe, 0xed, 0xbe, 0xef})...).
+			AddRow(joinRowVals(tx2, unknownDomainAddr.String(), contractAddr2.String(), []byte{0xde, 0xad, 0xbe, 0xef})...),
 	)
 	mc.db.ExpectCommit()
 
-	var results []*pldapi.DomainSmartContract
+	var results []*pldapi.DomainSmartContractWithDeployTransaction
 	var err error
 	err = dm.persistence.Transaction(ctx, func(ctx context.Context, dbTX persistence.DBTX) error {
 		results, err = dm.querySmartContracts(ctx, dbTX, jq)
@@ -698,6 +736,10 @@ func TestQuerySmartContractsMultipleResults(t *testing.T) {
 	assert.Equal(t, *contractAddr2, results[1].Address)
 	assert.Equal(t, *unknownDomainAddr, *results[1].DomainAddress)
 	assert.Empty(t, results[1].DomainName)
+	require.NotNil(t, results[0].DeployTransaction)
+	require.NotNil(t, results[1].DeployTransaction)
+	assert.Equal(t, tx1, *results[0].DeployTransaction.ID)
+	assert.Equal(t, tx2, *results[1].DeployTransaction.ID)
 }
 
 func TestQuerySmartContractsEnrichError(t *testing.T) {
@@ -739,11 +781,12 @@ func TestQuerySmartContractsEnrichError(t *testing.T) {
 
 	domainAddr := *tp.d.RegistryAddress()
 	contractAddr := pldtypes.RandAddress()
+	deployTx := uuid.New()
 
 	mc.db.ExpectBegin()
 	mc.db.ExpectQuery("SELECT.*private_smart_contracts").WillReturnRows(
-		sqlmock.NewRows([]string{"deploy_tx", "domain_address", "address", "config_bytes"}).
-			AddRow(uuid.New(), domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef}),
+		sqlmock.NewRows(smartContractJoinQueryColumns()).
+			AddRow(joinRowVals(deployTx, domainAddr.String(), contractAddr.String(), []byte{0xfe, 0xed, 0xbe, 0xef})...),
 	)
 	mc.db.ExpectRollback()
 

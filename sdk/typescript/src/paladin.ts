@@ -7,6 +7,7 @@ import {
   IBlockchainEventListener,
   IDomain,
   IDomainSmartContract,
+  IDomainSmartContractWithDeployTransaction,
   IEthAddress,
   IEventWithData,
   IKeyMappingAndVerifier,
@@ -1144,11 +1145,10 @@ export default class PaladinClient {
 
     querySmartContracts: async (
       query: IQuery
-    ): Promise<IDomainSmartContract[]> => {
-      const res = await this.post<JsonRpcResult<IDomainSmartContract[]>>(
-        "domain_querySmartContracts",
-        [query]
-      );
+    ): Promise<IDomainSmartContractWithDeployTransaction[]> => {
+      const res = await this.post<
+        JsonRpcResult<IDomainSmartContractWithDeployTransaction[]>
+      >("domain_querySmartContracts", [query]);
       return res.data.result;
     },
 
