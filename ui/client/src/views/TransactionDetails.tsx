@@ -14,9 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, Typography } from "@mui/material";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Fade, Grid2, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPaladinTransaction, fetchTransaction } from "../queries/transactions";
+import { fetchPaladinTransaction, fetchTransaction, fetchTransactionReceiptFull } from "../queries/transactions";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { isValidTransactionHash, isValidUUID } from "../utils";
@@ -25,6 +25,8 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { TransactionOverview } from "../components/TransactionOverview";
 import { EventsOverview } from "../components/EventsOverview";
 import { PaladinTransactionSection } from "../components/PaladinTransactionSection";
+import { JSONBox } from "../components/JSONBox";
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 export const TransactionDetails: React.FC = () => {
 
@@ -59,6 +61,12 @@ export const TransactionDetails: React.FC = () => {
     enabled: id !== undefined
   });
 
+  const { data: receipt, error: receiptError } = useQuery({
+    queryKey: [`paladin-receipt-full-${id}`],
+    queryFn: () => fetchTransactionReceiptFull(id!),
+    enabled: id !== undefined
+  });
+  
   useEffect(() => {
     if (hash === undefined && paladinTransaction !== undefined) {
       setHash(paladinTransaction?.receipt?.transactionHash);
@@ -69,7 +77,7 @@ export const TransactionDetails: React.FC = () => {
     return <></>;
   }
 
-  if (blockchainTransactionError || paladinTransactionError) {
+  if (blockchainTransactionError || paladinTransactionError || receiptError) {
     return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{blockchainTransactionError?.message ?? paladinTransactionError?.message}</Alert>
   }
 
@@ -113,11 +121,21 @@ export const TransactionDetails: React.FC = () => {
               }
             </Grid2>
           </Grid2>}
-        {enrichedTransaction === undefined && paladinTransaction !== undefined &&
+        {enrichedTransaction === undefined && paladinTransaction !== undefined && paladinTransaction !== null &&
           <Box>
             <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
             <PaladinTransactionSection paladinTransactions={[paladinTransaction]} />
           </Box>
+        }
+        {enrichedTransaction === undefined && receipt !== undefined &&
+          <Accordion elevation={0} disableGutters>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            {t('receipt')}
+          </AccordionSummary>
+          <AccordionDetails >
+            <JSONBox data={receipt} />
+          </AccordionDetails>
+        </Accordion>
         }
       </Box>
     </Fade>

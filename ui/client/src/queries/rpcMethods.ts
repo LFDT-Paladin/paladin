@@ -29,6 +29,7 @@ export const RpcMethods = {
   ptx_QueryPendingTransactions: 'ptx_queryPendingTransactions',
   ptx_QueryTransactionReceipts: 'ptx_queryTransactionReceipts',
   ptx_getTransactionReceipt: 'ptx_getTransactionReceipt',
+  ptx_getTransactionReceiptFull: 'ptx_getTransactionReceiptFull',
   ptx_QueryTransactions: 'ptx_queryTransactions',
   ptx_QueryTransactionsFull: 'ptx_queryTransactionsFull',
   ptx_getStateReceipt: 'ptx_getStateReceipt',
