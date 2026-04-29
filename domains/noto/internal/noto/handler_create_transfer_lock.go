@@ -335,6 +335,7 @@ func (h *createTransferLockHandler) baseLedgerInvoke(ctx context.Context, tx *ty
 		spendOutputs,
 		cancelOutputs,
 		req.InfoStates,
+		req.ResolvedVerifiers,
 	)
 	if err == nil {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)

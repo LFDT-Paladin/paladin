@@ -197,7 +197,7 @@ func (h *transferCommon) baseLedgerInvokeTransfer(ctx context.Context, tx *types
 		return nil, i18n.NewError(ctx, msgs.MsgAttestationNotFound, "sender")
 	}
 
-	data, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates)
+	data, err := h.noto.encodeTransactionData(ctx, tx.DomainConfig, req.Transaction, req.InfoStates, req.ResolvedVerifiers)
 	if err != nil {
 		return nil, err
 	}

@@ -318,6 +318,7 @@ func (h *createBurnLockHandler) baseLedgerInvoke(ctx context.Context, tx *types.
 		[]*prototk.EndorsableState{ /* none for burn */ },
 		cancelOutputs,
 		req.InfoStates,
+		req.ResolvedVerifiers,
 	)
 	if err == nil {
 		interfaceABI = h.noto.getInterfaceABI(types.NotoVariantDefault)
