@@ -18,12 +18,20 @@ package coordinator
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 )
 
 func action_NewBlock(ctx context.Context, c *coordinator, event common.Event) error {
 	e := event.(*NewBlockEvent)
+	prevEffective := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
 	c.currentBlockHeight = e.BlockHeight
+	newEffective := c.currentBlockHeight - (c.currentBlockHeight % c.coordinatorSelectionBlockRange)
+	if newEffective != prevEffective && c.coordinatorFailoverIndex != 0 {
+		log.L(ctx).Debugf("block range boundary crossed (effective %d → %d): resetting coordinator failover index from %d to 0",
+			prevEffective, newEffective, c.coordinatorFailoverIndex)
+		c.coordinatorFailoverIndex = 0
+	}
 	return nil
 }
 
@@ -45,6 +53,8 @@ func action_HeartbeatReceived(_ context.Context, c *coordinator, event common.Ev
 		c.updateOriginatorNodePool(e.From) // In case we ever take over as coordinator we need to send heartbeats to potential originators
 	}
 	c.activeCoordinatorBlockHeight = e.BlockHeight
+	// A valid heartbeat confirms the current coordinator is alive; reset any failover state.
+	c.coordinatorFailoverIndex = 0
 	for _, flushPoint := range e.FlushPoints {
 		c.activeCoordinatorsFlushPointsBySignerNonce[flushPoint.GetSignerNonce()] = flushPoint
 	}
@@ -58,6 +68,7 @@ func action_SendHandoverRequest(ctx context.Context, c *coordinator, _ common.Ev
 
 func action_Idle(_ context.Context, c *coordinator, _ common.Event) error {
 	c.coordinatorIdle(c.contractAddress)
+	c.coordinatorFailoverIndex = 0
 	return nil
 }
 

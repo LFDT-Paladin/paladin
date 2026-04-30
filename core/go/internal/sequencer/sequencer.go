@@ -23,6 +23,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordinatorTx "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/metrics"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/originator"
@@ -533,8 +534,24 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 func (sMgr *sequencerManager) OnNewBlockHeight(ctx context.Context, blockHeight int64) {
 	log.L(ctx).Tracef("new block height %d", blockHeight)
 	sMgr.blockHeightMutex.Lock()
-	defer sMgr.blockHeightMutex.Unlock()
 	sMgr.blockHeight = blockHeight
+	sMgr.blockHeightMutex.Unlock()
+
+	// Notify all loaded sequencer coordinators of the new block height so they can
+	// update their local view and re-evaluate coordinator selection when the block
+	// range boundary is crossed. TryQueueEvent is non-blocking to avoid stalling
+	// the indexer post-commit callback.
+	sMgr.sequencersLock.RLock()
+	defer sMgr.sequencersLock.RUnlock()
+	if len(sMgr.sequencers) > 0 {
+		blockEvent := &coordinator.NewBlockEvent{
+			BaseEvent:   common.BaseEvent{EventTime: time.Now()},
+			BlockHeight: uint64(blockHeight),
+		}
+		for _, seq := range sMgr.sequencers {
+			seq.GetCoordinator().TryQueueEvent(ctx, blockEvent)
+		}
+	}
 }
 
 func (sMgr *sequencerManager) GetBlockHeight() int64 {

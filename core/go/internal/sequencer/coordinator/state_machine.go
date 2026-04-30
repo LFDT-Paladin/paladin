@@ -112,6 +112,9 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
+			},
 		},
 	},
 	State_Idle: {
@@ -137,6 +140,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
 			},
 		},
 	},
@@ -164,11 +170,25 @@ var stateDefinitionsMap = StateDefinitions{
 			common.Event_HeartbeatInterval: {
 				Actions: []ActionRule{
 					{Action: action_IncrementHeartbeatIntervalsSinceLastReceive},
+					// When the threshold is exceeded, try the next deterministic coordinator candidate
+					// before committing to State_Idle. On a successful failover, action_AttemptCoordinatorFailover
+					// resets heartbeatIntervalsSinceLastReceive to 0, which causes guard_ObservingIdleThresholdExceeded
+					// to return false and prevents the transition below.
+					{
+						Action: action_AttemptCoordinatorFailover,
+						If:     guard_ObservingIdleThresholdExceeded,
+					},
 				},
 				Transitions: []Transition{{
 					To: State_Idle,
 					If: guard_ObservingIdleThresholdExceeded,
 				}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{
+					{Action: action_NewBlock},                        // updates currentBlockHeight, resets failoverIndex on range change
+					{Action: action_ReevaluateCoordinatorOnNewBlock}, // re-selects coordinator if index or range changed
+				},
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
@@ -206,6 +226,9 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
+			},
 		},
 	},
 	State_Prepared: {
@@ -222,6 +245,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
 			},
 		},
 	},
@@ -291,6 +317,9 @@ var stateDefinitionsMap = StateDefinitions{
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
 			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
+			},
 		},
 	},
 	State_Flush: {
@@ -326,6 +355,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
 			},
 		},
 	},
@@ -364,6 +396,9 @@ var stateDefinitionsMap = StateDefinitions{
 			},
 			Event_OriginatorNodePoolUpdateRequested: {
 				Actions: []ActionRule{{Action: action_UpdateOriginatorNodePoolFromEvent}},
+			},
+			Event_NewBlock: {
+				Actions: []ActionRule{{Action: action_NewBlock}},
 			},
 		},
 	},
