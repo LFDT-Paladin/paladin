@@ -58,6 +58,11 @@ export interface IEvent {
   block: IBlock;
 }
 
+export interface ISmartContract {
+  address: string;
+  domainName: string;
+}
+
 export interface IRegistryEntry {
   registry: string;
   id: string;

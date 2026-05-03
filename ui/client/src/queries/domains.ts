@@ -15,6 +15,8 @@
 // limitations under the License.
 
 import i18next from 'i18next';
+import { ISmartContract } from '../interfaces';
+import { constants } from '../components/config';
 import { generatePostReq, returnResponse } from './common';
 import { RpcEndpoint, RpcMethods } from './rpcMethods';
 
@@ -50,20 +52,26 @@ export const getDomainByName = async (name: string): Promise<any> => {
 };
 
 export const querySmartContractsByDomain = async (
-  domainAddress: string
-): Promise<any> => {
+  domainAddress: string,
+  pageParam?: ISmartContract
+): Promise<ISmartContract[]> => {
+  const query: any = {
+    limit: constants.SMART_CONTRACTS_QUERY_LIMIT,
+    sort: ['address ASC'],
+    equal: [{ field: 'domainAddress', value: domainAddress }],
+  };
+
+  if (pageParam !== undefined) {
+    query.greaterThan = [{ field: 'address', value: pageParam.address }];
+  }
+
   const payload = {
     jsonrpc: '2.0',
     id: Date.now(),
     method: RpcMethods.domain_querySmartContracts,
-    params: [
-      {
-        limit: 100, // TODO: pagination
-        equal: [{ field: 'domainAddress', value: domainAddress }],
-      },
-    ],
+    params: [query],
   };
-  return <Promise<any>>(
+  return <Promise<ISmartContract[]>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
       i18next.t('errorFetchingSmartContracts')

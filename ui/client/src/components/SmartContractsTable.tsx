@@ -16,6 +16,7 @@
 
 import {
   Alert,
+  LinearProgress,
   Paper,
   Table,
   TableBody,
@@ -25,8 +26,10 @@ import {
   TableRow,
   useTheme,
 } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import InfiniteScroll from 'react-infinite-scroll-component';
+import { ISmartContract } from '../interfaces';
 import { querySmartContractsByDomain } from '../queries/domains';
 import { getAltModeScrollBarStyle } from '../themes/default';
 import { DomainButtons } from './DomainButtons';
@@ -40,18 +43,12 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
   const { t } = useTranslation();
   const theme = useTheme();
 
-  const {
-    data: contracts,
-    error,
-    isFetching,
-  } = useQuery({
+  const { data: contracts, fetchNextPage, hasNextPage, error } = useInfiniteQuery({
     queryKey: ['contracts', domainAddress],
-    queryFn: () => querySmartContractsByDomain(domainAddress),
+    queryFn: ({ pageParam }) => querySmartContractsByDomain(domainAddress, pageParam),
+    initialPageParam: undefined as ISmartContract | undefined,
+    getNextPageParam: (lastPage) => lastPage.length > 0 ? lastPage[lastPage.length - 1] : undefined,
   });
-
-  if (isFetching) {
-    return <></>;
-  }
 
   if (error) {
     return (
@@ -61,49 +58,64 @@ export const SmartContractsTable: React.FC<Props> = ({ domainAddress }) => {
     );
   }
 
+  if (contracts?.pages === undefined) {
+    return <></>;
+  }
+
+  const allContracts = contracts.pages.flat();
+
   return (
     <TableContainer
+      id="scrollableDivSmartContracts"
       component={Paper}
       sx={{
         height: 'calc(100vh - 320px)',
         ...getAltModeScrollBarStyle(theme.palette.mode),
       }}
     >
-      <Table stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell
-              sx={{
-                backgroundColor: (theme) => theme.palette.background.paper,
-              }}
-            >
-              {t('contractAddress')}
-            </TableCell>
-            <TableCell
-              sx={{
-                backgroundColor: (theme) => theme.palette.background.paper,
-              }}
-            >
-              {t('actions')}
-            </TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {contracts?.map((contract: any) => (
-            <TableRow key={contract.address} sx={{ height: '70px' }}>
-              <TableCell>
-                <Hash title={t('address')} hash={contract.address} />
+      <InfiniteScroll
+        scrollableTarget="scrollableDivSmartContracts"
+        dataLength={allContracts.length}
+        next={() => fetchNextPage()}
+        hasMore={hasNextPage}
+        loader={<LinearProgress />}
+      >
+        <Table stickyHeader>
+          <TableHead>
+            <TableRow>
+              <TableCell
+                sx={{
+                  backgroundColor: (theme) => theme.palette.background.paper,
+                }}
+              >
+                {t('contractAddress')}
               </TableCell>
-              <TableCell>
-                <DomainButtons
-                  domainName={contract.domainName}
-                  contractAddress={contract.address}
-                />
+              <TableCell
+                sx={{
+                  backgroundColor: (theme) => theme.palette.background.paper,
+                }}
+              >
+                {t('actions')}
               </TableCell>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {allContracts.map((contract) => (
+              <TableRow key={contract.address} sx={{ height: '70px' }}>
+                <TableCell>
+                  <Hash title={t('address')} hash={contract.address} />
+                </TableCell>
+                <TableCell>
+                  <DomainButtons
+                    domainName={contract.domainName}
+                    contractAddress={contract.address}
+                  />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </InfiniteScroll>
     </TableContainer>
   );
 };
