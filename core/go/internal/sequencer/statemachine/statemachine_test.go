@@ -2270,3 +2270,321 @@ func TestStateMachineEventLoop_ProcessEventError_PriorityFromSelect(t *testing.T
 	cancel()
 	waitForLoopDone(t, sel)
 }
+
+// ---------------------------------------------------------------------------
+// Substate tests
+// ---------------------------------------------------------------------------
+
+// testSubstate is the informational substate type used by the tests below.
+type testSubstate int
+
+const (
+	Substate_RequestSent     testSubstate = iota + 1 // marks that a request has been dispatched
+	Substate_WaitingForReply                         // marks that the state is waiting for a reply
+)
+
+// TestSubstate_SetOnEntryAction verifies that a substate set inside OnTransitionTo
+// is visible immediately after the transition completes.
+//
+// Pattern: the definitions map is mutated before the final sm is constructed,
+// so the closure over &sm captures the pointer to the final machine.
+func TestSubstate_SetOnEntryAction(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			// OnTransitionTo calls sm.SetSubstate via a closure over &sm so that
+			// it always refers to the final machine even though sm is assigned below.
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+					sm.SetSubstate(Substate_RequestSent)
+					return nil
+				},
+			}},
+		},
+	}
+
+	sm = NewStateMachine(State_Idle, definitions, "substate-entry-test")
+	entity := &TestEntity{canProcess: true, sm: sm}
+	ctx := context.Background()
+
+	// No substate in the initial state.
+	assert.Nil(t, sm.GetCurrentSubstate())
+
+	err := sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+
+	// OnTransitionTo must have set the substate.
+	assert.Equal(t, Substate_RequestSent, sm.GetCurrentSubstate())
+}
+
+// TestSubstate_ClearedOnTransition verifies that the substate is automatically
+// reset to nil the moment a state transition is taken out of a state.
+func TestSubstate_ClearedOnTransition(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+					sm.SetSubstate(Substate_WaitingForReply)
+					return nil
+				},
+			}},
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Process: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+		State_Complete: {},
+	}
+
+	sm = NewStateMachine(State_Idle, definitions, "substate-clear-test")
+	entity := &TestEntity{canProcess: true, sm: sm}
+	ctx := context.Background()
+
+	// Enter State_Active — OnTransitionTo sets the substate.
+	err := sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+	assert.Equal(t, Substate_WaitingForReply, sm.GetCurrentSubstate())
+
+	// Transition out — substate must be cleared to nil.
+	err = sm.ProcessEvent(ctx, entity, newTestEvent(Event_Process))
+	require.NoError(t, err)
+	assert.Equal(t, State_Complete, sm.GetCurrentState())
+	assert.Nil(t, sm.GetCurrentSubstate(), "substate must be nil after any transition")
+}
+
+// TestSubstate_SetInEventHandlerAction verifies that a substate can be set from
+// inside a regular event-handler action (not just OnTransitionTo), and that it
+// persists for as long as the machine remains in the same parent state.
+func TestSubstate_SetInEventHandlerAction(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				// Event_Process advances the substate label but stays in State_Active.
+				Event_Process: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+							sm.SetSubstate(Substate_WaitingForReply)
+							return nil
+						},
+					}},
+					// No transitions — stays in State_Active.
+				},
+			},
+		},
+	}
+
+	sm = NewStateMachine(State_Idle, definitions, "substate-event-action-test")
+	entity := &TestEntity{canProcess: true, sm: sm}
+	ctx := context.Background()
+
+	// Enter State_Active — no substate is set by entry (no OnTransitionTo).
+	err := sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+	assert.Nil(t, sm.GetCurrentSubstate())
+
+	// Event_Process sets the substate without changing the parent state.
+	err = sm.ProcessEvent(ctx, entity, newTestEvent(Event_Process))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState(), "parent state must not change")
+	assert.Equal(t, Substate_WaitingForReply, sm.GetCurrentSubstate())
+}
+
+// TestSubstate_NotAffectEventRouting confirms that event routing is governed
+// entirely by the parent state, regardless of which substate is active.
+func TestSubstate_NotAffectEventRouting(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			// Entry sets a substate to prove routing ignores it.
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+					sm.SetSubstate(Substate_RequestSent)
+					return nil
+				},
+			}},
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				// Event_Process is handled even though a substate is set.
+				Event_Process: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Complete,
+					}},
+				},
+			},
+		},
+		State_Complete: {},
+	}
+
+	sm = NewStateMachine(State_Idle, definitions, "substate-routing-test")
+	entity := &TestEntity{canProcess: true, sm: sm}
+	ctx := context.Background()
+
+	err := sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, State_Active, sm.GetCurrentState())
+	assert.Equal(t, Substate_RequestSent, sm.GetCurrentSubstate())
+
+	// Even with a substate set, the parent-state event routing works correctly.
+	err = sm.ProcessEvent(ctx, entity, newTestEvent(Event_Process))
+	require.NoError(t, err)
+	assert.Equal(t, State_Complete, sm.GetCurrentState())
+	assert.Nil(t, sm.GetCurrentSubstate(), "substate cleared on transition")
+
+	// An event not handled by State_Complete is silently ignored (no panic, no error).
+	err = sm.ProcessEvent(ctx, entity, newTestEvent(Event_Fail))
+	require.NoError(t, err)
+	assert.Equal(t, State_Complete, sm.GetCurrentState())
+}
+
+// TestSubstate_SubstateActionHelper verifies the SubstateAction convenience
+// helper: it returns an Action[E] that correctly calls SetSubstate when invoked.
+func TestSubstate_SubstateActionHelper(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				// Event_Start sets Substate_RequestSent via SubstateAction.
+				Event_Start: {
+					Actions: []ActionRule[*TestEntity]{{
+						// sm.SubstateAction is called after sm is assigned below;
+						// because the closure captures &sm the indirection works.
+						Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+							return sm.SubstateAction(Substate_RequestSent)(ctx, e, ev)
+						},
+					}},
+				},
+				// Event_Process overwrites the substate with Substate_WaitingForReply.
+				Event_Process: {
+					Actions: []ActionRule[*TestEntity]{{
+						Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+							return sm.SubstateAction(Substate_WaitingForReply)(ctx, e, ev)
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	sm = NewStateMachine(State_Idle, definitions, "substate-action-helper-test")
+	entity := &TestEntity{canProcess: true, sm: sm}
+	ctx := context.Background()
+
+	// Initially no substate.
+	assert.Nil(t, sm.GetCurrentSubstate())
+
+	// Event_Start → SubstateAction sets Substate_RequestSent.
+	err := sm.ProcessEvent(ctx, entity, newTestEvent(Event_Start))
+	require.NoError(t, err)
+	assert.Equal(t, Substate_RequestSent, sm.GetCurrentSubstate())
+
+	// Event_Process → SubstateAction overwrites with Substate_WaitingForReply.
+	err = sm.ProcessEvent(ctx, entity, newTestEvent(Event_Process))
+	require.NoError(t, err)
+	assert.Equal(t, Substate_WaitingForReply, sm.GetCurrentSubstate())
+}
+
+// TestSubstate_EventLoop_GetCurrentSubstate confirms that
+// StateMachineEventLoop.GetCurrentSubstate() delegates correctly to the
+// underlying StateMachine and reflects substates set by OnTransitionTo.
+func TestSubstate_EventLoop_GetCurrentSubstate(t *testing.T) {
+	var sm *StateMachine[TestState, *TestEntity]
+
+	definitions := StateDefinitions[TestState, *TestEntity]{
+		State_Idle: {
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{
+				Event_Start: {
+					Transitions: []Transition[TestState, *TestEntity]{{
+						To: State_Active,
+					}},
+				},
+			},
+		},
+		State_Active: {
+			OnTransitionTo: []ActionRule[*TestEntity]{{
+				Action: func(ctx context.Context, e *TestEntity, ev common.Event) error {
+					sm.SetSubstate(Substate_RequestSent)
+					return nil
+				},
+			}},
+			Events: map[common.EventType]EventHandler[TestState, *TestEntity]{},
+		},
+	}
+
+	entity := &TestEntity{canProcess: true}
+	sel := NewStateMachineEventLoop(StateMachineEventLoopConfig[TestState, *TestEntity]{
+		InitialState:   State_Idle,
+		Definitions:    definitions,
+		Entity:         entity,
+		EventQueueSize: 10,
+		Name:           "sel-substate-test",
+	})
+	sm = sel.StateMachine() // capture the inner sm so the closure above resolves it
+	entity.sm = sm
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go sel.Start(ctx)
+
+	// Initially no substate.
+	assert.Nil(t, sel.GetCurrentSubstate())
+
+	// Queue Event_Start; the loop transitions to State_Active and calls OnTransitionTo.
+	sel.QueueEvent(ctx, newTestEvent(Event_Start))
+	syncEv := NewSyncEvent()
+	sel.QueueEvent(ctx, syncEv)
+	<-syncEv.Done
+
+	assert.Equal(t, State_Active, sel.GetCurrentState())
+	assert.Equal(t, Substate_RequestSent, sel.GetCurrentSubstate(),
+		"EventLoop.GetCurrentSubstate must reflect the substate set by OnTransitionTo")
+
+	cancel()
+	waitForLoopDone(t, sel)
+}
