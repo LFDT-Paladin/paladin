@@ -39,9 +39,9 @@ type TransportWriter interface {
 	WaitForDone(ctx context.Context)
 	SendDelegationRequest(ctx context.Context, coordinatorNode string, transactions []*components.PrivateTransaction, blockHeight uint64) error
 	SendDelegationRequestAcknowledgment(ctx context.Context, delegatingNodeName string, delegationId string, transactionIDs []string, errors []int64) error
-	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error
+	SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState, expiryMs int64) error
 	SendEndorsementResponse(ctx context.Context, transactionId, idempotencyKey, contractAddress string, attResult *prototk.AttestationResult, endorsementResult *components.EndorsementResult, revertReason, endorsementName, party, node string) error
-	SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error
+	SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64, expiryMs int64) error
 	SendAssembleResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, postAssembly *components.TransactionPostAssembly, preAssembly *components.TransactionPreAssembly, recipient string) error
 	SendAssembleErrorResponse(ctx context.Context, txID uuid.UUID, assembleRequestId uuid.UUID, recipient string) error
 	SendHandoverRequest(ctx context.Context, activeCoordinator string, contractAddress *pldtypes.EthAddress) error
@@ -156,7 +156,7 @@ func (tw *transportWriter) SendDelegationRequestAcknowledgment(
 }
 
 // TODO do we have duplication here?  contractAddress and transactionID are in the transactionSpecification
-func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error {
+func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState, expiryMs int64) error {
 	attRequestAny, err := anypb.New(attRequest)
 	if err != nil {
 		log.L(ctx).Error("error marshalling attestation request", err)
@@ -246,11 +246,19 @@ func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid
 		ReadStates:               readStatesAny,
 		OutputStates:             outputStatesAny,
 		InfoStates:               infoStatesAny,
+		ExpiryMs:                 expiryMs,
 	}
 
 	endorsementRequestBytes, err := proto.Marshal(endorsementRequest)
 	if err != nil {
 		log.L(ctx).Error("error marshalling endorsement request", err)
+		return err
+	}
+
+	// Wrap in a MessageEnvelope so the expiry survives the proto serialisation boundary.
+	envelopeBytes, err := json.Marshal(&MessageEnvelope{ExpiryMs: expiryMs, Payload: endorsementRequestBytes})
+	if err != nil {
+		log.L(ctx).Error("error marshalling endorsement request envelope", err)
 		return err
 	}
 
@@ -263,7 +271,7 @@ func (tw *transportWriter) SendEndorsementRequest(ctx context.Context, txID uuid
 		MessageType: MessageType_EndorsementRequest,
 		Node:        partyNode,
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Payload:     endorsementRequestBytes,
+		Payload:     envelopeBytes,
 	})
 	return err
 }
@@ -305,7 +313,7 @@ func (tw *transportWriter) SendEndorsementResponse(ctx context.Context, transact
 	return err
 }
 
-func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error {
+func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNode string, txID uuid.UUID, idempotencyId uuid.UUID, preAssembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64, expiryMs int64) error {
 
 	log.L(ctx).Tracef("transport writer attempting to send assemble request to assembling node %s", assemblingNode)
 
@@ -328,6 +336,7 @@ func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNo
 		PreAssembly:       preAssemblyBytes,
 		StateLocks:        stateLocksJSON,
 		BlockHeight:       blockHeight,
+		ExpiryMs:          expiryMs,
 	}
 
 	assembleRequestBytes, err := proto.Marshal(assembleRequest)
@@ -336,11 +345,18 @@ func (tw *transportWriter) SendAssembleRequest(ctx context.Context, assemblingNo
 		return err
 	}
 
+	// Wrap in a MessageEnvelope so the expiry survives the proto serialisation boundary.
+	envelopeBytes, err := json.Marshal(&MessageEnvelope{ExpiryMs: expiryMs, Payload: assembleRequestBytes})
+	if err != nil {
+		log.L(ctx).Error("error marshalling assemble request envelope", err)
+		return err
+	}
+
 	payload := &components.FireAndForgetMessageSend{
 		MessageType: MessageType_AssembleRequest,
 		Node:        assemblingNode,
 		Component:   prototk.PaladinMsg_TRANSACTION_ENGINE,
-		Payload:     assembleRequestBytes,
+		Payload:     envelopeBytes,
 	}
 
 	err = tw.send(ctx, payload)

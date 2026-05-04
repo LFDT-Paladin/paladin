@@ -16,6 +16,7 @@ package transaction
 
 import (
 	"context"
+	"time"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
@@ -149,6 +150,9 @@ func (t *coordinatorTransaction) resetEndorsementRequests(ctx context.Context) {
 }
 
 func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest) error {
+	// Set expiry to now + stateTimeout so the recipient can discard the request if the queue has backed up
+	// beyond the point where the coordinator would still be waiting for the response.
+	expiryMs := time.Now().Add(t.stateTimeout).UnixMilli()
 	err := t.transportWriter.SendEndorsementRequest(
 		ctx,
 		t.pt.ID,
@@ -162,6 +166,7 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 		toEndorsableList(t.pt.PostAssembly.ReadStates),
 		toEndorsableList(t.pt.PostAssembly.OutputStates),
 		toEndorsableList(t.pt.PostAssembly.InfoStates),
+		expiryMs,
 	)
 	if err != nil {
 		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)

@@ -130,6 +130,7 @@ func (r *SentMessageRecorder) SendAssembleRequest(
 	transactionPreassembly *components.TransactionPreAssembly,
 	stateLocks grapher.ExportableStates,
 	blockHeight int64,
+	expiryMs int64,
 ) error {
 	r.hasSentAssembleRequest = true
 	r.sentAssembleRequestIdempotencyKey = idempotencyKey
@@ -151,6 +152,7 @@ func (r *SentMessageRecorder) SendEndorsementRequest(
 	readStates []*prototk.EndorsableState,
 	outputStates []*prototk.EndorsableState,
 	infoStates []*prototk.EndorsableState,
+	expiryMs int64,
 ) error {
 	r.numberOfSentEndorsementRequests++
 	if _, ok := r.numberOfEndorsementRequestsForParty[party]; ok {

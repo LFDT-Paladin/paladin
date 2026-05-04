@@ -72,6 +72,7 @@ message EndorsementRequest {
     repeated google.protobuf.Any readStates = 10;
     repeated google.protobuf.Any outputStates = 11;
     repeated google.protobuf.Any infoStates = 12;
+    int64 expiry_ms = 13; // Unix timestamp in milliseconds after which the requester will no longer accept the response
 }
 
 message EndorsementResponse {
@@ -110,8 +111,8 @@ message DelegationRequest {
     string delegation_id = 3; //this is used to correlate the acknowledgement back to the delegation. unlike the transport message id / correlation id, this is not unique across retries
     bytes private_transaction = 4; //json serialized copy of the in-memory private transaction object
     int64 block_height = 5; // the block height upon which this delegation was calculated (the highest delegation wins when crossing in the post)
-    
-    
+
+
     // TODO we are using google.protobuf.Any here for TransactionSpecification which is defined in toolkit protos
     // need to figure out the build magic to import these from toolkit protos
     //google.protobuf.Any transaction_specification = 4; // serialized io.kaleido.paladin.toolkit.TransactionSpecification
@@ -162,6 +163,7 @@ message AssembleRequest {
     bytes pre_assembly = 5;
     bytes state_locks = 6;
     int64 block_height = 7;
+    int64 expiry_ms = 8; // Unix timestamp in milliseconds after which the requester will no longer accept the response
 }
 
 message AssembleResponse {

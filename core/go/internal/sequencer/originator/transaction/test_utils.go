@@ -79,7 +79,7 @@ func (r *SentMessageRecorder) HasSentAssembleErrorResponse() bool {
 	return r.hasSentAssembleErrorResponse
 }
 
-func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64) error {
+func (r *SentMessageRecorder) SendAssembleRequest(ctx context.Context, assemblingNode string, transactionID uuid.UUID, idempotencyID uuid.UUID, transactionPreassembly *components.TransactionPreAssembly, stateLocks grapher.ExportableStates, blockHeight int64, expiryMs int64) error {
 	return nil
 }
 
@@ -91,7 +91,7 @@ func (r *SentMessageRecorder) SendDelegationRequestAcknowledgment(ctx context.Co
 	return nil
 }
 
-func (r *SentMessageRecorder) SendEndorsementRequest(ctx context.Context, transactionId uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState) error {
+func (r *SentMessageRecorder) SendEndorsementRequest(ctx context.Context, transactionId uuid.UUID, idempotencyKey uuid.UUID, party string, attRequest *prototk.AttestationRequest, transactionSpecification *prototk.TransactionSpecification, verifiers []*prototk.ResolvedVerifier, signatures []*prototk.AttestationResult, inputStates []*prototk.EndorsableState, readStates []*prototk.EndorsableState, outputStates []*prototk.EndorsableState, infoStates []*prototk.EndorsableState, expiryMs int64) error {
 	return nil
 }
 

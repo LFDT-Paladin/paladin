@@ -478,8 +478,13 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 		if msg.Component.String() != "TRANSACTION_ENGINE" {
 			return false
 		}
+		// Unwrap the MessageEnvelope then unmarshal the inner proto
+		var envelope MessageEnvelope
+		if err := json.Unmarshal(msg.Payload, &envelope); err != nil || envelope.Payload == nil {
+			return false
+		}
 		var endorsementRequest engineProto.EndorsementRequest
-		err := proto.Unmarshal(msg.Payload, &endorsementRequest)
+		err := proto.Unmarshal(envelope.Payload, &endorsementRequest)
 		if err != nil {
 			return false
 		}
@@ -506,7 +511,7 @@ func TestSendEndorsementRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates)
+	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, verifiers, signatures, inputStates, readStates, outputStates, infoStates, 0)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -540,7 +545,7 @@ func TestSendEndorsementRequest_NodeLookupError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil)
+	err := tw.SendEndorsementRequest(ctx, txID, idempotencyKey, party, attRequest, transactionSpecification, nil, nil, nil, nil, nil, nil, 0)
 	require.Error(t, err)
 	mockTransportManager.AssertNotCalled(t, "Send")
 }
@@ -726,8 +731,13 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		if msg.Component.String() != "TRANSACTION_ENGINE" {
 			return false
 		}
+		// Unwrap the MessageEnvelope then unmarshal the inner proto
+		var envelope MessageEnvelope
+		if err := json.Unmarshal(msg.Payload, &envelope); err != nil || envelope.Payload == nil {
+			return false
+		}
 		var assembleRequest engineProto.AssembleRequest
-		err := proto.Unmarshal(msg.Payload, &assembleRequest)
+		err := proto.Unmarshal(envelope.Payload, &assembleRequest)
 		if err != nil {
 			return false
 		}
@@ -754,7 +764,7 @@ func TestSendAssembleRequest_Success(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight)
+	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight, 0)
 	require.NoError(t, err)
 	mockTransportManager.AssertExpectations(t)
 }
@@ -789,7 +799,7 @@ func TestSendAssembleRequest_SendError(t *testing.T) {
 		contractAddress:   contractAddress,
 	}
 
-	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight)
+	err := tw.SendAssembleRequest(ctx, assemblingNode, txID, idempotencyId, preAssembly, stateLocks, blockHeight, 0)
 	require.Error(t, err)
 	assert.Equal(t, sendError, err)
 	mockTransportManager.AssertExpectations(t)
