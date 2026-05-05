@@ -132,6 +132,17 @@ func (t *coordinatorTransaction) sendEndorsementRequests(ctx context.Context) er
 			pendingRequestsForAttRequest[endorsementRequirement.party] = pendingRequest
 		}
 
+		// Check if this endorsement request has been outstanding too long
+		if pendingRequest.IsExpired(t.endorseExpiry) {
+			log.L(ctx).Warnf("endorsement request for transaction %s party %s has expired after %s, abandoning round",
+				t.pt.ID, endorsementRequirement.party, t.endorseExpiry)
+			t.resetEndorsementRequests(ctx)
+			t.queueEventForCoordinator(ctx, &EndorsementExpiredEvent{
+				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: t.pt.ID},
+			})
+			return nil
+		}
+
 		err := pendingRequest.Nudge(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to nudge endorsement request for party %s: %s", endorsementRequirement.party, err)

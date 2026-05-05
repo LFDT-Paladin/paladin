@@ -279,6 +279,8 @@ type TransactionBuilderForTesting struct {
 	txn                                *coordinatorTransaction
 	requestTimeout                     int
 	stateTimeout                       int
+	assembleExpiry                     int
+	endorseExpiry                      int
 	finalizingGracePeriod              int
 	confirmedLockRetentionGracePeriod  int
 	heartbeatIntervalsSinceStateChange int
@@ -309,6 +311,8 @@ func NewTransactionBuilderForTesting(t *testing.T, state State) *TransactionBuil
 		state:                             state,
 		stateTimeout:                      5000,
 		requestTimeout:                    1000,
+		assembleExpiry:                    10000,
+		endorseExpiry:                     10000,
 		finalizingGracePeriod:             5,
 		confirmedLockRetentionGracePeriod: 1,
 		privateTransactionBuilder:         testutil.NewPrivateTransactionBuilderForTesting(),
@@ -425,6 +429,16 @@ func (b *TransactionBuilderForTesting) RequestTimeout(requestTimeout int) *Trans
 
 func (b *TransactionBuilderForTesting) StateTimeout(stateTimeout int) *TransactionBuilderForTesting {
 	b.stateTimeout = stateTimeout
+	return b
+}
+
+func (b *TransactionBuilderForTesting) AssembleExpiry(assembleExpiry int) *TransactionBuilderForTesting {
+	b.assembleExpiry = assembleExpiry
+	return b
+}
+
+func (b *TransactionBuilderForTesting) EndorseExpiry(endorseExpiry int) *TransactionBuilderForTesting {
+	b.endorseExpiry = endorseExpiry
 	return b
 }
 
@@ -721,6 +735,8 @@ func (b *TransactionBuilderForTesting) Build() (*coordinatorTransaction, *transa
 		mocks.DomainContext,
 		time.Duration(b.requestTimeout),
 		time.Duration(b.stateTimeout),
+		time.Duration(b.assembleExpiry),
+		time.Duration(b.endorseExpiry),
 		b.finalizingGracePeriod,
 		b.confirmedLockRetentionGracePeriod,
 		b.baseLedgerRevertRetryThreshold,

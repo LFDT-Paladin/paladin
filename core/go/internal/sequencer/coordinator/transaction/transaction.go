@@ -111,6 +111,8 @@ type coordinatorTransaction struct {
 
 	requestTimeout                    time.Duration
 	stateTimeout                      time.Duration
+	assembleExpiry                    time.Duration
+	endorseExpiry                     time.Duration
 	finalizingGracePeriod             int // number of heartbeat intervals that the transaction will remain in one of the terminal states ( Reverted or Confirmed) before it is removed from memory and no longer reported in heartbeats
 	confirmedLockRetentionGracePeriod int // number of heartbeat intervals after confirmation before we clear in-memory state locks
 	baseLedgerRevertRetryThreshold    int
@@ -172,6 +174,8 @@ func NewTransaction(ctx context.Context,
 		dCtx,
 		requestTimeout,
 		stateTimeout,
+		stateTimeout*2, // assembleExpiry default
+		stateTimeout*2, // endorseExpiry default
 		finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold,
@@ -199,7 +203,9 @@ func newTransaction(
 	domainAPI components.DomainSmartContract,
 	dCtx components.DomainContext,
 	requestTimeout,
-	stateTimeout time.Duration,
+	stateTimeout,
+	assembleExpiry,
+	endorseExpiry time.Duration,
 	finalizingGracePeriod int,
 	confirmedLockRetentionGracePeriod int,
 	baseLedgerRevertRetryThreshold int,
@@ -228,6 +234,8 @@ func newTransaction(
 		submitterSelection:                domainAPI.ContractConfig().GetSubmitterSelection(),
 		requestTimeout:                    requestTimeout,
 		stateTimeout:                      stateTimeout,
+		assembleExpiry:                    assembleExpiry,
+		endorseExpiry:                     endorseExpiry,
 		finalizingGracePeriod:             finalizingGracePeriod,
 		confirmedLockRetentionGracePeriod: confirmedLockRetentionGracePeriod,
 		baseLedgerRevertRetryThreshold:    baseLedgerRevertRetryThreshold,

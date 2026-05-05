@@ -413,3 +413,27 @@ func (*PreAssembleDependencyTerminatedEvent) Type() EventType {
 func (*PreAssembleDependencyTerminatedEvent) TypeString() string {
 	return "Event_PreAssembleDependencyTerminated"
 }
+
+type AssembleExpiredEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*AssembleExpiredEvent) Type() EventType {
+	return Event_Assemble_Expired
+}
+
+func (*AssembleExpiredEvent) TypeString() string {
+	return "Event_Assemble_Expired"
+}
+
+type EndorsementExpiredEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*EndorsementExpiredEvent) Type() EventType {
+	return Event_Endorsement_Expired
+}
+
+func (*EndorsementExpiredEvent) TypeString() string {
+	return "Event_Endorsement_Expired"
+}

@@ -53,6 +53,15 @@ func (r *IdempotentRequest) FirstRequestTime() *time.Time {
 	return r.firstRequestTime
 }
 
+// IsExpired returns true if the request was first sent longer than `limit` ago.
+// Returns false if the request has never been sent.
+func (r *IdempotentRequest) IsExpired(limit time.Duration) bool {
+	if r.firstRequestTime == nil {
+		return false
+	}
+	return r.clock.HasExpired(*r.firstRequestTime, limit)
+}
+
 // Prompt to check whether a retry is due and if so, send the request
 func (r *IdempotentRequest) Nudge(ctx context.Context) error {
 	if r.requestTime == nil || r.clock.HasExpired(*r.requestTime, r.timeout) {

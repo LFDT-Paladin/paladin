@@ -49,6 +49,27 @@ func Test_IdempotentRequestErrorFromSend(t *testing.T) {
 
 }
 
+func TestIdempotentRequest_IsExpired(t *testing.T) {
+	mockClock := &MockClock{}
+	ctx := context.Background()
+	req := NewIdempotentRequest(ctx, mockClock, 5*time.Second, func(ctx context.Context, key uuid.UUID) error {
+		return nil
+	})
+	// Not expired before first send
+	assert.False(t, req.IsExpired(10*time.Second))
+
+	err := req.Nudge(ctx) // sends for first time, sets firstRequestTime
+	assert.NoError(t, err)
+
+	// Mock clock says 5 seconds have passed - not expired at 10s limit
+	mockClock.SetElapsed(5 * time.Second)
+	assert.False(t, req.IsExpired(10*time.Second))
+
+	// Mock clock says 15 seconds have passed - expired at 10s limit
+	mockClock.SetElapsed(15 * time.Second)
+	assert.True(t, req.IsExpired(10*time.Second))
+}
+
 func Test_IdempotentRequest_RetryOnNudgeIfExpired(t *testing.T) {
 	ctx := context.Background()
 	clock := NewMockClock(t)

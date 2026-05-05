@@ -29,6 +29,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSendEndorsementRequests_Expired(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).
+		PostAssembly(&components.TransactionPostAssembly{
+			AttestationPlan: []*prototk.AttestationRequest{{Name: "att1", AttestationType: prototk.AttestationType_ENDORSE, Parties: []string{"party1"}}},
+			Endorsements:    []*prototk.AttestationResult{},
+		}).
+		PreAssembly(&components.TransactionPreAssembly{Verifiers: []*prototk.ResolvedVerifier{{Lookup: "v1"}}}).
+		UseMockTransportWriter().
+		Build()
+
+	// 1. Initial Send
+	mocks.TransportWriter.EXPECT().
+		SendEndorsementRequest(
+			ctx, txn.pt.ID, mock.Anything, "party1", mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		).Return(nil)
+
+	err := txn.sendEndorsementRequests(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, txn.pendingEndorsementRequests)
+
+	// 2. Advance clock past expiry
+	mocks.Clock.On("HasExpired", mock.Anything, txn.endorseExpiry).Return(true)
+
+	// 3. Send again (nudges existing)
+	err = txn.sendEndorsementRequests(ctx)
+	require.NoError(t, err)
+
+	// 4. Assert
+	assert.Nil(t, txn.pendingEndorsementRequests)
+}
+
 func Test_action_NudgeEndorsementRequests_CallsSendEndorsementRequests(t *testing.T) {
 	ctx := context.Background()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Endorsement_Gathering).

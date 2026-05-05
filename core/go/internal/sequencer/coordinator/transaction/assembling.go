@@ -126,6 +126,17 @@ func (t *coordinatorTransaction) nudgeAssembleRequest(ctx context.Context) error
 	if t.pendingAssembleRequest == nil {
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nudgeAssembleRequest called with no pending request")
 	}
+
+	// If the assemble request has been outstanding longer than the expiry limit,
+	// abandon it and signal the state machine to move this transaction back to the pool.
+	if t.pendingAssembleRequest.IsExpired(t.assembleExpiry) {
+		log.L(ctx).Warnf("assemble request for transaction %s has expired after %s, abandoning", t.pt.ID, t.assembleExpiry)
+		t.pendingAssembleRequest = nil
+		t.queueEventForCoordinator(ctx, &AssembleExpiredEvent{
+			BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: t.pt.ID},
+		})
+		return nil
+	}
 	return t.pendingAssembleRequest.Nudge(ctx)
 }
 

@@ -70,6 +70,8 @@ const (
 	Event_ConfirmedReverted                                                                     // confirmation received from the blockchain of a reverted transaction
 	Event_RequestTimeoutInterval                                                                // event emitted by the state machine on a regular period while we have pending requests
 	Event_StateTimeoutInterval                                                                  // event emitted when a state has exceeded its maximum allowed duration
+	Event_Assemble_Expired                                                                      // assemble request has exceeded its maximum allowed duration
+	Event_Endorsement_Expired                                                                   // endorsement requests have exceeded their maximum allowed duration
 	Event_StateTransition                                                                       // event emitted by the state machine when a state transition occurs.  TODO should this be a separate enum?
 	Event_TransactionUnknownByOriginator                                                        // originator has reported that it doesn't recognize this transaction
 	Event_ChainedDependencyFailed                                                               // a chained (same-coordinator) dependency has been permanently finalized as failed
@@ -272,6 +274,14 @@ var stateDefinitionsMap = StateDefinitions{
 					},
 				},
 			},
+			Event_Assemble_Expired: {
+				Transitions: []Transition{
+					{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					},
+				},
+			},
 			Event_Assemble_Cancelled: {
 				Transitions: []Transition{
 					{
@@ -388,6 +398,14 @@ var stateDefinitionsMap = StateDefinitions{
 				}},
 			},
 			Event_StateTimeoutInterval: {
+				Transitions: []Transition{
+					{
+						To:      State_Pooled,
+						Actions: []ActionRule{{Action: action_NotifyDependentsOfReset}},
+					},
+				},
+			},
+			Event_Endorsement_Expired: {
 				Transitions: []Transition{
 					{
 						To:      State_Pooled,

@@ -32,6 +32,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNudgeAssembleRequest_Expired(t *testing.T) {
+	ctx := context.Background()
+	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Build()
+
+	// 1. Initial Send
+	mocks.EngineIntegration.On("GetStateLocks", mock.Anything).Return(nil, nil)
+	mocks.EngineIntegration.On("GetBlockHeight", mock.Anything).Return(uint64(100), nil)
+	mocks.TransportWriter.On("SendAssembleRequest", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	err := txn.sendAssembleRequest(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, txn.pendingAssembleRequest)
+
+	// 2. Advance clock past expiry
+	mocks.Clock.On("HasExpired", mock.Anything, txn.assembleExpiry).Return(true)
+
+	// 3. Nudge
+	err = txn.nudgeAssembleRequest(ctx)
+	require.NoError(t, err)
+
+	// 4. Assert
+	assert.Nil(t, txn.pendingAssembleRequest)
+	// The event is queued for the coordinator, we can't easily assert that here without mocking queueEventForCoordinator
+	// but we already did that in NewTransactionBuilderForTesting usually.
+}
+
 func Test_revertTransactionFailedAssembly_Success(t *testing.T) {
 	ctx := context.Background()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).Domain("test-domain").Build()
