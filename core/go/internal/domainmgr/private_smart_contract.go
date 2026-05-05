@@ -303,10 +303,11 @@ func (dc *domainContract) WritePotentialStates(dCtx components.DomainContext, re
 		log.L(dCtx.Ctx()).Debugf("WritePotentialStates: Writing %+v info potentialstates", len(postAssembly.InfoStatesPotential))
 		postAssembly.InfoStates, err = dc.upsertPotentialStates(dCtx, readTX, tx, postAssembly.InfoStatesPotential, false)
 	}
-	log.L(dCtx.Ctx()).Debugf("WritePotentialStates: %d post assembly output states", len(postAssembly.OutputStates))
-	log.L(dCtx.Ctx()).Debugf("WritePotentialStates: %d post assembly info states", len(postAssembly.InfoStates))
 	return err
+}
 
+func (dc *domainContract) MapPotentialStates(dCtx components.DomainContext, potentialStates []*prototk.NewState, outputStates bool, createdByTX *components.PrivateTransaction) (stateUpserts []*components.StateUpsert, err error) {
+	return dc.d.mapPotentialStates(dCtx, potentialStates, outputStates, createdByTX)
 }
 
 func (dc *domainContract) upsertPotentialStates(dCtx components.DomainContext, readTX persistence.DBTX, tx *components.PrivateTransaction, potentialStates []*prototk.NewState, isOutput bool) (writtenStates []*components.FullState, err error) {
@@ -808,4 +809,18 @@ func (dc *domainContract) IsBaseLedgerRevertRetryable(ctx context.Context, rever
 		return false, "", err
 	}
 	return res.Retryable, res.DecodedReason, nil
+}
+
+func (dc *domainContract) InvokeRPC(ctx context.Context, dCtx components.DomainContext, dbTX persistence.DBTX, rpcCall pldapi.DomainInvokeRPC) (pldtypes.RawJSON, error) {
+	c := dc.d.newInFlightDomainRequest(dbTX, dCtx, false)
+	defer c.close()
+	res, err := dc.api.InvokeRPC(ctx, &prototk.InvokeRPCRequest{
+		StateQueryContext: c.id,
+		Method:            rpcCall.Method,
+		ParamsJson:        string(rpcCall.Params),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pldtypes.RawJSON(res.ResultJson), nil
 }

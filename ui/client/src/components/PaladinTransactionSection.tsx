@@ -17,7 +17,7 @@
 import { Box, Paper, Tab, Tabs } from "@mui/material";
 import { IPaladinTransaction } from "../interfaces";
 import { useTranslation } from "react-i18next";
-import { getShortId } from "../utils";
+import { getShortId, isValidUUID } from "../utils";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PaladinTransactionsDetails } from "./TransactionDetails";
@@ -28,11 +28,12 @@ type Props = {
 
 export const PaladinTransactionSection: React.FC<Props> = ({ paladinTransactions }) => {
 
-  const { hash, id } = useParams();
+  const { hashOrId } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  
   const [selectedPaladinTransactionId, setSelectedPaladinTransactionId] = useState<string>(
-    id ?? paladinTransactions[0].id);
+    (hashOrId !== undefined && isValidUUID(hashOrId)) ? hashOrId : paladinTransactions[0].id);
 
   return (
     <>
@@ -40,7 +41,7 @@ export const PaladinTransactionSection: React.FC<Props> = ({ paladinTransactions
         value={selectedPaladinTransactionId}
         TabIndicatorProps={{ style: { display: 'none' } }}
         onChange={(_event, value) => {
-          navigate(`/ui/transactions/${hash}/${value}`, { replace: true });
+          navigate(`/ui/transactions/${value}`, { replace: true });
           setSelectedPaladinTransactionId(value);
         }}
       >

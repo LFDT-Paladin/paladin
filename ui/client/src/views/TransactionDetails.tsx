@@ -14,45 +14,71 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Alert, Box, Button, Fade, Grid2, Typography } from "@mui/material";
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Fade, Grid2, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { fetchTransaction } from "../queries/transactions";
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { isValidTransactionHash } from "../utils";
+import { fetchPaladinTransaction, fetchTransaction, fetchTransactionReceiptFull } from "../queries/transactions";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { isValidTransactionHash, isValidUUID } from "../utils";
 import { useTranslation } from "react-i18next";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { TransactionOverview } from "../components/TransactionOverview";
 import { EventsOverview } from "../components/EventsOverview";
 import { PaladinTransactionSection } from "../components/PaladinTransactionSection";
+import { JSONBox } from "../components/JSONBox";
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 export const TransactionDetails: React.FC = () => {
 
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { hash } = useParams();
+  const { hashOrId } = useParams();
+  const [hash, setHash] = useState<string>();
+  const [id, setId] = useState<string>();
+  const location = useLocation();
 
   useEffect(() => {
-    if (hash === undefined || !(isValidTransactionHash(hash))) {
+    if (hashOrId === undefined) {
+      navigate('/ui/transactions');
+    } else if (isValidTransactionHash(hashOrId)) {
+      setHash(hashOrId);
+    } else if (isValidUUID(hashOrId)) {
+      setId(hashOrId);
+    } else {
       navigate('/ui/transactions');
     }
-  }, [hash]);
+  }, [hashOrId]);
 
-  if (hash === undefined) {
-    return <></>;
-  }
-
-  const { data: enrichedTransaction, error } = useQuery({
-    queryKey: [`transaction-${hash}`],
-    queryFn: () => fetchTransaction(hash)
+  const { data: enrichedTransaction, error: blockchainTransactionError } = useQuery({
+    queryKey: [`blockchain-transaction-${hash}`],
+    queryFn: () => fetchTransaction(hash!),
+    enabled: hash !== undefined
   });
 
-  if (error) {
-    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{error.message}</Alert>
+  const { data: paladinTransaction, error: paladinTransactionError } = useQuery({
+    queryKey: [`paladin-transaction-${id}`],
+    queryFn: () => fetchPaladinTransaction(id!),
+    enabled: id !== undefined
+  });
+
+  const { data: receipt, error: receiptError } = useQuery({
+    queryKey: [`paladin-receipt-full-${id}`],
+    queryFn: () => fetchTransactionReceiptFull(id!),
+    enabled: id !== undefined
+  });
+  
+  useEffect(() => {
+    if (hash === undefined && paladinTransaction !== undefined) {
+      setHash(paladinTransaction?.receipt?.transactionHash);
+    }
+  }, [hash, paladinTransaction]);
+
+  if (hash === undefined && id === undefined) {
+    return <></>;
   }
 
-  if (enrichedTransaction === undefined) {
-    return <></>;
+  if (blockchainTransactionError || paladinTransactionError || receiptError) {
+    return <Alert sx={{ margin: '30px' }} severity="error" variant="filled">{blockchainTransactionError?.message ?? paladinTransactionError?.message}</Alert>
   }
 
   return (
@@ -67,29 +93,50 @@ export const TransactionDetails: React.FC = () => {
       >
         <Box sx={{ marginBottom: '20px' }}>
           <Button startIcon={<ArrowBackIcon fontSize="small" />}
-            onClick={() => navigate('/ui/transactions')}>
-            {t('backToTransactions')}
+            onClick={() => navigate(`/ui/${location.state?.from === 'submissions' ? 'submissions' : 'transactions'}`)}>
+            {t(location.state?.from === 'submissions' ? 'backToSubmissions' : 'backToTransactions')}
           </Button>
         </Box>
-        <Grid2 container spacing={3}>
-          <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 3 }}>
-            <Box>
-              <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
-              <TransactionOverview
-                transaction={enrichedTransaction}
-              />
-              <Typography align="center" variant="h6" sx={{ marginTop: '20px', marginBottom: '5px' }}>{t('events')}</Typography>
-              <EventsOverview
-                events={enrichedTransaction.events} />
-            </Box>
-          </Grid2>
-          <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 9 }}>
-            <Box>
-              <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
-              <PaladinTransactionSection paladinTransactions={enrichedTransaction.paladinTransactions} />
-            </Box>
-          </Grid2>
-        </Grid2>
+        {enrichedTransaction !== undefined &&
+          <Grid2 container spacing={3}>
+            <Grid2 size={{ xs: 12, sm: 12, md: 4, lg: 3 }}>
+              <Box>
+                <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('blockchainTransaction')}</Typography>
+                <TransactionOverview
+                  transaction={enrichedTransaction}
+                />
+                <Typography align="center" variant="h6" sx={{ marginTop: '20px', marginBottom: '5px' }}>{t('events')}</Typography>
+                <EventsOverview
+                  events={enrichedTransaction.events} />
+              </Box>
+            </Grid2>
+            <Grid2 size={{ xs: 12, sm: 12, md: 8, lg: 9 }}>
+              {enrichedTransaction.paladinTransactions.length > 0 ?
+                <Box>
+                  <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
+                  <PaladinTransactionSection paladinTransactions={enrichedTransaction.paladinTransactions} />
+                </Box>
+                :
+                <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('noPaladinTransaction')}</Typography>
+              }
+            </Grid2>
+          </Grid2>}
+        {enrichedTransaction === undefined && paladinTransaction !== undefined && paladinTransaction !== null &&
+          <Box>
+            <Typography align="center" variant="h6" sx={{ marginBottom: '5px' }}>{t('paladinTransaction')}</Typography>
+            <PaladinTransactionSection paladinTransactions={[paladinTransaction]} />
+          </Box>
+        }
+        {enrichedTransaction === undefined && receipt !== undefined &&
+          <Accordion elevation={0} disableGutters>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            {t('receipt')}
+          </AccordionSummary>
+          <AccordionDetails >
+            <JSONBox data={receipt} />
+          </AccordionDetails>
+        </Accordion>
+        }
       </Box>
     </Fade>
   );

@@ -67,6 +67,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
         </AccordionDetails>
       </Accordion>
       :undefined}
+      {paladinTransaction?.receipt !== null &&
       <Accordion elevation={0} disableGutters>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('receipt')}
@@ -74,7 +75,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
         <AccordionDetails >
           <JSONBox data={paladinTransaction?.receipt} />
         </AccordionDetails>
-      </Accordion>
+      </Accordion>}
       {domainReceipt !== undefined && <>
         <EVMPrivateDetails transactionId={transactionId} domainReceipt={domainReceipt}/>
         <Accordion elevation={0} disableGutters>

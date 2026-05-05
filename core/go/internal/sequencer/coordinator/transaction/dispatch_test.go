@@ -16,13 +16,14 @@
 package transaction
 
 import (
-	"context"
 	"errors"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -738,33 +739,29 @@ func Test_mapPreparedTransaction_StateRefs(t *testing.T) {
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t *testing.T) {
-	ctx := context.Background()
-	store := NewChainedChildStore()
-	grapher := NewGrapher(ctx)
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	store.SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 			},
 		}).
-		Dependencies(&TransactionDependencies{
-			PostAssemble: PostAssembleDependencies{
-				DependsOn: []uuid.UUID{dep.pt.ID},
-			},
-		}).
 		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -779,37 +776,35 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesPostAssembleDepChildIDs(t 
 	require.NoError(t, err)
 	require.Len(t, batch.PrivateDispatches, 1)
 	assert.Equal(t, []uuid.UUID{depChildID}, batch.PrivateDispatches[0].NewTransaction.ChainedDependsOn)
-	assert.Equal(t, &childTxID, store.GetChainedChild(txn.pt.ID))
+	gotChild, ok := depTracker.GetChainedDeps().GetChainedChild(ctx, txn.pt.ID)
+	require.True(t, ok)
+	assert.Equal(t, childTxID, gotChild)
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *testing.T) {
-	ctx := context.Background()
-	store := NewChainedChildStore()
-	grapher := NewGrapher(ctx)
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	store.SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 			},
 		}).
-		Dependencies(&TransactionDependencies{
-			Chained: ChainedDependencies{
-				DependsOn: []uuid.UUID{dep.pt.ID},
-			},
-		}).
 		Build()
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -827,36 +822,30 @@ func Test_buildDispatchBatch_ChainedPrivate_PropagatesChainedDepChildIDs(t *test
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testing.T) {
-	ctx := context.Background()
-	store := NewChainedChildStore()
-	grapher := NewGrapher(ctx)
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		Build()
 	depChildID := uuid.New()
-	store.SetChainedChild(dep.pt.ID, depChildID)
+	depTracker.GetChainedDeps().SetChainedChild(ctx, dep.pt.ID, depChildID)
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 			},
 		}).
-		Dependencies(&TransactionDependencies{
-			PostAssemble: PostAssembleDependencies{
-				DependsOn: []uuid.UUID{dep.pt.ID},
-			},
-			Chained: ChainedDependencies{
-				DependsOn: []uuid.UUID{dep.pt.ID},
-			},
-		}).
 		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
+	depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -875,32 +864,28 @@ func Test_buildDispatchBatch_ChainedPrivate_DeduplicatesAcrossDepTypes(t *testin
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
-	ctx := context.Background()
-	store := NewChainedChildStore()
-	grapher := NewGrapher(ctx)
+	ctx := t.Context()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker)
 
 	dep, _ := NewTransactionBuilderForTesting(t, State_Dispatched).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		Build()
-	// no chained child set in store for dep
+	// no chained child set on dep's chained-deps node for dep
 
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		ChainedChildStore(store).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 			},
 		}).
-		Dependencies(&TransactionDependencies{
-			PostAssemble: PostAssembleDependencies{
-				DependsOn: []uuid.UUID{dep.pt.ID},
-			},
-		}).
 		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, dep.pt.ID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{
@@ -918,25 +903,23 @@ func Test_buildDispatchBatch_ChainedPrivate_SkipsDepWithNoChild(t *testing.T) {
 }
 
 func Test_buildDispatchBatch_ChainedPrivate_SkipsDepNotInGrapher(t *testing.T) {
-	ctx := context.Background()
-	grapher := NewGrapher(ctx)
-
+	ctx := t.Context()
 	missingDepID := uuid.New()
+	depTracker := dependencytracker.NewDependencyTracker()
+	g := grapher.NewGrapher(depTracker)
+
 	childTxID := uuid.New()
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Ready_For_Dispatch).
-		Grapher(grapher).
+		Grapher(g).
+		DependencyTracker(depTracker).
 		PreparedPrivateTransaction(&pldapi.TransactionInput{}).
 		PreAssembly(&components.TransactionPreAssembly{
 			TransactionSpecification: &prototk.TransactionSpecification{
 				Intent: prototk.TransactionSpecification_SEND_TRANSACTION,
 			},
 		}).
-		Dependencies(&TransactionDependencies{
-			PostAssemble: PostAssembleDependencies{
-				DependsOn: []uuid.UUID{missingDepID},
-			},
-		}).
 		Build()
+	depTracker.GetPostAssemblyDeps().AddPrerequisites(ctx, txn.pt.ID, missingDepID)
 
 	mocks.TXManager.On("PrepareChainedPrivateTransaction", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&components.ChainedPrivateTransaction{

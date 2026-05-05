@@ -208,12 +208,6 @@ func (t *originatorTransaction) GetCurrentState() State {
 	return t.stateMachine.GetCurrentState()
 }
 
-func (t *originatorTransaction) GetLatestEvent() string {
-	t.RLock()
-	defer t.RUnlock()
-	return t.stateMachine.GetLatestEvent()
-}
-
 func (t *originatorTransaction) GetSignerAddress() *pldtypes.EthAddress {
 	t.RLock()
 	defer t.RUnlock()
