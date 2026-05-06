@@ -16,7 +16,6 @@ package transaction
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -64,7 +63,9 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return nil
 	}
 
-	err := t.writeLockStates(ctx)
+	// This should create state IDs when mapping from output potential states to output states. However, the IDs are lost below.
+	err := t.writeStates(ctx)
+
 	if err != nil {
 		// Internal error. Only option is to revert the transaction
 		revertReason := i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerInternalError), err)
@@ -82,16 +83,25 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 		return err
 	}
 
-	// Once we've written the lock states we have output states which must be added to the grapher
-	for _, state := range postAssembly.OutputStates {
-		err := t.grapher.AddMinter(ctx, state.ID, t)
-		if err != nil {
-			errMsg := i18n.NewError(ctx, msgs.MsgSequencerAddMinterError, t.pt.ID.String(), state.ID.String(), err)
-			log.L(ctx).Error(errMsg)
-			return errMsg
-		}
+	// Add output states to the grapher for other transactions to use
+	err = t.grapher.AddMinter(ctx, postAssembly.OutputStates, t.pt.ID)
+	if err != nil {
+		return err
 	}
-	return t.calculatePostAssembleDependencies(ctx)
+
+	// Add a lock for every output we create
+	createLocks, err := t.engineIntegration.MapPotentialStates(ctx, postAssembly.OutputStatesPotential, t.pt)
+	if err != nil {
+		return err
+	}
+
+	// Add a lock for every output we create
+	t.grapher.LockMintsOnCreate(ctx, createLocks, postAssembly.OutputStates, t.pt.ID)
+
+	// Add a lock for every read state and spent state to prevent other transactions using them
+	t.grapher.LockMintsOnReadAndSpend(ctx, postAssembly.ReadStates, postAssembly.InputStates, t.pt.ID)
+
+	return nil
 }
 
 func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error {
@@ -104,18 +114,19 @@ func (t *coordinatorTransaction) sendAssembleRequest(ctx context.Context) error 
 	// and nudge the request every requestTimeout event to implement the short retry.
 	// The state machine will deal with the longer state timeout via timeout guards.
 	t.pendingAssembleRequest = common.NewIdempotentRequest(ctx, t.clock, t.requestTimeout, func(ctx context.Context, idempotencyKey uuid.UUID) error {
-		stateLocks, err := t.engineIntegration.GetStateLocks(ctx)
+		grapherStatesAndLocks, err := t.grapher.ExportStatesAndLocks(ctx)
 		if err != nil {
-			log.L(ctx).Errorf("failed to get engine state locks: %s", err)
+			log.L(ctx).Errorf("failed to export grapher state locks: %s", err)
 			return err
 		}
+
 		blockHeight, err := t.engineIntegration.GetBlockHeight(ctx)
 		if err != nil {
 			log.L(ctx).Errorf("failed to get engine block height: %s", err)
 			return err
 		}
 
-		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, stateLocks, blockHeight)
+		return t.transportWriter.SendAssembleRequest(ctx, t.originatorNode, t.pt.ID, idempotencyKey, t.pt.PreAssembly, grapherStatesAndLocks, blockHeight)
 	})
 
 	t.scheduleRequestTimeout(ctx)
@@ -141,18 +152,17 @@ func action_NotifyDependentsOfSelection(ctx context.Context, txn *coordinatorTra
 }
 
 func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context) error {
-	var dependentIDs []uuid.UUID
-	if t.dependencies.PreAssemble.PrereqOf != nil {
-		dependentIDs = append(dependentIDs, *t.dependencies.PreAssemble.PrereqOf)
+	// Get transactions this is a pre-req of, including chained dependencies
+	dependentIDs := t.dependencyTracker.GetChainedDeps().GetDependents(ctx, t.pt.ID)
+
+	preAssembleDependent, hasPreAssembleDependent := t.dependencyTracker.GetPreassemblyDeps().GetDependent(ctx, t.pt.ID)
+
+	if hasPreAssembleDependent {
+		dependentIDs = append(dependentIDs, preAssembleDependent)
 	}
-	dependentIDs = append(dependentIDs, t.dependencies.Chained.PrereqOf...)
 
 	for _, dependentID := range dependentIDs {
-		dependent := t.grapher.TransactionByID(ctx, dependentID)
-		if dependent == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerGrapherDependencyNotFound, dependentID)
-		}
-		err := dependent.HandleEvent(ctx, &DependencySelectedForAssemblyEvent{
+		err := t.coordinatorTransactionHandleEvent(ctx, dependentID, &DependencySelectedForAssemblyEvent{
 			BaseCoordinatorEvent: BaseCoordinatorEvent{
 				TransactionID: dependentID,
 			},
@@ -165,48 +175,8 @@ func (t *coordinatorTransaction) notifyDependentsOfSelection(ctx context.Context
 	return nil
 }
 
-func (t *coordinatorTransaction) calculatePostAssembleDependencies(ctx context.Context) error {
-	// Dependencies can arise because  we have been assembled to spend states that were produced by other transactions
-	// or because there are other transactions from the same originator that have not been dispatched yet or because the user has declared explicit dependencies
-	// this function calculates the dependencies relating to states and sets up the reverse association
-	// it is assumed that the other dependencies have already been set up when the transaction was first received by the coordinator TODO correct this comment line with more accurate description of when we expect the static dependencies to have been calculated.  Or make it more vague.
-	if t.pt.PostAssembly == nil {
-		msg := fmt.Sprintf("cannot calculate dependencies for transaction %s without a PostAssembly", t.pt.ID)
-		log.L(ctx).Error(msg)
-		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, msg)
-	}
-
-	found := make(map[uuid.UUID]bool)
-	t.dependencies.PostAssemble.DependsOn = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
-	t.dependencies.PostAssemble.PrereqOf = make([]uuid.UUID, 0, len(t.pt.PostAssembly.InputStates)+len(t.pt.PostAssembly.ReadStates))
-	for _, state := range append(t.pt.PostAssembly.InputStates, t.pt.PostAssembly.ReadStates...) {
-		dependency, err := t.grapher.LookupMinter(ctx, state.ID)
-		if err != nil {
-			errMsg := fmt.Sprintf("error looking up dependency for state %s: %s", state.ID, err)
-			log.L(ctx).Error(errMsg)
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, errMsg)
-		}
-		if dependency == nil {
-			log.L(ctx).Infof("no minter found for state %s", state.ID)
-			//assume the state was produced by a confirmed transaction
-			//TODO should we validate this by checking the domain context? If not, explain why this is safe in the architecture doc
-			continue
-		}
-		if found[dependency.pt.ID] {
-			continue
-		}
-		found[dependency.pt.ID] = true
-
-		t.dependencies.PostAssemble.DependsOn = append(t.dependencies.PostAssemble.DependsOn, dependency.pt.ID)
-		//also set up the reverse association
-		dependency.dependencies.PostAssemble.PrereqOf = append(dependency.dependencies.PostAssemble.PrereqOf, t.pt.ID)
-	}
-	log.L(ctx).Debugf("Post-assembly dependencies for TX %s: %v", t.pt.ID, t.dependencies.PostAssemble.DependsOn)
-	return nil
-}
-
-func (t *coordinatorTransaction) writeLockStates(ctx context.Context) error {
-	return t.engineIntegration.WriteLockStatesForTransaction(ctx, t.pt)
+func (t *coordinatorTransaction) writeStates(ctx context.Context) error {
+	return t.engineIntegration.WriteStatesForTransaction(ctx, t.pt)
 }
 
 func validator_MatchesPendingAssembleRequest(ctx context.Context, txn *coordinatorTransaction, event common.Event) (bool, error) {

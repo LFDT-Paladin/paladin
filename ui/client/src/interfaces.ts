@@ -26,6 +26,11 @@ export interface ITransactionPagingReference {
   transactionIndex: number;
 }
 
+export interface IPaladinTransactionPagingReference {
+  id: string;
+  created: string;
+}
+
 export interface ITransaction {
   hash: string;
   blockNumber: number;

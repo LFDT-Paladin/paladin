@@ -56,7 +56,7 @@ func Test_clearTimeoutSchedules_BothSet(t *testing.T) {
 }
 
 func Test_action_ScheduleStateTimeout_schedulesTimer(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	timeoutEventReceived := false
 	txn, mocks := NewTransactionBuilderForTesting(t, State_Assembling).
 		UseMockClock().

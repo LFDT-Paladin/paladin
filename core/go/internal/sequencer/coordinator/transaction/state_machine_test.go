@@ -15,10 +15,11 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/dependencytracker"
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -59,7 +60,7 @@ func Test_State_String_Unknown(t *testing.T) {
 }
 
 func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Initial).
 		HeartbeatIntervalsSinceStateChange(2).
 		Build()
@@ -70,19 +71,21 @@ func Test_action_IncrementHeartbeatIntervalsSinceStateChange_IncrementsCounter(t
 }
 
 func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).
+	ctx := t.Context()
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
+		Grapher(mockGrapher).
 		ConfirmedLockRetentionGracePeriod(2).
 		FinalizingGracePeriod(10).
 		Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID).Once()
 
 	err := txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
 	assert.Equal(t, State_Confirmed, txn.stateMachine.GetCurrentState())
 	assert.Equal(t, 1, txn.heartbeatIntervalsSinceStateChange)
 	assert.False(t, txn.confirmedLocksReleased)
-	mocks.EngineIntegration.AssertNotCalled(t, "ResetTransactions", ctx, txn.pt.ID)
+	mockGrapher.AssertNotCalled(t, "Forget", txn.pt.ID)
 
 	err = txn.HandleEvent(ctx, &common.HeartbeatIntervalEvent{})
 	require.NoError(t, err)
@@ -96,7 +99,7 @@ func Test_StateConfirmed_HeartbeatResetsLocksOnlyAtRetentionThreshold(t *testing
 }
 
 func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		ConfirmedLockRetentionGracePeriod(100).
 		FinalizingGracePeriod(2).
@@ -112,7 +115,7 @@ func Test_StateConfirmed_TransitionsToFinalBasedOnFinalizingGracePeriod(t *testi
 }
 
 func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	states := []State{
@@ -133,7 +136,6 @@ func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
 			mocks.SyncPoints.On("QueueTransactionFinalize",
 				mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 			).Return()
-			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
 
 			err := txn.HandleEvent(ctx, &ChainedDependencyFailedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -146,7 +148,7 @@ func Test_ChainedDependencyFailed_AllStates_TransitionToReverted(t *testing.T) {
 }
 
 func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -164,16 +166,11 @@ func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.fromState.String(), func(t *testing.T) {
 			depID := uuid.New()
-			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).
-				Dependencies(&TransactionDependencies{
-					Chained: ChainedDependencies{
-						DependsOn:   []uuid.UUID{depID},
-						Unassembled: map[uuid.UUID]struct{}{},
-					},
-				}).
+			depTracker := dependencytracker.NewDependencyTracker()
+			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).
+				DependencyTracker(depTracker).
 				Build()
-
-			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+			depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
 
 			err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -181,13 +178,13 @@ func Test_DependencyConfirmedReverted_ChainedDependency_AllStates(t *testing.T) 
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.toState, txn.GetCurrentState())
-			assert.Contains(t, txn.dependencies.Chained.Unassembled, depID)
+			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID), depID)
 		})
 	}
 }
 
 func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -205,16 +202,11 @@ func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.fromState.String(), func(t *testing.T) {
 			depID := uuid.New()
-			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).
-				Dependencies(&TransactionDependencies{
-					Chained: ChainedDependencies{
-						DependsOn:   []uuid.UUID{depID},
-						Unassembled: map[uuid.UUID]struct{}{},
-					},
-				}).
+			depTracker := dependencytracker.NewDependencyTracker()
+			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).
+				DependencyTracker(depTracker).
 				Build()
-
-			mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
+			depTracker.GetChainedDeps().AddPrerequisites(ctx, txn.pt.ID, depID)
 
 			err := txn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -222,13 +214,13 @@ func Test_DependencyReset_ChainedDependency_AllStates(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tt.toState, txn.GetCurrentState())
-			assert.Contains(t, txn.dependencies.Chained.Unassembled, depID)
+			assert.Contains(t, txn.dependencyTracker.GetChainedDeps().GetUnassembledDependencies(ctx, txn.pt.ID), depID)
 		})
 	}
 }
 
 func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -246,11 +238,7 @@ func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.fromState.String(), func(t *testing.T) {
 			sourceID := uuid.New()
-			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).Build()
-
-			if tt.fromState != State_Pooled {
-				mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
-			}
+			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).Build()
 
 			err := txn.HandleEvent(ctx, &DependencyResetEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -263,7 +251,7 @@ func Test_DependencyReset_PostAssembleDependency_AllStates(t *testing.T) {
 }
 
 func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		fromState State
@@ -281,11 +269,7 @@ func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testin
 	for _, tt := range tests {
 		t.Run(tt.fromState.String(), func(t *testing.T) {
 			sourceID := uuid.New()
-			txn, mocks := NewTransactionBuilderForTesting(t, tt.fromState).Build()
-
-			if tt.fromState != State_Pooled {
-				mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return()
-			}
+			txn, _ := NewTransactionBuilderForTesting(t, tt.fromState).Build()
 
 			err := txn.HandleEvent(ctx, &DependencyConfirmedRevertedEvent{
 				BaseCoordinatorEvent: BaseCoordinatorEvent{TransactionID: txn.pt.ID},
@@ -298,7 +282,7 @@ func Test_DependencyConfirmedReverted_PostAssembleDependency_AllStates(t *testin
 }
 
 func Test_ChainedDependencyEvicted_AllStates_TransitionToEvicted(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	depID := uuid.New()
 
 	states := []State{

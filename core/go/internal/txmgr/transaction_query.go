@@ -17,6 +17,7 @@ package txmgr
 
 import (
 	"context"
+	"maps"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -46,6 +47,12 @@ var transactionFilters = filters.FieldMap{
 	"to":             filters.HexBytesField(`"to"`),
 	"type":           filters.StringField(`"type"`),
 }
+
+var transactionFullFilters = func() filters.FieldMap {
+	m := maps.Clone(transactionFilters)
+	m["success"] = filters.BooleanField(`"TransactionReceipt"."success"`)
+	return m
+}()
 
 var dispatchFilters = filters.FieldMap{
 	"id":                  filters.StringField("id"),
@@ -189,7 +196,7 @@ func (tm *txManager) QueryTransactionsResolved(ctx context.Context, jq *query.Qu
 		P:           tm.p,
 		Table:       "transactions",
 		DefaultSort: "-created",
-		Filters:     transactionFilters,
+		Filters:     transactionFullFilters,
 		Query:       jq,
 		Finalize: func(q *gorm.DB) *gorm.DB {
 			q = q.
@@ -219,7 +226,7 @@ func (tm *txManager) QueryTransactionsFullTx(ctx context.Context, jq *query.Quer
 		P:           tm.p,
 		Table:       "transactions",
 		DefaultSort: "-created",
-		Filters:     transactionFilters,
+		Filters:     transactionFullFilters,
 		Query:       jq,
 		Finalize: func(q *gorm.DB) *gorm.DB {
 			q = q.
