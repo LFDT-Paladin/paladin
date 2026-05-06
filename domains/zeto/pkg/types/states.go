@@ -24,10 +24,12 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
+	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/zeto/signer/common"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo"
-	"github.com/hyperledger-labs/zeto/go-sdk/pkg/utxo/core"
+	"github.com/LFDT-Paladin/paladin/toolkit/pkg/smt"
+	"github.com/LFDT-Paladin/smt/pkg/utxo"
+	"github.com/LFDT-Paladin/smt/pkg/utxo/core"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/iden3/go-iden3-crypto/babyjub"
 	"github.com/iden3/go-iden3-crypto/poseidon"
@@ -191,7 +193,7 @@ func (z *ZetoNFToken) setUTXO() error {
 		return err
 	}
 
-	z.utxoToken = utxo.NewNonFungible(z.TokenID.Int(), z.URI, publicKey, z.Salt.Int())
+	z.utxoToken = utxo.NewNonFungible(z.TokenID.Int(), z.URI, publicKey, z.Salt.Int(), common.GetHasher())
 	return nil
 }
 
@@ -212,63 +214,11 @@ func (z *ZetoNFToken) validate() error {
 	return nil
 }
 
-var MerkleTreeRootABI = &abi.Parameter{
-	Type:         "tuple",
-	InternalType: "struct MerkleTreeRoot",
-	Components: abi.ParameterArray{
-		{Name: "smtName", Type: "string", Indexed: true},
-		{Name: "rootIndex", Type: "bytes32"},
-	},
-}
-
-type MerkleTreeRoot struct {
-	SmtName   string           `json:"smtName"`
-	RootIndex pldtypes.Bytes32 `json:"rootIndex"`
-}
-
-func (m *MerkleTreeRoot) Hash() (string, error) {
-	h := sha256.New()
-	h.Write([]byte(m.SmtName))
-	h.Write(m.RootIndex.Bytes())
-	return pldtypes.Bytes32(h.Sum(nil)).HexString(), nil
-}
-
-var MerkleTreeNodeABI = &abi.Parameter{
-	Type:         "tuple",
-	InternalType: "struct MerkleTreeNode",
-	Components: abi.ParameterArray{
-		{Name: "refKey", Type: "bytes32", Indexed: true},
-		{Name: "index", Type: "bytes32"},
-		{Name: "type", Type: "bytes1"},
-		{Name: "leftChild", Type: "bytes32"},
-		{Name: "rightChild", Type: "bytes32"},
-	},
-}
-
-type MerkleTreeNode struct {
-	RefKey     pldtypes.Bytes32  `json:"refKey"`
-	Index      pldtypes.Bytes32  `json:"index"`
-	Type       pldtypes.HexBytes `json:"type"`
-	LeftChild  pldtypes.Bytes32  `json:"leftChild"`
-	RightChild pldtypes.Bytes32  `json:"rightChild"`
-}
-
-func (m *MerkleTreeNode) Hash(smtName string) (string, error) {
-	h := sha256.New()
-	h.Write([]byte(smtName)) // Include the SMT name in the hash to ensure global uniqueness
-	h.Write(m.RefKey.Bytes())
-	h.Write(m.Index.Bytes())
-	h.Write([]byte(m.Type))
-	h.Write(m.LeftChild.Bytes())
-	h.Write(m.RightChild.Bytes())
-	return pldtypes.Bytes32(h.Sum(nil)).HexString(), nil
-}
-
 func GetStateSchemas() ([]string, error) {
 	coinJSON, _ := json.Marshal(ZetoCoinABI)
 	nftJSON, _ := json.Marshal(ZetoNFTokenABI)
-	smtRootJSON, _ := json.Marshal(MerkleTreeRootABI)
-	smtNodeJSON, _ := json.Marshal(MerkleTreeNodeABI)
+	smtRootJSON, _ := json.Marshal(smt.MerkleTreeRootABI)
+	smtNodeJSON, _ := json.Marshal(smt.MerkleTreeNodeABI)
 	infoJSON, _ := json.Marshal(TransactionDataABI)
 
 	return []string{
