@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"strings"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
@@ -230,19 +231,32 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err)
 	}
-	circuits, err := z.config.GetCircuits(ctx, initParams.TokenName)
+	useV1 := strings.EqualFold(initParams.DomainConfigSchema, types.DomainConfigSchemaV1)
+	if !useV1 && (initParams.CircuitBundleId != "" || initParams.ZetoVariant != 0) {
+		return nil, i18n.NewError(ctx, msgs.MsgZetoV1SchemaRequired)
+	}
+
+	circuits, err := z.config.GetCircuitsForDeploy(ctx, initParams.TokenName, initParams.ZetoVariant, initParams.CircuitBundleId)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFindCircuitId, err)
 	}
+
 	config := &types.DomainInstanceConfig{
-		Circuits:  circuits,
-		TokenName: initParams.TokenName,
+		Circuits:        circuits,
+		TokenName:       initParams.TokenName,
+		ZetoVariant:     pldtypes.HexUint64(initParams.ZetoVariant),
+		FactoryVersion:  initParams.FactoryVersion,
+		CircuitBundleId: initParams.CircuitBundleId,
 	}
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		return nil, err
+
+	var encoded pldtypes.HexBytes
+	if useV1 {
+		config.ConfigSchema = types.DomainConfigSchemaV1
+		encoded, err = types.EncodeDomainInstanceConfigV1(ctx, config)
+	} else {
+		config.ConfigSchema = types.DomainConfigSchemaV0
+		encoded, err = types.EncodeDomainInstanceConfigV0(ctx, config)
 	}
-	encoded, err := types.DomainInstanceConfigABI.EncodeABIDataJSONCtx(ctx, configJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -368,17 +382,7 @@ func (z *Zeto) GetCallHandler(method, tokenName string) types.DomainCallHandler 
 }
 
 func (z *Zeto) decodeDomainConfig(ctx context.Context, domainConfig []byte) (*types.DomainInstanceConfig, error) {
-	configValues, err := types.DomainInstanceConfigABI.DecodeABIDataCtx(ctx, domainConfig, 0)
-	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorAbiDecodeDomainInstanceConfig, err)
-	}
-	configJSON, err := pldtypes.StandardABISerializer().SerializeJSON(configValues)
-	if err != nil {
-		return nil, err
-	}
-	var config types.DomainInstanceConfig
-	err = json.Unmarshal(configJSON, &config)
-	return &config, err
+	return types.DecodeDomainInstanceConfig(ctx, domainConfig)
 }
 
 func (z *Zeto) validateDeploy(tx *prototk.DeployTransactionSpecification) (*types.InitializerParams, error) {

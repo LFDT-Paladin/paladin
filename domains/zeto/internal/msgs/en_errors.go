@@ -181,4 +181,7 @@ var (
 	MsgUnknownSmtType                        = pde("PD210140", "Unknown states merkle tree type: %d")
 	MsgErrorDecodePublicKeyFromHex           = pde("PD210141", "Failed to decode public key from compressed hex. %s")
 	MsgErrorDecodePrivateKey                 = pde("PD210142", "Failed to decode private key. %s")
+	MsgZetoV1SchemaRequired                  = pde("PD210143", "domainConfigSchema \"v1\" is required when circuitBundleId or non-zero zetoVariant is set")
+	MsgDuplicateZetoCircuitBundleId          = pde("PD210144", "Duplicate bundleId '%s' in domain circuit implementations")
+	MsgAmbiguousZetoCircuitImplementation    = pde("PD210145", "Ambiguous circuit implementation selection for token '%s'")
 )

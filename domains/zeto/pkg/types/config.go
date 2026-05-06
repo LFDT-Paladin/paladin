@@ -17,6 +17,7 @@ package types
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/internal/msgs"
@@ -25,6 +26,12 @@ import (
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/domain"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
+)
+
+// DomainConfigSchema values describe how on-chain registration bytes were encoded (see domain_config_codec.go).
+const (
+	DomainConfigSchemaV0 = "v0"
+	DomainConfigSchemaV1 = "v1"
 )
 
 // DomainFactoryConfig is the configuration for a Zeto domain
@@ -42,6 +49,10 @@ type DomainConfigContracts struct {
 type DomainContract struct {
 	Name     string                  `yaml:"name"`
 	Circuits *zetosignerapi.Circuits `yaml:"circuits"`
+	// BundleID, when set, identifies this implementation for v1 on-chain CircuitBundleId (Phase A multi-version).
+	BundleID string `yaml:"bundleId,omitempty" json:"bundleId,omitempty"`
+	// ForZetoVariant, when set, restricts this row to deploys that declare that zetoVariant (nil = wildcard).
+	ForZetoVariant *uint64 `yaml:"forZetoVariant,omitempty" json:"forZetoVariant,omitempty"`
 }
 
 func (d *DomainFactoryConfig) GetCircuits(ctx context.Context, tokenName string) (*zetosignerapi.Circuits, error) {
@@ -51,6 +62,53 @@ func (d *DomainFactoryConfig) GetCircuits(ctx context.Context, tokenName string)
 		}
 	}
 	return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, tokenName)
+}
+
+// GetCircuitsForDeploy resolves circuits for PrepareDeploy using optional v1 selectors.
+// When circuitBundleId is non-empty, the implementation with matching BundleID is used.
+// Otherwise implementations are filtered by token Name and optional ForZetoVariant (nil matches any variant).
+// If no variant-specific row matches, GetCircuits(tokenName) legacy behavior is used.
+func (d *DomainFactoryConfig) GetCircuitsForDeploy(ctx context.Context, tokenName string, zetoVariant uint64, circuitBundleId string) (*zetosignerapi.Circuits, error) {
+	if circuitBundleId != "" {
+		var match *DomainContract
+		for _, impl := range d.DomainContracts.Implementations {
+			if impl.BundleID != circuitBundleId {
+				continue
+			}
+			if match != nil {
+				return nil, i18n.NewError(ctx, msgs.MsgDuplicateZetoCircuitBundleId, circuitBundleId)
+			}
+			match = impl
+		}
+		if match == nil {
+			return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, circuitBundleId)
+		}
+		return match.Circuits, nil
+	}
+
+	var matches []*DomainContract
+	for _, impl := range d.DomainContracts.Implementations {
+		if impl.Name != tokenName {
+			continue
+		}
+		if impl.ForZetoVariant != nil && *impl.ForZetoVariant != zetoVariant {
+			continue
+		}
+		matches = append(matches, impl)
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0].Circuits, nil
+	case 0:
+		for _, impl := range d.DomainContracts.Implementations {
+			if impl.Name == tokenName && impl.ForZetoVariant != nil {
+				return nil, i18n.NewError(ctx, msgs.MsgContractNotFound, fmt.Sprintf("%s@%d", tokenName, zetoVariant))
+			}
+		}
+		return d.GetCircuits(ctx, tokenName)
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgAmbiguousZetoCircuitImplementation, tokenName)
+	}
 }
 
 func (d *DomainFactoryConfig) GetCircuit(ctx context.Context, tokenName, method string) (*zetosignerapi.Circuit, error) {
@@ -70,6 +128,22 @@ func (d *DomainFactoryConfig) GetCircuit(ctx context.Context, tokenName, method 
 type DomainInstanceConfig struct {
 	TokenName string                  `json:"tokenName"`
 	Circuits  *zetosignerapi.Circuits `json:"circuits"`
+	// ConfigSchema is "v0" (legacy ABI-only bytes) or "v1" (prefixed encoding); set when decoding on-chain config.
+	ConfigSchema string `json:"configSchema,omitempty"`
+	// ZetoVariant identifies the on-chain interface generation (Phase B+ may branch handlers by this).
+	ZetoVariant pldtypes.HexUint64 `json:"zetoVariant,omitempty"`
+	// FactoryVersion records which Paladin factory was used at deploy (informative; Phase D may branch deploy ABI).
+	FactoryVersion int64 `json:"factoryVersion,omitempty"`
+	// CircuitBundleId references DomainContract.BundleID when circuits are resolved by opaque id.
+	CircuitBundleId string `json:"circuitBundleId,omitempty"`
+}
+
+// zetoDomainCircuitsComponents is shared by legacy and v1 domain instance config ABI tuples.
+var zetoDomainCircuitsComponents = []*abi.Parameter{
+	{Type: "tuple", Name: "deposit", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
+	{Type: "tuple", Name: "withdraw", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
+	{Type: "tuple", Name: "transfer", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
+	{Type: "tuple", Name: "transferLocked", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
 }
 
 // DomainInstanceConfigABI is the ABI for the DomainInstanceConfig,
@@ -80,15 +154,22 @@ var DomainInstanceConfigABI = &abi.ParameterArray{
 		Name: "tokenName",
 	},
 	{
-		Type: "tuple",
-		Name: "circuits",
-		Components: []*abi.Parameter{
-			{Type: "tuple", Name: "deposit", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
-			{Type: "tuple", Name: "withdraw", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
-			{Type: "tuple", Name: "transfer", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
-			{Type: "tuple", Name: "transferLocked", Components: []*abi.Parameter{{Type: "string", Name: "name"}, {Type: "string", Name: "type"}, {Type: "bool", Name: "usesEncryption"}, {Type: "bool", Name: "usesNullifiers"}, {Type: "bool", Name: "usesKyc"}}},
-		},
+		Type:       "tuple",
+		Name:       "circuits",
+		Components: zetoDomainCircuitsComponents,
 	},
+}
+
+// ZetoDomainConfigID_V1 prefixes versioned on-chain domain instance configuration bytes (Phase A).
+var ZetoDomainConfigID_V1 = pldtypes.MustParseHexBytes("0x00020001")
+
+// DomainInstanceConfigV1ABI encodes the payload after ZetoDomainConfigID_V1.
+var DomainInstanceConfigV1ABI = &abi.ParameterArray{
+	{Name: "tokenName", Type: "string"},
+	{Name: "zetoVariant", Type: "uint256"},
+	{Name: "factoryVersion", Type: "uint256"},
+	{Name: "circuitBundleId", Type: "string"},
+	{Name: "circuits", Type: "tuple", Components: zetoDomainCircuitsComponents},
 }
 
 // marks the version of the Zeto transaction data schema

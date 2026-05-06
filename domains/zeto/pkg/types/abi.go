@@ -47,6 +47,16 @@ type InitializerParams struct {
 	Symbol    string `json:"symbol"`
 	TokenName string `json:"tokenName"`
 	// InitialOwner string `json:"initialOwner"` // TODO: allow the initial owner to be specified by the deploy request
+
+	// DomainConfigSchema "v1" opts into prefixed on-chain config encoding (see types.DecodeDomainInstanceConfig).
+	// Empty or "v0" keeps legacy encoding for registration bytes.
+	DomainConfigSchema string `json:"domainConfigSchema,omitempty"`
+	// ZetoVariant is stored on-chain for v1 configs (Phase B+ handler routing).
+	ZetoVariant uint64 `json:"zetoVariant,omitempty"`
+	// FactoryVersion records which Paladin factory produced the deploy (informative metadata in v1 config).
+	FactoryVersion int64 `json:"factoryVersion,omitempty"`
+	// CircuitBundleId selects DomainContract.bundleId for circuit resolution when non-empty.
+	CircuitBundleId string `json:"circuitBundleId,omitempty"`
 }
 
 type DeployParams struct {

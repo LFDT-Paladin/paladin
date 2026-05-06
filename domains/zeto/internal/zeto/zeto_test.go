@@ -120,7 +120,9 @@ func TestDecodeDomainConfig(t *testing.T) {
 	z := &Zeto{name: "z1"}
 	decoded, err := z.decodeDomainConfig(context.Background(), encoded)
 	assert.NoError(t, err)
-	assert.Equal(t, config, decoded)
+	assert.Equal(t, types.DomainConfigSchemaV0, decoded.ConfigSchema)
+	assert.Equal(t, config.TokenName, decoded.TokenName)
+	assert.Equal(t, config.Circuits, decoded.Circuits)
 
 	assert.Equal(t, z.getAlgoZetoSnarkBJJ(), "domain:z1:snark:babyjubjub")
 }
@@ -307,6 +309,7 @@ func TestInitContract(t *testing.T) {
 			"transfer": { "name": "circuit-transfer", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false },
 			"transferLocked": { "name": "circuit-transfer-locked", "type": "", "usesEncryption": false, "usesKyc":false, "usesNullifiers": false }
 		},
+		"configSchema": "v0",
 		"tokenName": "testToken1"
 	}`, res.ContractConfig.ContractConfigJson)
 }
