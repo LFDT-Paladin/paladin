@@ -11,11 +11,11 @@ Every privacy preserving smart contract is backed by an EVM smart contract, depl
 The code that exists at this layer must not require access to the private data, while fulfilling fundamental responsibilities:
 
 1. Ensuring every state transition is only finalized by the blockchain if it is validated:
-    - By verifying a zero-knowledge proof, and/or that the transaction was pre-verified
+   - By verifying a zero-knowledge proof, and/or that the transaction was pre-verified
 2. Enforcing double-spend protections
-    - We discuss later how and why a UTXO model is most common in private transactions
+   - We discuss later how and why a UTXO model is most common in private transactions
 3. Conforming to an interface that allows atomic interop with other smart contracts
-    - Learn more in [Atomic interop of privacy preserving smart contracts](./atomic_interop.md)
+   - Learn more in [Atomic interop of privacy preserving smart contracts](./atomic_interop.md)
 
 ### ZKP verification, Notary and Endorsement models
 
@@ -24,16 +24,16 @@ Because the base ledger smart contract cannot access or leak the data involved i
 ![ZKP vs. Notary models](../images/zkp_vs_notary.jpg)
 
 1. The transaction is pre-verified off-chain before submission
-    - The smart contract records the proof of the pre-verification, but cannot directly verify it
-    - The identity of the verifier(s) are known and trusted by the parties transacting on that contract
-    - The smart contract only allows spending by the authorized notary / endorsement-group
-    - Example 1: the issuer of a particular tokenized deposit / digital asset
-    - Example 2: the members of a privacy group signing off on every transaction (more on this later)
+   - The smart contract records the proof of the pre-verification, but cannot directly verify it
+   - The identity of the verifier(s) are known and trusted by the parties transacting on that contract
+   - The smart contract only allows spending by the authorized notary / endorsement-group
+   - Example 1: the issuer of a particular tokenized deposit / digital asset
+   - Example 2: the members of a privacy group signing off on every transaction (more on this later)
 2. A zero-knowledge proof is verified during execution of the transaction
-    - The smart contract uses advanced cryptography to verify the rules were obeyed
-    - Anyone can submit a transaction, as long as it comes with a suitable proof
-    - Example 1: a cash token with total conversation of value and ownership enforced via ZKP
-    - Example 2: a non-fungible token with uniqueness and ownership enforced via ZKP
+   - The smart contract uses advanced cryptography to verify the rules were obeyed
+   - Anyone can submit a transaction, as long as it comes with a suitable proof
+   - Example 1: a cash token with total conversation of value and ownership enforced via ZKP
+   - Example 2: a non-fungible token with uniqueness and ownership enforced via ZKP
 
 There are strong reasons why both of these approaches exist - some related to efficiency/performance, and others related to fundamental characteristics of each model. The Paladin project embraces both approaches, and allows them coexist and interoperate atomically.
 
@@ -90,9 +90,9 @@ These states can encrypted and/or distributed selectively only to those parties 
 The UTXO model works extremely well for **tokens** - both fungible value, and non-fungible records of uniqueness and ownership. Because each fragment of value, or unique entry, exists independently and can be constructed into a transaction in isolation, there are benefits to:
 
 - **Scale & performance**: Many transactions can be constructed concurrently by spending different values, without needing to lock/modify a single item (such as a target account balance)
-   - This parallelism does require some complexity of transaction and state management that Paladin provides solves in a re-usable across privacy technologies, including ZKP and Notary based approaches
+  - This parallelism does require some complexity of transaction and state management that Paladin provides solves in a re-usable across privacy technologies, including ZKP and Notary based approaches
 - **Programmability**: Complex transactions can be orchestrated on UTXO values that are locked of many different types, backed by different privacy mechanism
-   - We will see in Layer C how EVM programmability can be layered back on top to aid complex stateful workflow on top of a C-UTXO model, for the token programmability layer required for token ecosystem use cases such as DvP
+  - We will see in Layer C how EVM programmability can be layered back on top to aid complex stateful workflow on top of a C-UTXO model, for the token programmability layer required for token ecosystem use cases such as DvP
 
 ![Confidential UTXO models](../images/confidential_utxo_model.png)
 
@@ -113,6 +113,7 @@ For more information see the following architecture pages:
 A special class of privacy preserving smart contract, is one that is designed to provide a layer of programmability _between other privacy preserving smart contracts_.
 
 What better programming model to enable for such programmability, than EVM itself:
+
 - Solidity and/or Vyper smart contracts, compiled to standard EVM without modification
 
 ### EVM blockchain programming model
@@ -143,6 +144,7 @@ With these three layers of programmability, we now have the tools to provide EVM
 This is because the most powerful aspect of an EVM based privacy stack is that different privacy preserving smart contracts of different types can interoperate atomically on a **single shared EVM ledger**.
 
 For example the following three different privacy preserving smart contracts can coordinate in a single atomic transaction:
+
 1. A fungible ZKP verified token, such as a cash token
    - All transactions trusted by all parties in the cash token ecosystem
 2. A non-fungible notary verified token, such as a bond certificate
