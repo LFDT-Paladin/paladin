@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
@@ -46,6 +47,16 @@ type ZetoHelper struct {
 	t       *testing.T
 	rpc     rpcclient.Client
 	Address *pldtypes.EthAddress
+}
+
+const ZetoVersionLatest = "v0.2.2"
+
+// ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
+func ZetoZKArtifactsDir(version string) string {
+	if version == "latest" {
+		version = ZetoVersionLatest
+	}
+	return filepath.Join("..", "zeto", "zkp", version)
 }
 
 // =============================================================================

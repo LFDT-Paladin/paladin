@@ -82,7 +82,7 @@ func (s *pvpTestSuite) SetupSuite() {
 
 	log.L(ctx).Infof("Deploying Zeto dependencies")
 	s.zetoContracts = helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, "./zeto/config-for-deploy.yaml", notary)
-	s.zetoConfig = helpers.PrepareZetoConfig(s.T(), s.zetoContracts, "../../domains/zeto/zkp")
+	s.zetoConfig = helpers.PrepareZetoConfig(s.T(), s.zetoContracts, helpers.ZetoZKArtifactsDir("latest"))
 }
 
 func decodeTransactionResult(t *testing.T, resultInput map[string]any) *testbed.TransactionResult {
