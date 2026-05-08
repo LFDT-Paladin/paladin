@@ -19,24 +19,10 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/types"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
-
-// zetoCoreABIVersion selects which embedded IZeto (core token) ABI drives merged event definitions.
-// Keep in sync with pkg/types ZetoVariantVx where core events track the fungible interface generation.
-type zetoCoreABIVersion uint8
-
-const (
-	zetoCoreABIVersionV0 zetoCoreABIVersion = 0
-	zetoCoreABIVersionV1 zetoCoreABIVersion = 1
-)
-
-// supportedZetoCoreABIVersions lists every generation merged into ConfigureDomain / dispatch maps.
-var supportedZetoCoreABIVersions = []zetoCoreABIVersion{
-	zetoCoreABIVersionV0,
-	zetoCoreABIVersionV1,
-}
 
 //go:embed abis/IZeto.json
 var zetoABIBytes []byte
@@ -47,40 +33,49 @@ var zetoABIBytesV1 []byte
 //go:embed abis/IZetoLockable.json
 var zetoLockableABIBytes []byte
 
+// Zeto v0.5.x lockable events/calls come from ILockableCapability (Gradle copies it as IZetoLockableCapability_V1.json).
+//
+//go:embed abis/IZetoLockableCapability_V1.json
+var zetoLockableABIBytesV1 []byte
+
 //go:embed abis/IZetoKyc.json
 var zetoKycABIBytes []byte
 
-func mergeZetoCoreEvents(core *solutils.SolidityBuild) abi.ABI {
+func mergeZetoCoreEvents(core *solutils.SolidityBuild, lockableJSON []byte) abi.ABI {
 	var events abi.ABI
 	events = appendEventsFromBuild(events, core)
-	contract := solutils.MustLoadBuild(zetoLockableABIBytes)
+	contract := solutils.MustLoadBuild(lockableJSON)
 	events = appendEventsFromBuild(events, contract)
 	contract = solutils.MustLoadBuild(zetoKycABIBytes)
 	events = appendEventsFromBuild(events, contract)
 	return dedupEvents(events)
 }
 
-func zetoCoreABIBytes(v zetoCoreABIVersion) []byte {
+func zetoCoreABIBytes(v types.ZetoTargetContractABIVersion) []byte {
 	switch v {
-	case zetoCoreABIVersionV0:
+	case types.ZetoTargetContractABI_V0:
 		return zetoABIBytes
-	case zetoCoreABIVersionV1:
+	case types.ZetoTargetContractABI_V1:
 		return zetoABIBytesV1
 	default:
 		panic(fmt.Sprintf("unsupported zeto core ABI version: %d", v))
 	}
 }
 
-// zetoEventABISet returns merged events for one core interface generation (Phase B).
-func zetoEventABISet(v zetoCoreABIVersion) abi.ABI {
+// zetoEventABISet returns merged events for one ZetoTargetContractABIVersion (axis 2; IZeto*.json).
+func zetoEventABISet(v types.ZetoTargetContractABIVersion) abi.ABI {
 	core := zetoCoreABIBytes(v)
-	return mergeZetoCoreEvents(solutils.MustLoadBuild(core))
+	lockable := zetoLockableABIBytes
+	if v == types.ZetoTargetContractABI_V1 {
+		lockable = zetoLockableABIBytesV1
+	}
+	return mergeZetoCoreEvents(solutils.MustLoadBuild(core), lockable)
 }
 
 // getAllZetoEventAbis merges events from all supported generations for ConfigureDomain (Paladin ABI index).
 func getAllZetoEventAbis() abi.ABI {
 	var events abi.ABI
-	for _, v := range supportedZetoCoreABIVersions {
+	for _, v := range types.SupportedZetoTargetContractABIVersions {
 		events = append(events, zetoEventABISet(v)...)
 	}
 	return dedupEvents(events)

@@ -51,6 +51,9 @@ type ZetoHelper struct {
 
 const ZetoVersionLatest = "v0.2.2"
 
+// ZetoVersionV050 matches domains/zeto/build.gradle zetoVersions zkpRoot for the LFDT v0.5.0 wasm + proving-keys extract.
+const ZetoVersionV050 = "v0.5.0"
+
 // ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
 func ZetoZKArtifactsDir(version string) string {
 	if version == "latest" {

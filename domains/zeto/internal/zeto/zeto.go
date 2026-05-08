@@ -181,8 +181,8 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(zetoEventABISet(zetoCoreABIVersionV0), &z.events)
-	z.registerEventSignatures(zetoEventABISet(zetoCoreABIVersionV1), &z.eventsV1)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
@@ -251,9 +251,9 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	}
 	var factoryABI abi.ABI
 	switch effectiveFV {
-	case 0:
+	case int64(types.ZetoPaladinFactoryV0):
 		factoryABI = zetoFactoryBuildV0.ABI
-	case 1:
+	case int64(types.ZetoPaladinFactoryV1):
 		factoryABI = zetoFactoryBuildV1.ABI
 	default:
 		return nil, i18n.NewError(ctx, msgs.MsgUnsupportedZetoFactoryVersion, effectiveFV)

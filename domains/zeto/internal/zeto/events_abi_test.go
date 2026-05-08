@@ -24,7 +24,8 @@ import (
 
 func TestGetAllZetoEventAbis(t *testing.T) {
 	events := getAllZetoEventAbis()
-	assert.Equal(t, 8, len(events))
+	// V1 merges ILockableCapability (as IZetoLockableCapability_V1) which carries extra events vs legacy izeto_lockable IZetoLockable.
+	assert.Equal(t, 19, len(events))
 }
 
 func TestBuildEvents(t *testing.T) {

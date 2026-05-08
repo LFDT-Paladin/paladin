@@ -26,7 +26,7 @@ import (
 //go:embed abis/IZetoFungible.json
 var zetoFungibleJSON []byte
 
-//go:embed abis/IZetoFungible_V1.json
+//go:embed abis/IZetoFungibleV1.json
 var zetoFungibleV1JSON []byte
 
 //go:embed abis/IZetoNonFungible.json
@@ -39,10 +39,10 @@ var ZetoFungibleABI_V1 = solutils.MustParseBuildABI(zetoFungibleV1JSON)
 
 var ZetoNonFungibleABI = solutils.MustParseBuildABI(zetoNonFungibleJSON)
 
-// ZetoFungibleFunctionForVariant resolves the function entry for txs against fungible tokens.
+// ZetoFungibleFunctionForVariant resolves the function entry using ZetoFungibleABIVersion (axis 1; IZetoFungible*.json).
 func ZetoFungibleFunctionForVariant(zetoVariant pldtypes.HexUint64, name string) *abi.Entry {
 	build := ZetoFungibleABI
-	if zetoVariant != ZetoVariantV0 {
+	if zetoVariant != ZetoFungibleV0ABI {
 		build = ZetoFungibleABI_V1
 	}
 	return build.Functions()[name]
@@ -67,9 +67,9 @@ type InitializerParams struct {
 	// DomainConfigSchema "v1" opts into prefixed on-chain config encoding (see types.DecodeDomainInstanceConfig).
 	// Empty or "v0" keeps legacy encoding for registration bytes.
 	DomainConfigSchema string `json:"domainConfigSchema,omitempty"`
-	// ZetoVariant is stored on-chain for v1 configs (Phase B+ handler routing).
+	// ZetoVariant is ZetoFungibleABIVersion persisted for v1 configs (see versions.go).
 	ZetoVariant uint64 `json:"zetoVariant,omitempty"`
-	// FactoryVersion records which Paladin factory produced the deploy (informative metadata in v1 config).
+	// FactoryVersion is ZetoPaladinFactoryVersion (see versions.go).
 	FactoryVersion int64 `json:"factoryVersion,omitempty"`
 	// CircuitBundleId selects DomainContract.bundleId for circuit resolution when non-empty.
 	CircuitBundleId string `json:"circuitBundleId,omitempty"`
