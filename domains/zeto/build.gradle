@@ -33,9 +33,10 @@ ext {
         "github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner",
     ]
 
-    zetoVersion = "v0.2.2"
+    zetoVersion = "v0.2.2" // sync with domains/integration-test/zeto_integration_zkp_paths.go testZetoZKArtifactsReleaseTag when running integration tests
     zetoHost = "hyperledger-labs"
     zkpOut = "${projectDir}/zkp"
+    zkpVersionRoot = "${zkpOut}/${zetoVersion}"
     toolsOut = "${projectDir}/tools"
 }
 
@@ -144,7 +145,7 @@ task extractZetoArtifacts(type: Copy, dependsOn: [protoc, downloadZetoProver, do
     from tarTree("${toolsOut}/zeto-wasm-${zetoVersion}.tar.gz")
     from tarTree("${toolsOut}/zeto-test-proving-keys-${zetoVersion}.tar.gz")
     from tarTree("${toolsOut}/zeto-contracts-${zetoVersion}.tar.gz")
-    into zkpOut
+    into zkpVersionRoot
 }
 
 task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZetoArtifacts]) {
@@ -152,7 +153,7 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZe
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
     }
-    from fileTree("${zkpOut}/artifacts/contracts") {
+    from fileTree("${zkpVersionRoot}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
         include 'lib/interfaces/izeto_kyc.sol/IZetoKyc.json'
         include 'lib/interfaces/izeto_lockable.sol/IZetoLockable.json'

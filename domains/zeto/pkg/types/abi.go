@@ -20,17 +20,33 @@ import (
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
+	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
 
 //go:embed abis/IZetoFungible.json
 var zetoFungibleJSON []byte
+
+//go:embed abis/IZetoFungible_V1.json
+var zetoFungibleV1JSON []byte
 
 //go:embed abis/IZetoNonFungible.json
 var zetoNonFungibleJSON []byte
 
 var ZetoFungibleABI = solutils.MustParseBuildABI(zetoFungibleJSON)
 
+// ZetoFungibleABI_V1 embeds the generation-1 fungible interface ABI (starts as a copy of V0; diverge when on-chain IZeto changes).
+var ZetoFungibleABI_V1 = solutils.MustParseBuildABI(zetoFungibleV1JSON)
+
 var ZetoNonFungibleABI = solutils.MustParseBuildABI(zetoNonFungibleJSON)
+
+// ZetoFungibleFunctionForVariant resolves the function entry for txs against fungible tokens.
+func ZetoFungibleFunctionForVariant(zetoVariant pldtypes.HexUint64, name string) *abi.Entry {
+	build := ZetoFungibleABI
+	if zetoVariant != ZetoVariantV0 {
+		build = ZetoFungibleABI_V1
+	}
+	return build.Functions()[name]
+}
 
 const (
 	METHOD_MINT            = "mint"

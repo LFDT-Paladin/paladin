@@ -172,4 +172,7 @@ var (
 	MsgZetoV1SchemaRequired                  = pde("PD210143", "domainConfigSchema \"v1\" is required when circuitBundleId or non-zero zetoVariant is set")
 	MsgDuplicateZetoCircuitBundleId          = pde("PD210144", "Duplicate bundleId '%s' in domain circuit implementations")
 	MsgAmbiguousZetoCircuitImplementation    = pde("PD210145", "Ambiguous circuit implementation selection for token '%s'")
+	MsgUnsupportedZetoFactoryVersion         = pde("PD210146", "Unsupported zeto factoryVersion %d (supported: 0, 1)")
+	MsgZetoFactoryVersionConflict            = pde("PD210147", "factoryVersion in deploy params (%d) conflicts with domain factoryVersion (%d)")
+	MsgZetoLegacyDomainConfigDecode          = pde("PD210148", "Legacy Zeto domain config decode failed (expected v0 tuple or v1 prefix %s): %s")
 )

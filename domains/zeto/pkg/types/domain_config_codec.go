@@ -50,7 +50,7 @@ func DecodeDomainInstanceConfig(ctx context.Context, domainConfig []byte) (*Doma
 func decodeDomainInstanceConfigV0(ctx context.Context, domainConfig []byte) (*DomainInstanceConfig, error) {
 	configValues, err := DomainInstanceConfigABI.DecodeABIDataCtx(ctx, domainConfig, 0)
 	if err != nil {
-		return nil, i18n.NewError(ctx, msgs.MsgErrorAbiDecodeDomainInstanceConfig, err)
+		return nil, i18n.NewError(ctx, msgs.MsgZetoLegacyDomainConfigDecode, ZetoDomainConfigID_V1.String(), err.Error())
 	}
 	configJSON, err := pldtypes.StandardABISerializer().SerializeJSON(configValues)
 	if err != nil {

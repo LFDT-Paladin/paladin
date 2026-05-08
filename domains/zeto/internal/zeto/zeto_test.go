@@ -275,6 +275,53 @@ func TestPrepareDeploy(t *testing.T) {
 	}
 }
 
+func TestPrepareDeployFactoryVersionErrors(t *testing.T) {
+	testCallbacks := &domain.MockDomainCallbacks{}
+	circuits := &zetosignerapi.Circuits{
+		"deposit":        &zetosignerapi.Circuit{Name: "circuit-deposit"},
+		"withdraw":       &zetosignerapi.Circuit{Name: "circuit-withdraw"},
+		"transfer":       &zetosignerapi.Circuit{Name: "circuit-transfer"},
+		"transferLocked": &zetosignerapi.Circuit{Name: "circuit-transfer-locked"},
+	}
+	factoryCfg := func(factoryVersion int64) *types.DomainFactoryConfig {
+		return &types.DomainFactoryConfig{
+			FactoryVersion: factoryVersion,
+			DomainContracts: types.DomainConfigContracts{
+				Implementations: []*types.DomainContract{
+					{Name: constants.TOKEN_ANON, Circuits: circuits},
+				},
+			},
+		}
+	}
+	reqBase := &pb.PrepareDeployRequest{
+		Transaction: &pb.DeployTransactionSpecification{
+			TransactionId:         "0x1234",
+			ConstructorParamsJson: fmt.Sprintf(`{"tokenName":"%s"}`, constants.TOKEN_ANON),
+		},
+		ResolvedVerifiers: []*pb.ResolvedVerifier{{Verifier: "Alice"}},
+	}
+	ctx := context.Background()
+
+	t.Run("unsupported domain factoryVersion", func(t *testing.T) {
+		z := New(testCallbacks)
+		z.config = factoryCfg(99)
+		_, err := z.PrepareDeploy(ctx, reqBase)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "PD210146")
+	})
+
+	t.Run("factoryVersion conflict", func(t *testing.T) {
+		z := New(testCallbacks)
+		z.config = factoryCfg(1)
+		req := proto.Clone(reqBase).(*pb.PrepareDeployRequest)
+		req.Transaction.ConstructorParamsJson = fmt.Sprintf(
+			`{"tokenName":"%s","factoryVersion":2}`, constants.TOKEN_ANON)
+		_, err := z.PrepareDeploy(ctx, req)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "PD210147")
+	})
+}
+
 func TestInitContract(t *testing.T) {
 	testCallbacks := &domain.MockDomainCallbacks{}
 	z := New(testCallbacks)
@@ -531,6 +578,7 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.events.withdraw = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
 	z.events.lock = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
 	z.events.identityRegistered = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	z.eventsV1 = z.events
 	return z, testCallbacks
 }
 
@@ -854,7 +902,7 @@ func TestGetHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := z.GetHandler(tt.action, tt.tokenName)
+			handler := z.GetHandler(tt.action, tt.tokenName, types.ZetoVariantV0)
 			if tt.expectedNil {
 				assert.Nil(t, handler)
 			} else {

@@ -25,38 +25,59 @@ import (
 //go:embed abis/IZeto.json
 var zetoABIBytes []byte
 
+//go:embed abis/IZeto_V1.json
+var zetoABIBytesV1 []byte
+
 //go:embed abis/IZetoLockable.json
 var zetoLockableABIBytes []byte
 
 //go:embed abis/IZetoKyc.json
 var zetoKycABIBytes []byte
 
-func getAllZetoEventAbis() abi.ABI {
+func mergeZetoCoreEvents(core *solutils.SolidityBuild) abi.ABI {
 	var events abi.ABI
-	contract := solutils.MustLoadBuild(zetoABIBytes)
-	events = buildEvents(events, contract)
-	contract = solutils.MustLoadBuild(zetoLockableABIBytes)
-	events = buildEvents(events, contract)
+	events = appendEventsFromBuild(events, core)
+	contract := solutils.MustLoadBuild(zetoLockableABIBytes)
+	events = appendEventsFromBuild(events, contract)
 	contract = solutils.MustLoadBuild(zetoKycABIBytes)
-	events = buildEvents(events, contract)
-	return events
+	events = appendEventsFromBuild(events, contract)
+	return dedupEvents(events)
 }
 
-func buildEvents(events abi.ABI, contract *solutils.SolidityBuild) abi.ABI {
+// zetoEventABISet returns merged events for one core interface generation (Phase B).
+func zetoEventABISet(useV1Core bool) abi.ABI {
+	var core []byte
+	if useV1Core {
+		core = zetoABIBytesV1
+	} else {
+		core = zetoABIBytes
+	}
+	return mergeZetoCoreEvents(solutils.MustLoadBuild(core))
+}
+
+// getAllZetoEventAbis merges events from all supported generations for ConfigureDomain (Paladin ABI index).
+func getAllZetoEventAbis() abi.ABI {
+	var events abi.ABI
+	events = append(events, zetoEventABISet(false)...)
+	events = append(events, zetoEventABISet(true)...)
+	return dedupEvents(events)
+}
+
+func appendEventsFromBuild(events abi.ABI, contract *solutils.SolidityBuild) abi.ABI {
 	for _, entry := range contract.ABI {
 		if entry.Type == abi.Event {
 			events = append(events, entry)
 		}
 	}
-	events = dedup(events)
 	return events
 }
 
-func dedup(events abi.ABI) abi.ABI {
+func dedupEvents(events abi.ABI) abi.ABI {
 	for i := 0; i < len(events); i++ {
 		for j := i + 1; j < len(events); j++ {
 			if events[i].Name == events[j].Name {
 				events = append(events[:j], events[j+1:]...)
+				j--
 			}
 		}
 	}

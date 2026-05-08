@@ -34,12 +34,20 @@ const (
 	DomainConfigSchemaV1 = "v1"
 )
 
+// ZetoVariantV0 is the default on-chain interface generation (legacy deployments).
+var ZetoVariantV0 = pldtypes.HexUint64(0)
+
+// ZetoVariantV1 is used with factoryVersion 1 / upgradeable token stack (Phase B routing).
+var ZetoVariantV1 = pldtypes.HexUint64(1)
+
 // DomainFactoryConfig is the configuration for a Zeto domain
 // to provision new domain instances based on a factory contract
 // and avalable implementation contracts
 type DomainFactoryConfig struct {
 	DomainContracts DomainConfigContracts           `json:"domainContracts"`
 	SnarkProver     zetosignerapi.SnarkProverConfig `json:"snarkProver"`
+	// FactoryVersion selects which Paladin Zeto factory ABI PrepareDeploy targets (0 = ZetoFactory, 1 = ZetoFactoryV1).
+	FactoryVersion int64 `json:"factoryVersion,omitempty"`
 }
 
 type DomainConfigContracts struct {

@@ -68,6 +68,7 @@ func TestBuildEvents(t *testing.T) {
 ]}`
 
 	contract := solutils.MustLoadBuild([]byte(testABI))
-	events := buildEvents(nil, contract)
+	events := appendEventsFromBuild(nil, contract)
+	events = dedupEvents(events)
 	assert.Equal(t, 2, len(events))
 }

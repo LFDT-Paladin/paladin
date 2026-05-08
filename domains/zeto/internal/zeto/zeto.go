@@ -36,6 +36,7 @@ import (
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner"
 	"github.com/LFDT-Paladin/paladin/domains/zeto/pkg/zetosigner/zetosignerapi"
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/pldtypes"
+	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/algorithms"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/plugintk"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
@@ -51,6 +52,25 @@ import (
 
 var _ plugintk.DomainAPI = &Zeto{}
 
+//go:embed factoryabis/ZetoFactory.json
+var zetoFactoryArtifactV0 []byte
+
+//go:embed factoryabis/ZetoFactoryV1.json
+var zetoFactoryArtifactV1 []byte
+
+var zetoFactoryBuildV0 = solutils.MustLoadBuild(zetoFactoryArtifactV0)
+var zetoFactoryBuildV1 = solutils.MustLoadBuild(zetoFactoryArtifactV1)
+
+type zetoEventSigs struct {
+	mint               string
+	burn               string
+	transfer           string
+	transferWithEnc    string
+	withdraw           string
+	lock               string
+	identityRegistered string
+}
+
 type Zeto struct {
 	Callbacks plugintk.DomainCallbacks
 
@@ -64,15 +84,8 @@ type Zeto struct {
 	dataSchema           *prototk.StateSchema
 	snarkProver          signerapi.InMemorySigner
 	hasher               core.Hasher
-	events               struct {
-		mint               string
-		burn               string
-		transfer           string
-		transferWithEnc    string
-		withdraw           string
-		lock               string
-		identityRegistered string
-	}
+	events               zetoEventSigs
+	eventsV1             zetoEventSigs
 }
 
 type MintEvent struct {
@@ -113,20 +126,6 @@ type LockedEvent struct {
 type IdentityRegisteredEvent struct {
 	PublicKey []pldtypes.HexUint256 `json:"publicKey"`
 	Data      pldtypes.HexBytes     `json:"data"`
-}
-
-var factoryDeployABI = &abi.Entry{
-	Type: abi.Function,
-	Name: "deploy",
-	Inputs: abi.ParameterArray{
-		{Name: "transactionId", Type: "bytes32"},
-		{Name: "tokenName", Type: "string"},
-		{Name: "name", Type: "string"},
-		{Name: "symbol", Type: "string"},
-		{Name: "initialOwner", Type: "address"},
-		{Name: "data", Type: "bytes"},
-		{Name: "isNonFungible", Type: "bool"},
-	},
 }
 
 func New(callbacks plugintk.DomainCallbacks) *Zeto {
@@ -182,7 +181,8 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(events)
+	z.registerEventSignatures(zetoEventABISet(false), &z.events)
+	z.registerEventSignatures(zetoEventABISet(true), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
@@ -242,6 +242,27 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		return nil, i18n.NewError(ctx, msgs.MsgZetoV1SchemaRequired)
 	}
 
+	effectiveFV := z.config.FactoryVersion
+	if initParams.FactoryVersion != 0 {
+		if z.config.FactoryVersion != 0 && initParams.FactoryVersion != z.config.FactoryVersion {
+			return nil, i18n.NewError(ctx, msgs.MsgZetoFactoryVersionConflict, initParams.FactoryVersion, z.config.FactoryVersion)
+		}
+		effectiveFV = initParams.FactoryVersion
+	}
+	var factoryABI abi.ABI
+	switch effectiveFV {
+	case 0:
+		factoryABI = zetoFactoryBuildV0.ABI
+	case 1:
+		factoryABI = zetoFactoryBuildV1.ABI
+	default:
+		return nil, i18n.NewError(ctx, msgs.MsgUnsupportedZetoFactoryVersion, effectiveFV)
+	}
+	deployFn, err := pickZetoFactoryDeploy7Arg(factoryABI)
+	if err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidatePrepDeployParams, err.Error())
+	}
+
 	circuits, err := z.config.GetCircuitsForDeploy(ctx, initParams.TokenName, initParams.ZetoVariant, initParams.CircuitBundleId)
 	if err != nil {
 		return nil, i18n.NewError(ctx, msgs.MsgErrorFindCircuitId, err)
@@ -251,7 +272,7 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 		Circuits:        circuits,
 		TokenName:       initParams.TokenName,
 		ZetoVariant:     pldtypes.HexUint64(initParams.ZetoVariant),
-		FactoryVersion:  initParams.FactoryVersion,
+		FactoryVersion:  effectiveFV,
 		CircuitBundleId: initParams.CircuitBundleId,
 	}
 
@@ -280,7 +301,7 @@ func (z *Zeto) PrepareDeploy(ctx context.Context, req *prototk.PrepareDeployRequ
 	if err != nil {
 		return nil, err
 	}
-	functionJSON, err := json.Marshal(factoryDeployABI)
+	functionJSON, err := json.Marshal(deployFn)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +370,8 @@ func (z *Zeto) PrepareTransaction(ctx context.Context, req *prototk.PrepareTrans
 	return handler.Prepare(ctx, tx, req)
 }
 
-func (z *Zeto) GetHandler(method, tokenName string) types.DomainHandler {
+func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint64) types.DomainHandler {
+	_ = zetoVariant
 	if common.IsNonFungibleToken(tokenName) {
 		switch method {
 		case types.METHOD_MINT:
@@ -411,7 +433,7 @@ func (z *Zeto) validateDeployAndGetLogContext(ctx context.Context, txSpec *proto
 func validateTransactionCommon[T any](
 	ctx context.Context,
 	tx *prototk.TransactionSpecification,
-	getHandler func(method, tokenName string) T,
+	getHandler func(method, tokenName string, zetoVariant pldtypes.HexUint64) T,
 ) (*types.ParsedTransaction, T, error) {
 	var functionABI abi.Entry
 	err := json.Unmarshal([]byte(tx.FunctionAbiJson), &functionABI)
@@ -427,16 +449,16 @@ func validateTransactionCommon[T any](
 		return nil, zero, err
 	}
 
-	var abi *abi.Entry
+	var fnEntry *abi.Entry
 	if common.IsNonFungibleToken(domainConfig.TokenName) {
-		abi = types.ZetoNonFungibleABI.Functions()[functionABI.Name]
+		fnEntry = types.ZetoNonFungibleABI.Functions()[functionABI.Name]
 	} else {
-		abi = types.ZetoFungibleABI.Functions()[functionABI.Name]
+		fnEntry = types.ZetoFungibleFunctionForVariant(domainConfig.ZetoVariant, functionABI.Name)
 	}
 
-	handler := getHandler(functionABI.Name, domainConfig.TokenName)
+	handler := getHandler(functionABI.Name, domainConfig.TokenName, domainConfig.ZetoVariant)
 	handlerValue := reflect.ValueOf(handler)
-	if abi == nil || handlerValue.IsNil() {
+	if fnEntry == nil || handlerValue.IsNil() {
 		var zero T
 		return nil, zero, i18n.NewError(ctx, msgs.MsgUnknownFunction, functionABI.Name)
 	}
@@ -455,7 +477,7 @@ func validateTransactionCommon[T any](
 		return nil, zero, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, err)
 	}
 
-	signature := abi.SolString()
+	signature := fnEntry.SolString()
 	if tx.FunctionSignature != signature {
 		var zero T
 		return nil, zero, i18n.NewError(ctx, msgs.MsgUnexpectedFuncSignature, functionABI.Name, signature, tx.FunctionSignature)
@@ -512,25 +534,32 @@ func (z *Zeto) validateCall(ctx context.Context, call *prototk.TransactionSpecif
 	return validateTransactionCommon(
 		ctx,
 		call,
-		z.GetCallHandler,
+		func(m, tn string, _ pldtypes.HexUint64) types.DomainCallHandler {
+			return z.GetCallHandler(m, tn)
+		},
 	)
 }
 
-func (z *Zeto) registerEventSignatures(eventAbis abi.ABI) {
-	for _, event := range eventAbis.Events() {
+func (z *Zeto) registerEventSignatures(source abi.ABI, dest *zetoEventSigs) {
+	for _, event := range source {
+		if event.Type != abi.Event {
+			continue
+		}
 		switch event.Name {
 		case "UTXOMint":
-			z.events.mint = event.SolString()
+			dest.mint = event.SolString()
+		case "UTXOBurn":
+			dest.burn = event.SolString()
 		case "UTXOTransfer":
-			z.events.transfer = event.SolString()
+			dest.transfer = event.SolString()
 		case "UTXOTransferWithEncryptedValues":
-			z.events.transferWithEnc = event.SolString()
+			dest.transferWithEnc = event.SolString()
 		case "UTXOWithdraw":
-			z.events.withdraw = event.SolString()
+			dest.withdraw = event.SolString()
 		case "UTXOsLocked":
-			z.events.lock = event.SolString()
+			dest.lock = event.SolString()
 		case "IdentityRegistered":
-			z.events.identityRegistered = event.SolString()
+			dest.identityRegistered = event.SolString()
 		}
 	}
 }
@@ -577,17 +606,17 @@ func (z *Zeto) HandleEventBatch(ctx context.Context, req *prototk.HandleEventBat
 	for _, ev := range req.Events {
 		var err error
 		switch ev.SoliditySignature {
-		case z.events.mint:
+		case z.events.mint, z.eventsV1.mint:
 			err = z.handleMintEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.transfer:
+		case z.events.transfer, z.eventsV1.transfer:
 			err = z.handleTransferEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
 		case z.events.transferWithEnc:
 			err = z.handleTransferWithEncryptionEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.withdraw:
+		case z.events.withdraw, z.eventsV1.withdraw:
 			err = z.handleWithdrawEvent(ctx, smtForStates, ev, domainConfig.TokenName, &res)
-		case z.events.lock:
+		case z.events.lock, z.eventsV1.lock:
 			err = z.handleLockedEvent(ctx, smtForStates, smtForLockedStates, ev, domainConfig.TokenName, &res)
-		case z.events.identityRegistered:
+		case z.events.identityRegistered, z.eventsV1.identityRegistered:
 			err = z.handleIdentityRegisteredEvent(ctx, smtForKyc, ev, domainConfig.TokenName, &res)
 		}
 		if err != nil {
