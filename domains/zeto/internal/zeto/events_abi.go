@@ -17,10 +17,26 @@ package zeto
 
 import (
 	_ "embed"
+	"fmt"
 
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 )
+
+// zetoCoreABIVersion selects which embedded IZeto (core token) ABI drives merged event definitions.
+// Keep in sync with pkg/types ZetoVariantVx where core events track the fungible interface generation.
+type zetoCoreABIVersion uint8
+
+const (
+	zetoCoreABIVersionV0 zetoCoreABIVersion = 0
+	zetoCoreABIVersionV1 zetoCoreABIVersion = 1
+)
+
+// supportedZetoCoreABIVersions lists every generation merged into ConfigureDomain / dispatch maps.
+var supportedZetoCoreABIVersions = []zetoCoreABIVersion{
+	zetoCoreABIVersionV0,
+	zetoCoreABIVersionV1,
+}
 
 //go:embed abis/IZeto.json
 var zetoABIBytes []byte
@@ -44,22 +60,29 @@ func mergeZetoCoreEvents(core *solutils.SolidityBuild) abi.ABI {
 	return dedupEvents(events)
 }
 
-// zetoEventABISet returns merged events for one core interface generation (Phase B).
-func zetoEventABISet(useV1Core bool) abi.ABI {
-	var core []byte
-	if useV1Core {
-		core = zetoABIBytesV1
-	} else {
-		core = zetoABIBytes
+func zetoCoreABIBytes(v zetoCoreABIVersion) []byte {
+	switch v {
+	case zetoCoreABIVersionV0:
+		return zetoABIBytes
+	case zetoCoreABIVersionV1:
+		return zetoABIBytesV1
+	default:
+		panic(fmt.Sprintf("unsupported zeto core ABI version: %d", v))
 	}
+}
+
+// zetoEventABISet returns merged events for one core interface generation (Phase B).
+func zetoEventABISet(v zetoCoreABIVersion) abi.ABI {
+	core := zetoCoreABIBytes(v)
 	return mergeZetoCoreEvents(solutils.MustLoadBuild(core))
 }
 
 // getAllZetoEventAbis merges events from all supported generations for ConfigureDomain (Paladin ABI index).
 func getAllZetoEventAbis() abi.ABI {
 	var events abi.ABI
-	events = append(events, zetoEventABISet(false)...)
-	events = append(events, zetoEventABISet(true)...)
+	for _, v := range supportedZetoCoreABIVersions {
+		events = append(events, zetoEventABISet(v)...)
+	}
 	return dedupEvents(events)
 }
 

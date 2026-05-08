@@ -181,8 +181,8 @@ func (z *Zeto) ConfigureDomain(ctx context.Context, req *prototk.ConfigureDomain
 		return nil, i18n.NewError(ctx, msgs.MsgErrorMarshalZetoEventAbis, err)
 	}
 
-	z.registerEventSignatures(zetoEventABISet(false), &z.events)
-	z.registerEventSignatures(zetoEventABISet(true), &z.eventsV1)
+	z.registerEventSignatures(zetoEventABISet(zetoCoreABIVersionV0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(zetoCoreABIVersionV1), &z.eventsV1)
 
 	var signingAlgos map[string]int32
 	if config.SnarkProver.CircuitsDir != "" {
