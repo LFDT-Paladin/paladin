@@ -20,6 +20,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-resty/resty/v2"
@@ -111,7 +112,7 @@ type verifiersInfo struct {
 	BatchBurnVerifier     string `json:"batchBurnVerifier"`
 }
 
-func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, configFile string, controller string) *ZetoDomainContracts {
+func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, configFile string, controller string, zkpArtifactRoot string) *ZetoDomainContracts {
 	ctx := context.Background()
 	log.L(ctx).Infof("Deploy Zeto Contracts")
 
@@ -127,6 +128,12 @@ func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, con
 	err = yaml.Unmarshal(testZetoConfigYaml, &config)
 	require.NoError(t, err)
 
+	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
+	if zkpRoot == "" {
+		zkpRoot = EffectiveZetoZKArtifactRoot()
+	}
+	rewriteZetoDeployAbiPaths(&config, zkpRoot)
+
 	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, &config)
 	require.NoError(t, err)
 
@@ -134,6 +141,13 @@ func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, con
 	require.NoError(t, err)
 
 	return deployedContracts
+}
+
+func rewriteZetoDeployAbiPaths(config *ZetoDomainConfig, zkpRoot string) {
+	config.DomainContracts.Factory.AbiAndBytecode.Path = ResolveZetoImplementationAbiPath(config.DomainContracts.Factory.AbiAndBytecode.Path, zkpRoot)
+	for i := range config.DomainContracts.Implementations {
+		config.DomainContracts.Implementations[i].AbiAndBytecode.Path = ResolveZetoImplementationAbiPath(config.DomainContracts.Implementations[i].AbiAndBytecode.Path, zkpRoot)
+	}
 }
 
 func PrepareZetoConfig(t *testing.T, domainContracts *ZetoDomainContracts, zkpDir string) *zetotypes.DomainFactoryConfig {

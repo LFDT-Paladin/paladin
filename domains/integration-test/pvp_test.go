@@ -45,7 +45,15 @@ var (
 )
 
 func TestPvPSuite(t *testing.T) {
-	suite.Run(t, new(pvpTestSuite))
+	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
+		root := root
+		t.Run(root, func(t *testing.T) {
+			if !helpers.ZetoZKArtifactsRootPresent(root) {
+				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
+			}
+			suite.Run(t, &pvpTestSuite{zkpArtifactRoot: root})
+		})
+	}
 }
 
 type pvpTestSuite struct {
@@ -57,6 +65,7 @@ type pvpTestSuite struct {
 	atomFactoryAddress string
 	zetoContracts      *helpers.ZetoDomainContracts
 	zetoConfig         *zetotypes.DomainFactoryConfig
+	zkpArtifactRoot    string
 }
 
 func (s *pvpTestSuite) SetupSuite() {
@@ -81,8 +90,13 @@ func (s *pvpTestSuite) SetupSuite() {
 	s.atomFactoryAddress = contracts["atom"]
 
 	log.L(ctx).Infof("Deploying Zeto dependencies")
-	s.zetoContracts = helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, "./zeto/config-for-deploy.yaml", notary)
-	s.zetoConfig = helpers.PrepareZetoConfig(s.T(), s.zetoContracts, helpers.ZetoZKArtifactsDir("latest"))
+	zkpRoot := s.zkpArtifactRoot
+	if zkpRoot == "" {
+		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
+	}
+	log.L(ctx).Infof("Zeto ZKP artifact root = %s", zkpRoot)
+	s.zetoContracts = helpers.DeployZetoContracts(s.T(), s.hdWalletSeed, "./zeto/config-for-deploy.yaml", notary, zkpRoot)
+	s.zetoConfig = helpers.PrepareZetoConfig(s.T(), s.zetoContracts, helpers.ZetoZKArtifactsDir(zkpRoot))
 }
 
 func decodeTransactionResult(t *testing.T, resultInput map[string]any) *testbed.TransactionResult {
@@ -324,7 +338,7 @@ func (s *pvpTestSuite) TestNotoForZeto() {
 
 	log.L(ctx).Infof("Deploying Noto and Zeto")
 	noto := helpers.DeployNoto(ctx, t, rpc, s.notoDomainName, notary, nil)
-	zeto := helpers.DeployZetoFungible(ctx, t, rpc, s.zetoDomainName, notary, tokenName)
+	zeto := helpers.DeployZetoFungible(ctx, t, rpc, s.zetoDomainName, notary, tokenName, s.zkpArtifactRoot)
 	log.L(ctx).Infof("Noto deployed to %s", noto.Address)
 	log.L(ctx).Infof("Zeto deployed to %s", zeto.Address)
 

@@ -72,7 +72,7 @@ ext {
     zetoPrimaryVersionId = zetoVersions[0].id
     zetoPrimaryZkpRoot = zetoVersions[0].zkpRoot
     // Same as zetoPrimaryZkpRoot; kept for root build.gradle / examples that key paths by release tag.
-    zetoVersion = zetoPrimaryZkpRoot // sync with domains/integration-test/helpers/zeto_helper.go ZetoVersionLatest when running integration tests
+    zetoVersion = zetoPrimaryZkpRoot // sync with domains/integration-test/helpers/zeto_zkp_versions.go ZetoZKArtifactRootLatest when running integration tests
     zkpVersionRoot = "${zkpOut}/${zetoPrimaryZkpRoot}"
 }
 
@@ -195,6 +195,7 @@ task copySolidity(type: Copy, dependsOn: [protoc, ":solidity:compile", extractZe
     inputs.files(configurations.contractCompile)
     from fileTree(configurations.contractCompile.asPath) {
         include 'contracts/domains/zeto/ZetoFactory.sol/ZetoFactory.json'
+        include 'contracts/domains/zeto/ZetoFactoryV1.sol/ZetoFactoryV1.json'
     }
     from fileTree("${zkpVersionRoot}/artifacts/contracts") {
         include 'lib/interfaces/izeto.sol/IZeto.json'
@@ -222,6 +223,7 @@ zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
         from(tarTree("${toolsOut}/${variant.contractsFile}")) {
             include 'artifacts/contracts/lib/interfaces/IZeto.sol/IZeto.json'
             include 'artifacts/contracts/lib/interfaces/IZetoKyc.sol/IZetoKyc.json'
+            include 'artifacts/contracts/lib/interfaces/IZetoLockable.sol/IZetoLockable.json'
             include 'artifacts/contracts/lib/interfaces/IZetoLockableCapability.sol/IZetoLockableCapability.json'
         }
         eachFile { details ->
@@ -232,6 +234,9 @@ zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
                 case 'IZetoKyc.json':
                     details.relativePath = new RelativePath(true, "IZetoKyc${suf}.json")
                     break
+                case 'IZetoLockable.json':
+                    details.relativePath = new RelativePath(true, "IZetoLockable${suf}.json")
+                    break
                 case 'IZetoLockableCapability.json':
                     details.relativePath = new RelativePath(true, "IZetoLockableCapability${suf}.json")
                     break
@@ -240,40 +245,11 @@ zetoVersions.findAll { it.copyRenamedAbiArtifacts }.each { variant ->
             }
         }
     }
-
-    // task "copyZetoPkgSolidityAbi_${variant.id}"(type: Copy, dependsOn: [protoc]) {
-    //     dependsOn tasks.getByName("downloadZetoContracts_${variant.id}")
-    //     duplicatesStrategy = DuplicatesStrategy.FAIL
-    //     into "${projectDir}/pkg/types/abis"
-    //     includeEmptyDirs = false
-    //     def suf = variant.outputSuffix
-
-    //     from(tarTree("${toolsOut}/${variant.contractsFile}")) {
-    //         include 'artifacts/contracts/lib/zeto_fungible.sol/ZetoFungible.json'
-    //         include 'artifacts/contracts/lib/zeto_non_fungible.sol/ZetoNonFungible.json'
-    //     }
-    //     eachFile { details ->
-    //         switch (details.name) {
-    //             case 'ZetoFungible.json':
-    //                 details.relativePath = new RelativePath(true, "IZetoFungible${suf}.json")
-    //                 break
-    //             case 'ZetoNonFungible.json':
-    //                 details.relativePath = new RelativePath(true, "IZetoNonFungible${suf}.json")
-    //                 break
-    //             default:
-    //                 throw new GradleException("Unexpected file in zeto pkg Solidity ABI copy: ${details.name}")
-    //         }
-    //     }
-    // }
 }
 
 task copyZetoSolidityAbis {
     dependsOn zetoVersions.findAll { it.copyRenamedAbiArtifacts }.collect { tasks.getByName("copyZetoSolidityAbi_${it.id}") }
 }
-
-// task copyZetoPkgSolidityAbis {
-//     dependsOn zetoVersions.findAll { it.copyRenamedAbiArtifacts }.collect { tasks.getByName("copyZetoPkgSolidityAbi_${it.id}") }
-// }
 
 task extractZetoZkpVariants {
     dependsOn zetoVersions.collect { tasks.getByName("extractZetoZkp_${it.id}") }
@@ -301,7 +277,6 @@ task unitTests(type: Exec, dependsOn: [
         copySolidity,
         copyZetoSolidityAbis,
         copyPkgSolidity,
-        // copyZetoPkgSolidityAbis,
         ":domains:integration-test:copySolidity" // TODO: find a better way to share this
     ]) {
     inputs.files(configurations.toolkitGo)

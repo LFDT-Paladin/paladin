@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LFDT-Paladin/paladin/core/pkg/testbed"
@@ -32,32 +34,30 @@ import (
 	"github.com/LFDT-Paladin/paladin/sdk/go/pkg/solutils"
 	"github.com/hyperledger/firefly-signer/pkg/abi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed abis/SampleERC20.json
 var erc20ABI []byte
 
-//go:embed abis/Zeto_Anon.json
-var ZetoAnonABIJSON []byte
-
-//go:embed abis/Zeto_AnonNullifierKyc.json
-var ZetoAnonNullifierKycABIJSON []byte
-
 type ZetoHelper struct {
 	t       *testing.T
 	rpc     rpcclient.Client
 	Address *pldtypes.EthAddress
+	// implABI is the on-chain pool implementation ABI for public transactions (fungible helpers).
+	implABI abi.ABI
 }
 
-const ZetoVersionLatest = "v0.2.2"
+// ZetoVersionLatest is the default primary zkp tree (see ZetoZKArtifactRootLatest).
+const ZetoVersionLatest = ZetoZKArtifactRootLatest
 
-// ZetoVersionV050 matches domains/zeto/build.gradle zetoVersions zkpRoot for the LFDT v0.5.0 wasm + proving-keys extract.
-const ZetoVersionV050 = "v0.5.0"
+// ZetoVersionV050 is the LFDT zeto v0.5.0 extract root (see ZetoZKArtifactRootV050).
+const ZetoVersionV050 = ZetoZKArtifactRootV050
 
 // ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
 func ZetoZKArtifactsDir(version string) string {
-	if version == "latest" {
-		version = ZetoVersionLatest
+	if version == "" || strings.EqualFold(strings.TrimSpace(version), "latest") {
+		version = ZetoZKArtifactRootLatest
 	}
 	return filepath.Join("..", "zeto", "zkp", version)
 }
@@ -71,7 +71,17 @@ type ZetoHelperFungible struct {
 	ZetoHelper
 }
 
-func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName string) *ZetoHelperFungible {
+func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
+	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
+	if zkpRoot == "" {
+		zkpRoot = EffectiveZetoZKArtifactRoot()
+	}
+	abiPath := ResolveZetoImplementationAbiPath(filepath.Join(".", "helpers", "abis", tokenName+".json"), zkpRoot)
+	raw, err := os.ReadFile(abiPath)
+	require.NoError(t, err)
+	// ABI only — MustLoadBuild would require Poseidon (and other) library addresses from linkReferences.
+	implABI := solutils.MustParseBuildABI(raw)
+
 	var addr pldtypes.EthAddress
 	rpcerr := rpc.CallRPC(ctx, &addr, "testbed_deploy", domainName, controllerName, &types.InitializerParams{
 		TokenName: tokenName,
@@ -86,6 +96,7 @@ func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client,
 			t:       t,
 			rpc:     rpc,
 			Address: &addr,
+			implABI: implABI,
 		},
 	}
 }
@@ -111,7 +122,7 @@ func (z *ZetoHelperFungible) SetERC20(ctx context.Context, tb testbed.Testbed, s
 			Function: "setERC20",
 			Data:     paramsJson,
 		},
-		ABI: solutils.MustLoadBuild(ZetoAnonABIJSON).ABI,
+		ABI: z.implABI,
 	})
 	assert.NoError(z.t, err)
 }
@@ -174,7 +185,7 @@ func (z *ZetoHelper) SendTransferLocked(ctx context.Context, tb testbed.Testbed,
 			Function: "transferLocked",
 			Data:     result.PreparedTransaction.Data,
 		},
-		ABI: solutils.MustLoadBuild(ZetoAnonABIJSON).ABI,
+		ABI: z.implABI,
 	})
 	assert.NoError(z.t, err)
 }
@@ -202,7 +213,7 @@ func (z *ZetoHelper) DelegateLock(ctx context.Context, tb testbed.Testbed, locke
 			Function: "delegateLock",
 			Data:     txInputJson,
 		},
-		ABI: solutils.MustLoadBuild(ZetoAnonABIJSON).ABI,
+		ABI: z.implABI,
 	})
 	assert.NoError(z.t, err)
 }
