@@ -1,3 +1,15 @@
+// Event indexing (HandleEventBatch): legacy zeto-contracts ~v0.2.x pools emit UTXOsLocked and UTXOTransferWithEncryptedValues.
+// v0.5-style pools emit ZetoLockCreated / ZetoLockSpent / ZetoLockCancelled. UTXOTransferWithMlkemEncryptedValues is omitted until Paladin ships a token that uses ML-KEM transfers (see IZeto_V1 ABI).
+//
+// Nullifier (SMT) semantics: legacy UTXOsLocked records unlocked outputs in the main state SMT and locked outputs in a separate locked SMT.
+// For v0.5 ZetoLock* events, only unlocked outputs feed the nullifier SMT; locked outputs are tracked as locked UTXOs off-tree (spent directly without nullifiers). Locked inputs on spend/cancel events are not inserted into either SMT here.
+//
+// Spent and confirmed state IDs are derived from uint256 UTXO roots in events plus Paladin ZetoTransactionData_V0 in the data payload.
+// Generic LockCreated (bytes32 lockId) registry events are not UTXO state events and are ignored here.
+//
+// Token implementations exercised in CI-style integration coverage are listed in domains/integration-test/zeto_fungible_test.go
+// (Zeto_Anon, Zeto_AnonEnc, Zeto_AnonNullifier, Zeto_AnonNullifierKyc and batch variants) and domains/integration-test/zeto_nonfungible_test.go (Zeto_NfAnon).
+
 package zeto
 
 import (
@@ -126,6 +138,7 @@ func (z *Zeto) handleWithdrawEvent(ctx context.Context, smtTree *common.MerkleTr
 	return nil
 }
 
+// handleLockedEvent indexes legacy UTXOsLocked (~v0.2.x): nullifier tokens write unlocked outputs to the main SMT and locked outputs to the locked SMT.
 func (z *Zeto) handleLockedEvent(ctx context.Context, smtTree *common.MerkleTreeSpec, smtTreeForLocked *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse) error {
 	var lock LockedEvent
 	if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
@@ -150,6 +163,62 @@ func (z *Zeto) handleLockedEvent(ctx context.Context, smtTree *common.MerkleTree
 		}
 	} else {
 		log.L(ctx).Errorf("Failed to unmarshal lock event: %s", err)
+	}
+	return nil
+}
+
+// handleZetoLockCreatedEvent indexes ILockableCapability v0.5 lock creation.
+// Unlocked outputs participate in the nullifier SMT for nullifier tokens; locked outputs do not (they are locked UTXOs, not SMT leaves).
+func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse) error {
+	var lock ZetoLockCreatedEvent
+	if err := json.Unmarshal([]byte(ev.DataJson), &lock); err == nil {
+		txData, err := decodeTransactionData(ctx, lock.Data)
+		if err != nil || txData == nil {
+			log.L(ctx).Errorf("Failed to decode transaction data for lock event: %s. Skip to the next event", lock.Data)
+			return nil
+		}
+		z.recordTransactionInfo(ev, txData, res)
+		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)
+		if common.IsNullifiersToken(tokenName) {
+			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
+			// but spent directly with their commitment IDs
+			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, lock.Outputs)
+			if err != nil {
+				return i18n.NewError(ctx, msgs.MsgErrorUpdateSMT, "ZetoLockCreated", err)
+			}
+		}
+	} else {
+		log.L(ctx).Errorf("Failed to unmarshal ZetoLockCreated event: %s", err)
+	}
+	return nil
+}
+
+// handleZetoLockSpentLikeEvent indexes ZetoLockSpent / ZetoLockCancelled.
+// Only unlocked outputs are added to the nullifier SMT; locked inputs/outputs use direct locked-UTXO semantics (no locked SMT updates here).
+func (z *Zeto) handleZetoLockSpentLikeEvent(ctx context.Context, smtTree *common.MerkleTreeSpec, ev *prototk.OnChainEvent, tokenName string, res *prototk.HandleEventBatchResponse, eventName string) error {
+	var payload ZetoLockSpentLikeEvent
+	if err := json.Unmarshal([]byte(ev.DataJson), &payload); err == nil {
+		txData, err := decodeTransactionData(ctx, payload.Data)
+		if err != nil || txData == nil {
+			log.L(ctx).Errorf("Failed to decode transaction data for %s event: %s. Skip to the next event", eventName, payload.Data)
+			return nil
+		}
+		z.recordTransactionInfo(ev, txData, res)
+		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, payload.LockedInputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, payload.Outputs)...)
+		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, payload.LockedOutputs)...)
+		if common.IsNullifiersToken(tokenName) {
+			// the locked outputs are not added to the nullifier SMT, because they are not spent with nullifiers
+			// but spent directly with their commitment IDs
+			err := z.updateMerkleTree(ctx, smtTree.Tree, smtTree.Storage, txData.TransactionID, payload.Outputs)
+			if err != nil {
+				return i18n.NewError(ctx, msgs.MsgErrorUpdateSMT, eventName, err)
+			}
+		}
+	} else {
+		log.L(ctx).Errorf("Failed to unmarshal %s event: %s", eventName, err)
 	}
 	return nil
 }

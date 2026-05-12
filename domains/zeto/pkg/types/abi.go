@@ -53,6 +53,8 @@ const (
 	METHOD_TRANSFER        = "transfer"
 	METHOD_TRANSFER_LOCKED = "transferLocked"
 	METHOD_LOCK            = "lock"
+	METHOD_CREATE_LOCK     = "createLock"
+	METHOD_SPEND_LOCK      = "spendLock"
 	METHOD_DEPOSIT         = "deposit"
 	METHOD_WITHDRAW        = "withdraw"
 	METHOD_BALANCE_OF      = "balanceOf"
@@ -122,6 +124,21 @@ type NonFungibleTransferParamEntry struct {
 type LockParams struct {
 	Amount   *pldtypes.HexUint256 `json:"amount"`
 	Delegate *pldtypes.EthAddress `json:"delegate"`
+}
+
+// CreateLockParams is the Paladin JSON for IZetoFungibleV1.createLock (see ZetoFungibleABI_V1).
+// Amount and Delegate match legacy lock proving; opaque calldata bytes come from EncodeTransactionData in Prepare (expanded proof ABI).
+type CreateLockParams struct {
+	Amount   *pldtypes.HexUint256 `json:"amount"`
+	Delegate *pldtypes.EthAddress `json:"delegate"`
+}
+
+// SpendLockParams is the Paladin JSON for IZetoFungibleV1.spendLock (recipients match on-chain TransferParam[]).
+type SpendLockParams struct {
+	LockId       pldtypes.Bytes32              `json:"lockId"`
+	LockedInputs []*pldtypes.HexUint256        `json:"lockedInputs"`
+	Delegate     string                        `json:"delegate"`
+	Recipients   []*FungibleTransferParamEntry `json:"recipients"`
 }
 
 type DepositParams struct {

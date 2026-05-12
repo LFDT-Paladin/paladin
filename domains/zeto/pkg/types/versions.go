@@ -40,6 +40,13 @@ const (
 	ZetoFungibleV1ABI ZetoFungibleABIVersion = 1
 )
 
+// UseZetoOnchainPackedProofCalldata is true when the target Zeto fungible token expects `transfer` / `deposit` / `withdraw`
+// calldata with a single ABI-encoded `bytes proof` blob (Groth16 struct, optionally prefixed by root or encryption metadata),
+// as implemented in upstream zeto solidity (~v0.5.x). V0 Paladin configs keep discrete proof tuple + public fields in Prepare.
+func UseZetoOnchainPackedProofCalldata(zetoVariant ZetoFungibleABIVersion) bool {
+	return zetoVariant != ZetoFungibleV0ABI
+}
+
 // ZetoTargetContractABIVersion selects internal/zeto/abis/IZeto*.json for core token interface shape (events, etc.).
 type ZetoTargetContractABIVersion uint8
 

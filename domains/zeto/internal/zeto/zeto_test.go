@@ -571,14 +571,8 @@ func newTestZeto() (*Zeto, *domain.MockDomainCallbacks) {
 	z.dataSchema = &pb.StateSchema{
 		Id: "data",
 	}
-	z.events.mint = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.burn = "event UTXOBurn(uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.transfer = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
-	z.events.transferWithEnc = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
-	z.events.withdraw = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
-	z.events.lock = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
-	z.events.identityRegistered = "event IdentityRegistered(uint256[] publicKey, bytes data)"
-	z.eventsV1 = z.events
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V0), &z.events)
+	z.registerEventSignatures(zetoEventABISet(types.ZetoTargetContractABI_V1), &z.eventsV1)
 	return z, testCallbacks
 }
 
@@ -592,7 +586,7 @@ func TestHandleEventBatch(t *testing.T) {
 		Events: []*pb.OnChainEvent{
 			{
 				DataJson:          "bad data",
-				SoliditySignature: "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)",
+				SoliditySignature: z.events.mint,
 			},
 		},
 		ContractInfo: &pb.ContractInfo{
@@ -621,12 +615,12 @@ func TestHandleEventBatch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, res1.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransfer(uint256[] inputs, uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transfer
 	res2, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res2.TransactionsComplete, 0)
 
-	req.Events[0].SoliditySignature = "event UTXOTransferWithEncryptedValues(uint256[] inputs, uint256[] outputs, uint256 encryptionNonce, uint256[2] ecdhPublicKey, uint256[] encryptedValues, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.transferWithEnc
 	res3, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res3.TransactionsComplete, 0)
@@ -642,7 +636,7 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOMint(uint256[] outputs, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.mint
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.ErrorContains(t, err, "PD210020: Failed to handle events (failures=1). [0]PD210061: Failed to update merkle tree for the UTXOMint event. PD021205: Failed to create new node index from hash. 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
@@ -663,11 +657,11 @@ func TestHandleEventBatch(t *testing.T) {
 		"submitter": "0x74e71b05854ee819cb9397be01c82570a178d019",
 	})
 	req.Events[0].DataJson = string(data)
-	req.Events[0].SoliditySignature = "event UTXOWithdraw(uint256 amount, uint256[] inputs, uint256 output, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.withdraw
 	_, err = z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 
-	req.Events[0].SoliditySignature = "event UTXOsLocked(uint256[] inputs, uint256[] outputs, uint256[] lockedOutputs, address indexed delegate, address indexed submitter, bytes data)"
+	req.Events[0].SoliditySignature = z.events.lock
 	res5, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res5.TransactionsComplete, 1)
@@ -676,7 +670,7 @@ func TestHandleEventBatch(t *testing.T) {
 		"circuitId": "anon_nullifier_kyc_transfer",
 		"tokenName": "Zeto_AnonNullifierKYC",
 	}).Pretty()
-	req.Events[0].SoliditySignature = "event IdentityRegistered(uint256[] publicKey, bytes data)"
+	req.Events[0].SoliditySignature = z.events.identityRegistered
 	res6, err := z.HandleEventBatch(ctx, req)
 	assert.NoError(t, err)
 	assert.Len(t, res6.TransactionsComplete, 0)
@@ -883,26 +877,33 @@ func TestGetHandler(t *testing.T) {
 		name        string
 		action      string
 		tokenName   string
+		variant     pldtypes.HexUint64
 		expectedNil bool
 	}{
 		// Tests for TOKEN_ANON
-		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, false},
-		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, false},
-		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, false},
-		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, false},
-		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, false},
-		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, false},
-		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, true},
+		{"Valid mint handler for TOKEN_ANON", "mint", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid transfer handler for TOKEN_ANON", "transfer", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid transferLocked handler for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid lock handler for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid deposit handler for TOKEN_ANON", "deposit", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Valid withdraw handler for TOKEN_ANON", "withdraw", constants.TOKEN_ANON, types.ZetoVariantV0, false},
+		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV1, true},
+		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV1, true},
 
 		// Tests for TOKEN_NF_ANON
-		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, false},
-		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, false},
-		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, true},
+		{"Valid mint handler for TOKEN_NF_ANON", "mint", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
+		{"Valid transfer handler for TOKEN_NF_ANON", "transfer", constants.TOKEN_NF_ANON, types.ZetoVariantV0, false},
+		{"Invalid handler for TOKEN_NF_ANON", "bad", constants.TOKEN_NF_ANON, types.ZetoVariantV0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := z.GetHandler(tt.action, tt.tokenName, types.ZetoVariantV0)
+			handler := z.GetHandler(tt.action, tt.tokenName, tt.variant)
 			if tt.expectedNil {
 				assert.Nil(t, handler)
 			} else {
