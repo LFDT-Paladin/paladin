@@ -609,9 +609,10 @@ func TestConfirmedRevertedEvent_Fields(t *testing.T) {
 			},
 			TransactionID: txID,
 		},
-		Nonce:        &nonce,
-		Hash:         hash,
-		RevertReason: revertReason,
+		Nonce:               &nonce,
+		Hash:                hash,
+		RevertReason:        revertReason,
+		ObservedRevertCount: 2,
 	}
 
 	assert.Equal(t, txID, event.GetTransactionID())
@@ -619,6 +620,7 @@ func TestConfirmedRevertedEvent_Fields(t *testing.T) {
 	assert.Equal(t, uint64(42), event.Nonce.Uint64())
 	assert.Equal(t, hash, event.Hash)
 	assert.Equal(t, revertReason, event.RevertReason)
+	assert.Equal(t, 2, event.ObservedRevertCount)
 }
 
 func TestDependencySelectedForAssemblyEvent_Type(t *testing.T) {
