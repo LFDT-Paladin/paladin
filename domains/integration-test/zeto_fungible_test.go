@@ -37,7 +37,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestFungibleZetoDomainTestSuite(t *testing.T) {
+func TestFungibleZetoSuite(t *testing.T) {
 	contractsFile = "./zeto/config-for-deploy-fungible.yaml"
 	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
 		root := root

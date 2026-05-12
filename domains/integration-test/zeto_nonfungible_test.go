@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func TestNonFungibleZetoDomainTestSuite(t *testing.T) {
+func TestNonFungibleZetoSuite(t *testing.T) {
 	contractsFile = "./zeto/config-for-deploy-non-fungible.yaml"
 	for _, root := range helpers.ZetoZKArtifactRootsForTestRun() {
 		root := root
