@@ -16,7 +16,7 @@ contract LockSettler is
     ILockSettler
 {
     Status public status;
-    LockEntry[] private _lockEntries;
+    LockEntry[] private _locks;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -25,14 +25,14 @@ contract LockSettler is
 
     /**
      * Initialize the LockSettler with a list of lock entries.
-     * @param lockEntries The locks to spend or cancel atomically
+     * @param locks The locks to spend or cancel atomically
      */
-    function initialize(LockEntry[] memory lockEntries) external initializer {
+    function initialize(LockEntry[] memory locks) external initializer {
         __ReentrancyGuard_init();
         status = Status.Pending;
 
-        for (uint256 i = 0; i < lockEntries.length; i++) {
-            _lockEntries.push(lockEntries[i]);
+        for (uint256 i = 0; i < locks.length; i++) {
+            _locks.push(locks[i]);
         }
 
         emit LockSettlerStatusChanged(status);
@@ -47,8 +47,8 @@ contract LockSettler is
             revert LockSettlerNotPending();
         }
 
-        for (uint256 i = 0; i < _lockEntries.length; i++) {
-            LockEntry storage entry = _lockEntries[i];
+        for (uint256 i = 0; i < _locks.length; i++) {
+            LockEntry storage entry = _locks[i];
             ILockableCapability(entry.contractAddress).spendLock(
                 entry.lockId,
                 entry.spendInputs,
@@ -70,8 +70,8 @@ contract LockSettler is
             revert LockSettlerNotPending();
         }
 
-        for (uint256 i = 0; i < _lockEntries.length; i++) {
-            LockEntry storage entry = _lockEntries[i];
+        for (uint256 i = 0; i < _locks.length; i++) {
+            LockEntry storage entry = _locks[i];
             (bool success, ) = entry.contractAddress.call(
                 abi.encodeCall(
                     ILockableCapability.cancelLock,
@@ -100,9 +100,9 @@ contract LockSettler is
             revert LockSettlerNotPending();
         }
 
-        CallResult[] memory results = new CallResult[](_lockEntries.length);
-        for (uint256 i = 0; i < _lockEntries.length; i++) {
-            LockEntry storage entry = _lockEntries[i];
+        CallResult[] memory results = new CallResult[](_locks.length);
+        for (uint256 i = 0; i < _locks.length; i++) {
+            LockEntry storage entry = _locks[i];
             (results[i].success, results[i].returnData) = entry
                 .contractAddress
                 .call(
@@ -116,14 +116,14 @@ contract LockSettler is
     }
 
     function getLockCount() external view returns (uint256) {
-        return _lockEntries.length;
+        return _locks.length;
     }
 
     function getLock(uint256 n) external view returns (LockEntry memory) {
-        return _lockEntries[n];
+        return _locks[n];
     }
 
     function getLocks() external view returns (LockEntry[] memory) {
-        return _lockEntries;
+        return _locks;
     }
 }

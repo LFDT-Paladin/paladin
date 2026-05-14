@@ -4,5 +4,5 @@ pragma solidity ^0.8.20;
 import {ILockSettler} from "./ILockSettler.sol";
 
 interface ILockSettlerFactory {
-    function create(ILockSettler.LockEntry[] calldata lockEntries) external;
+    function create(ILockSettler.LockEntry[] calldata locks) external;
 }

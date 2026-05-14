@@ -36,11 +36,11 @@ contract LockSettlerFactory is
 
     /**
      * @dev Create a new LockSettler instance by cloning the logic contract.
-     * @param lockEntries The locks to spend or cancel atomically.
+     * @param locks The locks to spend or cancel atomically.
      */
-    function create(LockSettler.LockEntry[] calldata lockEntries) public {
+    function create(LockSettler.LockEntry[] calldata locks) public {
         address instance = Clones.clone(logic);
-        LockSettler(instance).initialize(lockEntries);
+        LockSettler(instance).initialize(locks);
         emit LockSettlerDeployed(instance);
     }
 
