@@ -347,7 +347,7 @@ func TestCoordinator_MaxInflightTransactions(t *testing.T) {
 			require.NoError(t, err)
 		} else {
 			require.Error(t, err)
-			require.ErrorContains(t, err, "PD012642")
+			require.ErrorContains(t, err, "PD012640")
 		}
 	}
 }
