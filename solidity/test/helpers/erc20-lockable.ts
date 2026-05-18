@@ -5,6 +5,10 @@ import type { ERC20Lockable } from "../../typechain-types";
 export const ERC20_CREATE_LOCK_INPUTS_TYPE =
   "tuple(uint256 amount, address recipient)";
 
+// ERC-8074 type string — must match ERC20Lockable.ERC20LockContentType
+export const ERC20_LOCK_CONTENT_TYPE =
+  "ERC20LockContent(uint256 amount,address recipient)";
+
 export function encodeCreateLockInputs(
   amount: bigint,
   recipient: string,

@@ -27,6 +27,13 @@ contract ERC20Lockable is ERC20, ERC20Burnable, Ownable, ILockableCapability {
         bool active;
     }
 
+    // ERC-8074 type selector for the bytes returned by getLockContent.
+    // bytes4(keccak256("ERC20LockContent(uint256 amount,address recipient)"))
+    string public constant ERC20LockContentType =
+        "ERC20LockContent(uint256 amount,address recipient)";
+    bytes4 public constant ERC20LockContentSelector =
+        bytes4(keccak256(bytes(ERC20LockContentType)));
+
     mapping(bytes32 => TokenLock) private _locks;
     mapping(address => uint256) private _lockedBalances;
     uint256 private _lockCounter;
@@ -242,7 +249,7 @@ contract ERC20Lockable is ERC20, ERC20Burnable, Ownable, ILockableCapability {
     ) external view returns (bytes memory) {
         TokenLock storage lock = _locks[lockId];
         require(lock.active, LockNotActive(lockId));
-        return abi.encode(lock.content);
+        return bytes.concat(ERC20LockContentSelector, abi.encode(lock.content));
     }
 
     /**
