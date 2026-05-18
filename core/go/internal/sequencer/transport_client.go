@@ -84,7 +84,7 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, i18n.WrapError(ctx, err, msgs.MsgSequencerParseFailed))
+	log.L(ctx).Errorf("<< ERROR unmarshalling proto message %s from %s: %s", message.MessageType, message.FromNode, err)
 }
 
 func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Context, message *components.ReceivedMessage, field string) {
