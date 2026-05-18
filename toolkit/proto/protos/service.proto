@@ -75,6 +75,7 @@ message DomainMessage {
     WrapPrivacyGroupEVMTXRequest       wrap_privacy_group_evmtx =        1190;
     CheckStateCompletionRequest        check_state_completion =          1200;
     IsBaseLedgerRevertRetryableRequest is_base_ledger_revert_retryable = 1210;
+    InvokeRPCRequest                   invoke_rpc =                      1220;
   }
 
   oneof response_from_domain {
@@ -99,6 +100,7 @@ message DomainMessage {
     WrapPrivacyGroupEVMTXResponse       wrap_privacy_group_evmtx_res =        1191;
     CheckStateCompletionResponse        check_state_completion_res =          1201;
     IsBaseLedgerRevertRetryableResponse is_base_ledger_revert_retryable_res = 1211;
+    InvokeRPCResponse                   invoke_rpc_res =                      1221;
   }
 
   // Request/reply exchanges initiated by the domain, to the paladin node
