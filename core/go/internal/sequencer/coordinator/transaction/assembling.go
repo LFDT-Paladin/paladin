@@ -55,7 +55,7 @@ func (t *coordinatorTransaction) applyPostAssembly(ctx context.Context, postAsse
 	t.clearTimeoutSchedules()
 
 	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_REVERT {
-		t.revertTransactionFailedAssembly(ctx, *postAssembly.RevertReason)
+		t.revertTransactionFailedAssembly(ctx, i18n.ExpandWithCode(ctx, i18n.MessageKey(msgs.MsgSequencerAssembleRevert), *postAssembly.RevertReason))
 		return nil
 	}
 	if t.pt.PostAssembly.AssemblyResult == prototk.AssembleTransactionResponse_PARK {
