@@ -40,8 +40,7 @@ func action_Dispatch(ctx context.Context, t *coordinatorTransaction, _ common.Ev
 // Dispatch runs the full dispatch flow: prepare, build batch, state distributions, nullifiers, persist, chained transactions.
 func (t *coordinatorTransaction) dispatch(ctx context.Context) error {
 	if err := t.domainAPI.PrepareTransaction(t.dCtx, t.components.Persistence().NOTX(), t.pt); err != nil {
-		log.L(ctx).Errorf("error preparing transaction %s: %s", t.pt.ID, err)
-		return err
+		return i18n.WrapError(ctx, err, msgs.MsgSequencerPrepareError, err)
 	}
 
 	dispatchBatch, err := t.buildDispatchBatch(ctx)
@@ -179,8 +178,7 @@ func (t *coordinatorTransaction) buildPublicTxSubmission(ctx context.Context) (*
 	}
 	resolvedAddr, err := t.components.KeyManager().ResolveEthAddressNewDatabaseTX(ctx, unqualifiedSigner)
 	if err != nil {
-		log.L(ctx).Errorf("failed to resolve signers for public transactions: %s", err)
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveDispatchError, err)
 	}
 	log.L(ctx).Debugf("DispatchTransactions: creating PublicTxSubmission from %s", t.pt.Signer)
 	publicTx := t.pt.PreparedPublicTransaction

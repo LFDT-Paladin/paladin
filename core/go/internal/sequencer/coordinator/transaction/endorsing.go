@@ -17,8 +17,10 @@ package transaction
 import (
 	"context"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/toolkit/pkg/prototk"
 	"github.com/google/uuid"
@@ -164,9 +166,9 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 		toEndorsableList(t.pt.PostAssembly.InfoStates),
 	)
 	if err != nil {
-		log.L(ctx).Errorf("failed to send endorsement request to party %s: %s", party, err)
+		return i18n.WrapError(ctx, err, msgs.MsgSequencerEndorsementRequestError, party, err)
 	}
-	return err
+	return nil
 }
 
 func toEndorsableList(states []*components.FullState) []*prototk.EndorsableState {

@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LFDT-Paladin/paladin/common/go/pkg/i18n"
 	"github.com/LFDT-Paladin/paladin/common/go/pkg/log"
 	"github.com/LFDT-Paladin/paladin/core/internal/components"
+	"github.com/LFDT-Paladin/paladin/core/internal/msgs"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/common"
 	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator"
 	coordTransaction "github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/transaction"
@@ -77,12 +79,12 @@ func (sMgr *sequencerManager) HandlePaladinMsg(ctx context.Context, message *com
 	case transport.MessageType_TransactionUnknown:
 		go sMgr.handleTransactionUnknown(sMgr.ctx, message)
 	default:
-		log.L(ctx).Errorf("Unknown message type: %s", message.MessageType)
+		log.L(ctx).Errorf("%s: %s", i18n.NewError(ctx, msgs.MsgSequencerInvalidMessage), message.MessageType)
 	}
 }
 
 func (sMgr *sequencerManager) logPaladinMessageUnmarshalError(ctx context.Context, message *components.ReceivedMessage, err error) {
-	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, err)
+	log.L(ctx).Errorf("<< ERROR unmarshalling proto message%s from %s: %s", message.MessageType, message.FromNode, i18n.WrapError(ctx, err, msgs.MsgSequencerParseFailed))
 }
 
 func (sMgr *sequencerManager) logPaladinMessageFieldMissingError(ctx context.Context, message *components.ReceivedMessage, field string) {

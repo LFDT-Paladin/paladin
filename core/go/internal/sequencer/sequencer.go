@@ -284,7 +284,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 
 	err := domain.PrepareDeploy(ctx, tx)
 	if err != nil {
-		return sMgr.revertDeploy(ctx, tx, err)
+		return sMgr.revertDeploy(ctx, tx, i18n.WrapError(ctx, err, msgs.MsgSequencerDeployPrepareFailed))
 	}
 
 	publicTransactionEngine := sMgr.components.PublicTxManager()
@@ -328,7 +328,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 		// TODO
 		return sMgr.revertDeploy(ctx, tx, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "deployTransaction not implemented"))
 	} else {
-		return sMgr.revertDeploy(ctx, tx, i18n.NewError(ctx, msgs.MsgSequencerInternalError, "neither InvokeTransaction nor DeployTransaction set"))
+		return sMgr.revertDeploy(ctx, tx, i18n.NewError(ctx, msgs.MsgSequencerDeployPrepareIncomplete))
 	}
 
 	for _, pubTx := range publicTXs {

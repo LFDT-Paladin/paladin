@@ -156,7 +156,7 @@ func (e *engineIntegration) AssembleAndSign(ctx context.Context, transactionID u
 			v.VerifierType,
 		)
 		if err != nil {
-			return nil, err
+			return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveVerifierRemoteFailed, v.Lookup, v.Algorithm, err)
 		}
 		preAssembly.Verifiers = append(preAssembly.Verifiers, &prototk.ResolvedVerifier{
 			Lookup:       v.Lookup,
@@ -219,8 +219,7 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 	log.L(ctx).Debugf("Assembling transaction: %+v", transaction)
 	err = e.domainSmartContract.AssembleTransaction(domainContext, e.components.Persistence().NOTX(), transaction, localTx)
 	if err != nil {
-		log.L(ctx).Errorf("error assembling transaction: %s", err)
-		return nil, err
+		return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerAssembleError, err)
 	}
 	if transaction.PostAssembly == nil {
 		// This is most likely a programming error in the domain
