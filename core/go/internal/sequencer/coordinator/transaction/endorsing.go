@@ -166,7 +166,7 @@ func (t *coordinatorTransaction) requestEndorsement(ctx context.Context, idempot
 		toEndorsableList(t.pt.PostAssembly.InfoStates),
 	)
 	if err != nil {
-		log.L(ctx).Errorf(i18n.WrapError(ctx, err, msgs.MsgSequencerEndorsementRequestError, party, err).Error())
+		log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerEndorsementRequestError, party, err))
 	}
 	return nil
 }
