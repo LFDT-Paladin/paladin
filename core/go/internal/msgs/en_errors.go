@@ -536,6 +536,15 @@ var (
 	MsgSequencerMessageFieldMissing                = pde("PD012654", "Field %s missing from proto message %s received from %s")
 	MsgSequencerJSONUnmarshalError                 = pde("PD012655", "Failed to unmarshal JSON object %s from proto message %s received from %s: %s")
 	MsgSequencerContractAddressParseError          = pde("PD012656", "Failed to parse contract address from proto message %s received from %s: %s")
+	MsgSequencerQueryPendingTxError                = pde("PD012657", "Failed to query pending transactions to resume: %s")
+	MsgSequencerResumePendingTxError               = pde("PD012658", "Failed to resume pending transaction %s: %s")
+	MsgSequencerDeployEvaluationError              = pde("PD012659", "Failed to evaluate deployment: %s")
+	MsgSequencerPersistBatchError                  = pde("PD012660", "Failed to persist dispatch batch: %s")
+	MsgSequencerFinalizeDeployError                = pde("PD012661", "Failed to finalize deployment: %s")
+	MsgSequencerUnexpectedReceiptType              = pde("PD012662", "Unexpected receipt type %d for transaction %s")
+	MsgSequencerGetPublicTxError                   = pde("PD012663", "Failed to get public transaction by ID: %s")
+	MsgSequencerHandleConfirmedEventError          = pde("PD012664", "Failed to handle transaction confirmed event: %s")
+	MsgSequencerChainedRecordCheckError            = pde("PD012665", "Failed to check chained records for transaction %s: %s")
 
 	// Entrypoint PD0127XX
 	MsgResolveVerifierRemoteFailed = pde("PD012701", "Failed to resolve verifier on remote node with lookup %s algorithm %s: Error %s")

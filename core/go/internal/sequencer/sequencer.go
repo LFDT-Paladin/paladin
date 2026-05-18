@@ -192,7 +192,7 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 
 		pendingTx, err := sMgr.components.TxManager().QueryTransactionsResolved(ctx, q, sMgr.components.Persistence().NOTX(), true)
 		if err != nil {
-			log.L(ctx).Errorf("Error querying pending transactions to resume incomplete ones: %s", err)
+			log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerQueryPendingTxError, err))
 			break
 		}
 
@@ -203,7 +203,7 @@ func (sMgr *sequencerManager) resumeIncompleteTransactions(ctx context.Context) 
 				ResolvedTransaction: *tx,
 			})
 			if err != nil {
-				log.L(ctx).Errorf("Error resuming pending transaction %s: %s", tx.Transaction.ID, err)
+				log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerResumePendingTxError, tx.Transaction.ID, err))
 			}
 		}
 		if len(pendingTx) > 0 {
@@ -270,7 +270,7 @@ func (sMgr *sequencerManager) deploymentLoop(ctx context.Context, domain compone
 		err = sMgr.evaluateDeployment(ctx, domain, tx)
 	}
 	if err != nil {
-		log.L(ctx).Errorf("error evaluating deployment: %s", err)
+		log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerDeployEvaluationError, err))
 		return
 	}
 
@@ -356,7 +356,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 	// as this is a deploy we specify the null address
 	err = sMgr.syncPoints.PersistDeployDispatchBatch(ctx, tx.ID, dispatchBatch)
 	if err != nil {
-		log.L(ctx).Errorf("error persisting batch: %s", err)
+		log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerPersistBatchError, err))
 		return sMgr.revertDeploy(ctx, tx, err)
 	}
 
@@ -379,7 +379,7 @@ func (sMgr *sequencerManager) revertDeploy(ctx context.Context, tx *components.P
 				log.L(ctx).Debugf("finalized deployment transaction: %s", tx.ID)
 			},
 			func(ctx context.Context, err error) {
-				log.L(ctx).Errorf("error finalizing deployment: %s", err)
+				log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerFinalizeDeployError, err))
 				tryFinalize()
 			})
 	}
@@ -736,7 +736,7 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 
 	sequencer, err := sMgr.GetSequencer(ctx, contractAddress)
 	if err != nil {
-		log.L(ctx).Errorf("HandleChainedTransactionOutcome: error getting sequencer for %s: %s", contractAddress, err)
+		log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerLoadSequencerError, contractAddress, err))
 		return
 	}
 	if sequencer == nil {
@@ -779,7 +779,7 @@ func (sMgr *sequencerManager) HandleChainedTransactionOutcome(ctx context.Contex
 			FailureMessage: failureMessage,
 		})
 	default:
-		log.L(ctx).Errorf("HandleChainedTransactionOutcome: unexpected receipt type %d for txID=%s", receiptType, txID)
+		log.L(ctx).Errorf("%s", i18n.NewError(ctx, msgs.MsgSequencerUnexpectedReceiptType, receiptType, txID))
 	}
 }
 
@@ -916,7 +916,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 	for _, completion := range completions {
 		pubBindingTx, err := publicTxManager.QueryPublicTxForTransactions(ctx, persistence.NOTX(), []uuid.UUID{completion.TransactionID}, nil)
 		if err != nil {
-			log.L(ctx).Errorf("Error getting public transaction by ID: %s", err)
+			log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerGetPublicTxError, err))
 			continue
 		}
 
@@ -931,7 +931,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 					err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, publicTx.Nonce)
 					if err != nil {
 						// Log but continue confirming other transactions
-						log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+						log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerHandleConfirmedEventError, err))
 					}
 				}
 			}
@@ -951,7 +951,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 					Count(&chainedCount).
 					Error
 				if err != nil {
-					log.L(ctx).Errorf("Error checking chained records for transaction %s: %s", completion.TransactionID, err)
+					log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerChainedRecordCheckError, completion.TransactionID, err))
 					continue
 				}
 				if chainedCount == 0 {
@@ -963,7 +963,7 @@ func (sMgr *sequencerManager) PrivateTransactionsConfirmed(ctx context.Context, 
 			err = sMgr.handleTransactionConfirmedSuccess(ctx, completion, nil)
 			if err != nil {
 				// Log but continue confirming other transactions
-				log.L(ctx).Errorf("Error handling transaction confirmed event: %s", err)
+				log.L(ctx).Errorf("%s", i18n.WrapError(ctx, err, msgs.MsgSequencerHandleConfirmedEventError, err))
 			}
 		}
 	}
