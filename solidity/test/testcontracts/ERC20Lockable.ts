@@ -6,6 +6,7 @@ import {
   createTokenLock,
   encodeCreateLockInputs,
   ERC20_CREATE_LOCK_INPUTS_TYPE,
+  ERC20_LOCK_CONTENT_TYPE,
 } from "../helpers/erc20-lockable";
 
 describe("ERC20Lockable", function () {
@@ -89,9 +90,11 @@ describe("ERC20Lockable", function () {
       expect(lockInfo.spender).to.equal(aliceAddress);
 
       const content = await token.getLockContent(lockId);
+      const expectedSelector = ethers.id(ERC20_LOCK_CONTENT_TYPE).slice(0, 10);
+      expect(content.slice(0, 10)).to.equal(expectedSelector);
       const [inputs] = ethers.AbiCoder.defaultAbiCoder().decode(
         [ERC20_CREATE_LOCK_INPUTS_TYPE],
-        content,
+        "0x" + content.slice(10),
       );
       expect(inputs.amount).to.equal(amount);
       expect(inputs.recipient).to.equal(bobAddress);
