@@ -258,13 +258,13 @@ func (e *engineIntegration) assembleAndSign(ctx context.Context, transactionID u
 					resolvedKey, err := keyMgr.ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, attRequest.Algorithm, attRequest.VerifierType)
 					if err != nil {
 						log.L(ctx).Errorf("failed to resolve local signer for %s (algorithm=%s): %s", unqualifiedLookup, attRequest.Algorithm, err)
-						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveError, unqualifiedLookup, attRequest.Algorithm)
+						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerResolveError, unqualifiedLookup, attRequest.VerifierType, attRequest.Algorithm, err)
 					}
 
 					signaturePayload, err := keyMgr.Sign(ctx, resolvedKey, attRequest.PayloadType, attRequest.Payload)
 					if err != nil {
 						log.L(ctx).Errorf("failed to sign for party %s (verifier=%s,algorithm=%s): %s", unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm, err)
-						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerSignError, unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm)
+						return nil, i18n.WrapError(ctx, err, msgs.MsgSequencerSignError, unqualifiedLookup, resolvedKey.Verifier.Verifier, attRequest.Algorithm, err)
 					}
 					log.L(ctx).Debugf("payload: %x signed %x by %s (%s)", attRequest.Payload, signaturePayload, unqualifiedLookup, resolvedKey.Verifier.Verifier)
 

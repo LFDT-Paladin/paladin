@@ -171,7 +171,7 @@ func (sMgr *sequencerManager) loadSequencer(ctx context.Context, dbTX persistenc
 			}
 
 			if domainAPI == nil {
-				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "No domain provided to create sequencer for contract %s", contractAddr.String())
+				err := i18n.NewError(ctx, msgs.MsgSequencerInternalError, "No domain provided to create sequencer for contract "+contractAddr.String())
 				log.L(ctx).Error(err)
 				return nil, err
 			}

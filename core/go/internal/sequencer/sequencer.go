@@ -319,7 +319,7 @@ func (sMgr *sequencerManager) evaluateDeployment(ctx context.Context, domain com
 
 		data, err := tx.InvokeTransaction.FunctionABI.EncodeCallDataCtx(ctx, tx.InvokeTransaction.Inputs)
 		if err != nil {
-			return sMgr.revertDeploy(ctx, tx, i18n.WrapError(ctx, err, msgs.MsgSequencerEncodeCallDataFailed))
+			return sMgr.revertDeploy(ctx, tx, i18n.WrapError(ctx, err, msgs.MsgSequencerEncodeCallDataFailed, tx.InvokeTransaction.Inputs))
 		}
 		publicTXs[0].Data = pldtypes.HexBytes(data)
 		publicTXs[0].To = &tx.InvokeTransaction.To
@@ -792,7 +792,7 @@ func (sMgr *sequencerManager) HandleDirectTransactionRevert(ctx context.Context,
 		contractAddress := tx.To
 
 		if tx.From == nil {
-			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction %s", tx.TransactionID)
+			return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "nil From address for confirmed transaction "+tx.TransactionID.String())
 		}
 
 		nonceVal := pldtypes.HexUint64(tx.Nonce)
