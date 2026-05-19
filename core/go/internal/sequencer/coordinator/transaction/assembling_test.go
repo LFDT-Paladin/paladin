@@ -68,7 +68,7 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 		ctx,
 		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
 			capturedFailureMessage = req.FailureMessage
-			return strings.Contains(req.FailureMessage, "PD012614") &&
+			return strings.Contains(req.FailureMessage, "PD012611") &&
 				strings.Contains(req.FailureMessage, revertReason)
 		}),
 		mock.Anything, // onCommit callback
@@ -78,7 +78,7 @@ func Test_applyPostAssembly_RevertResult(t *testing.T) {
 	err := txn.applyPostAssembly(ctx, postAssembly, requestID)
 	require.NoError(t, err)
 	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
-	assert.Contains(t, capturedFailureMessage, "PD012614")
+	assert.Contains(t, capturedFailureMessage, "PD012611")
 	assert.Contains(t, capturedFailureMessage, revertReason)
 }
 
@@ -96,7 +96,7 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 		ctx,
 		mock.MatchedBy(func(req *syncpoints.TransactionFinalizeRequest) bool {
 			capturedFailureMessage = req.FailureMessage
-			return strings.Contains(req.FailureMessage, "PD012614") &&
+			return strings.Contains(req.FailureMessage, "PD012611") &&
 				strings.Contains(req.FailureMessage, revertReason)
 		}),
 		mock.Anything, // onCommit callback
@@ -112,7 +112,7 @@ func Test_action_AssembleRevertResponse_SetsPostAssemblyAndFinalizes(t *testing.
 	err := action_AssembleRevertResponse(ctx, txn, event)
 	require.NoError(t, err)
 	assert.Equal(t, postAssembly, txn.pt.PostAssembly)
-	assert.Contains(t, capturedFailureMessage, "PD012614")
+	assert.Contains(t, capturedFailureMessage, "PD012611")
 	assert.Contains(t, capturedFailureMessage, revertReason)
 }
 
