@@ -15,16 +15,16 @@
 package transaction
 
 import (
-	"context"
 	"testing"
 
+	"github.com/LFDT-Paladin/paladin/core/internal/sequencer/coordinator/grapher"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(3).
@@ -35,7 +35,7 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_FalseWhenLessThan
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(5).
@@ -46,7 +46,7 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenEqual(t *
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterThan(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(7).
@@ -57,7 +57,7 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_TrueWhenGreaterTh
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(0).
 		HeartbeatIntervalsSinceStateChange(0).
@@ -68,7 +68,7 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroGracePeriod(t
 }
 
 func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatIntervals(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		FinalizingGracePeriod(5).
 		HeartbeatIntervalsSinceStateChange(0).
@@ -79,7 +79,7 @@ func Test_guard_HasFinalizingGracePeriodPassedSinceStateChange_ZeroHeartbeatInte
 }
 
 func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedules(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	cancelCalled := false
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		CancelRequestTimeoutSchedule(func() { cancelCalled = true }).
@@ -94,7 +94,7 @@ func Test_action_FinalizeAsUnknownByOriginator_CancelsRequestStateTimeoutSchedul
 }
 
 func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).
 		ConfirmedLockRetentionGracePeriod(2).
 		HeartbeatIntervalsSinceStateChange(1).
@@ -116,9 +116,10 @@ func Test_guard_HasConfirmedLockRetentionGracePeriodPassedSinceStateChange(t *te
 }
 
 func Test_action_ResetConfirmedTransactionLocksOnce_CallsResetAtMostOnce(t *testing.T) {
-	ctx := context.Background()
-	txn, mocks := NewTransactionBuilderForTesting(t, State_Confirmed).Build()
-	mocks.EngineIntegration.EXPECT().ResetTransactions(mock.Anything, txn.pt.ID).Return().Once()
+	ctx := t.Context()
+	mockGrapher := grapher.NewMockGrapher(t)
+	txn, _ := NewTransactionBuilderForTesting(t, State_Confirmed).Grapher(mockGrapher).Build()
+	mockGrapher.EXPECT().Forget(mock.Anything, txn.pt.ID).Once()
 
 	err := action_ResetConfirmedTransactionLocksOnce(ctx, txn, nil)
 	require.NoError(t, err)

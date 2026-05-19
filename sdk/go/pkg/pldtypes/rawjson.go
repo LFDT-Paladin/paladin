@@ -138,7 +138,7 @@ func (m *RawJSON) Scan(src interface{}) error {
 		*m = ([]byte)(s)
 		return nil
 	case []byte:
-		*m = s
+		*m = append((*m)[0:0], s...)
 		return nil
 	case nil:
 		*m = nil

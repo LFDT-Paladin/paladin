@@ -57,7 +57,6 @@ type sequencerManager struct {
 	sequencers                    map[string]*sequencer
 	blockHeight                   int64
 	blockHeightMutex              sync.RWMutex
-	engineIntegration             common.EngineIntegration
 	heartbeatInterval             time.Duration
 	targetActiveCoordinatorsLimit int // Max number of contracts this node aims to concurrently act as coordinator for. It could still efficiently respond to dispatch requests from other coordinators because the originator will remain in memory.
 	targetActiveSequencersLimit   int // Max number of sequencers this node aims to retain in memory concurrently. Hitting this limit will cause an attempt to remove the lowest priority sequencer from memory, and hence require it to be recreated from persisted state if it is needed in the future
@@ -454,7 +453,7 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 			if txi.Transaction.SubmitMode.V() != pldapi.SubmitModeAuto {
 				return i18n.NewError(ctx, msgs.MsgSequencerPrepareNotSupportedDeploy)
 			}
-			log.L(sMgr.ctx).Infof("resuming deploy transaction %s from %s", txi.Transaction.ID, txi.Transaction.From)
+			log.L(sMgr.ctx).Infof("resuming deploy transaction %s (from=%s)", txi.Transaction.ID, txi.Transaction.From)
 			return sMgr.handleDeployTx(ctx, &components.PrivateContractDeploy{
 				ID:     *tx.ID,
 				Domain: tx.Domain,
@@ -469,7 +468,7 @@ func (sMgr *sequencerManager) HandleTxResume(ctx context.Context, txi *component
 		if txi.Function == nil || txi.Function.Definition == nil {
 			return i18n.NewError(ctx, msgs.MsgSequencerFunctionNotProvided)
 		}
-		log.L(sMgr.ctx).Infof("resuming transaction %s from %s", tx.ID, tx.From)
+		log.L(sMgr.ctx).Infof("resuming transaction %s (from=%s, to=%s)", tx.ID, tx.From, tx.To)
 		return sMgr.handleTx(ctx, dbTX, &components.PrivateTransaction{
 			ID:      *tx.ID,
 			Domain:  tx.Domain,
@@ -508,11 +507,12 @@ func (sMgr *sequencerManager) handleTx(ctx context.Context, dbTX persistence.DBT
 		return i18n.NewError(ctx, msgs.MsgSequencerInternalError, "PreAssembly is nil")
 	}
 
+	tx.PreAssembly.ChainedDependsOn = localTx.ChainedDependsOn
+
 	sequencer, err := sMgr.LoadSequencer(ctx, dbTX, contractAddr, domainAPI, tx)
 	if err != nil {
 		return err
 	}
-
 	txCreatedEvent := &originator.TransactionCreatedEvent{
 		Transaction: tx,
 	}

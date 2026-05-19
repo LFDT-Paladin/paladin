@@ -426,7 +426,7 @@ func (r *PaladinReconciler) generateStatefulSetTemplate(node *corev1alpha1.Palad
 								},
 								{
 									Name:          "metrics",
-									ContainerPort: 9090,
+									ContainerPort: 6100,
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
@@ -861,6 +861,9 @@ func (r *PaladinReconciler) generatePaladinConfig(ctx context.Context, node *cor
 	pldConf.RPCServer.HTTP.Address = ptrTo("0.0.0.0") // use k8s for network control outside the pod
 	pldConf.RPCServer.WS.Port = ptrTo(8549)
 	pldConf.RPCServer.WS.Address = ptrTo("0.0.0.0") // use k8s for network control outside the pod
+	if pldConf.MetricsServer.Enabled != nil && *pldConf.MetricsServer.Enabled {
+		pldConf.MetricsServer.Address = ptrTo("0.0.0.0") // reachable via NodePort (e.g. kind hostPort 31550)
+	}
 
 	// Enable UI if not explicitly disabled
 	if len(pldConf.RPCServer.HTTP.StaticServers) == 0 {

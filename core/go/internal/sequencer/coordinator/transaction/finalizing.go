@@ -36,7 +36,7 @@ func action_ResetConfirmedTransactionLocksOnce(ctx context.Context, txn *coordin
 		return nil
 	}
 	log.L(ctx).Debugf("releasing confirmed transaction locks for %s", txn.pt.ID.String())
-	txn.engineIntegration.ResetTransactions(ctx, txn.pt.ID)
+	txn.grapher.Forget(ctx, txn.pt.ID)
 	txn.confirmedLocksReleased = true
 	return nil
 }
@@ -50,7 +50,12 @@ func action_FinalizeAsUnknownByOriginator(ctx context.Context, txn *coordinatorT
 	return txn.finalizeAsUnknownByOriginator(ctx)
 }
 
-func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(ctx context.Context) error {
+func (t *coordinatorTransaction) finalizeAsUnknownByOriginator(_ context.Context) error {
 	t.clearTimeoutSchedules()
+	// Note: ResetTransactions is not called here because Event_TransactionUnknownByOriginator
+	// is only handled in State_Assembling, which is before WriteLockStatesForTransaction has
+	// been called -- so no creatingStates or txLocks exist in the domain context for this
+	// transaction's current assembly attempt. If the state machine is ever extended to handle
+	// this event in post-assembly states, ResetTransactions must be added here.
 	return nil
 }

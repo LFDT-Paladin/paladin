@@ -134,14 +134,14 @@ export const Transactions: React.FC<Props> = ({
                 </Grid2>
                 <Grid2>
                   <Button
-                    color={fromBlock === undefined? 'secondary' : 'warning'}
+                    color={fromBlock === undefined ? 'secondary' : 'warning'}
                     size="large"
                     variant="outlined"
                     startIcon={<ViewArrayOutlinedIcon />}
                     sx={{ borderRadius: '20px', minWidth: '180px' }}
                     onClick={() => setFromBlockDialogOpen(true)}
                   >
-                    {t(fromBlock === undefined ? 'Latest block' : 'fromBlockN', { n: fromBlock?.toLocaleString()})}
+                    {t(fromBlock === undefined ? 'Latest block' : 'fromBlockN', { n: fromBlock?.toLocaleString() })}
                   </Button>
                 </Grid2>
               </Grid2>
@@ -181,6 +181,7 @@ export const Transactions: React.FC<Props> = ({
       <TransactionLookupDialog
         dialogOpen={lookupTransactionDialogOpen}
         setDialogOpen={setLookupTransactionDialogOpen}
+        label={t('blockchainTransactionHashOrPaladinTransactionId')}
       />
       <FromBlockDialog
         dialogOpen={fromBlockDialogOpen}

@@ -426,7 +426,7 @@ title: ptx_*
 
 ### Returns
 
-0. `storedABI`: [`StoredABI`](../types/storedabi.md#storedabi)
+0. `hashRef`: [`Bytes32`](../types/simpletypes.md#bytes32)
 
 ## `ptx_updateTransaction`
 

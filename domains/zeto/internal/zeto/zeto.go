@@ -770,3 +770,7 @@ func (z *Zeto) IsBaseLedgerRevertRetryable(_ context.Context, _ *prototk.IsBaseL
 	// TODO: this is just defaulting to the sequencer retry threshold and could be customized by the domain
 	return &prototk.IsBaseLedgerRevertRetryableResponse{Retryable: true}, nil
 }
+
+func (z *Zeto) InvokeRPC(ctx context.Context, _ *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+	return nil, i18n.NewError(ctx, msgs.MsgNotImplemented)
+}

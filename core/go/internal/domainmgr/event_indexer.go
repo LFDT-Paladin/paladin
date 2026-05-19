@@ -278,7 +278,9 @@ func (d *domain) recoverTransactionID(ctx context.Context, txIDString string) (*
 func (d *domain) handleEventBatchForContract(ctx context.Context, dbTX persistence.DBTX, addr pldtypes.EthAddress, batch *pscEventBatch) (*prototk.HandleEventBatchResponse, error) {
 	// We have a domain context for queries, but we never flush it to DB - as the only updates
 	// we allow in this function are those performed within our dbTX.
-	c := d.newInFlightDomainRequest(dbTX, d.dm.stateStore.NewDomainContext(ctx, d, addr), false /* write enabled */)
+	dCtx := d.dm.stateStore.NewDomainContext(ctx, d, addr)
+	defer dCtx.Close()
+	c := d.newInFlightDomainRequest(dbTX, dCtx, false /* write enabled */)
 	defer c.close()
 
 	batch.StateQueryContext = c.id

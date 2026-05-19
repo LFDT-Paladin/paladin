@@ -138,7 +138,7 @@ COPY ui/client ui/client
 # No build of these three, but we need to go.mod to make the go.work valid
 COPY testinfra/go.mod testinfra/go.mod
 COPY operator/go.mod operator/go.mod
-COPY perf/go.mod perf/go.mod
+COPY test/go.mod test/go.mod
 RUN gradle --no-daemon --parallel assemble
 
 # Stage 3: Pull together runtime

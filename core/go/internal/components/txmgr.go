@@ -67,9 +67,10 @@ type TxCompletion struct {
 }
 
 type ResolvedTransaction struct {
-	Transaction *pldapi.Transaction `json:"transaction"`
-	DependsOn   []uuid.UUID         `json:"dependsOn"`
-	Function    *ResolvedFunction   `json:"function"`
+	Transaction      *pldapi.Transaction `json:"transaction"`
+	DependsOn        []uuid.UUID         `json:"dependsOn"`
+	ChainedDependsOn []uuid.UUID         `json:"chainedDependsOn,omitempty"`
+	Function         *ResolvedFunction   `json:"function"`
 }
 
 // This is a transaction read for insertion into the Paladin database with all pre-verification completed.

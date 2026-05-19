@@ -259,6 +259,7 @@ func (*ConfirmedRevertedEvent) TypeString() string {
 
 type DependencySelectedForAssemblyEvent struct {
 	BaseCoordinatorEvent
+	SourceTransactionID uuid.UUID // The dependency that was selected
 }
 
 func (*DependencySelectedForAssemblyEvent) Type() EventType {
@@ -271,6 +272,7 @@ func (*DependencySelectedForAssemblyEvent) TypeString() string {
 
 type DependencyResetEvent struct {
 	BaseCoordinatorEvent
+	SourceTransactionID uuid.UUID // The dependency that was reset
 }
 
 func (*DependencyResetEvent) Type() EventType {
@@ -283,6 +285,7 @@ func (*DependencyResetEvent) TypeString() string {
 
 type DependencyConfirmedRevertedEvent struct {
 	BaseCoordinatorEvent
+	SourceTransactionID uuid.UUID // The dependency that was confirmed as reverted
 }
 
 func (*DependencyConfirmedRevertedEvent) Type() EventType {
@@ -360,15 +363,40 @@ func (*TransactionUnknownByOriginatorEvent) TypeString() string {
 	return "Event_TransactionUnknownByOriginator"
 }
 
-type NewPreAssembleDependencyEvent struct {
+type ChainedDependencyFailedEvent struct {
 	BaseCoordinatorEvent
-	PrereqTransactionID uuid.UUID
+	FailedTxID uuid.UUID
 }
 
-func (*NewPreAssembleDependencyEvent) Type() EventType {
-	return Event_NewPreAssembleDependency
+func (*ChainedDependencyFailedEvent) Type() EventType {
+	return Event_ChainedDependencyFailed
 }
 
-func (*NewPreAssembleDependencyEvent) TypeString() string {
-	return "Event_NewPreAssembleDependency"
+func (*ChainedDependencyFailedEvent) TypeString() string {
+	return "Event_ChainedDependencyFailed"
+}
+
+type ChainedDependencyEvictedEvent struct {
+	BaseCoordinatorEvent
+	EvictedTxID uuid.UUID
+}
+
+func (*ChainedDependencyEvictedEvent) Type() EventType {
+	return Event_ChainedDependencyEvicted
+}
+
+func (*ChainedDependencyEvictedEvent) TypeString() string {
+	return "Event_ChainedDependencyEvicted"
+}
+
+type PreAssembleDependencyTerminatedEvent struct {
+	BaseCoordinatorEvent
+}
+
+func (*PreAssembleDependencyTerminatedEvent) Type() EventType {
+	return Event_PreAssembleDependencyTerminated
+}
+
+func (*PreAssembleDependencyTerminatedEvent) TypeString() string {
+	return "Event_PreAssembleDependencyTerminated"
 }

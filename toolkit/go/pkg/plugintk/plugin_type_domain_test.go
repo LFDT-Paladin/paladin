@@ -544,3 +544,20 @@ func TestDomainFunction_IsBaseLedgerRevertRetryable(t *testing.T) {
 		assert.IsType(t, &prototk.DomainMessage_IsBaseLedgerRevertRetryableRes{}, res.ResponseFromDomain)
 	})
 }
+
+func TestDomainFunction_InvokeRPC(t *testing.T) {
+	_, exerciser, funcs, _, _, done := setupDomainTests(t)
+	defer done()
+
+	funcs.InvokeRPC = func(ctx context.Context, req *prototk.InvokeRPCRequest) (*prototk.InvokeRPCResponse, error) {
+		return &prototk.InvokeRPCResponse{ResultJson: `"0x1234"`}, nil
+	}
+	exerciser.doExchangeToPlugin(func(req *prototk.DomainMessage) {
+		req.RequestToDomain = &prototk.DomainMessage_InvokeRpc{
+			InvokeRpc: &prototk.InvokeRPCRequest{Method: "pente_getCodeHash", ParamsJson: `["0xabcd"]`},
+		}
+	}, func(res *prototk.DomainMessage) {
+		r := res.ResponseFromDomain.(*prototk.DomainMessage_InvokeRpcRes)
+		assert.Equal(t, `"0x1234"`, r.InvokeRpcRes.ResultJson)
+	})
+}
