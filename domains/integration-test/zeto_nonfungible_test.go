@@ -38,7 +38,7 @@ type nonFungibleTestSuiteHelper struct {
 	zetoDomainTestSuite
 }
 
-func (s *nonFungibleTestSuiteHelper) TestZeto_NfAnon() {
+func (s *nonFungibleTestSuiteHelper) Test_Zeto_NfAnon() {
 	s.testZeto(s.T(), constants.TOKEN_NF_ANON, false)
 }
 
