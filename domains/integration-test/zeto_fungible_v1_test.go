@@ -37,74 +37,74 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// TestFungibleZetoV050Suite mirrors zeto_fungible_test.go against v0.5.0 factories, ZKP artifacts, and IZetoFungible_V1
-// (createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
-// transferLocked/delegateLock coverage on TOKEN_ANON only; v0.5 pools do not expose those legacy entrypoints on-chain.
+// TestFungibleZetoV1Suite mirrors zeto_fungible_test.go for the fungible V1 axis (ZetoFactoryV1, IZetoFungible_V1,
+// createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
+// transferLocked/delegateLock coverage on TOKEN_ANON only; V1 pools do not expose those legacy entrypoints on-chain.
 //
 // Subtest label "v0.5.0" matches TestFungibleZetoSuite: t.Run(zkpArtifactRoot) where root is domains/zeto/zkp/<tag>
-// (see helpers.ZetoZKArtifactRootV050 and ZetoZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
-func TestFungibleZetoV050Suite(t *testing.T) {
-	for _, root := range helpers.ZetoV050ZKArtifactRootsForTestRun() {
+// (see helpers.ZetoZKArtifactRootV050 and ZetoFungibleV1ZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
+func TestFungibleZetoV1Suite(t *testing.T) {
+	for _, root := range helpers.ZetoFungibleV1ZKArtifactRootsForTestRun() {
 		t.Run(root, func(t *testing.T) {
 			if !helpers.ZetoZKArtifactsRootPresent(root) {
 				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
 			}
-			contractsFile = "./zeto/config-for-deploy-fungible-v050.yaml"
-			suite.Run(t, &fungibleV050TestSuiteHelper{
+			contractsFile = "./zeto/config-for-deploy-fungible-v1.yaml"
+			suite.Run(t, &fungibleV1TestSuiteHelper{
 				zetoDomainTestSuite: zetoDomainTestSuite{zkpArtifactRoot: root},
 			})
 		})
 	}
 }
 
-type fungibleV050TestSuiteHelper struct {
+type fungibleV1TestSuiteHelper struct {
 	zetoDomainTestSuite
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_Anon() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON, false, false)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_Anon() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON, false, false)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonBatch() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON, true, false)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonBatch() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON, true, false)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonEnc() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_ENC, false, false)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonEnc() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_ENC, false, false)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonEncBatch() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_ENC, true, false)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonEncBatch() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_ENC, true, false)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonNullifier() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifier() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER, false, true)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonNullifierBatch() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierBatch() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER, true, true)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonNullifierKyc() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierKyc() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, false, true, true)
 }
 
-func (s *fungibleV050TestSuiteHelper) TestV050_Zeto_AnonNullifierKycBatch() {
-	s.testZetoV050(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
+func (s *fungibleV1TestSuiteHelper) TestV1_Zeto_AnonNullifierKycBatch() {
+	s.testZetoV1(s.T(), constants.TOKEN_ANON_NULLIFIER_KYC, true, true, true)
 }
 
-func (s *fungibleV050TestSuiteHelper) testZetoV050(t *testing.T, tokenName string, useBatch bool, isNullifiersToken bool, isKycToken ...bool) {
+func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, useBatch bool, isNullifiersToken bool, isKycToken ...bool) {
 	ctx := context.Background()
-	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("v0.5.0 — deploying an instance of the %s token", tokenName)
-	log.L(ctx).Info("*************************************")
-	s.setupContractsAbi(t, ctx, tokenName)
-
 	zkpRoot := s.zkpArtifactRoot
 	if zkpRoot == "" {
 		zkpRoot = helpers.EffectiveZetoZKArtifactRoot()
 	}
-	zeto := helpers.DeployZetoFungibleV050(ctx, t, s.rpc, s.domainName, controllerName, tokenName, zkpRoot)
+	log.L(ctx).Info("*************************************")
+	log.L(ctx).Infof("fungible V1 (zkp %s) — deploying an instance of the %s token", zkpRoot, tokenName)
+	log.L(ctx).Info("*************************************")
+	s.setupContractsAbi(t, ctx, tokenName)
+
+	zeto := helpers.DeployZetoFungibleV1(ctx, t, s.rpc, s.domainName, controllerName, tokenName, zkpRoot)
 	zetoAddress := zeto.Address
 	log.L(ctx).Infof("Zeto instance deployed to %s", zetoAddress.String())
 
@@ -259,7 +259,7 @@ func (s *fungibleV050TestSuiteHelper) testZetoV050(t *testing.T, tokenName strin
 	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
 
 	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("v0.5.0 createLock: lock value 1 twice with delegate recipient1 (IZetoFungible_V1)")
+	log.L(ctx).Infof("createLock (IZetoFungible_V1): lock value 1 twice with delegate recipient1")
 	log.L(ctx).Info("*************************************")
 	// Batch mode transfers 15 to recipient1 and 40 to recipient2; non-batch sends 25 to recipient1 only.
 	var recipient1TransferAmount int64 = 25
@@ -379,7 +379,7 @@ func (s *fungibleV050TestSuiteHelper) testZetoV050(t *testing.T, tokenName strin
 	pld := helpers.NewPaladinClient(t, ctx, s.tb)
 
 	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("v0.5 spendLock: unlock second locked position (public spendLock from lock delegate)")
+	log.L(ctx).Infof("spendLock (IZetoFungible_V1): unlock second locked position (public spendLock from lock delegate)")
 	log.L(ctx).Info("*************************************")
 	// ZetoLockable.createLock sets lock.spender = msg.sender of the public createLock (tr2.PreparedTransaction.From),
 	// not the Paladin lock delegate (recipient1). Public spendLock must use that same submitter identity.
@@ -430,14 +430,14 @@ func (s *fungibleV050TestSuiteHelper) testZetoV050(t *testing.T, tokenName strin
 	assert.ElementsMatch(t, []bool{false, false}, recipient1Locked3, "recipient1 coins after first spendLock")
 
 	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("v0.5 delegateLock then spendLock: delegate first lock to recipient2, spend using recipients pinned at createLock")
+	log.L(ctx).Infof("delegateLock then spendLock (ILockableCapability): delegate first lock to recipient2, spend using recipients pinned at createLock")
 	log.L(ctx).Info("*************************************")
 	var recipient2EthAddrStr string
 	rpcerr = s.rpc.CallRPC(ctx, &recipient2EthAddrStr, "ptx_resolveVerifier", recipient2Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
 	require.Nil(t, rpcerr)
 	recipient2EthAddr := pldtypes.MustEthAddress(recipient2EthAddrStr)
 	// delegateLock requires msg.sender == current lock spender (same public submitter as createLock for lock1).
-	zeto.DelegateLockV050(ctx, s.tb, lockID1, recipient2EthAddr, tr1.PreparedTransaction.From)
+	zeto.DelegateLockV1(ctx, s.tb, lockID1, recipient2EthAddr, tr1.PreparedTransaction.From)
 
 	spendTxResult := zeto.PrepareSpendLock(ctx, s.tb, pld, &helpers.SpendLockRequest{
 		From: controllerName, LockId: lockID1,

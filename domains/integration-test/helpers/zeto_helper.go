@@ -67,9 +67,6 @@ type ZetoHelper struct {
 // ZetoVersionLatest is the default primary zkp tree (see ZetoZKArtifactRootLatest).
 const ZetoVersionLatest = ZetoZKArtifactRootLatest
 
-// ZetoVersionV050 is the LFDT zeto v0.5.0 extract root (see ZetoZKArtifactRootV050).
-const ZetoVersionV050 = ZetoZKArtifactRootV050
-
 // ZetoZKArtifactsDir returns the circuits/proving-keys root for integration tests (cwd = domains/integration-test).
 func ZetoZKArtifactsDir(version string) string {
 	if version == "" || strings.EqualFold(strings.TrimSpace(version), "latest") {
@@ -117,9 +114,9 @@ func DeployZetoFungible(ctx context.Context, t *testing.T, rpc rpcclient.Client,
 	}
 }
 
-// DeployZetoFungibleV050 deploys a v0.5.0–aligned fungible pool (ZetoFactoryV1 + on-chain domain config schema v1 + IZetoFungible_V1 handler axis).
+// DeployZetoFungibleV1 deploys a fungible V1 pool (ZetoFactoryV1 + on-chain domain config schema v1 + IZetoFungible_V1 handler axis).
 // zkpArtifactRoot should be helpers.ZetoZKArtifactRootV050 (e.g. "v0.5.0") so implementation ABIs resolve under helpers/abis/zkp/<root>/.
-func DeployZetoFungibleV050(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
+func DeployZetoFungibleV1(ctx context.Context, t *testing.T, rpc rpcclient.Client, domainName, controllerName, tokenName, zkpArtifactRoot string) *ZetoHelperFungible {
 	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
 	if zkpRoot == "" {
 		zkpRoot = EffectiveZetoZKArtifactRoot()
@@ -495,10 +492,10 @@ func (z *ZetoHelper) DelegateLock(ctx context.Context, tb testbed.Testbed, locke
 	assert.NoError(z.t, err)
 }
 
-// DelegateLockV050 submits ILockableCapability.delegateLock on zeto-contracts ~v0.5.x pools:
+// DelegateLockV1 submits ILockableCapability.delegateLock on fungible V1 (~v0.5.x upstream) pools:
 // delegateLock(bytes32 lockId, bytes delegateArgs, address newSpender, bytes data).
 // sender must be the current on-chain lock spender (the public createLock submitter ETH identity).
-func (z *ZetoHelper) DelegateLockV050(ctx context.Context, tb testbed.Testbed, lockID pldtypes.Bytes32, newSpender *pldtypes.EthAddress, sender string) {
+func (z *ZetoHelper) DelegateLockV1(ctx context.Context, tb testbed.Testbed, lockID pldtypes.Bytes32, newSpender *pldtypes.EthAddress, sender string) {
 	txID := pldtypes.Bytes32UUIDFirst16(uuid.New())
 	delegateArgsJSON, err := json.Marshal([]any{map[string]any{
 		"txId": txID.HexString0xPrefix(),

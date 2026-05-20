@@ -61,8 +61,9 @@ func ZetoZKArtifactRootsForTestRun() []string {
 	return []string{EffectiveZetoZKArtifactRoot()}
 }
 
-// ZetoV050ZKArtifactRootsForTestRun returns the v0.5.0 zkp root for TestFungibleZetoV050Suite subtests (t.Run(root, ...)).
-func ZetoV050ZKArtifactRootsForTestRun() []string {
+// ZetoFungibleV1ZKArtifactRootsForTestRun returns the zkp root for TestFungibleZetoV1Suite subtests (t.Run(root, ...)).
+// Paladin fungible V1 (IZetoFungible_V1) uses upstream artifacts under ZetoZKArtifactRootV050 ("v0.5.0").
+func ZetoFungibleV1ZKArtifactRootsForTestRun() []string {
 	return []string{ZetoZKArtifactRootV050}
 }
 

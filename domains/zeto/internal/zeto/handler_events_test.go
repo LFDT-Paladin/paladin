@@ -633,7 +633,7 @@ func TestHandleZetoLockSpentLikeEvent(t *testing.T) {
 
 // TestHandleZetoLockSpentLikeEvent_EmptyOuterDataStillFinalizesSpend covers v0.5 spendLock where the event's
 // `data` field is empty or not V0-prefixed: we must still emit TransactionsComplete and update the nullifier SMT
-// from `outputs`, otherwise balanceOf never sees the unlocked coin (domains/integration-test zeto_fungible_v050).
+// from `outputs`, otherwise balanceOf never sees the unlocked coin (domains/integration-test zeto_fungible_v1).
 func TestHandleZetoLockSpentLikeEvent_EmptyOuterDataStillFinalizesSpend(t *testing.T) {
 	ctx := context.Background()
 	z, testCallbacks := newTestZeto()
