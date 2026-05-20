@@ -61,6 +61,11 @@ func ZetoZKArtifactRootsForTestRun() []string {
 	return []string{EffectiveZetoZKArtifactRoot()}
 }
 
+// ZetoV050ZKArtifactRootsForTestRun returns the v0.5.0 zkp root for TestFungibleZetoV050Suite subtests (t.Run(root, ...)).
+func ZetoV050ZKArtifactRootsForTestRun() []string {
+	return []string{ZetoZKArtifactRootV050}
+}
+
 func validateZetoZKArtifactRoot(v string) error {
 	for _, allowed := range SupportedZetoZKArtifactRoots() {
 		if v == allowed {

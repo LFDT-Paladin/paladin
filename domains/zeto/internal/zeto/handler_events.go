@@ -180,8 +180,6 @@ func (z *Zeto) handleZetoLockCreatedEvent(ctx context.Context, stateQueryContext
 			return nil
 		}
 		z.recordTransactionInfo(ev, txData, res)
-		log.L(ctx).Infof("ZetoLockCreated: chainLockId=%s chainOwner=%s paladinTxId=%s (lock-info state id equals chain lockId)",
-			lock.LockId.HexString0xPrefix(), lock.Owner.String(), txData.TransactionID.HexString0xPrefix())
 		res.SpentStates = append(res.SpentStates, parseStatesFromEvent(txData.TransactionID, lock.Inputs)...)
 		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.Outputs)...)
 		res.ConfirmedStates = append(res.ConfirmedStates, parseStatesFromEvent(txData.TransactionID, lock.LockedOutputs)...)

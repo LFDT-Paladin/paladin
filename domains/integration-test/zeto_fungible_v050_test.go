@@ -40,15 +40,21 @@ import (
 // TestFungibleZetoV050Suite mirrors zeto_fungible_test.go against v0.5.0 factories, ZKP artifacts, and IZetoFungible_V1
 // (createLock instead of legacy lock). Locking runs for every fungible token implementation. The v0.2.2 suite keeps
 // transferLocked/delegateLock coverage on TOKEN_ANON only; v0.5 pools do not expose those legacy entrypoints on-chain.
+//
+// Subtest label "v0.5.0" matches TestFungibleZetoSuite: t.Run(zkpArtifactRoot) where root is domains/zeto/zkp/<tag>
+// (see helpers.ZetoZKArtifactRootV050 and ZetoZKArtifactRootsForTestRun in helpers/zeto_zkp_versions.go).
 func TestFungibleZetoV050Suite(t *testing.T) {
-	root := helpers.ZetoZKArtifactRootV050
-	if !helpers.ZetoZKArtifactsRootPresent(root) {
-		t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
+	for _, root := range helpers.ZetoV050ZKArtifactRootsForTestRun() {
+		t.Run(root, func(t *testing.T) {
+			if !helpers.ZetoZKArtifactsRootPresent(root) {
+				t.Skipf("ZKP artifacts missing for %s (extract with Gradle :domains:zeto:extractZetoZkpVariants)", root)
+			}
+			contractsFile = "./zeto/config-for-deploy-fungible-v050.yaml"
+			suite.Run(t, &fungibleV050TestSuiteHelper{
+				zetoDomainTestSuite: zetoDomainTestSuite{zkpArtifactRoot: root},
+			})
+		})
 	}
-	contractsFile = "./zeto/config-for-deploy-fungible-v050.yaml"
-	suite.Run(t, &fungibleV050TestSuiteHelper{
-		zetoDomainTestSuite: zetoDomainTestSuite{zkpArtifactRoot: root},
-	})
 }
 
 type fungibleV050TestSuiteHelper struct {
