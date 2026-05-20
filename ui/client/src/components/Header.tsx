@@ -20,6 +20,7 @@ import {
   AppBar,
   Box,
   Button,
+  ButtonBase,
   Grid2,
   IconButton,
   Tab,
@@ -108,10 +109,13 @@ export const Header: React.FC = () => {
                 size={{ xs: 12, sm: 12, md: 3 }}
                 textAlign={lessThanMedium ? 'center' : 'left'}
               >
+                <ButtonBase
+                onClick={() => window.location.href = '/ui'}>
                 <img
                   src={theme.palette.mode === 'dark' ? logoDark : logoLight}
                   style={{ marginTop: '7px' }}
                 />
+                </ButtonBase>
               </Grid2>
               <Grid2 size={{ xs: 12, sm: 12, md: 6 }} alignContent="center">
                 <Tabs

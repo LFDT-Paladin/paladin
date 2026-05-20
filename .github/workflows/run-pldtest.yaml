@@ -1,0 +1,97 @@
+name: "Run integration test"
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_name:
+        description: "Test configuration to run"
+        required: true
+        type: choice
+        options:
+          - public-contract
+          - private-transaction-node-restart
+          - privacy-group-contract-deploy
+          - noto-revertable-hooks
+      paladin_branch:
+        description: "Branch of Paladin to test"
+        required: false
+        type: string
+        default: "main"
+      length:
+        description: "Override the test length (e.g. 30s, 5m, 1h). Leave empty to use the value in the config file."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  run-pldtest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Paladin branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.paladin_branch }}
+          submodules: recursive
+          path: paladin
+
+      - name: Free up disk space on runner
+        uses: ./paladin/.github/actions/free-up-disk-space
+
+      - name: Install pre-requisites
+        uses: ./paladin/.github/actions/setup
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Resolve test configuration
+        id: test-config
+        run: |
+          case "${{ inputs.test_name }}" in
+            public-contract)
+              echo "config_file=example-public-contract.yaml" >> $GITHUB_OUTPUT
+              ;;
+            private-transaction-node-restart)
+              echo "config_file=example-private-transaction-node-restart.yaml" >> $GITHUB_OUTPUT
+              ;;
+            privacy-group-contract-deploy)
+              echo "config_file=example-privacy-group-contract-deploy.yaml" >> $GITHUB_OUTPUT
+              ;;
+            noto-revertable-hooks)
+              echo "config_file=example-noto-revertable-hooks.yaml" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Override test length
+        if: inputs.length != ''
+        run: |
+          sed -i "s/^\(\s*\)length:.*$/\1length: ${{ inputs.length }}/" \
+            test/config/${{ steps.test-config.outputs.config_file }}
+
+      - name: Build test application
+        working-directory: test
+        run: make
+
+      - name: Install Kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+          ignore_failed_clean: true
+
+      - name: Deploy Paladin
+        working-directory: paladin
+        run: |
+          ./gradlew --no-daemon :operator:installOperatorDefault \
+            -x :operator:helmUnitTest
+
+      - name: Run test
+        run: |
+          ./test/pldtest/pldtest run \
+            -c test/config/${{ steps.test-config.outputs.config_file }} \
+            -i 0
+
+      - name: Cleanup cluster
+        if: always()
+        run: kind delete cluster --name paladin

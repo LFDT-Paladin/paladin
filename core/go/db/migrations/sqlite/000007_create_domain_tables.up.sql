@@ -3,6 +3,7 @@ CREATE TABLE private_smart_contracts (
     "domain_address"  TEXT    NOT NULL,
     "address"         TEXT    NOT NULL,
     "config_bytes"    TEXT    NOT NULL,
+    -- "created" added in migration 33
     PRIMARY KEY ("address")
 );
 CREATE INDEX private_smart_contracts_domain_address ON private_smart_contracts("domain_address");

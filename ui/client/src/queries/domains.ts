@@ -85,7 +85,7 @@ export const fetchDomainReceipt = async (
   return <Promise<any>>(
     returnResponse(
       () => fetch(RpcEndpoint, generatePostReq(JSON.stringify(payload))),
-      i18next.t('errorFetchingDomainReceipt')
+      i18next.t('errorFetchingDomainReceipt'), [500]
     )
   );
 };

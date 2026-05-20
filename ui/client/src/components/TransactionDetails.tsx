@@ -22,62 +22,77 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { IPaladinTransaction } from '../interfaces';
+import { ITransactionReceipt } from '../interfaces';
 import { fetchDomainReceipt } from '../queries/domains';
 import { fetchStateReceipt } from '../queries/states';
 import { EVMPrivateDetails } from './EVMPrivateDetails';
 import { JSONBox } from './JSONBox';
+import { fetchPaladinTransactionFull } from '../queries/transactions';
+import { useEffect, useState } from 'react';
 
 type Props = {
-  paladinTransaction?: IPaladinTransaction
+  receipt: ITransactionReceipt
 }
 
 export const PaladinTransactionsDetails: React.FC<Props> = ({
-  paladinTransaction
+  receipt
 }) => {
 
+  const [receiptExpanded, setReceiptExpanded] = useState(false);
   const { t } = useTranslation();
 
-  const transactionId = paladinTransaction?.id || '';
-  const domain = paladinTransaction?.domain || '';
-
-  const { data: stateReceipt } = useQuery({
-    enabled: !!transactionId,
-    queryKey: ["stateReceipt", transactionId],
-    queryFn: () => fetchStateReceipt(transactionId),
-    retry: true
+  const { data: paladinTransaction, isFetched: paladinTransactionFetched } = useQuery({
+    queryKey: ['paladin-transaction-full', receipt.id],
+    queryFn: () => fetchPaladinTransactionFull(receipt.id),
+    retry: false
   });
 
   const { data: domainReceipt } = useQuery({
-    enabled: !!domain && !!transactionId,
-    queryKey: ["domainReceipt", domain, transactionId],
-    queryFn: () => fetchDomainReceipt(domain, transactionId),
-    retry: true
+    enabled: receipt.domain !== undefined,
+    queryKey: ['domain-receipt', receipt.domain, receipt.id],
+    queryFn: () => fetchDomainReceipt(receipt.domain!, receipt.id),
+    retry: false
   });
+
+  const { data: stateReceipt } = useQuery({
+    queryKey: ['state-receipt', receipt.id],
+    queryFn: () => fetchStateReceipt(receipt.id),
+    retry: false
+  });
+
+  useEffect(() => {
+    if(paladinTransaction !== null ){
+      setReceiptExpanded(true);
+    }
+  }, [paladinTransaction]);
+
+  if (!paladinTransactionFetched) {
+    return <></>;
+  }
 
   return (
     <>
-      {paladinTransaction ?
-      <Accordion elevation={0} disableGutters defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          {t('details')}
-        </AccordionSummary>
-        <AccordionDetails >
-          <JSONBox data={paladinTransaction} />
-        </AccordionDetails>
-      </Accordion>
-      :undefined}
-      {paladinTransaction?.receipt !== null &&
-      <Accordion elevation={0} disableGutters>
+      {paladinTransaction &&
+        <Accordion elevation={0} disableGutters defaultExpanded>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            {t('details')}
+          </AccordionSummary>
+          <AccordionDetails >
+            <JSONBox data={paladinTransaction} />
+          </AccordionDetails>
+        </Accordion>}
+
+      <Accordion elevation={0} disableGutters defaultExpanded={receiptExpanded}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           {t('receipt')}
         </AccordionSummary>
         <AccordionDetails >
-          <JSONBox data={paladinTransaction?.receipt} />
+          <JSONBox data={receipt} />
         </AccordionDetails>
-      </Accordion>}
+      </Accordion>
+
       {domainReceipt !== undefined && <>
-        <EVMPrivateDetails transactionId={transactionId} domainReceipt={domainReceipt}/>
+        <EVMPrivateDetails transactionId={receipt.id} domainReceipt={domainReceipt} />
         <Accordion elevation={0} disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             {t('domainReceipt')}
@@ -87,6 +102,7 @@ export const PaladinTransactionsDetails: React.FC<Props> = ({
           </AccordionDetails>
         </Accordion>
       </>}
+
       {!(stateReceipt?.none === true) &&
         <Accordion elevation={0} disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>

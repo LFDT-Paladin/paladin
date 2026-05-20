@@ -15,18 +15,18 @@
 // limitations under the License.
 
 import { Button } from "@mui/material";
-import { IPaladinTransaction, ITransactionReceipt } from "../interfaces";
+import { ITransactionReceipt } from "../interfaces";
 import { getShortId } from "../utils";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 type Props = {
-  paladinTransaction: IPaladinTransaction | ITransactionReceipt
+  receipt: ITransactionReceipt
 }
 
-export const PaladinTransactionChip: React.FC<Props> = ({
-  paladinTransaction
+export const PaladinReceiptChip: React.FC<Props> = ({
+  receipt
 }) => {
 
   const { t } = useTranslation();
@@ -34,17 +34,16 @@ export const PaladinTransactionChip: React.FC<Props> = ({
 
   return (
     <Button variant="contained" size="small" disableElevation
-    color="info"
+      color="info"
       sx={{
         paddingTop: 0, paddingBottom: 0, fontWeight: '400', whiteSpace: 'nowrap',
-        minWidth: '155px'
+        minWidth: '170px'
       }}
-      onClick={() => navigate(`/ui/transactions/${paladinTransaction.id}`, { state: { from: 'transactions' }})}
+      onClick={() => navigate(`/ui/transactions/${receipt.id}`, { state: { from: 'transactions' } })}
       endIcon={<OpenInNewIcon />}
     >
-      {paladinTransaction.domain !== undefined &&
-        <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(paladinTransaction.domain)}</span>}
-      {getShortId(paladinTransaction.id)}
+      <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(receipt.domain ??  'public')}</span>
+      {getShortId(receipt.id)}
     </Button>
   );
 

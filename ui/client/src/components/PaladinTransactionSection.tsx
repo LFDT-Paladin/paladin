@@ -15,7 +15,7 @@
 // limitations under the License.
 
 import { Box, Paper, Tab, Tabs } from "@mui/material";
-import { IPaladinTransaction } from "../interfaces";
+import { ITransactionReceipt } from "../interfaces";
 import { useTranslation } from "react-i18next";
 import { getShortId, isValidUUID } from "../utils";
 import { useState } from "react";
@@ -23,41 +23,41 @@ import { useNavigate, useParams } from "react-router-dom";
 import { PaladinTransactionsDetails } from "./TransactionDetails";
 
 type Props = {
-  paladinTransactions: IPaladinTransaction[]
+  receipts: ITransactionReceipt[]
 }
 
-export const PaladinTransactionSection: React.FC<Props> = ({ paladinTransactions }) => {
+export const PaladinTransactionSection: React.FC<Props> = ({ receipts }) => {
 
   const { hashOrId } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  
-  const [selectedPaladinTransactionId, setSelectedPaladinTransactionId] = useState<string>(
-    (hashOrId !== undefined && isValidUUID(hashOrId)) ? hashOrId : paladinTransactions[0].id);
+
+  const [selectedReceiptId, setSelectedReceiptId] = useState<string>(
+    (hashOrId !== undefined && isValidUUID(hashOrId)) ? hashOrId : receipts[0].id);
 
   return (
     <>
       <Tabs
-        value={selectedPaladinTransactionId}
+        value={selectedReceiptId}
         TabIndicatorProps={{ style: { display: 'none' } }}
         onChange={(_event, value) => {
           navigate(`/ui/transactions/${value}`, { replace: true });
-          setSelectedPaladinTransactionId(value);
+          setSelectedReceiptId(value);
         }}
       >
-        {paladinTransactions.map(paladinTransaction =>
-          <Tab key={paladinTransaction.id} value={paladinTransaction.id}
+        {receipts.map(receipt =>
+          <Tab key={receipt.id} value={receipt.id}
             sx={{
               backgroundColor:
-                selectedPaladinTransactionId === paladinTransaction.id ?
+                selectedReceiptId === receipt.id ?
                   theme => theme.palette.background.paper : 'inherit',
               borderTopLeftRadius: '4px',
               borderTopRightRadius: '4px'
             }}
             label={
               <Box>
-                <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(paladinTransaction.domain)}</span>
-                {getShortId(paladinTransaction.id)}
+                <span style={{ fontWeight: 600, marginRight: '6px' }}>{t(receipt.domain ?? 'public')}</span>
+                {getShortId(receipt.id)}
               </Box>
             } />
         )}
@@ -66,7 +66,7 @@ export const PaladinTransactionSection: React.FC<Props> = ({ paladinTransactions
         borderTopLeftRadius: 0
       }}>
         <PaladinTransactionsDetails
-          paladinTransaction={paladinTransactions.find(tx => tx.id === selectedPaladinTransactionId)}
+          receipt={receipts.find(receipt => receipt.id === selectedReceiptId)!}
         />
       </Paper>
     </>);
