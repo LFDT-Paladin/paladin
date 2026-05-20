@@ -114,7 +114,61 @@ type verifiersInfo struct {
 	BatchBurnVerifier     string `json:"batchBurnVerifier"`
 }
 
+// Zeto dual-variant deploy keys (config-for-deploy-anon-nullifier-dual.yaml).
+const (
+	ZetoDualDeployVariantV0 = "v0_2_2"
+	ZetoDualDeployVariantV1      = "v1"
+)
+
+type zetoDualDeployConfig struct {
+	Variants map[string]zetoDualDeployVariant `yaml:"variants"`
+}
+
+type zetoDualDeployVariant struct {
+	Contracts zetoDomainContracts `yaml:"contracts"`
+}
+
 func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, configFile string, controller string, zkpArtifactRoot string) *ZetoDomainContracts {
+	config, err := loadZetoDomainConfig(configFile)
+	require.NoError(t, err)
+	return deployZetoContractsFromConfig(t, hdWalletSeed, config, controller, zkpArtifactRoot)
+}
+
+// DeployZetoContractsDualVariant deploys one variant from config-for-deploy-anon-nullifier-dual.yaml.
+func DeployZetoContractsDualVariant(t *testing.T, hdWalletSeed *testbed.UTInitFunction, dualConfigFile, variant, controller, zkpArtifactRoot string) *ZetoDomainContracts {
+	dual, err := loadZetoDualDeployConfig(dualConfigFile)
+	require.NoError(t, err)
+	v, ok := dual.Variants[variant]
+	require.True(t, ok, "unknown dual deploy variant %q", variant)
+	config := &ZetoDomainConfig{DomainContracts: v.Contracts}
+	return deployZetoContractsFromConfig(t, hdWalletSeed, config, controller, zkpArtifactRoot)
+}
+
+func loadZetoDomainConfig(configFile string) (*ZetoDomainConfig, error) {
+	testZetoConfigYaml, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+	var config ZetoDomainConfig
+	if err := yaml.Unmarshal(testZetoConfigYaml, &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+func loadZetoDualDeployConfig(dualConfigFile string) (*zetoDualDeployConfig, error) {
+	raw, err := os.ReadFile(dualConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	var dual zetoDualDeployConfig
+	if err := yaml.Unmarshal(raw, &dual); err != nil {
+		return nil, err
+	}
+	return &dual, nil
+}
+
+func deployZetoContractsFromConfig(t *testing.T, hdWalletSeed *testbed.UTInitFunction, config *ZetoDomainConfig, controller, zkpArtifactRoot string) *ZetoDomainContracts {
 	ctx := context.Background()
 	log.L(ctx).Infof("Deploy Zeto Contracts")
 
@@ -124,19 +178,13 @@ func DeployZetoContracts(t *testing.T, hdWalletSeed *testbed.UTInitFunction, con
 	defer done()
 	rpc := rpcclient.WrapRestyClient(resty.New().SetBaseURL(httpURL))
 
-	var config ZetoDomainConfig
-	testZetoConfigYaml, err := os.ReadFile(configFile)
-	require.NoError(t, err)
-	err = yaml.Unmarshal(testZetoConfigYaml, &config)
-	require.NoError(t, err)
-
 	zkpRoot := strings.TrimSpace(zkpArtifactRoot)
 	if zkpRoot == "" {
 		zkpRoot = EffectiveZetoZKArtifactRoot()
 	}
-	rewriteZetoDeployAbiPaths(&config, zkpRoot)
+	rewriteZetoDeployAbiPaths(config, zkpRoot)
 
-	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, &config)
+	deployedContracts, err := deployDomainContracts(ctx, rpc, controller, config)
 	require.NoError(t, err)
 
 	err = configureFactoryContract(ctx, tb, controller, deployedContracts)
