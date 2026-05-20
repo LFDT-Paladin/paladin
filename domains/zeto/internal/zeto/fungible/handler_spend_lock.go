@@ -398,12 +398,6 @@ func (h *spendLockHandler) loadLockInfoByLockID(ctx context.Context, lockID pldt
 	return &info, nil
 }
 
-type pinnedOutputLoad struct {
-	coins  []*types.ZetoCoin
-	stored []*prototk.StoredState
-	total  *big.Int
-}
-
 func (h *spendLockHandler) loadCoins(ctx context.Context, stateIDs []string, useNullifiers bool, stateQueryContext string) (*preparedInputs, bool, error) {
 	inputs, _, revert, err := loadCoinStatesByIDs(ctx, h.callbacks, h.stateSchemas.CoinSchema, useNullifiers, stateQueryContext, stateIDs, true)
 	return inputs, revert, err

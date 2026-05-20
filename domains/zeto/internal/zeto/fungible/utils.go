@@ -488,6 +488,21 @@ func qualifyPartyLookup(lookup, txFrom string) string {
 	return lookup
 }
 
+// cancelRecipientsFromLockInfo parses cancelData JSON pinned at createLock.
+func cancelRecipientsFromLockInfo(ctx context.Context, li *types.ZetoLockInfoState) ([]*types.FungibleTransferParamEntry, error) {
+	if len(li.CancelData) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
+	}
+	var parsed []*types.FungibleTransferParamEntry
+	if err := json.Unmarshal(li.CancelData, &parsed); err != nil {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorValidateFuncParams, "invalid cancelData (recipients JSON) in lock info")
+	}
+	if len(parsed) == 0 {
+		return nil, i18n.NewError(ctx, msgs.MsgErrorLockInfoMissingCancelData, li.LockID.HexString0xPrefix())
+	}
+	return parsed, nil
+}
+
 // cancelRecipientsForLockInfoJSON returns the single owner return entry for cancelLock (locked collateral total).
 func cancelRecipientsForLockInfoJSON(owner string, lockedTotal *pldtypes.HexUint256) ([]byte, error) {
 	entry := &types.FungibleTransferParamEntry{

@@ -37,3 +37,15 @@ var LockableCapabilitySpendLockABI = &abi.Entry{
 		{Name: "data", Type: "bytes"},
 	},
 }
+
+// LockableCapabilityCancelLockABI is ILockableCapability / ZetoLockable.cancelLock on the deployed pool.
+var LockableCapabilityCancelLockABI = &abi.Entry{
+	Type:            abi.Function,
+	Name:            METHOD_CANCEL_LOCK,
+	StateMutability: abi.NonPayable,
+	Inputs: abi.ParameterArray{
+		{Name: "lockId", Type: "bytes32"},
+		{Name: "cancelArgs", Type: "bytes"},
+		{Name: "data", Type: "bytes"},
+	},
+}

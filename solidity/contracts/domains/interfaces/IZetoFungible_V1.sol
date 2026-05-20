@@ -39,6 +39,16 @@ interface IZetoFungibleV1 {
         bytes calldata data
     ) external;
 
+    /// @notice Domain transaction shape (Paladin); not the on-chain ILockableCapability.cancelLock entrypoint.
+    /// @param lockId the unique identifier for the lock.
+    /// @param from the address that cancels the lock (must be the current lock spender on-chain).
+    /// @param data application-specific data that will be used in the cancel operation.
+    function cancelLock(
+        bytes32 lockId,
+        string calldata from,
+        bytes calldata data
+    ) external;
+
     function deposit(uint256 amount) external;
 
     function withdraw(uint256 amount) external;

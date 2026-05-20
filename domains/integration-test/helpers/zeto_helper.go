@@ -351,6 +351,32 @@ func (z *ZetoHelperFungible) PrepareSpendLock(ctx context.Context, tb testbed.Te
 	return NewTransactionHelper(ctx, z.t, tb, builder)
 }
 
+// CancelLockRequest groups arguments for PrepareCancelLock.
+type CancelLockRequest struct {
+	From   string
+	LockId pldtypes.Bytes32
+}
+
+// PrepareCancelLock runs testbed_prepare for IZetoFungible_V1.cancelLock (lockId, from, data).
+func (z *ZetoHelperFungible) PrepareCancelLock(ctx context.Context, tb testbed.Testbed, pld pldclient.PaladinClient, req *CancelLockRequest) *TransactionHelper {
+	require.NotNil(z.t, req)
+	require.NotEmpty(z.t, req.From, "CancelLockRequest.From is required for testbed_prepare")
+	prepared := z.cancelLockDomainTransaction(ctx, req).Prepare(req.From)
+	require.NotNil(z.t, prepared.PreparedTransaction, "cancelLock prepare should return a public transaction")
+	builder := pld.TxBuilder(ctx).Wrap(prepared.PreparedTransaction).Public().ABI(z.implABI)
+	return NewTransactionHelper(ctx, z.t, tb, builder)
+}
+
+func (z *ZetoHelperFungible) cancelLockDomainTransaction(ctx context.Context, req *CancelLockRequest) *DomainTransactionHelper {
+	fn := types.ZetoFungibleABI_V1.Functions()[types.METHOD_CANCEL_LOCK]
+	emptyData := pldtypes.HexBytes{}
+	return NewDomainTransactionHelper(ctx, z.t, z.rpc, z.Address, fn, toJSON(z.t, &types.CancelLockParams{
+		LockId: req.LockId,
+		From:   req.From,
+		Data:   emptyData,
+	}))
+}
+
 func (z *ZetoHelperFungible) spendLockDomainTransaction(ctx context.Context, req *SpendLockRequest) *DomainTransactionHelper {
 	fn := types.ZetoFungibleABI_V1.Functions()[types.METHOD_SPEND_LOCK]
 	emptyData := pldtypes.HexBytes{}

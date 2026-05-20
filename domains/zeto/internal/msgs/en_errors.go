@@ -180,4 +180,6 @@ var (
 	MsgErrorLockInfoMissingSpendData         = pde("PD210151", "Persisted lock info for lockId=%s has no spendData recipients (complete createLock with recipients first)")
 	MsgErrorLockInfoEmptySpendOutputs        = pde("PD210152", "Persisted lock info for lockId=%s has empty spendOutputs (createLock assembly must pin spend output state ids)")
 	MsgErrorSpendOutputIsLocked              = pde("PD210153", "Pinned spend output %s must be unlocked")
+	MsgErrorLockInfoMissingCancelData        = pde("PD210154", "Persisted lock info for lockId=%s has no cancelData recipients (complete createLock with cancel path first)")
+	MsgErrorLockInfoEmptyCancelOutputs       = pde("PD210155", "Persisted lock info for lockId=%s has empty cancelOutputs (createLock assembly must pin cancel output state ids)")
 )

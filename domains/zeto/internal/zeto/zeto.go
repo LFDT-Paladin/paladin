@@ -439,6 +439,11 @@ func (z *Zeto) GetHandler(method, tokenName string, zetoVariant pldtypes.HexUint
 			return nil
 		}
 		return fungible.NewSpendLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
+	case types.METHOD_CANCEL_LOCK:
+		if fungibleV0 {
+			return nil
+		}
+		return fungible.NewCancelLockHandler(z.name, z.Callbacks, z.coinSchema, z.merkleTreeRootSchema, z.merkleTreeNodeSchema, z.dataSchema, z.lockInfoSchema)
 	case types.METHOD_DEPOSIT:
 		return fungible.NewDepositHandler(z.name, z.coinSchema)
 	case types.METHOD_WITHDRAW:

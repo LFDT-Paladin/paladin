@@ -890,8 +890,10 @@ func TestGetHandler(t *testing.T) {
 		{"Invalid handler for TOKEN_ANON", "bad", constants.TOKEN_ANON, types.ZetoVariantV0, true},
 		{"V1 createLock handler for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
 		{"V1 spendLock handler for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
+		{"V1 cancelLock handler for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV1, false},
 		{"V0 createLock nil for TOKEN_ANON", types.METHOD_CREATE_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
 		{"V0 spendLock nil for TOKEN_ANON", types.METHOD_SPEND_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
+		{"V0 cancelLock nil for TOKEN_ANON", types.METHOD_CANCEL_LOCK, constants.TOKEN_ANON, types.ZetoVariantV0, true},
 		{"V1 lock nil for TOKEN_ANON", "lock", constants.TOKEN_ANON, types.ZetoVariantV1, true},
 		{"V1 transferLocked nil for TOKEN_ANON", "transferLocked", constants.TOKEN_ANON, types.ZetoVariantV1, true},
 

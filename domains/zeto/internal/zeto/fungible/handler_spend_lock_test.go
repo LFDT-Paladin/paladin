@@ -25,18 +25,12 @@ import (
 )
 
 func TestGetSpendLockABI_V1UsesLockableCapabilityOnChainShape(t *testing.T) {
-	abi := getSpendLockABI("Zeto_AnonNullifier", types.ZetoFungibleV1ABI)
+	abi := types.LockableCapabilitySpendLockABI
 	require.Equal(t, types.METHOD_SPEND_LOCK, abi.Name)
 	require.Len(t, abi.Inputs, 3)
 	assert.Equal(t, "lockId", abi.Inputs[0].Name)
 	assert.Equal(t, "spendArgs", abi.Inputs[1].Name)
 	assert.Equal(t, "data", abi.Inputs[2].Name)
-}
-
-func TestGetSpendLockABI_V0NullifiersUsesTupleProof(t *testing.T) {
-	abi := getSpendLockABI("Zeto_AnonNullifier", types.ZetoFungibleV0ABI)
-	require.Equal(t, spendLockABINullifiers.Name, abi.Name)
-	assert.Equal(t, "nullifiers", abi.Inputs[1].Name)
 }
 
 func TestSpendLockValidateParams_WireJSON(t *testing.T) {

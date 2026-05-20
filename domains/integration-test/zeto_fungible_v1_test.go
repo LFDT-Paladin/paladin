@@ -261,18 +261,20 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 	assert.Equal(t, "5", balanceOfResult["totalBalance"].(string), "Balance of controller should be 5")
 
 	log.L(ctx).Info("*************************************")
-	log.L(ctx).Infof("createLock (IZetoFungible_V1): lock value 1 twice with delegate recipient1")
+	log.L(ctx).Infof("createLock (IZetoFungible_V1): lock value 1 three times with delegate recipient1")
 	log.L(ctx).Info("*************************************")
 	// Batch mode transfers 15 to recipient1 and 40 to recipient2; non-batch sends 25 to recipient1 only.
 	var recipient1TransferAmount int64 = 25
 	expectedCoinsAfterLock1 := 3
 	expectedCoinsAfterLock2 := 4
-	expectedCoinsAfterSpendLock := 4
+	expectedCoinsAfterLock3 := 5
+	expectedCoinsAfterSpendLock := 5
 	if useBatch {
 		recipient1TransferAmount = 15
 		expectedCoinsAfterLock1 = 4     // recipient1: 15; recipient2: 40; controller: 4 + locked 1
 		expectedCoinsAfterLock2 = 5     // recipient1: 15; recipient2: 40; controller: 3 + locked 1 + locked 1
-		expectedCoinsAfterSpendLock = 5 // recipient1: 15, 1; recipient2: 40; controller: 3 + locked 1 (then 3 only after lock1 spent)
+		expectedCoinsAfterLock3 = 6     // recipient1: 15; recipient2: 40; controller: 2 + locked 1 + locked 1 + locked 1
+		expectedCoinsAfterSpendLock = 6 // recipient1: 15, 1; recipient2: 40; controller: 2 + locked 1 + locked 1 (lock3)
 	}
 	var recipient1EthAddrStr string
 	rpcerr = s.rpc.CallRPC(ctx, &recipient1EthAddrStr, "ptx_resolveVerifier", recipient1Name, algorithms.ECDSA_SECP256K1, verifiers.ETH_ADDRESS)
@@ -376,7 +378,56 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 	assert.ElementsMatch(t, []bool{false, true, true}, controllerLocked2, "controller coins after createLock #2 (remainder 3 + locked 1 + locked 1)")
 
 	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
-	assert.Equal(t, "3", balanceOfResult["totalBalance"].(string), "Balance of controller should be 3")
+	assert.Equal(t, "3", balanceOfResult["totalBalance"].(string), "Balance of controller should be 3 after createLock #2")
+
+	waitLock3 := zeto.CreateLock(ctx, controllerName, recipient1Name, 1, nil).SignAndSend(controllerName, true).Wait()
+	tr3 := helpers.DecodeTransactionInvokeResult(t, waitLock3)
+	require.NotNil(t, tr3.PreparedTransaction)
+	require.NotEmpty(t, tr3.PreparedTransaction.From)
+	chainLockID3, calculatedLockID3 := helpers.ZetoLockIDsFromCreateLockReceipt(ctx, t, s.rpc, s.tb, &zeto.ZetoHelper, tr3)
+	assert.Equal(t, calculatedLockID3, chainLockID3, "createLock #3: on-chain lockId must match keccak256(pool, publicCreateLockMsgSender, txId)")
+	lockID3 := chainLockID3
+	// inspect all the coins after lock3 createLock
+	// non-batch: recipient1 {25}; controller {2}, {1 locked}, {1 locked}, {1 locked}
+	// batch: recipient1 {15}; recipient2 {40}; controller {2}, {1 locked}, {1 locked}, {1 locked}
+	var recipient1Amounts3 []int64
+	var recipient1Locked3 []bool
+	var controllerAmounts3a []int64
+	var controllerLocked3a []bool
+	count = 0
+	coinsAfterLock3 := findAvailableZetoCoinsUnlockedAndLocked(t, ctx, s.rpc, s.domain.Name(), s.domain.CoinSchemaID(), isNullifiersToken, zetoAddress, 100, func(coins []*types.ZetoCoinState) bool {
+		count++
+		time.Sleep(1 * time.Second)
+		log.L(ctx).Infof("\n==> Count for lock3 createLock: %d\n", len(coins))
+		for i, coin := range coins {
+			log.L(ctx).Infof("==> Coin %d: %+v\n", i, coin)
+		}
+		recipient1Amounts3 = []int64{}
+		recipient1Locked3 = []bool{}
+		controllerAmounts3a = []int64{}
+		controllerLocked3a = []bool{}
+		for _, coin := range coins {
+			owner := coin.Data.Owner.String()
+			amount := coin.Data.Amount.Int().Int64()
+			switch owner {
+			case recipient1Addr.String():
+				recipient1Amounts3 = append(recipient1Amounts3, amount)
+				recipient1Locked3 = append(recipient1Locked3, coin.Data.Locked)
+			case controllerAddr.String():
+				controllerAmounts3a = append(controllerAmounts3a, amount)
+				controllerLocked3a = append(controllerLocked3a, coin.Data.Locked)
+			}
+		}
+		return (len(coins) == expectedCoinsAfterLock3 && len(recipient1Amounts3) == 1 && len(controllerAmounts3a) == 4) || count >= 5
+	})
+	require.Len(t, coinsAfterLock3, expectedCoinsAfterLock3)
+	assert.ElementsMatch(t, []int64{recipient1TransferAmount}, recipient1Amounts3, "recipient1 coins after createLock #3")
+	assert.ElementsMatch(t, []bool{false}, recipient1Locked3, "recipient1 coins after createLock #3")
+	assert.ElementsMatch(t, []int64{2, 1, 1, 1}, controllerAmounts3a, "controller coins after createLock #3 (remainder 2 + locked 1 + locked 1 + locked 1)")
+	assert.ElementsMatch(t, []bool{false, true, true, true}, controllerLocked3a, "controller coins after createLock #3 (remainder 2 + locked 1 + locked 1 + locked 1)")
+
+	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
+	assert.Equal(t, "2", balanceOfResult["totalBalance"].(string), "Balance of controller should be 2 after createLock #3")
 
 	pld := helpers.NewPaladinClient(t, ctx, s.tb)
 
@@ -391,45 +442,44 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 	require.NoError(t, unlockTxResult.Error())
 	require.NotNil(t, unlockTxResult.Receipt())
 
-	// inspect all the coins after first spendLock (lock2 spent)
-	// non-batch: recipient1 {25, 1}; controller {3}, {1 locked}
-	// batch: recipient1 {15, 1}; recipient2 {40}; controller {3}, {1 locked}
+	// inspect all the coins after first spendLock (lock2 spent; lock1 and lock3 still active)
+	// non-batch: recipient1 {25, 1}; controller {2}, {1 locked}, {1 locked}
+	// batch: recipient1 {15, 1}; recipient2 {40}; controller {2}, {1 locked}, {1 locked}
 	count = 0
-	var controllerAmounts3 []int64
-	var controllerLocked3 []bool
-	var recipient1Amounts3 []int64
-	var recipient1Locked3 []bool
+	var controllerAmountsAfterSpend2 []int64
+	var controllerLockedAfterSpend2 []bool
+	var recipient1AmountsAfterSpend2 []int64
+	var recipient1LockedAfterSpend2 []bool
 	coinsAfterSpendUnlock := findAvailableZetoCoinsUnlockedAndLocked(t, ctx, s.rpc, s.domain.Name(), s.domain.CoinSchemaID(), isNullifiersToken, zetoAddress, 100, func(coins []*types.ZetoCoinState) bool {
-		// sleep for 1 second
 		time.Sleep(1 * time.Second)
 		count++
-		log.L(ctx).Infof("\n==> Count after first spendLock: %d\n", len(coins))
+		log.L(ctx).Infof("\n==> Count after spendLock lock2: %d\n", len(coins))
 		for i, coin := range coins {
 			log.L(ctx).Infof("\t==> Coin %d: %+v\n", i, coin)
 		}
-		recipient1Amounts3 = []int64{}
-		recipient1Locked3 = []bool{}
-		controllerAmounts3 = []int64{}
-		controllerLocked3 = []bool{}
+		recipient1AmountsAfterSpend2 = []int64{}
+		recipient1LockedAfterSpend2 = []bool{}
+		controllerAmountsAfterSpend2 = []int64{}
+		controllerLockedAfterSpend2 = []bool{}
 		for _, coin := range coins {
 			owner := coin.Data.Owner.String()
 			amount := coin.Data.Amount.Int().Int64()
 			switch owner {
 			case recipient1Addr.String():
-				recipient1Amounts3 = append(recipient1Amounts3, amount)
-				recipient1Locked3 = append(recipient1Locked3, coin.Data.Locked)
+				recipient1AmountsAfterSpend2 = append(recipient1AmountsAfterSpend2, amount)
+				recipient1LockedAfterSpend2 = append(recipient1LockedAfterSpend2, coin.Data.Locked)
 			case controllerAddr.String():
-				controllerAmounts3 = append(controllerAmounts3, amount)
-				controllerLocked3 = append(controllerLocked3, coin.Data.Locked)
+				controllerAmountsAfterSpend2 = append(controllerAmountsAfterSpend2, amount)
+				controllerLockedAfterSpend2 = append(controllerLockedAfterSpend2, coin.Data.Locked)
 			}
 		}
-		return (len(coins) == expectedCoinsAfterSpendLock && len(recipient1Amounts3) == 2 && len(controllerAmounts3) == 2) || count >= 5
+		return (len(coins) == expectedCoinsAfterSpendLock && len(recipient1AmountsAfterSpend2) == 2 && len(controllerAmountsAfterSpend2) == 3) || count >= 5
 	})
 	require.Len(t, coinsAfterSpendUnlock, expectedCoinsAfterSpendLock)
-	assert.ElementsMatch(t, []int64{3, 1}, controllerAmounts3, "controller coins after first spendLock (remainder 3 + locked 1)")
-	assert.ElementsMatch(t, []bool{false, true}, controllerLocked3, "controller coins after first spendLock (remainder 3 + locked 1)")
-	assert.ElementsMatch(t, []int64{recipient1TransferAmount, 1}, recipient1Amounts3, "recipient1 coins after first spendLock")
-	assert.ElementsMatch(t, []bool{false, false}, recipient1Locked3, "recipient1 coins after first spendLock")
+	assert.ElementsMatch(t, []int64{2, 1, 1}, controllerAmountsAfterSpend2, "controller coins after spendLock lock2 (remainder 2 + locked lock1 + locked lock3)")
+	assert.ElementsMatch(t, []bool{false, true, true}, controllerLockedAfterSpend2, "controller coins after spendLock lock2")
+	assert.ElementsMatch(t, []int64{recipient1TransferAmount, 1}, recipient1AmountsAfterSpend2, "recipient1 coins after spendLock lock2")
+	assert.ElementsMatch(t, []bool{false, false}, recipient1LockedAfterSpend2, "recipient1 coins after spendLock lock2")
 
 	log.L(ctx).Info("*************************************")
 	log.L(ctx).Infof("delegateLock then spendLock (ILockableCapability): delegate first lock to recipient2, spend using recipients pinned at createLock")
@@ -447,9 +497,9 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 	require.NoError(t, spendTxResult.Error())
 	require.NotNil(t, spendTxResult.Receipt())
 
-	// inspect all the coins after second spendLock (lock1 spent)
-	// non-batch: recipient1 {25, 1, 1}; controller {3}
-	// batch: recipient1 {15, 1, 1}; recipient2 {40}; controller {3}
+	// inspect all the coins after second spendLock (lock1 spent; lock3 still active)
+	// non-batch: recipient1 {25, 1, 1}; controller {2}, {1 locked}
+	// batch: recipient1 {15, 1, 1}; recipient2 {40}; controller {2}, {1 locked}
 	count = 0
 	var controllerAmounts4 []int64
 	var controllerLocked4 []bool
@@ -458,7 +508,7 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 	coinsAfterSpendToRecipient := findAvailableZetoCoinsUnlockedAndLocked(t, ctx, s.rpc, s.domain.Name(), s.domain.CoinSchemaID(), isNullifiersToken, zetoAddress, 100, func(coins []*types.ZetoCoinState) bool {
 		time.Sleep(1 * time.Second)
 		count++
-		log.L(ctx).Infof("\n==> Count after second spendLock: %d\n", len(coins))
+		log.L(ctx).Infof("\n==> Count after spendLock lock1: %d\n", len(coins))
 		for i, coin := range coins {
 			log.L(ctx).Infof("\t==> Coin %d: %+v\n", i, coin)
 		}
@@ -478,11 +528,51 @@ func (s *fungibleV1TestSuiteHelper) testZetoV1(t *testing.T, tokenName string, u
 				recipient1Locked4 = append(recipient1Locked4, coin.Data.Locked)
 			}
 		}
-		return (len(coins) == expectedCoinsAfterSpendLock && len(controllerAmounts4) == 1 && len(recipient1Amounts4) == 3) || count >= 5
+		return (len(coins) == expectedCoinsAfterSpendLock && len(controllerAmounts4) == 2 && len(recipient1Amounts4) == 3) || count >= 5
 	})
 	require.Len(t, coinsAfterSpendToRecipient, expectedCoinsAfterSpendLock)
-	assert.ElementsMatch(t, []int64{3}, controllerAmounts4, "controller coins after second spendLock (remainder 3)")
-	assert.ElementsMatch(t, []bool{false}, controllerLocked4, "controller coins after second spendLock (remainder 3)")
-	assert.ElementsMatch(t, []int64{recipient1TransferAmount, 1, 1}, recipient1Amounts4, "recipient1 coins after second spendLock")
-	assert.ElementsMatch(t, []bool{false, false, false}, recipient1Locked4, "recipient1 coins after second spendLock")
+	assert.ElementsMatch(t, []int64{2, 1}, controllerAmounts4, "controller coins after spendLock lock1 (remainder 2 + locked lock3)")
+	assert.ElementsMatch(t, []bool{false, true}, controllerLocked4, "controller coins after spendLock lock1")
+	assert.ElementsMatch(t, []int64{recipient1TransferAmount, 1, 1}, recipient1Amounts4, "recipient1 coins after spendLock lock1")
+	assert.ElementsMatch(t, []bool{false, false, false}, recipient1Locked4, "recipient1 coins after spendLock lock1")
+
+	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
+	assert.Equal(t, "2", balanceOfResult["totalBalance"].(string), "Balance of controller should be 2 before cancelLock lock3")
+
+	log.L(ctx).Info("*************************************")
+	log.L(ctx).Infof("cancelLock (ILockableCapability): return lock3 collateral to controller")
+	log.L(ctx).Info("*************************************")
+	cancelTxResult := zeto.PrepareCancelLock(ctx, s.tb, pld, &helpers.CancelLockRequest{
+		From: controllerName, LockId: lockID3,
+	}).SignAndSend(controllerName).Wait(5 * time.Second)
+	require.NoError(t, cancelTxResult.Error())
+	require.NotNil(t, cancelTxResult.Receipt())
+
+	count = 0
+	var controllerAmountsAfterCancel []int64
+	var controllerLockedAfterCancel []bool
+	coinsAfterCancelLock := findAvailableZetoCoinsUnlockedAndLocked(t, ctx, s.rpc, s.domain.Name(), s.domain.CoinSchemaID(), isNullifiersToken, zetoAddress, 100, func(coins []*types.ZetoCoinState) bool {
+		time.Sleep(1 * time.Second)
+		count++
+		controllerAmountsAfterCancel = []int64{}
+		controllerLockedAfterCancel = []bool{}
+		for _, coin := range coins {
+			if coin.Data.Owner.String() != controllerAddr.String() {
+				continue
+			}
+			controllerAmountsAfterCancel = append(controllerAmountsAfterCancel, coin.Data.Amount.Int().Int64())
+			controllerLockedAfterCancel = append(controllerLockedAfterCancel, coin.Data.Locked)
+		}
+		return len(controllerAmountsAfterCancel) >= 1 || count >= 5
+	})
+	require.NotEmpty(t, coinsAfterCancelLock)
+	var controllerTotalAfterCancel int64
+	for _, a := range controllerAmountsAfterCancel {
+		controllerTotalAfterCancel += a
+	}
+	assert.Equal(t, int64(3), controllerTotalAfterCancel, "controller unlocked total after cancelLock lock3")
+	assert.NotContains(t, controllerLockedAfterCancel, true, "controller has no locked coins after cancelLock lock3")
+
+	balanceOfResult = zeto.BalanceOf(ctx, controllerName).SignAndCall(controllerName).Wait()
+	assert.Equal(t, "3", balanceOfResult["totalBalance"].(string), "Balance of controller should be 3 after cancelLock lock3")
 }

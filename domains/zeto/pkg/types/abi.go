@@ -55,6 +55,7 @@ const (
 	METHOD_LOCK            = "lock"
 	METHOD_CREATE_LOCK     = "createLock"
 	METHOD_SPEND_LOCK      = "spendLock"
+	METHOD_CANCEL_LOCK     = "cancelLock"
 	METHOD_DEPOSIT         = "deposit"
 	METHOD_WITHDRAW        = "withdraw"
 	METHOD_BALANCE_OF      = "balanceOf"
@@ -152,6 +153,19 @@ type SpendLockParams struct {
 	From string `json:"from"`
 	// No omitempty: IZetoFungible_V1.spendLock ABI validation requires a `data` key (bytes may be empty "0x").
 	Data pldtypes.HexBytes `json:"data"`
+}
+
+// CancelLockParams is the Paladin domain JSON for IZetoFungible_V1.cancelLock (see ZetoFungibleABI_V1).
+//
+// The prepared public transaction uses ILockableCapability.cancelLock on the pool (lockId, cancelArgs, data);
+// ZetoSpendLockArgs from IZetoLockableCapability is ABI-encoded in cancelArgs (see types.LockableCapabilityCancelLockABI).
+//
+// Wire JSON is lockId, from, and data only. Locked collateral and cancel return outputs come from persisted ZetoLockInfoState
+// (see lockedOutputs, cancelData, cancelOutputs, Spender).
+type CancelLockParams struct {
+	LockId pldtypes.Bytes32 `json:"lockId"`
+	From   string           `json:"from"`
+	Data   pldtypes.HexBytes `json:"data"`
 }
 
 type DepositParams struct {
